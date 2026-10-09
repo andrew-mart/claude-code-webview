@@ -1,0 +1,24 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { actionLabel } from '../public/model/view-settings.js';
+
+/** @type {readonly [import('../public/model/view-settings.js').SettingKey, string, string][]} */
+const labels = [
+  ['activity', 'compact', 'Show in detail'],
+  ['activity', 'detailed', 'Show briefly'],
+  ['service', 'hidden', 'Show Claude Code service messages'],
+  ['service', 'shown', 'Hide Claude Code service messages'],
+  ['font', 'serif', 'Sans-serif answers'],
+  ['font', 'sans', 'Serif answers'],
+  ['theme', 'auto', 'Light theme'],
+  ['theme', 'light', 'Dark theme'],
+  ['theme', 'dark', 'System theme'],
+  ['outline', 'shown', 'Hide outline'],
+  ['outline', 'hidden', 'Show outline'],
+];
+
+for (const [key, current, expected] of labels) {
+  test(`actionLabel_Should_NameWhatClickDoes_${key}_${current}`, () => {
+    assert.equal(actionLabel(key, current), expected);
+  });
+}

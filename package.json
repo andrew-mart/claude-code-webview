@@ -1,0 +1,60 @@
+{
+  "name": "claude-code-webview",
+  "version": "0.1.0",
+  "description": "Watch Claude Code sessions live in your browser, styled like Claude Desktop: file previews, bookmarks, an outline of your prompts, and — with herdr — sending prompts from the page.",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "anthropic",
+    "transcript",
+    "session",
+    "viewer",
+    "webui",
+    "herdr"
+  ],
+  "license": "MIT",
+  "author": "Andrei Martyshchenko",
+  "homepage": "https://github.com/ryletko/claude-code-webview#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ryletko/claude-code-webview.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ryletko/claude-code-webview/issues"
+  },
+  "type": "module",
+  "bin": {
+    "claude-code-webview": "bin/claude-code-webview.js"
+  },
+  "files": [
+    "bin/",
+    "cli/",
+    "server/",
+    "public/",
+    "assets/"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node bin/claude-code-webview.js",
+    "background": "node bin/claude-code-webview.js --background",
+    "stop": "node bin/claude-code-webview.js --stop",
+    "restart": "node bin/claude-code-webview.js --restart",
+    "test": "node --test",
+    "check": "tsc -p .",
+    "prepublishOnly": "npm run check && npm test"
+  },
+  "dependencies": {
+    "@highlightjs/cdn-assets": "11.12.0",
+    "dompurify": "3.4.16",
+    "marked": "18.1.0"
+  },
+  "devDependencies": {
+    "@types/jsdom": "30.0.0",
+    "@types/node": "22.20.5",
+    "highlight.js": "11.12.0",
+    "jsdom": "30.1.2",
+    "typescript": "5.9.3"
+  }
+}

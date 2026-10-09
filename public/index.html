@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claude Code Webview</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "marked": "/vendor/marked.js",
+        "dompurify": "/vendor/purify.js",
+        "highlight.js": "/vendor/highlight.js"
+      }
+    }
+  </script>
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <div class="layout" id="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <span class="spark" aria-hidden="true">✻</span>
+        <span>Claude Code Webview</span>
+      </div>
+      <input class="search" id="search" type="search" placeholder="Search by title or folder" autocomplete="off">
+      <label class="follow">
+        <input type="checkbox" id="follow">
+        <span>Follow the active session</span>
+      </label>
+      <nav class="session-list" id="session-list" aria-label="Sessions"></nav>
+    </aside>
+    <main class="main" id="main">
+      <div class="empty-state" id="empty-state">Pick a session on the left</div>
+    </main>
+    <aside class="file-panel" id="file-panel" aria-label="File" hidden></aside>
+  </div>
+</body>
+</html>
