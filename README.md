@@ -42,7 +42,8 @@ claude-code-webview --background     # run without a terminal window
   The panel shows the file as it is on disk now, not at the time of the answer.
 - **Outline and bookmarks.** A right-hand outline lists your prompts (the one on screen is highlighted; Alt+↑ / Alt+↓
   jump between them) and your bookmarks: hover a prompt, an answer or a subagent report and click the flag to keep it
-  one click away. Bookmarks are stored in your browser, per session.
+  one click away. Bookmarks are kept by the viewer in `~/.claude-code-webview/bookmarks.json`, so every browser and
+  device that opens it sees the same ones.
 - Light and dark themes, serif or sans answers, optional display of Claude Code's service messages.
 
 ## Sending prompts from the page (optional, needs herdr)

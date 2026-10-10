@@ -5,21 +5,11 @@ import { isRecord, text } from './narrow.js';
 /**
  * @typedef {'prompt' | 'answer' | 'report'} AnchorKind
  * @typedef {{ id: string, kind: AnchorKind, label: string, at: string }} Bookmark
+ * @typedef {{ action: 'add', bookmark: Bookmark } | { action: 'remove', id: string }} BookmarkChange
  */
 
 /**
- * @param {readonly Bookmark[]} list
- * @param {Bookmark} candidate
- * @returns {readonly Bookmark[]}
- */
-export function toggleBookmark(list, candidate) {
-  if (list.some((bookmark) => bookmark.id === candidate.id)) return list.filter((bookmark) => bookmark.id !== candidate.id);
-  // Bookmarks follow the order of messages in the feed, not the order in which they were added.
-  return [...list, candidate].sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
-}
-
-/**
- * Bookmarks from browser storage: entries of any other shape (an old version, a manual edit) are dropped.
+ * Bookmarks from stored JSON (the server file, old browser storage): entries of any other shape are dropped.
  * @param {unknown} stored — result of JSON.parse
  * @returns {readonly Bookmark[]}
  */
@@ -65,4 +55,43 @@ export function anchorLabel(source) {
     .replace(/\*\*|\*|`/g, '') // bold, italic, code; underscores are kept — they occur in names (file_path)
     .trim();
   return plain.length > maxLabelLength ? `${plain.slice(0, maxLabelLength)}…` : plain;
+}
+
+/**
+ * The change is stated explicitly, not as a toggle: when two devices send the same change, the second one keeps the result.
+ * @param {readonly Bookmark[]} list
+ * @param {BookmarkChange} change
+ * @returns {readonly Bookmark[]}
+ */
+export function changeBookmarks(list, change) {
+  switch (change.action) {
+    case 'add':
+      if (list.some((bookmark) => bookmark.id === change.bookmark.id)) return list;
+      // Bookmarks follow the order of messages in the feed, not the order in which they were added.
+      return [...list, change.bookmark].sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
+    case 'remove':
+      return list.filter((bookmark) => bookmark.id !== change.id);
+    default:
+      return exhaustive(change);
+  }
+}
+
+/**
+ * A change sent by the page; anything of another shape — undefined.
+ * @param {unknown} value — from the request's JSON
+ * @returns {BookmarkChange | undefined}
+ */
+export function parseBookmarkChange(value) {
+  if (!isRecord(value)) return undefined;
+  if (value.action === 'remove' && typeof value.id === 'string') return { action: 'remove', id: value.id };
+  const [bookmark] = value.action === 'add' ? parseBookmarks([value.bookmark]) : [];
+  return bookmark === undefined ? undefined : { action: 'add', bookmark };
+}
+
+/**
+ * @param {never} value
+ * @returns {never}
+ */
+function exhaustive(value) {
+  throw new Error(`Unexpected bookmark change ${JSON.stringify(value)}`);
 }

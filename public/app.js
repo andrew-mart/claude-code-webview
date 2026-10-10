@@ -5,7 +5,7 @@ import { isRecord, text } from './model/narrow.js';
 import { currentIndex, stepTarget } from './model/outline.js';
 import { listedSessions } from './model/session-list.js';
 import { actionLabel, choices, nextChoice } from './model/view-settings.js';
-import { createBookmarkStore } from './view/bookmark-store.js';
+import { createBookmarkStore, moveLocalBookmarksToServer } from './view/bookmark-store.js';
 import { createComposer } from './view/composer-view.js';
 import { createOutline } from './view/outline-view.js';
 import { h } from './view/dom.js';
@@ -63,7 +63,10 @@ showSdk.addEventListener('change', () => {
   page.followLatest();
 });
 window.addEventListener('hashchange', () => page.openFromHash());
-void page.refresh().then(() => page.openFromHash());
+// Bookmarks the browser kept before they moved to the server go there before a session opens.
+void moveLocalBookmarksToServer()
+  .then(() => page.refresh())
+  .then(() => page.openFromHash());
 setInterval(() => void page.refresh(), refreshMs);
 
 function createPage() {
@@ -144,6 +147,7 @@ function createPage() {
         mounted.dispose();
         composer.dispose();
         unsubscribe();
+        bookmarks.dispose();
         spy.dispose();
       },
     };

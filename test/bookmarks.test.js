@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { anchorLabel, parseBookmarks, toggleBookmark } from '../public/model/bookmarks.js';
+import { anchorLabel, changeBookmarks, parseBookmarks } from '../public/model/bookmarks.js';
 
 /** @typedef {import('../public/model/bookmarks.js').Bookmark} Bookmark */
 
@@ -9,11 +9,17 @@ const report = { id: 'a1:0', kind: 'answer', label: 'Test results', at: '2026-10
 /** @type {Bookmark} */
 const question = { id: 'u1', kind: 'prompt', label: 'Build a viewer', at: '2026-10-09T10:00:00.000Z' };
 
-test('toggleBookmark_Should_AddInFeedOrderAndRemoveOnSecondToggle', () => {
-  const added = toggleBookmark([report], question);
+test('changeBookmarks_Should_AddInFeedOrderAndRemoveById', () => {
+  const added = changeBookmarks([report], { action: 'add', bookmark: question });
 
   assert.deepEqual(added, [question, report]);
-  assert.deepEqual(toggleBookmark(added, question), [report]);
+  assert.deepEqual(changeBookmarks(added, { action: 'remove', id: question.id }), [report]);
+});
+
+test('changeBookmarks_Should_LeaveListAsIsWhenAddingPresentOrRemovingAbsentBookmark', () => {
+  // two devices send the same change: the second one must not undo the first
+  assert.deepEqual(changeBookmarks([question, report], { action: 'add', bookmark: question }), [question, report]);
+  assert.deepEqual(changeBookmarks([report], { action: 'remove', id: question.id }), [report]);
 });
 
 test('parseBookmarks_Should_KeepOnlyWellFormedStoredBookmarks', () => {

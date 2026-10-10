@@ -5,11 +5,13 @@ import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { startServer } from '../server/app.js';
+import { createBookmarkFile } from '../server/bookmarks.js';
 import { createComposer, readSessionRecords } from '../server/composer.js';
 import { createHerdrRunner, readSavedHerdr, resolveHerdr, saveHerdr } from '../server/herdr.js';
 
 /**
- * The viewer's settings and log folder: the remembered herdr (herdr.json), the background server log (server.log).
+ * The viewer's settings and log folder: the remembered herdr (herdr.json), bookmarks of all sessions (bookmarks.json),
+ * the background server log (server.log).
  */
 export const stateDir = join(homedir(), '.claude-code-webview');
 
@@ -39,7 +41,7 @@ export async function serve({ port, about }) {
   if (herdr.source === 'env' && herdr.socketPath !== undefined) await saveHerdr(herdrFile, { binPath: herdr.bin, socketPath: herdr.socketPath });
   const claude = claudeDir(process.env);
   const composer = createComposer({ readRecords: () => readSessionRecords(join(claude, 'sessions')), herdr: createHerdrRunner(herdr) });
-  const server = await startServer({ root: join(claude, 'projects'), host: '127.0.0.1', port, pollMs: 400, composer, about });
+  const server = await startServer({ root: join(claude, 'projects'), host: '127.0.0.1', port, pollMs: 400, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), about });
   const url = `http://127.0.0.1:${server.port}/`;
   console.log(`Claude Code Webview ${about.version}: ${url}`);
   console.log(`Sessions: ${join(claude, 'projects')}`);
