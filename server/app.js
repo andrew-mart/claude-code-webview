@@ -15,6 +15,7 @@ import { parseBookmarkChange } from '../public/model/bookmarks.js';
 import { isRecord } from '../public/model/narrow.js';
 import { takenBackPrompt } from './branch.js';
 import { readTextFile } from './files.js';
+import { readBranch } from './git.js';
 import { readImage } from './images.js';
 import { rewindTarget } from './rewind.js';
 import { createSessionIndex } from './sessions.js';
@@ -120,6 +121,12 @@ async function handle(deps, request, response) {
       return withSession(url, response, async (id) => sendJson(response, await deps.composer.liveState(id)));
     case '/api/sessions':
       return sendJson(response, await deps.index.list());
+    case '/api/branch':
+      // The branch checked out in the session's folder now, for the header.
+      return withSession(url, response, async (id) => {
+        const cwd = (await deps.index.list()).find((session) => session.id === id)?.cwd;
+        return sendJson(response, { branch: cwd === undefined ? undefined : await readBranch(cwd) });
+      });
     case '/api/subagents':
       return withSession(url, response, async (id) => sendJson(response, await deps.index.subagents(id)));
     case '/api/bookmarks':

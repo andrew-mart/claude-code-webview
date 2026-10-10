@@ -157,10 +157,10 @@ test('interpretEntry_Should_KeepThinkingDurationEvenWhenTextIsNotStored', () => 
   );
 });
 
-test('interpretEntry_Should_ReportContextSizeFromUsage', () => {
-  const entry = assistantEntry('us1', [], {}, { usage: { input_tokens: 2, cache_creation_input_tokens: 400, cache_read_input_tokens: 28600, output_tokens: 90 } });
+test('interpretEntry_Should_ReportContextSizeAndEffortFromUsage', () => {
+  const entry = assistantEntry('us1', [], { effort: 'xhigh' }, { usage: { input_tokens: 2, cache_creation_input_tokens: 400, cache_read_input_tokens: 28600, output_tokens: 90 } });
 
-  assert.deepEqual(interpretEntry(entry), [{ kind: 'usage', id: 'us1', at, model: 'claude-opus-5-5', contextTokens: 29002 }]);
+  assert.deepEqual(interpretEntry(entry), [{ kind: 'usage', id: 'us1', at, model: 'claude-opus-5-5', contextTokens: 29002, effort: 'xhigh' }]);
 });
 
 test('interpretEntry_Should_ShowApiErrorAndSkipSyntheticNoResponse', () => {
@@ -226,11 +226,14 @@ test('interpretEntry_Should_ReadSessionTitleAndCost', () => {
       ...interpretEntry({ type: 'ai-title', aiTitle: 'Session web view', sessionId: 's' }),
       ...interpretEntry({ type: 'custom-title', customTitle: 'Viewer', sessionId: 's' }),
       ...interpretEntry({ type: 'cost-state', totalCostUSD: 161.27, sessionId: 's' }),
+      ...interpretEntry({ type: 'cost-state', totalCostUSD: 3.5, modelUsage: { 'claude-haiku-4-5-20251001': {}, 'claude-opus-4-6[1m]': {} }, sessionId: 's' }),
     ],
     [
       { kind: 'title', title: 'Session web view', custom: false },
       { kind: 'title', title: 'Viewer', custom: true },
-      { kind: 'cost', usd: 161.27 },
+      { kind: 'cost', usd: 161.27, extendedContext: false },
+      // the [1m] variant: a 1M context window
+      { kind: 'cost', usd: 3.5, extendedContext: true },
     ],
   );
 });

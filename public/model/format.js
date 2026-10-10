@@ -54,7 +54,8 @@ export function formatDuration(ms) {
  * @returns {string}
  */
 export function formatTokens(n) {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  // 999,600 rounds to a thousand thousands: that is already a million
+  if (n >= 999_500) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
   if (n >= 1000) return `${Math.round(n / 1000)}k`;
   return String(n);
 }

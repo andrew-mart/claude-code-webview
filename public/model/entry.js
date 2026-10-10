@@ -19,7 +19,7 @@ import { isRecord, text } from './narrow.js';
  * @typedef {{ kind: 'context-summary', id: string, at: string, text: string }} ContextSummaryEvent
  * @typedef {{ kind: 'meta', id: string, at: string, text: string }} MetaEvent
  * @typedef {{ kind: 'thinking', id: string, at: string, text: string, durationMs: number | undefined }} ThinkingEvent
- * @typedef {{ kind: 'usage', id: string, at: string, model: string, contextTokens: number }} UsageEvent
+ * @typedef {{ kind: 'usage', id: string, at: string, model: string, contextTokens: number, effort: string | undefined }} UsageEvent — effort: the reasoning effort the answer ran with (high, xhigh…)
  * @typedef {'info' | 'warning' | 'error'} Tone
  * @typedef {{ kind: 'notice', id: string, at: string, tone: Tone, text: string }} NoticeEvent
  * @typedef {PromptEvent | TextEvent | ToolCallEvent | ToolResultEvent | CommandEvent | CommandOutputEvent
@@ -28,7 +28,7 @@ import { isRecord, text } from './narrow.js';
  * @typedef {{ kind: 'turn-end', id: string, at: string, durationMs: number }} TurnEndEvent
  * @typedef {{ kind: 'compacted', id: string, at: string, trigger: string, preTokens: number | undefined }} CompactedEvent
  * @typedef {{ kind: 'title', title: string, custom: boolean }} TitleEvent
- * @typedef {{ kind: 'cost', usd: number }} CostEvent
+ * @typedef {{ kind: 'cost', usd: number, extendedContext: boolean }} CostEvent — extendedContext: the session ran a model's [1m] variant
  * @typedef {{ id: string, at: string }} Stamp
  */
 
@@ -45,7 +45,7 @@ export function interpretEntry(raw) {
       return title === undefined ? [] : [{ kind: 'title', title, custom: raw.type === 'custom-title' }];
     }
     case 'cost-state':
-      return typeof raw.totalCostUSD === 'number' ? [{ kind: 'cost', usd: raw.totalCostUSD }] : [];
+      return typeof raw.totalCostUSD === 'number' ? [{ kind: 'cost', usd: raw.totalCostUSD, extendedContext: isRecord(raw.modelUsage) && Object.keys(raw.modelUsage).some((model) => model.endsWith('[1m]')) }] : [];
   }
   const id = text(raw.uuid);
   const at = text(raw.timestamp);
@@ -352,7 +352,7 @@ function interpretAssistant(stamp, entry, message) {
     const event = assistantBlock({ id: `${stamp.id}:${index}`, at: stamp.at }, block, thinkingMs);
     return event === undefined ? [] : [event];
   });
-  const usage = contextUsage(stamp, message);
+  const usage = contextUsage(stamp, entry, message);
   return usage === undefined ? events : [...events, usage];
 }
 
@@ -385,10 +385,11 @@ function assistantBlock(stamp, block, thinkingMs) {
 /**
  * Context size at the time of the answer: everything the model received as input, cache included.
  * @param {Stamp} stamp
+ * @param {Record<string, unknown>} entry
  * @param {Record<string, unknown>} message
  * @returns {UsageEvent | undefined}
  */
-function contextUsage(stamp, message) {
+function contextUsage(stamp, entry, message) {
   const usage = message.usage;
   const model = text(message.model);
   if (!isRecord(usage) || model === undefined) return undefined;
@@ -396,7 +397,7 @@ function contextUsage(stamp, message) {
     .map((key) => usage[key])
     .map((value) => (typeof value === 'number' ? value : 0))
     .reduce((sum, value) => sum + value, 0);
-  return { kind: 'usage', ...stamp, model, contextTokens: tokens };
+  return { kind: 'usage', ...stamp, model, contextTokens: tokens, effort: text(entry.effort) };
 }
 
 /**

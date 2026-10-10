@@ -102,3 +102,11 @@ test('slimEntry_Should_SkipServiceRecordsAndSidechainOfMainTranscript', () => {
   assert.equal(slimEntry(sidechain, 'main', linkTo), undefined);
   assert.deepEqual(slimEntry(sidechain, 'subagent', linkTo), { type: 'user', uuid: 's1', timestamp: at, message: { role: 'user', content: 'hi' } });
 });
+
+test('slimEntry_Should_KeepWhatHeaderShowsEffortAndModelsOfCosts', () => {
+  const answer = { type: 'assistant', uuid: 'a1', timestamp: at, effort: 'xhigh', requestId: 'r', message: { role: 'assistant', model: 'm', content: [] } };
+  const costs = { type: 'cost-state', totalCostUSD: 3.5, modelUsage: { 'claude-opus-4-6[1m]': { costUSD: 3.5 } }, sessionId: 's' };
+
+  assert.deepEqual(slimEntry(answer, 'main', linkTo), { type: 'assistant', uuid: 'a1', timestamp: at, effort: 'xhigh', message: { role: 'assistant', model: 'm', content: [] } });
+  assert.deepEqual(slimEntry(costs, 'main', linkTo), { type: 'cost-state', totalCostUSD: 3.5, modelUsage: { 'claude-opus-4-6[1m]': { costUSD: 3.5 } } });
+});
