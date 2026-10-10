@@ -6,7 +6,7 @@ export const choices = /** @type {const} */ ({
   activity: ['compact', 'detailed'],
   outline: ['shown', 'hidden'],
   theme: ['auto', 'light', 'dark'],
-  font: ['serif', 'sans'],
+  font: ['sans', 'serif'],
   service: ['hidden', 'shown'],
   follow: ['off', 'on'],
   sdk: ['hidden', 'shown'],
