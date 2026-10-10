@@ -166,13 +166,14 @@ button {
 
 .layout {
   display: grid;
-  grid-template-columns: 288px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width, 288px) minmax(0, 1fr);
   height: 100vh;
   /* On a phone 100vh reaches under the browser's address bar; the dynamic height does not. */
   height: 100dvh;
 }
 
 .sidebar {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1483,7 +1484,7 @@ table.diff tr.gap td {
 
 .outline {
   flex: none;
-  width: 264px;
+  width: var(--outline-width, 264px);
   overflow-y: auto;
   padding: 14px 8px 24px;
   border-left: 1px solid var(--border);
@@ -1857,7 +1858,7 @@ a.file-link:hover {
 }
 
 .layout.with-panel {
-  grid-template-columns: 288px minmax(0, 1fr) var(--panel-width, clamp(380px, 42vw, 900px));
+  grid-template-columns: var(--sidebar-width, 288px) minmax(0, 1fr) var(--panel-width, clamp(380px, 42vw, 900px));
 }
 
 .layout.resizing {
@@ -1875,19 +1876,47 @@ a.file-link:hover {
   background: var(--bg-elev);
 }
 
-.panel-resizer {
+/* Handles on the inner edges of the side panels: drag to resize, double-click for the default width. */
+.resizer {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: -4px;
-  z-index: 2;
+  z-index: 3;
   width: 8px;
   cursor: col-resize;
+  touch-action: none;
 }
 
-.panel-resizer:hover,
-.layout.resizing .panel-resizer {
+.resizer:hover,
+.resizer:active,
+.resizer:focus-visible {
   background: color-mix(in srgb, var(--accent) 35%, transparent);
+  outline: none;
+}
+
+.panel-resizer {
+  left: -4px;
+}
+
+.sidebar-resizer {
+  right: -4px;
+}
+
+/* The outline scrolls, so its handle stands beside it in the row rather than inside it. */
+.outline-resizer {
+  position: relative;
+  flex: none;
+  margin: 0 -4px;
+}
+
+:root[data-outline="hidden"] .outline-resizer {
+  display: none;
+}
+
+@container (max-width: 960px) {
+  .outline-resizer {
+    display: none;
+  }
 }
 
 .panel-head {
@@ -2163,7 +2192,7 @@ a.file-link:hover {
     padding-bottom: env(safe-area-inset-bottom);
   }
 
-  .panel-resizer {
+  .resizer {
     display: none;
   }
 }

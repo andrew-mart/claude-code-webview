@@ -12,6 +12,7 @@ import { rewindMessage } from './model/rewind.js';
 import { createOutline } from './view/outline-view.js';
 import { h } from './view/dom.js';
 import { createFilePanel } from './view/file-panel.js';
+import { createResizer, restoreWidth } from './view/resizer.js';
 import { icon } from './view/icons.js';
 import { activityModeEvent, jumpMarginPx, mountSession } from './view/session-view.js';
 
@@ -37,7 +38,12 @@ const updateNotice = createUpdateNotice();
 const drawers = createDrawers(byId('drawer-backdrop', HTMLElement));
 const settings = createSettings();
 const page = createPage();
-const filePanel = createFilePanel({ panel: byId('file-panel', HTMLElement), layout: byId('layout', HTMLElement) });
+const layout = byId('layout', HTMLElement);
+const filePanel = createFilePanel({ panel: byId('file-panel', HTMLElement), layout });
+/** @type {import('./view/resizer.js').PanelWidth} */
+const outlineWidth = { property: '--outline-width', storageKey: 'viewer.outlineWidth' };
+restoreWidth(layout, outlineWidth);
+mountSidebarResizer(byId('sidebar', HTMLElement));
 settings.applyAll();
 // File links (marked up by view/file-links.js) open in the right-hand panel, not in the browser.
 document.addEventListener('click', (event) => {
@@ -155,7 +161,17 @@ function createPage() {
     });
     scroller.append(view.element);
     const composer = createComposer(id);
-    main.replaceChildren(header.element, h('div', { className: 'main-body' }, [h('div', { className: 'feed-column' }, [scroller, composer.element]), outlineElement]));
+    const outlineResizer = createResizer({
+      layout,
+      width: outlineWidth,
+      side: 'right',
+      min: 180,
+      max: () => Math.min(480, window.innerWidth * 0.35),
+      measure: () => outlineElement.getBoundingClientRect().width,
+      label: 'Outline width',
+      className: 'outline-resizer',
+    });
+    main.replaceChildren(header.element, h('div', { className: 'main-body' }, [h('div', { className: 'feed-column' }, [scroller, composer.element]), outlineResizer, outlineElement]));
     const mounted = view;
     current = {
       id,
@@ -418,6 +434,28 @@ function createUpdateNotice() {
       if (ownBuild !== undefined && serverBuild !== null && serverBuild !== ownBuild) element.hidden = false;
     },
   };
+}
+
+/**
+ * The session list's width is set by dragging its right edge and remembered by the browser.
+ * @param {HTMLElement} sidebar
+ */
+function mountSidebarResizer(sidebar) {
+  /** @type {import('./view/resizer.js').PanelWidth} */
+  const width = { property: '--sidebar-width', storageKey: 'viewer.sidebarWidth' };
+  restoreWidth(layout, width);
+  sidebar.append(
+    createResizer({
+      layout,
+      width,
+      side: 'left',
+      min: 200,
+      max: () => Math.min(520, window.innerWidth * 0.45),
+      measure: () => sidebar.getBoundingClientRect().width,
+      label: 'Session list width',
+      className: 'sidebar-resizer',
+    }),
+  );
 }
 
 /**
