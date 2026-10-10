@@ -56,12 +56,15 @@ const agentIdPattern = /^[0-9a-z]{1,64}$/i;
 export async function startServer({ root, host, port, pollMs, composer, bookmarks, uploads, about }) {
   const index = createSessionIndex(root, { summaryBudgetMs: 1500 });
   const build = await pageBuild();
+  /** Sessions this page rewound: session id → the prompt rewound to; its branch is hidden before the next prompt shows the fork. */
+  /** @type {Map<string, string>} */
+  const rewinds = new Map();
   /** @type {Set<string>} */
   const allowedHosts = new Set();
   /** @type {Set<string>} */
   const allowedOrigins = new Set();
   const server = http.createServer((request, response) => {
-    handle({ index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, uploads, about, build }, request, response).catch((error) => {
+    handle({ index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, uploads, about, build, rewinds }, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
       if (!response.headersSent) response.writeHead(500).end();
       else response.end();
@@ -84,7 +87,7 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
 }
 
 /**
- * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string }} Deps
+ * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string> }} Deps
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
  */
 
@@ -257,6 +260,7 @@ async function stream(deps, url, id, request, response) {
   await streamTranscript({
     locate: agentId === null ? () => deps.index.find(id) : () => deps.index.findSubagent(id, agentId),
     scope: agentId === null ? 'main' : 'subagent',
+    rewoundAt: () => (agentId === null ? deps.rewinds.get(id) : undefined),
     imageUrl: (lineStart, n) => `/api/image?session=${id}${agentId === null ? '' : `&agent=${agentId}`}&at=${lineStart}&n=${n}`,
     send: (event, data) => out.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
     signal: controller.signal,
