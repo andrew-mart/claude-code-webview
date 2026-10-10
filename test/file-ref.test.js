@@ -59,3 +59,14 @@ test('fileRefFromHref_Should_ReadPosixFileUrl', () => {
 test('findFileRefs_Should_IgnoreUrlsTimesAndBareDrive', () => {
   assert.deepEqual(findFileRefs('https://example.com/a:80, at 10:30, ratio 1:2, drive C: and http://x/D:/y'), []);
 });
+
+test('findFileRefs_Should_LeaveClosingQuotesOutsideOfPath', () => {
+  assert.deepEqual(
+    findFileRefs('See «D:/dev/app/a.js», “C:/repo/b.cs:12” and ‘/home/ann/c.md’.').map(({ path, line }) => ({ path, line })),
+    [
+      { path: 'D:/dev/app/a.js', line: undefined },
+      { path: 'C:/repo/b.cs', line: 12 },
+      { path: '/home/ann/c.md', line: undefined },
+    ],
+  );
+});
