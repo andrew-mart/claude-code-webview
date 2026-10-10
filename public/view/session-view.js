@@ -68,6 +68,14 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   const toBottom = () => {
     scroller.scrollTop = scroller.scrollHeight;
   };
+  // Once loaded, the feed stays at the newest messages until the reader scrolls up: images that load late and a box
+  // that grows below the feed (an attachment, a phone keyboard) would otherwise leave it short of the bottom.
+  let stuck = true;
+  const keepAtBottom = new ResizeObserver(() => {
+    if (ready && stuck) toBottom();
+  });
+  keepAtBottom.observe(thread);
+  keepAtBottom.observe(scroller);
   const refreshStatus = () => {
     const live = feed.isWorking() && Date.now() - feed.lastActivity() < staleMs;
     working.hidden = !(ready && live);
@@ -84,18 +92,17 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     opened = true;
   });
   source.addEventListener('entries', (message) => {
-    const stick = !ready || nearBottom();
     const update = feed.apply(JSON.parse(message.data));
     if (Object.keys(update).length > 0) {
       meta = { ...meta, ...update };
       listener.onMeta(meta);
     }
-    if (ready && stick) toBottom();
-    if (ready && !stick) jump.hidden = false;
+    if (ready && stuck) toBottom();
     if (ready) refreshStatus();
   });
   source.addEventListener('ready', () => {
     ready = true;
+    stuck = true;
     toBottom();
     refreshStatus();
   });
@@ -106,11 +113,15 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   source.addEventListener('missing', () => {
     listener.onStatus('missing');
   });
+  // Scrolling up lets go of the bottom and shows the button back to it; reaching the bottom sticks to it again.
   const onScroll = () => {
-    if (nearBottom()) jump.hidden = true;
+    if (!ready) return;
+    stuck = nearBottom();
+    jump.hidden = stuck;
   };
   scroller.addEventListener('scroll', onScroll, { passive: true });
   jump.addEventListener('click', () => {
+    stuck = true;
     toBottom();
     jump.hidden = true;
   });
@@ -125,6 +136,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
       clearInterval(timer);
       document.removeEventListener(activityModeEvent, relayout);
       scroller.removeEventListener('scroll', onScroll);
+      keepAtBottom.disconnect();
       unsubscribe?.();
     },
     scrollToAnchor(id) {
