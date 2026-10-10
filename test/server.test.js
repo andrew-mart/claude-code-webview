@@ -15,8 +15,11 @@ const at = '2026-10-09T07:02:11.686Z';
 const promptLine = (uuid, text) =>
   `${JSON.stringify({ type: 'user', uuid, timestamp: at, cwd: 'D:\\dev\\x', promptSource: 'typed', message: { role: 'user', content: text } })}\n`;
 
-/** A fake terminal sender: records calls, sends nothing to herdr. */
-function fakeComposer() {
+/**
+ * A fake terminal sender: records calls, sends nothing to herdr.
+ * @param {string} [takenBack] - the prompt Esc takes back into the box, as if Claude had not started on it
+ */
+function fakeComposer(takenBack) {
   /** @type {string[][]} */
   const calls = [];
   return {
@@ -32,10 +35,10 @@ function fakeComposer() {
         calls.push(['send', id, text]);
         return { ok: true, pane: 'w3D:p1' };
       },
-      /** @param {string} id @returns {Promise<import('../server/composer.js').SendOutcome>} */
+      /** @param {string} id @returns {Promise<import('../server/composer.js').StopReply>} */
       interrupt: async (id) => {
         calls.push(['interrupt', id]);
-        return { ok: true, pane: 'w3D:p1' };
+        return { ok: true, pane: 'w3D:p1', prompt: takenBack };
       },
       /** @param {string} id @param {import('../server/composer.js').RewindRequest} request @returns {Promise<import('../server/composer.js').RewindReply>} */
       rewind: async (id, request) => {
@@ -46,14 +49,14 @@ function fakeComposer() {
   };
 }
 
-/** @param {import('node:test').TestContext} t */
-async function withServer(t) {
+/** @param {import('node:test').TestContext} t @param {string} [takenBack] - see fakeComposer */
+async function withServer(t, takenBack) {
   const root = await mkdtemp(join(tmpdir(), 'csv-'));
   const project = join(root, 'D--dev-x');
   await mkdir(project);
   const file = join(project, `${sessionId}.jsonl`);
   await writeFile(file, promptLine('u1', 'First question'));
-  const { composer, calls } = fakeComposer();
+  const { composer, calls } = fakeComposer(takenBack);
   const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' } });
   t.after(() => server.close());
   return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls };
@@ -494,4 +497,19 @@ test('rewind_Should_RefuseUnknownMessageOrActionWithoutTouchingTerminal', async 
 
   assert.deepEqual(replies.map((reply) => reply.status), [404, 400]);
   assert.deepEqual(calls, []);
+});
+
+test('interrupt_Should_HideStoppedPromptClaudeGaveBackFromFeedAtOnce', { timeout: 5000 }, async (t) => {
+  const { file, base, port } = await withServer(t, 'Now test it');
+  await appendFile(file, answerLine('a1', 'u1') + childPrompt('p2', 'a1', 'Now test it'));
+  const next = await openStream(base, t);
+  assert.deepEqual(uuids(await next()), ['u1', 'a1', 'p2']);
+  assert.equal((await next()).event, 'ready');
+
+  const response = await post(port, '/api/interrupt', pageHeaders(port), JSON.stringify({ session: sessionId }));
+
+  assert.deepEqual(JSON.parse(response.body), { ok: true, pane: 'w3D:p1', prompt: 'Now test it' });
+  // the terminal takes the prompt out of the conversation, so does the page
+  assert.equal((await next()).event, 'reset');
+  assert.deepEqual(uuids(await next()), ['u1', 'a1']);
 });

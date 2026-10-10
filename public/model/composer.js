@@ -1,5 +1,6 @@
 // @ts-check
-// Prompt input box: the contract with the server (/api/live, /api/send) and what to show the user.
+// Prompt input box: the contract with the server (/api/live, /api/send, /api/interrupt) and what to show the user.
+import { splitAttachedImages, uploadUrl } from './attachments.js';
 import { isRecord, text } from './narrow.js';
 
 /**
@@ -8,6 +9,9 @@ import { isRecord, text } from './narrow.js';
  * @typedef {{ state: 'herdr-missing' | 'offline' } | { state: 'no-herdr' | 'outside-herdr', status: string } | { state: 'live', status: string, pane: string }} LiveState
  * @typedef {'empty' | 'herdr-missing' | 'offline' | 'no-herdr' | 'outside-herdr' | 'send-failed'} SendRefusal
  * @typedef {{ ok: true, pane: string } | { ok: false, error: SendRefusal }} SendOutcome
+ * The /api/interrupt reply. prompt — a prompt Claude had not started on, taken out of the terminal's box for the page's
+ * box; box-not-cleared — it came back into the terminal's box but could not be taken out of it.
+ * @typedef {{ ok: true, pane: string, prompt: string | undefined } | { ok: false, error: SendRefusal | 'box-not-cleared' }} StopOutcome
  * @typedef {{ shown: boolean, enabled: boolean, canInterrupt: boolean, placeholder: string, hint: string }} ComposerView
  * @typedef {'physical' | 'touch'} Keyboard
  */
@@ -48,6 +52,17 @@ export function composerState(live, sessionId, keyboard) {
     default:
       return exhaustive(live);
   }
+}
+
+/**
+ * @param {StopOutcome} outcome
+ * @returns {string}
+ */
+export function stopMessage(outcome) {
+  if (outcome.ok) return outcome.prompt === undefined ? 'Esc sent — Claude will stop the current turn.' : 'Stopped before Claude started on it — the message is back in the box.';
+  const { error } = outcome;
+  if (error === 'box-not-cleared') return 'Stopped. The message went back to the terminal’s input box and could not be moved here.';
+  return outcomeMessage({ ok: false, error });
 }
 
 /**
@@ -114,7 +129,7 @@ export function parseLiveState(json) {
 }
 
 /**
- * Reply of /api/send and /api/interrupt.
+ * Reply of /api/send.
  * @param {unknown} json
  * @returns {SendOutcome | undefined}
  */
@@ -133,4 +148,35 @@ export function parseOutcome(json) {
     default:
       return undefined;
   }
+}
+
+/**
+ * Reply of /api/interrupt.
+ * @param {unknown} json
+ * @returns {StopOutcome | undefined}
+ */
+export function parseStopOutcome(json) {
+  if (!isRecord(json)) return undefined;
+  if (json.ok === false && json.error === 'box-not-cleared') return { ok: false, error: 'box-not-cleared' };
+  const outcome = parseOutcome(json);
+  if (outcome === undefined || !outcome.ok) return outcome;
+  return { ok: true, pane: outcome.pane, prompt: text(json.prompt) };
+}
+
+/**
+ * A prompt that comes back to the box (stopped before Claude started on it, or rewound): its words before what is
+ * already typed there, the images the viewer saved for it attached again. A list naming any other file stays text.
+ * @param {string} prompt
+ * @param {string} draft — what the box holds now
+ * @returns {{ text: string, images: string[] }} — images: where the page loads them from
+ */
+export function promptForBox(prompt, draft) {
+  const attached = splitAttachedImages(prompt);
+  const images = attached.paths.flatMap((path) => {
+    const url = uploadUrl(path);
+    return url === undefined ? [] : [url];
+  });
+  const whole = images.length === attached.paths.length;
+  const words = whole ? attached.text : prompt;
+  return { text: draft.trim() === '' ? words : `${words}\n\n${draft}`, images: whole ? images : [] };
 }

@@ -23,6 +23,19 @@ export function linkOf(raw) {
 }
 
 /**
+ * The text of a prompt entry: a string, or the text blocks beside its images.
+ * @param {Record<string, unknown>} raw
+ * @returns {string | undefined}
+ */
+export function promptText(raw) {
+  const content = isRecord(raw.message) ? raw.message.content : undefined;
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return undefined;
+  const texts = content.flatMap((block) => (isRecord(block) && block.type === 'text' && typeof block.text === 'string' ? [block.text] : []));
+  return texts.length === 0 ? undefined : texts.join('\n');
+}
+
+/**
  * Entries off the active branch: the rewound prompts and everything that grew from them.
  * @param {readonly Link[]} links — in file order
  * @param {string | undefined} rewoundAt — a prompt this page rewound to before: hidden at once, before the next prompt
@@ -50,4 +63,30 @@ export function rewoundEntries(links, rewoundAt) {
     stack.push(...(children.get(uuid) ?? []));
   }
   return hidden;
+}
+
+/**
+ * The prompt Claude Code took back into its box when the turn was stopped before Claude started on it — if it reached
+ * the transcript anyway. The terminal no longer shows it in the conversation; the next prompt will point past it.
+ * It is the last prompt, nothing answered it, and its words are the ones that came back.
+ * @param {readonly unknown[]} records — the transcript entries in file order
+ * @param {string} text — what came back into the box
+ * @returns {string | undefined} — its uuid
+ */
+export function takenBackPrompt(records, text) {
+  const at = records.findLastIndex((raw) => linkOf(raw).turn);
+  const last = records[at];
+  if (!isRecord(last)) return undefined;
+  const answered = records.slice(at + 1).some((raw) => isRecord(raw) && raw.type === 'assistant');
+  const words = promptText(last);
+  return !answered && words !== undefined && sameWords(words, text) ? linkOf(last).uuid : undefined;
+}
+
+/**
+ * The box and the transcript may space and break the same prompt differently.
+ * @param {string} a
+ * @param {string} b
+ */
+function sameWords(a, b) {
+  return a.replace(/\s+/g, '') === b.replace(/\s+/g, '');
 }

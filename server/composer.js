@@ -10,6 +10,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { isRecord, text } from '../public/model/narrow.js';
 import { claudePaneIds, foregroundPids, toTerminalInput } from './herdr.js';
 import { driveRewind } from './rewind.js';
+import { driveStop } from './stop.js';
 
 /**
  * @typedef {{ ok: true, json: unknown, text: string } | { ok: false, error: string, missing: boolean }} HerdrReply — text: what herdr printed; missing: herdr is not installed (no such program)
@@ -19,9 +20,12 @@ import { driveRewind } from './rewind.js';
  * @typedef {import('../public/model/composer.js').SendOutcome} SendOutcome
  * @typedef {{ stepsUp: number, prompt: string, action: import('./rewind.js').RewindAction }} RewindRequest
  * @typedef {import('./rewind.js').RewindOutcome | { ok: false, error: 'herdr-missing' | 'offline' | 'no-herdr' | 'outside-herdr' | 'busy' }} RewindReply
+ * @typedef {import('../public/model/composer.js').StopOutcome} StopReply
  */
 
 const presenceTtlMs = 30_000;
+/** How many of the latest prompts sent from the page are kept per session: Esc gives back the one Claude had not started on. */
+const keptPrompts = 5;
 
 /**
  * @param {{ readRecords: () => Promise<readonly unknown[]>, herdr: RunHerdr }} deps
@@ -31,6 +35,9 @@ export function createComposer({ readRecords, herdr }) {
   /** A process's pane does not change while the process is alive: the search across all panes runs only the first time. */
   /** @type {Map<number, string>} */
   const paneByPid = new Map();
+  /** Prompts the page typed into each session, newest last. */
+  /** @type {Map<string, readonly string[]>} */
+  const sentPrompts = new Map();
 
   /**
    * @param {number} pid
@@ -104,6 +111,22 @@ export function createComposer({ readRecords, herdr }) {
     return { ok: true, pane: place.pane };
   }
 
+  /**
+   * The session's terminal: what its screen shows, keys and text typed into it.
+   * @param {string} pane
+   * @returns {import('./claude-screen.js').Terminal}
+   */
+  function terminalOf(pane) {
+    return {
+      read: async () => {
+        const reply = await herdr(['pane', 'read', pane, '--source', 'visible', '--format', 'text']);
+        return reply.ok ? reply.text : undefined;
+      },
+      keys: async (...keys) => succeeded(await herdr(['pane', 'send-keys', pane, ...keys])),
+      text: async (text) => succeeded(await herdr(['pane', 'send-text', pane, text])),
+    };
+  }
+
   return {
     /**
      * @param {string} sessionId
@@ -132,20 +155,27 @@ export function createComposer({ readRecords, herdr }) {
       if (input === '') return { ok: false, error: 'empty' };
       const place = await target(sessionId);
       if (!place.ok) return place;
-      return press(place, [
+      const outcome = await press(place, [
         ['send-text', input],
         ['send-keys', 'enter'],
       ]);
+      if (outcome.ok) sentPrompts.set(sessionId, [...(sentPrompts.get(sessionId) ?? []), input].slice(-keptPrompts));
+      return outcome;
     },
     /**
-     * Interrupt the current turn — Esc in the session's terminal.
+     * Interrupt the current turn — Esc in the session's terminal. A prompt Claude had not started on comes back, as
+     * the page sent it, and leaves the terminal's box.
      * @param {string} sessionId
-     * @returns {Promise<SendOutcome>}
+     * @returns {Promise<StopReply>}
      */
     async interrupt(sessionId) {
       const place = await target(sessionId);
       if (!place.ok) return place;
-      return press(place, [['send-keys', 'esc']]);
+      const outcome = await driveStop(terminalOf(place.pane), { sent: sentPrompts.get(sessionId) ?? [], wait: (ms) => delay(ms) });
+      if (outcome.ok) return { ok: true, pane: place.pane, prompt: outcome.prompt };
+      if (outcome.error === 'box-not-cleared') return { ok: false, error: 'box-not-cleared' };
+      paneByPid.delete(place.pid);
+      return { ok: false, error: 'send-failed' };
     },
     /**
      * Rewind the session to before a message, through Claude Code's /rewind menu in its terminal. Only while Claude
@@ -158,17 +188,7 @@ export function createComposer({ readRecords, herdr }) {
       const place = await locate(sessionId);
       if (place.kind !== 'live') return { ok: false, error: place.kind };
       if (place.record.status === 'busy') return { ok: false, error: 'busy' };
-      const { pane } = place;
-      /** @type {import('./rewind.js').Terminal} */
-      const terminal = {
-        read: async () => {
-          const reply = await herdr(['pane', 'read', pane, '--source', 'visible', '--format', 'text']);
-          return reply.ok ? reply.text : undefined;
-        },
-        keys: async (...keys) => succeeded(await herdr(['pane', 'send-keys', pane, ...keys])),
-        text: async (text) => succeeded(await herdr(['pane', 'send-text', pane, text])),
-      };
-      return driveRewind(terminal, { ...request, wait: (ms) => delay(ms) });
+      return driveRewind(terminalOf(place.pane), { ...request, wait: (ms) => delay(ms) });
     },
   };
 }

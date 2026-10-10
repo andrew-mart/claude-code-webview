@@ -3,19 +3,18 @@
 // checked against the screen, the message by its full text on the confirmation; on any surprise the menu is closed and
 // nothing is restored.
 import { isRecord } from '../public/model/narrow.js';
-import { linkOf, rewoundEntries } from './branch.js';
+import { linkOf, promptText, rewoundEntries } from './branch.js';
+import { inputBox, settleOn, squash, stepMs } from './claude-screen.js';
 
 /**
  * @typedef {'both' | 'conversation' | 'code' | 'summarize-from' | 'summarize-up-to'} RewindAction
- * @typedef {{ read: () => Promise<string | undefined>, keys: (...keys: string[]) => Promise<boolean>, text: (text: string) => Promise<boolean> }} Terminal
+ * @typedef {import('./claude-screen.js').Terminal} Terminal
  * @typedef {'screen-unreadable' | 'box-not-cleared' | 'menu-not-shown' | 'message-not-found' | 'no-code-changes' | 'option-not-found' | 'not-finished'} RewindRefusal
  * @typedef {{ ok: true, restoredPrompt: boolean } | { ok: false, error: RewindRefusal }} RewindOutcome
  */
 
 const listMarker = 'Restore the code and/or';
 const confirmMarker = 'Confirm you want to';
-/** The rule lines above and below Claude Code's prompt box. */
-const rule = /^\s*─{4,}\s*$/;
 /** Actions after which Claude Code puts the message back into the prompt box. */
 const restoresPrompt = new Set(['both', 'conversation', 'summarize-from']);
 /** How far from the counted position to look for the message: the menu may list a message or two the count did not. */
@@ -29,21 +28,6 @@ const optionPatterns = {
   'summarize-from': /(\d)\. Summarize from here/,
   'summarize-up-to': /(\d)\. Summarize up to here/,
 };
-
-/**
- * The text in Claude Code's prompt box; undefined when the box is not on the screen (a menu or a dialog is open).
- * @param {string} screen
- * @returns {string | undefined}
- */
-export function inputBox(screen) {
-  const lines = screen.split('\n');
-  const rules = lines.flatMap((line, index) => (rule.test(line) ? [index] : []));
-  const [top, bottom] = rules.slice(-2);
-  if (top === undefined || bottom === undefined) return undefined;
-  const [first, ...rest] = lines.slice(top + 1, bottom).map((line) => line.trim());
-  if (first === undefined || !first.startsWith('❯')) return undefined;
-  return [first.slice(1), ...rest].join(' ').trim();
-}
 
 /**
  * Whether the confirmation names this message. Only the confirmation counts: the conversation above the menu may
@@ -154,25 +138,6 @@ async function closeMenu(terminal, wait) {
   }
 }
 
-const stepMs = 150;
-const settleTries = 20;
-
-/**
- * The screen once it is ready; undefined if it is not within a few seconds.
- * @param {Terminal} terminal
- * @param {(ms: number) => Promise<void>} wait
- * @param {(screen: string) => boolean} ready
- * @returns {Promise<string | undefined>}
- */
-async function settleOn(terminal, wait, ready) {
-  for (let attempt = 0; attempt < settleTries; attempt++) {
-    const screen = await terminal.read();
-    if (screen !== undefined && ready(screen)) return screen;
-    await wait(stepMs);
-  }
-  return undefined;
-}
-
 /**
  * @param {string} key
  * @param {number} times
@@ -180,14 +145,6 @@ async function settleOn(terminal, wait, ready) {
  */
 function repeat(key, times) {
   return Array.from({ length: times }, () => key);
-}
-
-/**
- * Text without whitespace, frame bars and ellipses: the terminal wraps and frames lines at its own width.
- * @param {string} text
- */
-function squash(text) {
-  return text.replace(/[\s│…]/g, '');
 }
 
 /**
@@ -209,18 +166,6 @@ export function rewindTarget(records, uuid) {
   const index = listed.findIndex((entry) => entry.uuid === uuid);
   const target = listed[index];
   return target === undefined ? undefined : { stepsUp: listed.length - index, prompt: target.prompt };
-}
-
-/**
- * @param {Record<string, unknown>} raw
- * @returns {string | undefined}
- */
-function promptText(raw) {
-  const content = isRecord(raw.message) ? raw.message.content : undefined;
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return undefined;
-  const texts = content.flatMap((block) => (isRecord(block) && block.type === 'text' && typeof block.text === 'string' ? [block.text] : []));
-  return texts.length === 0 ? undefined : texts.join('\n');
 }
 
 /**

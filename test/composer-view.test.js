@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { composerState, outcomeMessage, parseLiveState, parseOutcome } from '../public/model/composer.js';
+import { composerState, outcomeMessage, parseLiveState, parseOutcome, parseStopOutcome, promptForBox } from '../public/model/composer.js';
 
 const sessionId = '3f2c9a50-1111-4222-8333-944455556666';
 
@@ -71,4 +71,25 @@ test('parseOutcome_Should_AcceptOnlyKnownServerReplies', () => {
   assert.deepEqual(parseOutcome({ ok: true, pane: 'w3D:p1' }), { ok: true, pane: 'w3D:p1' });
   assert.deepEqual(parseOutcome({ ok: false, error: 'offline' }), { ok: false, error: 'offline' });
   assert.equal(parseOutcome({ ok: false, error: 'unknown' }), undefined);
+});
+
+test('parseStopOutcome_Should_AcceptPromptGivenBackAndKnownRefusalsOnly', () => {
+  assert.deepEqual(parseStopOutcome({ ok: true, pane: 'w3D:p1', prompt: 'Now test it' }), { ok: true, pane: 'w3D:p1', prompt: 'Now test it' });
+  assert.deepEqual(parseStopOutcome({ ok: true, pane: 'w3D:p1' }), { ok: true, pane: 'w3D:p1', prompt: undefined });
+  assert.deepEqual(parseStopOutcome({ ok: false, error: 'box-not-cleared' }), { ok: false, error: 'box-not-cleared' });
+  assert.deepEqual(parseStopOutcome({ ok: false, error: 'offline' }), { ok: false, error: 'offline' });
+  assert.equal(parseStopOutcome({ ok: false, error: 'unknown' }), undefined);
+});
+
+test('promptForBox_Should_PutPromptBeforeDraftAndItsSavedImagesBackAsAttachments', () => {
+  const prompt = 'Why does it fail?\n\nAttached images:\nC:\\Users\\ann\\.claude-code-webview\\uploads\\a1b2-c3.png';
+
+  assert.deepEqual(promptForBox(prompt, ''), { text: 'Why does it fail?', images: ['/api/upload/a1b2-c3.png'] });
+  assert.deepEqual(promptForBox('Now test it', 'and the edge cases'), { text: 'Now test it\n\nand the edge cases', images: [] });
+});
+
+test('promptForBox_Should_LeaveImageListAsTextWhenViewerDidNotSaveEveryImage', () => {
+  const prompt = 'Compare them\n\nAttached images:\nC:\\Users\\ann\\.claude-code-webview\\uploads\\a1b2-c3.png\nD:\\shots\\b.png';
+
+  assert.deepEqual(promptForBox(prompt, ''), { text: prompt, images: [] });
 });
