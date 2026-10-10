@@ -37,7 +37,8 @@ const emptyState = byId('empty-state', HTMLElement);
 const updateNotice = createUpdateNotice();
 
 const drawers = createDrawers(byId('drawer-backdrop', HTMLElement));
-const settings = createSettings();
+// A view setting that resizes the feed keeps the reader at the message they were at.
+const settings = createSettings((change) => page.keepPlace(change));
 const page = createPage();
 const layout = byId('layout', HTMLElement);
 const filePanel = createFilePanel({ panel: byId('file-panel', HTMLElement), layout });
@@ -91,7 +92,7 @@ function createPage() {
   /** @type {number | undefined} */
   let listVersion;
   let listMinute = 0;
-  /** @type {{ id: string, dispose: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, rewound: (reply: import('./model/rewind.js').RewindReply) => void } | undefined} */
+  /** @type {{ id: string, dispose: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, keepPlace: (change: () => void) => void, rewound: (reply: import('./model/rewind.js').RewindReply) => void } | undefined} */
   let current;
   /** Where the reader left each session opened in this tab: coming back returns there. */
   /** @type {Map<string, import('./view/session-view.js').ReadingPlace>} */
@@ -135,7 +136,7 @@ function createPage() {
     if (current !== undefined) places.set(current.id, current.place());
     current?.dispose();
     const info = sessions.find((session) => session.id === id);
-    const tables = sessionTables(id);
+    const tables = sessionTables(id, (change) => (current === undefined ? change() : current.keepPlace(change)));
     tables.apply();
     const header = createSessionHeader({ place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation: [drawerButton('outline', 'list', 'Outline')], tools: settings.buttons() });
     const scroller = h('div', { className: 'scroller' });
@@ -199,6 +200,7 @@ function createPage() {
       id,
       header,
       place: () => mounted.place(),
+      keepPlace: (change) => mounted.keepPlace(change),
       step: (direction) => {
         const target = spy.target(direction);
         if (target !== undefined) void mounted.scrollToAnchor(target);
@@ -222,6 +224,14 @@ function createPage() {
 
   return {
     renderList,
+    /**
+     * Runs a change that resizes the open session's feed, keeping the reader at the message they were at.
+     * @param {() => void} change
+     */
+    keepPlace(change) {
+      if (current === undefined) change();
+      else current.keepPlace(change);
+    },
     /** @param {'previous' | 'next'} direction — move to the neighbouring prompt (Alt+↑ / Alt+↓) */
     step(direction) {
       current?.step(direction);
@@ -317,7 +327,8 @@ const headerSettings = [
  * View settings remembered by the browser: agent actions brief or detailed, theme, answer font,
  * service messages, following, SDK sessions in the list.
  */
-function createSettings() {
+/** @param {(change: () => void) => void} keepPlace — runs a change keeping the reader's place in the feed */
+function createSettings(keepPlace) {
   /** @param {SettingKey} key */
   const get = (key) => {
     const stored = readStorage(`viewer.${key}`);
@@ -328,7 +339,7 @@ function createSettings() {
   /** @param {SettingKey} key @param {string} value */
   const set = (key, value) => {
     writeStorage(`viewer.${key}`, value);
-    applyAll();
+    keepPlace(applyAll);
   };
   const applyAll = () => {
     const root = document.documentElement;
@@ -543,9 +554,10 @@ const tablesChoices = ['default', 'fit', 'wide'];
  * How one session shows its tables, over the viewer-wide setting: as everywhere, fitted to the width or wide. The
  * choice is remembered by the browser per session and set on the page's root for the stylesheet.
  * @param {string} sessionId
+ * @param {(change: () => void) => void} keepPlace — runs a change keeping the reader's place in the feed
  * @returns {import('./view/session-header.js').SessionTables & { apply: () => void }}
  */
-function sessionTables(sessionId) {
+function sessionTables(sessionId, keepPlace) {
   const key = `viewer.tables.${sessionId}`;
   /** @returns {import('./view/session-header.js').TablesChoice} */
   const value = () => {
@@ -562,7 +574,7 @@ function sessionTables(sessionId) {
     value,
     choose(choice) {
       writeStorage(key, choice);
-      apply();
+      keepPlace(apply);
     },
     apply,
   };
