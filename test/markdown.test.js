@@ -83,3 +83,28 @@ test('renderMarkdown_Should_MakeHeadingOfJustFilePathCaptionOverCode', () => {
     ['Changes in D:/dev/app/a.js', false],
   ]);
 });
+
+test('renderMarkdown_Should_FrameTableWithWidthButtonAndKeepCellTextInBlocks', () => {
+  const holder = html(renderMarkdown('| Name | Notes |\n| --- | --- |\n| a | some long text |\n\nAfter'));
+
+  const frame = holder.querySelector('.table-frame');
+  assert.ok(frame);
+  assert.ok(frame.querySelector('button.table-width'));
+  assert.deepEqual([...frame.querySelectorAll('table th > .cell, table td > .cell')].map((cell) => cell.textContent), ['Name', 'Notes', 'a', 'some long text']);
+  assert.deepEqual(
+    [...holder.children].map((child) => child.className || child.tagName),
+    ['table-frame', 'P'],
+  );
+});
+
+test('renderMarkdown_Should_WidenTableOnItsButtonAndFitItBackOnNextClick', () => {
+  const frame = html(renderMarkdown('| a | b |\n| --- | --- |\n| 1 | 2 |')).querySelector('.table-frame');
+  const button = frame?.querySelector('button.table-width');
+  assert.ok(frame instanceof window.HTMLElement && button instanceof window.HTMLElement);
+
+  button.click();
+  const widened = frame.dataset.width;
+  button.click();
+
+  assert.deepEqual([widened, frame.dataset.width], ['wide', 'fit']);
+});

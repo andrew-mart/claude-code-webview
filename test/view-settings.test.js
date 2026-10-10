@@ -15,6 +15,8 @@ const labels = [
   ['theme', 'dark', 'System theme'],
   ['outline', 'shown', 'Hide outline'],
   ['outline', 'hidden', 'Show outline'],
+  ['tables', 'fit', 'Widen tables everywhere'],
+  ['tables', 'wide', 'Fit tables to the width everywhere'],
 ];
 
 for (const [key, current, expected] of labels) {

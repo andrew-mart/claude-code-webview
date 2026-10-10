@@ -53,6 +53,10 @@ claude-code-webview --background     # run without a terminal window
   visible without hover, the view buttons fold into a "⋯" menu, and on a touch keyboard Enter starts a new line while
   the ↑ button sends. Images load only
   when they scroll into view, and replies are gzipped, so a long session costs a phone about a megabyte, not dozens.
+- **Tables.** A table fits the answer's width, narrowing its columns down to whole words. When that is too cramped —
+  on a phone especially — "Wide" under the table gives each column a comfortable width and lets the table scroll
+  sideways. The same choice can be made for all tables of a session (in the header's details) or of the whole viewer
+  (a view button); the table's own button overrides the session, the session overrides the viewer.
 - Light and dark themes, serif or sans answers, optional display of Claude Code's service messages.
 
 ## Sending prompts from the page (optional, needs herdr)

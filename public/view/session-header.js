@@ -12,6 +12,9 @@ import { icon } from './icons.js';
  * @typedef {import('./session-view.js').SessionStatus} SessionStatus
  * @typedef {{ title: string | undefined, cwd: string | undefined }} SessionPlace
  * @typedef {import('../model/session-facts.js').ContextGauge} ContextGauge
+ * How the session's tables are shown: as the viewer-wide setting says, fitted to the width, or wide.
+ * @typedef {'default' | 'fit' | 'wide'} TablesChoice
+ * @typedef {{ value: () => TablesChoice, choose: (choice: TablesChoice) => void }} SessionTables
  */
 
 /**
@@ -29,12 +32,13 @@ const statusLooks = {
 const branchRefreshMs = 15_000;
 
 /**
- * @param {{ place: SessionPlace | undefined, currentBranch: () => Promise<string | undefined>, leading: HTMLElement, navigation: readonly HTMLElement[], tools: readonly HTMLElement[] }} parts
+ * @param {{ place: SessionPlace | undefined, currentBranch: () => Promise<string | undefined>, tables: SessionTables, leading: HTMLElement, navigation: readonly HTMLElement[], tools: readonly HTMLElement[] }} parts
  *   currentBranch — the branch checked out in the session's folder now (the transcript keeps the one it saw first);
+ *   tables — how this session shows its tables, chosen in the details;
  *   leading — before the title (the session list's drawer button); navigation — buttons that always stay in view;
  *   tools — the view settings, folded into a menu on a narrow screen
  */
-export function createSessionHeader({ place, currentBranch, leading, navigation, tools }) {
+export function createSessionHeader({ place, currentBranch, tables, leading, navigation, tools }) {
   const title = h('h1', { className: 'title' });
   const facts = h('button', { className: 'head-facts', attrs: { type: 'button', 'aria-expanded': 'false', title: 'Show session details' } });
   const details = h('dl', { className: 'head-details', attrs: { hidden: '' } });
@@ -54,7 +58,7 @@ export function createSessionHeader({ place, currentBranch, leading, navigation,
     document.title = `${title.textContent} — Claude Code`;
     const gauge = meta.model === undefined || meta.contextTokens === undefined ? undefined : contextGauge({ model: meta.model, tokens: meta.contextTokens, extended: meta.extendedContext === true });
     facts.replaceChildren(...factChips({ cwd: where?.cwd, branch, meta, gauge }), h('span', { className: 'facts-toggle' }, [icon('chevron')]));
-    details.replaceChildren(...detailRows({ cwd: where?.cwd, branch, meta, gauge }));
+    details.replaceChildren(...detailRows({ cwd: where?.cwd, branch, meta, gauge }), ...tablesRow(tables, render));
   };
 
   const setOpen = (/** @type {HTMLButtonElement} */ button, /** @type {boolean} */ open) => button.setAttribute('aria-expanded', String(open));
@@ -213,6 +217,32 @@ function contextDetail(gauge) {
   const bar = h('span', { className: 'context-bar', attrs: { 'data-level': gauge.level } }, [h('span', { className: 'context-bar-fill' })]);
   bar.style.setProperty('--share', String(gauge.share));
   return [bar, h('span', { text: `${formatTokens(gauge.tokens)} used · ${formatTokens(gauge.left)} left of ${formatTokens(gauge.window)}` })];
+}
+
+/** @type {readonly [TablesChoice, string][]} */
+const tablesLabels = [
+  ['default', 'As everywhere'],
+  ['fit', 'Fit the width'],
+  ['wide', 'Wide'],
+];
+
+/**
+ * The details' row that sets how this session shows its tables; a table's own button still overrides it.
+ * @param {SessionTables} tables
+ * @param {() => void} rerender
+ * @returns {HTMLElement[]}
+ */
+function tablesRow(tables, rerender) {
+  const current = tables.value();
+  const buttons = tablesLabels.map(([choice, label]) => {
+    const button = h('button', { className: 'segment', text: label, attrs: { type: 'button', 'aria-pressed': String(choice === current) } });
+    button.addEventListener('click', () => {
+      tables.choose(choice);
+      rerender();
+    });
+    return button;
+  });
+  return [h('dt', { text: 'Tables' }), h('dd', {}, [h('span', { className: 'segments', attrs: { role: 'group', 'aria-label': 'Tables in this session' } }, buttons)])];
 }
 
 /**
