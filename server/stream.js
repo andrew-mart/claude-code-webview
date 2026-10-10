@@ -8,7 +8,7 @@ import { rewoundEntries } from './branch.js';
 const batchSize = 1000;
 
 /**
- * @typedef {(event: 'entries' | 'ready' | 'reset' | 'missing', data: unknown) => void} Send
+ * @typedef {(event: 'entries' | 'earlier' | 'ready' | 'reset' | 'missing', data: unknown) => void} Send
  * @typedef {(lineStart: number, n: number) => string} ImageUrl — the link to the n-th image of the entry on the line that starts at lineStart
  * @typedef {import('./transcript-cache.js').CachedEntry} CachedEntry
  * @typedef {ReturnType<typeof import('./transcript-cache.js').createTranscriptCache>} TranscriptCache
@@ -16,10 +16,11 @@ const batchSize = 1000;
 
 /**
  * Runs until the signal is aborted. The file is looked up again on every round: after /cd it moves.
- * @param {{ locate: () => Promise<string | undefined>, scope: 'main' | 'subagent', imageUrl: ImageUrl, rewoundAt: () => string | undefined, send: Send, signal: AbortSignal, pollMs: number, transcripts: TranscriptCache }} options
- *   rewoundAt — the prompt this page rewound the session to, if it did
+ * @param {{ locate: () => Promise<string | undefined>, scope: 'main' | 'subagent', imageUrl: ImageUrl, rewoundAt: () => string | undefined, send: Send, signal: AbortSignal, pollMs: number, transcripts: TranscriptCache, tail: number | undefined }} options
+ *   rewoundAt — the prompt this page rewound the session to, if it did; tail — how many of the latest entries to send
+ *   at first ("earlier" tells how many were left out); undefined — all of them
  */
-export async function streamTranscript({ locate, scope, imageUrl, rewoundAt, send, signal, pollMs, transcripts }) {
+export async function streamTranscript({ locate, scope, imageUrl, rewoundAt, send, signal, pollMs, transcripts, tail }) {
   /** How many of the file's entries this page has been given. */
   let sent = 0;
   /** @type {number | undefined} */
@@ -54,14 +55,17 @@ export async function streamTranscript({ locate, scope, imageUrl, rewoundAt, sen
           continue;
         }
         for (const { link } of fresh) if (link.turn && link.parent !== undefined) promptParents.add(link.parent);
-        sendEntries(
+        const shown = shownEntries(
           fresh,
           rewoundEntries(
             read.entries.map(({ link }) => link),
             point,
           ),
-          send,
         );
+        // A long session opens with its latest entries; the page asks for the rest when the reader wants it.
+        const omitted = sent === 0 && tail !== undefined ? Math.max(shown.length - tail, 0) : 0;
+        if (omitted > 0) send('earlier', { count: omitted });
+        sendBatches(shown.slice(omitted), send);
         sent = read.entries.length;
       }
       if (!announced) send('ready', null);
@@ -72,11 +76,19 @@ export async function streamTranscript({ locate, scope, imageUrl, rewoundAt, sen
 }
 
 /**
+ * What the page gets of these entries: the ones it shows, on the active branch.
  * @param {readonly CachedEntry[]} entries
  * @param {ReadonlySet<string>} hidden — entries off the active branch
+ * @returns {Record<string, unknown>[]}
+ */
+function shownEntries(entries, hidden) {
+  return entries.flatMap(({ slim, link }) => (slim === undefined || (link.uuid !== undefined && hidden.has(link.uuid)) ? [] : [slim]));
+}
+
+/**
+ * @param {readonly Record<string, unknown>[]} entries
  * @param {Send} send
  */
-function sendEntries(entries, hidden, send) {
-  const shown = entries.flatMap(({ slim, link }) => (slim === undefined || (link.uuid !== undefined && hidden.has(link.uuid)) ? [] : [slim]));
-  for (let start = 0; start < shown.length; start += batchSize) send('entries', shown.slice(start, start + batchSize));
+function sendBatches(entries, send) {
+  for (let start = 0; start < entries.length; start += batchSize) send('entries', entries.slice(start, start + batchSize));
 }

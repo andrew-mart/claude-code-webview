@@ -51,7 +51,11 @@ claude-code-webview --background     # run without a terminal window
   their `[1m]` variant); for a model Claude Code does not know only the size is shown.
 - **Phones.** On a narrow screen the session list and the outline slide in from the sides, bookmark flags stay
   visible without hover, the view buttons fold into a "⋯" menu, and on a touch keyboard Enter starts a new line while
-  the ↑ button sends. Images load only
+  the ↑ button sends.
+- **Long sessions** open with their latest part (2000 entries, 800 on a phone); "Show N earlier entries" above it loads
+  the rest, keeping your place. A tool's big output — a command's stdout, a file read or written — is not sent up
+  front: the row shows its summary, and the output loads when the row is opened. A 120 MB transcript opens in about
+  a second. Images load only
   when they scroll into view, and replies are gzipped, so a long session costs a phone about a megabyte, not dozens.
 - **Tables.** A table fits the answer's width, narrowing its columns down to whole words. When that is too cramped —
   on a phone especially — "Wide" under the table gives each column a comfortable width and lets the table scroll

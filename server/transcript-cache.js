@@ -4,6 +4,7 @@
 // session is tens of megabytes of JSON, a second or two of work every time otherwise.
 import { open, stat } from 'node:fs/promises';
 import { linkOf } from './branch.js';
+import { liteEntry } from './lite.js';
 import { slimEntry } from './slim.js';
 import { splitLines } from './tail.js';
 
@@ -11,9 +12,10 @@ const chunkBytes = 4 * 1024 * 1024;
 
 /**
  * @typedef {{ slim: Record<string, unknown> | undefined, link: import('./branch.js').Link }} CachedEntry — slim: what the
- *   page gets, undefined for records it does not show; link: the entry's place in the conversation, for every record
+ *   page gets up front (lite.js), undefined for records it does not show; link: the entry's place in the conversation,
+ *   for every record
  * @typedef {{ scope: 'main' | 'subagent', imageUrl: (lineStart: number, n: number) => string }} Reading
- * @typedef {{ generation: number, offset: number, carry: Buffer, entries: CachedEntry[], queue: Promise<unknown> }} FileState
+ * @typedef {{ generation: number, offset: number, carry: Buffer, entries: CachedEntry[], calls: Map<string, import('./lite.js').Call>, queue: Promise<unknown> }} FileState — calls: tool calls read whose results have not come yet
  */
 
 /**
@@ -31,7 +33,7 @@ export function createTranscriptCache({ maxFiles }) {
    */
   const stateOf = (key) => {
     const known = files.get(key);
-    const state = known ?? { generation: ++generations, offset: 0, carry: Buffer.alloc(0), entries: [], queue: Promise.resolve() };
+    const state = known ?? { generation: ++generations, offset: 0, carry: Buffer.alloc(0), entries: [], calls: new Map(), queue: Promise.resolve() };
     files.delete(key);
     files.set(key, state);
     for (const oldest of files.keys()) {
@@ -73,9 +75,10 @@ async function catchUp(path, state, reading, renew) {
     state.offset = 0;
     state.carry = Buffer.alloc(0);
     state.entries = [];
+    state.calls = new Map();
   }
   if (size > state.offset) {
-    const read = await readEntries(path, state.offset, size, state.carry, reading);
+    const read = await readEntries(path, state.offset, size, state.carry, { ...reading, calls: state.calls });
     state.offset = read.offset;
     state.carry = read.carry;
     state.entries.push(...read.entries);
@@ -88,10 +91,10 @@ async function catchUp(path, state, reading, renew) {
  * @param {number} from
  * @param {number} to
  * @param {Buffer} carry — the start of a line read before, still without its end
- * @param {Reading} reading
+ * @param {Reading & { calls: Map<string, import('./lite.js').Call> }} reading
  * @returns {Promise<{ offset: number, carry: Buffer, entries: CachedEntry[] }>}
  */
-async function readEntries(path, from, to, carry, { scope, imageUrl }) {
+async function readEntries(path, from, to, carry, { scope, imageUrl, calls }) {
   const handle = await open(path, 'r');
   let offset = from;
   let rest = carry;
@@ -110,7 +113,8 @@ async function readEntries(path, from, to, carry, { scope, imageUrl }) {
       for (const line of split.lines) {
         const raw = parseLine(line.text);
         const at = linesStart + line.start;
-        entries.push({ slim: slimEntry(raw, scope, (n) => imageUrl(at, n)), link: linkOf(raw) });
+        const slim = slimEntry(raw, scope, (n) => imageUrl(at, n));
+        entries.push({ slim: slim === undefined ? undefined : liteEntry(slim, { at, calls }), link: linkOf(raw) });
       }
     }
   } finally {

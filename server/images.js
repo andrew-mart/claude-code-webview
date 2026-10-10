@@ -1,17 +1,14 @@
 // @ts-check
 // Images in transcript entries. The stream sends links instead of their bytes, the page loads an image when it scrolls
 // into view, and /api/image finds it again: the n-th image of the entry on the line that starts at a given byte.
-import { open } from 'node:fs/promises';
 import { isRecord, text } from '../public/model/narrow.js';
+import { readLineAt } from './tail.js';
 
 /**
  * Only raster images are served: an SVG from the viewer's own address could run a script in its page.
  * @type {ReadonlySet<string>}
  */
 const rasterTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
-const readBytes = 1024 * 1024;
-/** A transcript line longer than this is not an entry the stream could have sent. */
-const maxLineBytes = 64 * 1024 * 1024;
 
 /**
  * @typedef {{ ok: true, mediaType: string, bytes: Buffer } | { ok: false, error: 'not-found' | 'not-raster' }} ImageOutcome
@@ -41,38 +38,6 @@ export async function readImage(path, lineStart, n) {
   if (mediaType === undefined || data === undefined) return { ok: false, error: 'not-found' };
   if (!rasterTypes.has(mediaType)) return { ok: false, error: 'not-raster' };
   return { ok: true, mediaType, bytes: Buffer.from(data, 'base64') };
-}
-
-/**
- * The whole line that starts at the offset; undefined if no line starts there (the offset points inside one).
- * @param {string} path
- * @param {number} lineStart
- * @returns {Promise<string | undefined>}
- */
-async function readLineAt(path, lineStart) {
-  const handle = await open(path, 'r');
-  try {
-    if (lineStart > 0) {
-      const before = Buffer.alloc(1);
-      await handle.read(before, 0, 1, lineStart - 1);
-      if (before[0] !== 0x0a) return undefined;
-    }
-    /** @type {Buffer[]} */
-    const parts = [];
-    for (let position = lineStart, length = 0; length < maxLineBytes; ) {
-      const chunk = Buffer.alloc(readBytes);
-      const { bytesRead } = await handle.read(chunk, 0, readBytes, position);
-      if (bytesRead === 0) return undefined; // the line is not finished yet — the stream has not sent it
-      const end = chunk.subarray(0, bytesRead).indexOf(0x0a);
-      parts.push(chunk.subarray(0, end < 0 ? bytesRead : end));
-      if (end >= 0) return Buffer.concat(parts).toString('utf8');
-      position += bytesRead;
-      length += bytesRead;
-    }
-    return undefined;
-  } finally {
-    await handle.close();
-  }
 }
 
 /**

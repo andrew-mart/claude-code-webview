@@ -110,3 +110,20 @@ test('slimEntry_Should_KeepWhatHeaderShowsEffortAndModelsOfCosts', () => {
   assert.deepEqual(slimEntry(answer, 'main', linkTo), { type: 'assistant', uuid: 'a1', timestamp: at, effort: 'xhigh', message: { role: 'assistant', model: 'm', content: [] } });
   assert.deepEqual(slimEntry(costs, 'main', linkTo), { type: 'cost-state', totalCostUSD: 3.5, modelUsage: { 'claude-opus-4-6[1m]': { costUSD: 3.5 } } });
 });
+
+test('slimEntry_Should_KeepOfMessageOnlyWhatFeedReads', () => {
+  const usage = { input_tokens: 2, cache_creation_input_tokens: 300, cache_read_input_tokens: 4000, output_tokens: 90, iterations: [{ input_tokens: 2 }], service_tier: 'standard' };
+  const answer = {
+    type: 'assistant',
+    uuid: 'a1',
+    timestamp: at,
+    message: { id: 'msg_1', type: 'message', role: 'assistant', model: 'm', content: [{ type: 'text', text: 'Done' }], usage, container: null, input_transformations: [{ kind: 'huge' }], context_management: null },
+  };
+
+  assert.deepEqual(slimEntry(answer, 'main', linkTo)?.message, {
+    role: 'assistant',
+    model: 'm',
+    content: [{ type: 'text', text: 'Done' }],
+    usage: { input_tokens: 2, cache_creation_input_tokens: 300, cache_read_input_tokens: 4000 },
+  });
+});

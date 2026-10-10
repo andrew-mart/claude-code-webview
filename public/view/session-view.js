@@ -16,8 +16,9 @@ import { createToolRow } from './tool-view.js';
  * @typedef {'connecting' | 'missing' | 'idle' | 'working'} SessionStatus
  * @typedef {import('../model/bookmarks.js').Bookmark} Anchor — a message one can come back to: a prompt, an answer, a subagent report
  * @typedef {{ onMeta: (meta: SessionMeta) => void, onStatus: (status: SessionStatus) => void, onPrompt: (prompt: Anchor) => void, onReset: () => void }} SessionListener
- * @typedef {{ anchor: (anchor: Anchor, content: HTMLElement) => HTMLElement, onPrompt: (prompt: Anchor) => void }} FeedHooks
- * @typedef {{ element: HTMLElement, dispose: () => void, scrollToAnchor: (id: string) => boolean, promptElements: () => readonly HTMLElement[], place: () => ReadingPlace }} MountedSession
+ * @typedef {{ anchor: (anchor: Anchor, content: HTMLElement) => HTMLElement, onPrompt: (prompt: Anchor) => void, loadEntry: import('./tool-view.js').LoadEntry }} FeedHooks
+ * @typedef {{ element: HTMLElement, dispose: () => void, scrollToAnchor: (id: string) => boolean, promptElements: () => readonly HTMLElement[], place: () => ReadingPlace, hasEarlier: () => boolean, loadEarlier: () => Promise<void> }} MountedSession
+ * hasEarlier — the session opened with its latest part, the rest is not loaded; loadEarlier loads it
  * Where the reader is in the feed: at the bottom, following new messages, or at a message — the one at the top of the
  * view, offset px below the view's top edge (negative: partly scrolled past).
  * @typedef {{ kind: 'bottom' } | { kind: 'message', id: string, offset: number }} ReadingPlace
@@ -30,6 +31,11 @@ export const jumpMarginPx = 16;
 const staleMs = 15 * 60_000;
 /** The feed follows new messages only from its very bottom: a line above it, the reader is reading the history. */
 const stickPx = 8;
+/**
+ * How many of the latest entries a session opens with — hours of work; the earlier ones load on request. A phone lays
+ * out a few thousand entries for seconds, so it starts with fewer.
+ */
+const initialTail = { wide: 2000, narrow: 800 };
 
 /**
  * @param {{ scroller: HTMLElement, sessionId: string, agentId: string | undefined, bookmarks: import('./bookmark-store.js').BookmarkStore | undefined, onRewind: ((prompt: Anchor) => void) | undefined, listener: SessionListener, startAt: ReadingPlace | undefined }} options
@@ -41,13 +47,31 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   // The history arrives in batches of a thousand entries: laid out after each, a long session would be laid out again
   // and again as it grows. It stays hidden until the whole history is in, then is shown once, at the bottom.
   const thread = h('div', { className: 'thread', attrs: { hidden: '' } });
+  // Meanwhile the reader sees that it loads, and how far it got.
+  const loadingCount = h('span', { className: 'loading-count' });
+  const loading = h('div', { className: 'loading', attrs: { role: 'status' } }, [h('span', { className: 'spark', text: '✻' }), h('span', { text: 'Loading the session…' }), loadingCount]);
+  // A long session opens with its latest part; the rest comes on request.
+  const earlier = h('button', { className: 'earlier', attrs: { type: 'button', hidden: '' } });
   const working = h('div', { className: 'working', attrs: { hidden: '' } }, [h('span', { className: 'spark', text: '✻' }), h('span', { text: 'Working…' })]);
   const jump = h('button', { className: 'jump', title: 'Jump to the latest message', attrs: { type: 'button', hidden: '' } }, [icon('down')]);
-  const element = h('div', { className: 'session' }, [thread, working, jump]);
+  const element = h('div', { className: 'session' }, [earlier, thread, loading, working, jump]);
   const anchors = createAnchors(bookmarks, onRewind);
   /** @type {HTMLElement[]} */
   const prompts = [];
+  /**
+   * A whole entry of this session's transcript, for a tool row whose output the stream left out.
+   * @param {number} full — where the entry's line starts
+   * @returns {Promise<unknown>}
+   */
+  const loadEntry = async (full) => {
+    const query = new URLSearchParams({ session: sessionId, at: String(full) });
+    if (agentId !== undefined) query.set('agent', agentId);
+    const response = await fetch(`/api/entry?${query}`);
+    if (!response.ok) throw new Error(`The viewer server gave no entry at ${full} of session ${sessionId}: ${response.status}`);
+    return response.json();
+  };
   const feed = createFeed(thread, sessionId, {
+    loadEntry,
     anchor: anchors.decorate,
     onPrompt(prompt) {
       const promptElement = anchors.find(prompt.id);
@@ -65,11 +89,9 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   /** @type {SessionMeta} */
   let meta = {};
   let ready = false;
-  let opened = false;
-
-  const query = new URLSearchParams({ session: sessionId });
-  if (agentId !== undefined) query.set('agent', agentId);
-  const source = new EventSource(`/api/stream?${query}`);
+  let received = 0;
+  /** @type {(() => void)[]} */
+  let onReady = [];
 
   const nearBottom = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= stickPx;
   const toBottom = () => {
@@ -89,44 +111,89 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     listener.onStatus(ready ? (live ? 'working' : 'idle') : 'connecting');
   };
 
-  source.addEventListener('open', () => {
-    // Reconnect: the server sends the transcript again from the start.
-    if (opened) {
-      // the reader stays where they were once the history is in again
-      resumeAt = currentPlace();
-      resetFeed();
-      meta = {};
-      ready = false;
-      thread.hidden = true;
-    }
-    opened = true;
-  });
-  source.addEventListener('entries', (message) => {
-    const update = feed.apply(JSON.parse(message.data));
-    if (Object.keys(update).length > 0) {
-      meta = { ...meta, ...update };
-      listener.onMeta(meta);
-    }
-    if (ready && stuck) toBottom();
-    if (ready) refreshStatus();
-  });
-  source.addEventListener('ready', () => {
-    ready = true;
-    thread.hidden = false;
-    const returned = resumeAt?.kind === 'message' && returnTo(resumeAt);
-    resumeAt = undefined;
-    stuck = !returned;
-    if (stuck) toBottom();
-    jump.hidden = stuck;
-    refreshStatus();
-  });
-  source.addEventListener('reset', () => {
+  /** The feed starts over: the reader stays where they were once the history is in again. */
+  const startOver = () => {
+    resumeAt = currentPlace();
     resetFeed();
     meta = {};
-  });
-  source.addEventListener('missing', () => {
-    listener.onStatus('missing');
-  });
+    ready = false;
+    received = 0;
+    thread.hidden = true;
+    earlier.hidden = true;
+    loading.hidden = false;
+    loadingCount.textContent = '';
+  };
+  /**
+   * @param {number | undefined} tail — how many of the latest entries to start with; undefined — the whole session
+   * @returns {EventSource}
+   */
+  const connect = (tail) => {
+    const query = new URLSearchParams({ session: sessionId });
+    if (agentId !== undefined) query.set('agent', agentId);
+    if (tail !== undefined) query.set('tail', String(tail));
+    const next = new EventSource(`/api/stream?${query}`);
+    let opened = false;
+    next.addEventListener('open', () => {
+      // Reconnect: the server sends the transcript again from the start.
+      if (opened) startOver();
+      opened = true;
+    });
+    next.addEventListener('earlier', (message) => {
+      const count = Number(JSON.parse(message.data)?.count);
+      earlier.textContent = `Show ${count.toLocaleString('en-US')} earlier entries`;
+      earlier.hidden = !(count > 0);
+    });
+    next.addEventListener('entries', (message) => {
+      const entries = JSON.parse(message.data);
+      const update = feed.apply(entries);
+      if (Object.keys(update).length > 0) {
+        meta = { ...meta, ...update };
+        listener.onMeta(meta);
+      }
+      if (!ready && Array.isArray(entries)) {
+        received += entries.length;
+        loadingCount.textContent = `${received.toLocaleString('en-US')} entries`;
+      }
+      if (ready && stuck) toBottom();
+      if (ready) refreshStatus();
+    });
+    next.addEventListener('ready', () => {
+      ready = true;
+      thread.hidden = false;
+      loading.hidden = true;
+      const returned = resumeAt?.kind === 'message' && returnTo(resumeAt);
+      resumeAt = undefined;
+      stuck = !returned;
+      if (stuck) toBottom();
+      jump.hidden = stuck;
+      refreshStatus();
+      const waiting = onReady;
+      onReady = [];
+      for (const resolve of waiting) resolve();
+    });
+    next.addEventListener('reset', () => {
+      resetFeed();
+      meta = {};
+      earlier.hidden = true;
+    });
+    next.addEventListener('missing', () => {
+      loading.hidden = true;
+      listener.onStatus('missing');
+    });
+    return next;
+  };
+  let source = connect(matchMedia('(max-width: 820px)').matches ? initialTail.narrow : initialTail.wide);
+  /**
+   * The whole session, the reader staying at the message they were at.
+   * @returns {Promise<void>} — once it is in
+   */
+  const loadEarlier = () => {
+    source.close();
+    startOver();
+    source = connect(undefined);
+    return new Promise((resolve) => onReady.push(resolve));
+  };
+  earlier.addEventListener('click', () => void loadEarlier());
   // Scrolling up lets go of the bottom and shows the button back to it; reaching the bottom sticks to it again.
   const onScroll = () => {
     if (!ready) return;
@@ -166,6 +233,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     element,
     dispose() {
       source.close();
+      onReady = [];
       clearInterval(timer);
       document.removeEventListener(activityModeEvent, relayout);
       scroller.removeEventListener('scroll', onScroll);
@@ -187,6 +255,8 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
       return true;
     },
     promptElements: () => prompts,
+    hasEarlier: () => !earlier.hidden,
+    loadEarlier,
     place: currentPlace,
   };
 }
@@ -333,7 +403,7 @@ function createFeed(thread, sessionId, hooks) {
         break;
       }
       case 'tool-call': {
-        const row = createToolRow(event, openSubagent);
+        const row = createToolRow(event, { openSubagent, loadEntry: hooks.loadEntry });
         const group = currentActivity();
         tools.set(event.id, { row, group });
         group.appendTool(row);

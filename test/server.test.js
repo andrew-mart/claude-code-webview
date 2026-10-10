@@ -435,11 +435,12 @@ const answerLine = (uuid, parentUuid) =>
 /**
  * @param {string} base
  * @param {import('node:test').TestContext} t
+ * @param {string} [query] - more of the query string, from "&"
  */
-async function openStream(base, t) {
+async function openStream(base, t, query = '') {
   const controller = new AbortController();
   t.after(() => controller.abort());
-  const response = await fetch(`${base}/api/stream?session=${sessionId}`, { signal: controller.signal });
+  const response = await fetch(`${base}/api/stream?session=${sessionId}${query}`, { signal: controller.signal });
   assert.ok(response.body);
   return sseEvents(response.body);
 }
@@ -541,4 +542,32 @@ test('sessions_Should_SendOnlySessionsChangedSinceVersionPageHas', async (t) => 
 
   assert.deepEqual([first.sessions.map((/** @type {{ id: string }} */ session) => session.id), quiet.sessions, written.sessions.map((/** @type {{ id: string }} */ session) => session.id)], [[sessionId], [], [sessionId]]);
   assert.equal(written.total, 1);
+});
+
+test('stream_Should_SendOnlyLatestEntriesOfLongSessionAndCountEarlierOnes', async (t) => {
+  const { file, base } = await withServer(t);
+  await appendFile(file, answerLine('a1', 'u1') + childPrompt('p2', 'a1', 'Second question') + answerLine('a2', 'p2'));
+
+  const next = await openStream(base, t, '&tail=2');
+
+  assert.deepEqual(await next(), { event: 'earlier', data: { count: 2 } });
+  assert.deepEqual(uuids(await next()), ['p2', 'a2']);
+  assert.equal((await next()).event, 'ready');
+});
+
+test('entry_Should_GiveWholeEntryWhoseToolOutputTheStreamLeftOut', async (t) => {
+  const { file, base } = await withServer(t);
+  const output = 'x'.repeat(5000);
+  const readCall = { type: 'assistant', uuid: 'c1', parentUuid: 'u1', timestamp: at, message: { role: 'assistant', model: 'm', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: 'D:\\x\\a.cs' } }] } };
+  const readResult = { type: 'user', uuid: 'r1', parentUuid: 'c1', timestamp: at, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: output }] }, toolUseResult: { type: 'text', file: { filePath: 'D:\\x\\a.cs', content: output, numLines: 120 } } };
+  await appendFile(file, `${JSON.stringify(readCall)}\n${JSON.stringify(readResult)}\n`);
+  const next = await openStream(base, t);
+  const lite = (await next()).data.find((/** @type {{ uuid: string }} */ entry) => entry.uuid === 'r1');
+
+  const whole = await (await fetch(`${base}/api/entry?session=${sessionId}&at=${lite.full}`)).json();
+  const inside = await fetch(`${base}/api/entry?session=${sessionId}&at=${lite.full + 1}`);
+
+  assert.equal(lite.message.content[0].deferred.meta, '120 lines');
+  assert.deepEqual([whole.toolUseResult.file.numLines, whole.message.content[0].content], [120, output]);
+  assert.equal(inside.status, 404);
 });

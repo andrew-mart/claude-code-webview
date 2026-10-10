@@ -1,6 +1,7 @@
 // @ts-check
 // Tool call row: collapsed to a single line; the body is built on first expand.
-import { diffRows, summarizeCall, summarizeResult } from '../model/tool.js';
+import { diffRows, firstChangedLine, summarizeCall, summarizeResult } from '../model/tool.js';
+import { interpretEntry } from '../model/entry.js';
 import { isRecord, text } from '../model/narrow.js';
 import { h, inlineImage } from './dom.js';
 import { fileLink } from './file-links.js';
@@ -12,6 +13,7 @@ import { codeFrame, highlightInto, languageOfPath, renderMarkdown } from './mark
  * @typedef {import('../model/entry.js').ToolResultEvent} ToolResultEvent
  * @typedef {import('../model/entry.js').TaskNotificationEvent} TaskNotificationEvent
  * @typedef {(toolUseId: string, holder: HTMLElement) => void} OpenSubagent
+ * @typedef {(full: number) => Promise<unknown>} LoadEntry — the whole transcript entry on the line that starts at full
  * @typedef {'pending' | 'done' | 'error'} ToolState
  * @typedef {{ mount: () => HTMLDetailsElement, family: import('../model/tool.js').ToolFamily, state: () => ToolState, applyResult: (result: ToolResultEvent) => void, applyNotification: (event: TaskNotificationEvent) => void }} ToolRow — mount: the row's element, built the first time it is shown: a folded group of calls costs no DOM
  */
@@ -20,10 +22,10 @@ const shownLines = 400;
 
 /**
  * @param {ToolCallEvent} call
- * @param {OpenSubagent} openSubagent
+ * @param {{ openSubagent: OpenSubagent, loadEntry: LoadEntry }} deps
  * @returns {ToolRow}
  */
-export function createToolRow(call, openSubagent) {
+export function createToolRow(call, { openSubagent, loadEntry }) {
   const summary = summarizeCall(call.name, call.input);
   /** @type {ToolResultEvent | undefined} */
   let result;
@@ -32,19 +34,52 @@ export function createToolRow(call, openSubagent) {
   let metaText = '';
   /** @type {BuiltRow | undefined} */
   let built;
+  // The call and its result whole, for the body: the stream may have sent them without their big parts.
+  /** @type {ToolCallEvent | undefined} */
+  let wholeCall = call.full === undefined ? call : undefined;
+  /** @type {ToolResultEvent | undefined} */
+  let wholeResult;
+  let loading = false;
+  /** @param {import('../model/entry.js').DisplayEvent} event @returns {event is ToolCallEvent} */
+  const isThisCall = (event) => event.kind === 'tool-call' && event.id === call.id;
+  /** @param {import('../model/entry.js').DisplayEvent} event @returns {event is ToolResultEvent} */
+  const isThisResult = (event) => event.kind === 'tool-result' && event.toolUseId === call.id;
 
+  const loadWhole = async () => {
+    if (wholeCall === undefined && call.full !== undefined) wholeCall = findEvent(await loadEntry(call.full), isThisCall) ?? call;
+    const deferred = result?.deferred;
+    if (wholeResult === undefined && deferred !== undefined) wholeResult = findEvent(await loadEntry(deferred.full), isThisResult) ?? result;
+  };
   const render = () => {
     if (built === undefined) return;
-    built.body.replaceChildren(...toolBody(call, result, openSubagent));
-    built.rendered = true;
+    const row = built;
+    row.rendered = true;
+    const resultShown = result?.deferred === undefined ? result : wholeResult;
+    if (wholeCall !== undefined && (result === undefined || resultShown !== undefined)) {
+      row.body.replaceChildren(...toolBody(wholeCall, resultShown, openSubagent));
+      return;
+    }
+    row.body.replaceChildren(h('div', { className: 'tool-loading', text: 'Loading…' }));
+    if (loading) return;
+    loading = true;
+    loadWhole().then(
+      () => {
+        loading = false;
+        render();
+      },
+      () => {
+        loading = false;
+        row.body.replaceChildren(h('div', { className: 'tool-loading', text: 'Could not load the output — the viewer server did not answer.' }));
+      },
+    );
   };
   // What the result says goes onto the row once it is built; the changed line of an edit takes a diff, so only a row
-  // someone can see pays for it.
+  // someone can see pays for it — or the server worked it out already, when it left the output out.
   const show = () => {
     if (built === undefined) return;
     built.element.dataset.state = state;
     built.meta.textContent = metaText;
-    const changed = result === undefined ? undefined : firstChangedLine(diffRows(call.name, call.input, result.details));
+    const changed = result === undefined ? undefined : result.deferred !== undefined ? result.deferred.line : firstChangedLine(diffRows(call.name, call.input, result.details));
     if (built.target instanceof HTMLAnchorElement && changed !== undefined) built.target.setAttribute('data-line', String(changed));
   };
 
@@ -66,7 +101,8 @@ export function createToolRow(call, openSubagent) {
     applyResult(event) {
       result = event;
       state = event.isError ? 'error' : 'done';
-      metaText = summarizeResult(call.name, { isError: event.isError, details: event.details }) ?? '';
+      const summarized = event.deferred !== undefined ? event.deferred.meta : summarizeResult(call.name, { isError: event.isError, details: event.details });
+      metaText = summarized ?? '';
       show();
       if (built !== undefined && (built.rendered || built.element.open)) render();
     },
@@ -81,6 +117,17 @@ export function createToolRow(call, openSubagent) {
 /**
  * @typedef {{ element: HTMLDetailsElement, meta: HTMLElement, target: HTMLElement, body: HTMLElement, rendered: boolean }} BuiltRow
  */
+
+/**
+ * The event of a whole entry that the row needs.
+ * @template {import('../model/entry.js').DisplayEvent} T
+ * @param {unknown} raw — the whole entry
+ * @param {(event: import('../model/entry.js').DisplayEvent) => event is T} wanted
+ * @returns {T | undefined}
+ */
+function findEvent(raw, wanted) {
+  return interpretEntry(raw).find(wanted);
+}
 
 /**
  * The row's elements: one line with the tool, its target and the result's summary; the body stays empty until opened.
@@ -122,16 +169,6 @@ function targetElement(call, label) {
 }
 
 const fileTools = new Set(['Read', 'Edit', 'MultiEdit', 'Write', 'NotebookRead', 'NotebookEdit']);
-
-/**
- * The first changed line of an edit — the panel opens the file there after Edit.
- * @param {readonly import('../model/tool.js').DiffRow[] | undefined} rows
- * @returns {number | undefined}
- */
-function firstChangedLine(rows) {
-  const row = rows?.find((candidate) => candidate.kind === 'add' || candidate.kind === 'del');
-  return row?.newNo ?? row?.oldNo;
-}
 
 /**
  * @param {ToolCallEvent} call

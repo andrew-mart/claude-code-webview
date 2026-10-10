@@ -209,6 +209,16 @@ export function summarizeResult(name, result) {
 }
 
 /**
+ * The first changed line of an edit — the panel opens the file there after Edit.
+ * @param {readonly DiffRow[] | undefined} rows
+ * @returns {number | undefined}
+ */
+export function firstChangedLine(rows) {
+  const row = rows?.find((candidate) => candidate.kind === 'add' || candidate.kind === 'del');
+  return row?.newNo ?? row?.oldNo;
+}
+
+/**
  * @param {readonly DiffRow[]} rows
  * @returns {string | undefined}
  */
