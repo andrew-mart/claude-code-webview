@@ -9,8 +9,11 @@ import { isRecord, text } from '../public/model/narrow.js';
 /**
  * interactive — someone works in it (a terminal, an IDE); sdk — a program drives it through the Agent SDK or claude -p.
  * @typedef {'interactive' | 'sdk'} SessionKind
- * @typedef {{ title: string | undefined, cwd: string | undefined, branch: string | undefined, kind: SessionKind }} SessionSummary
- * @typedef {{ id: string, project: string, title: string | undefined, cwd: string | undefined, branch: string | undefined, kind: SessionKind, modifiedAt: number, size: number }} SessionInfo
+ * lastActivity — when the last prompt or answer was written; the file's own time moves also when Claude Code adds
+ * service records to an old session (a summary on restart, a bridge note)
+ * @typedef {{ title: string | undefined, cwd: string | undefined, branch: string | undefined, kind: SessionKind, lastActivity: number | undefined }} SessionSummary
+ * activeAt — the last prompt or answer; the file's time while that is not known yet
+ * @typedef {{ id: string, project: string, title: string | undefined, cwd: string | undefined, branch: string | undefined, kind: SessionKind, modifiedAt: number, size: number, activeAt: number }} SessionInfo
  * @typedef {{ agentId: string, toolUseId: string | undefined, agentType: string | undefined, description: string | undefined }} SubagentInfo
  * @typedef {{ path: string, project: string, id: string, modifiedAt: number, size: number }} SessionFile
  */
@@ -21,7 +24,7 @@ const tailBytes = 64 * 1024;
 const maxTailBytes = 4 * 1024 * 1024;
 const summaryBatch = 16;
 /** @type {SessionSummary} */
-const unknownSummary = { title: undefined, cwd: undefined, branch: undefined, kind: 'interactive' };
+const unknownSummary = { title: undefined, cwd: undefined, branch: undefined, kind: 'interactive', lastActivity: undefined };
 
 /**
  * Session index with a summary cache: a file is reread only if its size or modification time changed.
@@ -68,11 +71,14 @@ export function createSessionIndex(root, { summaryBudgetMs }) {
     for (let start = 0; start < stale.length && (start === 0 || Date.now() < deadline); start += summaryBatch) {
       await Promise.all(stale.slice(start, start + summaryBatch).map((file) => summarize(file, version)));
     }
-    return files.map((file) => {
+    const all = files.map((file) => {
       const cached = cachedSummary(file);
-      const info = { ...omitPath(file), ...(cached === undefined ? unknownSummary : cached.summary) };
+      const { lastActivity, ...summary } = cached === undefined ? unknownSummary : cached.summary;
+      const info = { ...omitPath(file), ...summary, activeAt: lastActivity === undefined ? file.modifiedAt : lastActivity };
       return { info, changedAt: cached === undefined ? file.modifiedAt : Math.max(file.modifiedAt, cached.summarizedAt) };
     });
+    // Latest activity first: a session Claude Code merely touched does not jump above the ones being worked in.
+    return all.sort((a, b) => b.info.activeAt - a.info.activeAt);
   }
 
   /**
@@ -160,9 +166,9 @@ async function sessionFiles(root) {
 }
 
 /**
- * The start and end of the file: the start holds the first prompt, the end the latest title and folder.
- * The last lines can be huge (a base64 screenshot), so the tail window grows
- * until it contains a whole entry with a folder.
+ * The start and end of the file: the start holds the first prompt, the end the latest title, folder and message.
+ * The last lines can be huge (a base64 screenshot), and an old session can end with screens of service records, so
+ * the tail window grows until it contains a whole prompt or answer.
  * @param {string} path
  * @param {number} size
  * @returns {Promise<string[]>}
@@ -179,7 +185,7 @@ async function edgeLines(path, size) {
       await handle.read(tail, 0, tail.length, size - tail.length);
       // The window's first line is almost always cut off — skip it.
       const tailLines = tail.toString('utf8').split('\n').slice(1);
-      const found = tailLines.some((line) => line.includes('"cwd":'));
+      const found = tailLines.some((line) => line.includes('"type":"user"') || line.includes('"type":"assistant"'));
       if (found || tail.length === size - headBytes || window >= maxTailBytes) return [...headLines, ...tailLines];
     }
   } finally {
@@ -231,13 +237,16 @@ async function exists(path) {
  * @returns {SessionSummary}
  */
 export function summarizeSession(lines) {
-  /** @type {{ custom: string | undefined, ai: string | undefined, prompt: string | undefined, cwd: string | undefined, branch: string | undefined, sdk: boolean, interactive: boolean }} */
-  const seen = { custom: undefined, ai: undefined, prompt: undefined, cwd: undefined, branch: undefined, sdk: false, interactive: false };
+  /** @type {{ custom: string | undefined, ai: string | undefined, prompt: string | undefined, cwd: string | undefined, branch: string | undefined, sdk: boolean, interactive: boolean, lastActivity: number | undefined }} */
+  const seen = { custom: undefined, ai: undefined, prompt: undefined, cwd: undefined, branch: undefined, sdk: false, interactive: false, lastActivity: undefined };
   for (const line of lines) {
     const raw = parse(line);
     if (!isRecord(raw)) continue;
     seen.cwd = text(raw.cwd) ?? seen.cwd;
     seen.branch = text(raw.gitBranch) ?? seen.branch;
+    const stamp = raw.type === 'user' || raw.type === 'assistant' ? text(raw.timestamp) : undefined;
+    const written = stamp === undefined ? Number.NaN : Date.parse(stamp);
+    if (!Number.isNaN(written) && (seen.lastActivity === undefined || written > seen.lastActivity)) seen.lastActivity = written;
     const entrypoint = text(raw.entrypoint);
     if (entrypoint !== undefined && entrypoint.startsWith('sdk')) seen.sdk = true;
     if (entrypoint !== undefined && !entrypoint.startsWith('sdk')) seen.interactive = true;
@@ -247,7 +256,7 @@ export function summarizeSession(lines) {
       if (event.kind === 'prompt' && seen.prompt === undefined && event.text !== '') seen.prompt = event.text.split('\n', 1)[0];
     }
   }
-  return { title: seen.custom ?? seen.ai ?? seen.prompt, cwd: seen.cwd, branch: seen.branch, kind: seen.sdk && !seen.interactive ? 'sdk' : 'interactive' };
+  return { title: seen.custom ?? seen.ai ?? seen.prompt, cwd: seen.cwd, branch: seen.branch, kind: seen.sdk && !seen.interactive ? 'sdk' : 'interactive', lastActivity: seen.lastActivity };
 }
 
 /**

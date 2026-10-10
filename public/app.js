@@ -18,7 +18,8 @@ import { icon } from './view/icons.js';
 import { activityModeEvent, jumpMarginPx, mountSession } from './view/session-view.js';
 
 /**
- * @typedef {{ id: string, project: string, title: string | undefined, cwd: string | undefined, branch: string | undefined, kind: 'interactive' | 'sdk', modifiedAt: number, size: number }} SessionInfo
+ * activeAt — the session's last prompt or answer
+ * @typedef {{ id: string, project: string, title: string | undefined, cwd: string | undefined, branch: string | undefined, kind: 'interactive' | 'sdk', modifiedAt: number, size: number, activeAt: number }} SessionInfo
  * @typedef {import('./model/view-settings.js').SettingKey} SettingKey
  */
 
@@ -108,8 +109,8 @@ function createPage() {
     const elements = listed(search.value).map((session) => {
       const title = session.title ?? 'Untitled';
       const folder = folderName(session.cwd ?? session.project);
-      const ago = formatAgo(session.modifiedAt, now);
-      const active = now - session.modifiedAt < activeMs;
+      const ago = formatAgo(session.activeAt, now);
+      const active = now - session.activeAt < activeMs;
       const selected = session.id === current?.id;
       const look = [title, folder, ago, active, selected].join('\u0000');
       const known = items.get(session.id);
@@ -493,9 +494,9 @@ function parseSessions(json) {
   return json.filter(isRecord).flatMap((item) => {
     const id = text(item.id);
     const project = text(item.project);
-    if (id === undefined || project === undefined || typeof item.modifiedAt !== 'number' || typeof item.size !== 'number') return [];
+    if (id === undefined || project === undefined || typeof item.modifiedAt !== 'number' || typeof item.size !== 'number' || typeof item.activeAt !== 'number') return [];
     const kind = item.kind === 'sdk' ? 'sdk' : 'interactive';
-    return [{ id, project, title: text(item.title), cwd: text(item.cwd), branch: text(item.branch), kind, modifiedAt: item.modifiedAt, size: item.size }];
+    return [{ id, project, title: text(item.title), cwd: text(item.cwd), branch: text(item.branch), kind, modifiedAt: item.modifiedAt, size: item.size, activeAt: item.activeAt }];
   });
 }
 

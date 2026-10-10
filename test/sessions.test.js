@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { appendFile, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSessionIndex, summarizeSession } from '../server/sessions.js';
@@ -31,7 +31,19 @@ test('summarizeSession_Should_FallBackToFirstPromptLineAndTakeLatestCwd', () => 
     '{"broken line',
   ];
 
-  assert.deepEqual(summarizeSession(lines), { title: 'Build a viewer', cwd: 'C:\\projects\\blog', branch: 'master', kind: 'interactive' });
+  assert.deepEqual(summarizeSession(lines), { title: 'Build a viewer', cwd: 'C:\\projects\\blog', branch: 'master', kind: 'interactive', lastActivity: Date.parse(at) });
+});
+
+test('summarizeSession_Should_TakeLastActivityFromMessagesNotFromServiceRecords', () => {
+  const lines = [
+    line({ type: 'user', uuid: 'q', timestamp: '2026-10-05T10:00:00.000Z', cwd: 'D:\\dev\\a', message: { role: 'user', content: 'Question' } }),
+    line({ type: 'assistant', uuid: 'r', timestamp: '2026-10-05T10:02:00.000Z', cwd: 'D:\\dev\\a', message: { role: 'assistant', model: 'm', content: [] } }),
+    // Claude Code adds records like these to old sessions days later, when it restarts
+    line({ type: 'system', subtype: 'away_summary', timestamp: '2026-10-10T17:21:00.000Z', cwd: 'D:\\dev\\a', content: 'Summary' }),
+    line({ type: 'bridge-session', timestamp: '2026-10-10T17:21:01.000Z' }),
+  ];
+
+  assert.equal(summarizeSession(lines).lastActivity, Date.parse('2026-10-05T10:02:00.000Z'));
 });
 
 /**
@@ -116,4 +128,30 @@ test('changes_Should_BringSummariesMadeOnLaterCallsAndOnlyThem', async () => {
   assert.equal(first.sessions.filter((session) => session.title !== undefined).length, 16);
   assert.equal(second.sessions.length, 4);
   assert.ok(second.sessions.every((session) => session.title !== undefined));
+});
+
+test('list_Should_PutSessionWithLatestMessageFirstWhateverTheFileTime', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'csv-'));
+  await mkdir(join(root, 'D--dev-a'));
+  const message = (/** @type {string} */ text, /** @type {string} */ timestamp) => line({ type: 'user', uuid: text, timestamp, cwd: 'D:\\dev\\a', message: { role: 'user', content: text } });
+  // written to today, but by service records: its last message is five days old, behind a long talk before it and a
+  // screenful of service records after it
+  const touched = join(root, 'D--dev-a', '3f2c9a50-1111-4222-8333-000000000001.jsonl');
+  const earlier = Array.from({ length: 300 }, (_, index) => message(`Old talk ${index} ${'y'.repeat(1000)}`, '2026-10-01T10:00:00.000Z'));
+  const service = Array.from({ length: 300 }, () => line({ type: 'system', subtype: 'away_summary', timestamp: '2026-10-10T17:21:00.000Z', cwd: 'D:\\dev\\a', content: 'x'.repeat(400) }));
+  await writeFile(touched, `${[...earlier, message('Last word', '2026-10-05T10:00:00.000Z'), ...service].join('\n')}\n`);
+  // its file is older, its last message newer
+  const recent = join(root, 'D--dev-a', '3f2c9a50-1111-4222-8333-000000000002.jsonl');
+  await writeFile(recent, `${message('Recent talk', '2026-10-08T10:00:00.000Z')}\n`);
+  await utimes(recent, new Date('2026-10-08T10:00:00Z'), new Date('2026-10-08T10:00:00Z'));
+
+  const sessions = await createSessionIndex(root, { summaryBudgetMs: 1000 }).list();
+
+  assert.deepEqual(
+    sessions.map((session) => [session.title?.slice(0, 10), session.activeAt]),
+    [
+      ['Recent tal', Date.parse('2026-10-08T10:00:00.000Z')],
+      ['Old talk 0', Date.parse('2026-10-05T10:00:00.000Z')],
+    ],
+  );
 });

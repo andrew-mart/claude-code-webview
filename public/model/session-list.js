@@ -18,13 +18,13 @@ export function listedSessions(sessions, { sdk, search }) {
 
 /**
  * The list the page knows, with the sessions that changed since: a changed one replaces its old copy, a new one
- * joins; the latest come first.
- * @template {{ id: string, modifiedAt: number }} T
+ * joins; the latest activity comes first.
+ * @template {{ id: string, activeAt: number }} T
  * @param {readonly T[]} known
  * @param {readonly T[]} changed
  * @returns {T[]}
  */
 export function mergeSessions(known, changed) {
   const fresh = new Set(changed.map((session) => session.id));
-  return [...changed, ...known.filter((session) => !fresh.has(session.id))].sort((a, b) => b.modifiedAt - a.modifiedAt);
+  return [...changed, ...known.filter((session) => !fresh.has(session.id))].sort((a, b) => b.activeAt - a.activeAt);
 }
