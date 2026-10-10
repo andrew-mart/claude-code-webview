@@ -526,3 +526,19 @@ test('branch_Should_ReadBranchCheckedOutInSessionFolderNotOneTranscriptRecorded'
 
   assert.deepEqual(await response.json(), { branch: 'feat/header' });
 });
+
+test('sessions_Should_SendOnlySessionsChangedSinceVersionPageHas', async (t) => {
+  const { file, base } = await withServer(t);
+  /** @param {string} since */
+  const changes = async (since) => (await fetch(`${base}/api/sessions?since=${since}`)).json();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  const first = await changes('');
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const quiet = await changes(String(first.version));
+  await appendFile(file, promptLine('u2', 'Next question'));
+  const written = await changes(String(quiet.version));
+
+  assert.deepEqual([first.sessions.map((/** @type {{ id: string }} */ session) => session.id), quiet.sessions, written.sessions.map((/** @type {{ id: string }} */ session) => session.id)], [[sessionId], [], [sessionId]]);
+  assert.equal(written.total, 1);
+});

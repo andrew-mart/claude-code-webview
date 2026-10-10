@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSessionIndex, summarizeSession } from '../server/sessions.js';
@@ -75,4 +75,45 @@ test('list_Should_ListEverySessionAndSummarizeRestOnLaterCalls', async () => {
   assert.equal(first.length, 20);
   assert.equal(first.filter((session) => session.title !== undefined).length, 16);
   assert.equal(second.filter((session) => session.title !== undefined).length, 20);
+});
+
+test('changes_Should_GiveOnlySessionsWrittenSinceVersionCallerHas', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'csv-'));
+  await mkdir(join(root, 'D--dev-a'));
+  const quiet = join(root, 'D--dev-a', '3f2c9a50-1111-4222-8333-000000000001.jsonl');
+  const busy = join(root, 'D--dev-a', '3f2c9a50-1111-4222-8333-000000000002.jsonl');
+  await writeFile(quiet, `${prompt('Quiet one', 'D:\\dev\\a')}\n`);
+  await writeFile(busy, `${prompt('Busy one', 'D:\\dev\\a')}\n`);
+  const index = createSessionIndex(root, { summaryBudgetMs: 1000 });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  const first = await index.changes(undefined);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  await appendFile(busy, `${prompt('Next question', 'D:\\dev\\a')}\n`);
+  const second = await index.changes(first.version);
+
+  assert.deepEqual(first.sessions.map((session) => session.title).sort(), ['Busy one', 'Quiet one']);
+  assert.deepEqual(second.sessions.map((session) => session.title), ['Busy one']);
+  assert.equal(second.total, 2);
+});
+
+test('changes_Should_BringSummariesMadeOnLaterCallsAndOnlyThem', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'csv-'));
+  await mkdir(join(root, 'D--dev-a'));
+  for (let index = 0; index < 20; index++) {
+    const id = `3f2c9a50-1111-4222-8333-${String(index).padStart(12, '0')}`;
+    await writeFile(join(root, 'D--dev-a', `${id}.jsonl`), `${prompt(`Question ${index}`, 'D:\\dev\\a')}\n`);
+  }
+  const index = createSessionIndex(root, { summaryBudgetMs: 0 });
+  // a file written in the very millisecond the version is taken comes once more — harmless, but not what is tested
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  const first = await index.changes(undefined);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const second = await index.changes(first.version);
+
+  // the first call summarizes one batch of 16; the other four come with the second, titled
+  assert.equal(first.sessions.filter((session) => session.title !== undefined).length, 16);
+  assert.equal(second.sessions.length, 4);
+  assert.ok(second.sessions.every((session) => session.title !== undefined));
 });

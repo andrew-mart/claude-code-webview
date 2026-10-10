@@ -3,7 +3,7 @@
 import { formatAgo } from './model/format.js';
 import { isRecord, text } from './model/narrow.js';
 import { currentIndex, stepTarget } from './model/outline.js';
-import { listedSessions } from './model/session-list.js';
+import { listedSessions, mergeSessions } from './model/session-list.js';
 import { actionLabel, choices, nextChoice } from './model/view-settings.js';
 import { createBookmarkStore, moveLocalBookmarksToServer } from './view/bookmark-store.js';
 import { createComposer } from './view/composer-view.js';
@@ -85,7 +85,10 @@ setInterval(() => void page.refresh(), refreshMs);
 function createPage() {
   /** @type {readonly SessionInfo[]} */
   let sessions = [];
-  let listKey = '';
+  /** The version of the list the page has: the next poll asks only for what changed since. */
+  /** @type {number | undefined} */
+  let listVersion;
+  let listMinute = 0;
   /** @type {{ id: string, dispose: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, rewound: (reply: import('./model/rewind.js').RewindReply) => void } | undefined} */
   let current;
   const rewindDialog = createRewindDialog({ onDone: (reply) => current?.rewound(reply) });
@@ -93,23 +96,32 @@ function createPage() {
   /** @param {string} text — the search box text; following ignores it */
   const listed = (text) => listedSessions(sessions, { sdk: showSdk.checked ? 'shown' : 'hidden', search: text });
 
+  // The list is drawn again every time a session changes — every few seconds while Claude works. A session that shows
+  // the same as before keeps its element, and the list is touched only when something in it changed.
+  /** @type {Map<string, { look: string, element: HTMLAnchorElement }>} */
+  const items = new Map();
   const renderList = () => {
     const now = Date.now();
-    const shown = listed(search.value);
-    list.replaceChildren(
-      ...shown.map((session) => {
-        const link = h('a', { className: 'session-item', attrs: { href: `#/${session.id}` } }, [
-          h('span', { className: 'session-title', text: session.title ?? 'Untitled' }),
-          h('span', { className: 'session-sub' }, [
-            h('span', { className: 'session-folder', text: folderName(session.cwd ?? session.project) }),
-            h('span', { text: formatAgo(session.modifiedAt, now) }),
-          ]),
-        ]);
-        if (now - session.modifiedAt < activeMs) link.classList.add('active');
-        if (session.id === current?.id) link.classList.add('selected');
-        return link;
-      }),
-    );
+    const elements = listed(search.value).map((session) => {
+      const title = session.title ?? 'Untitled';
+      const folder = folderName(session.cwd ?? session.project);
+      const ago = formatAgo(session.modifiedAt, now);
+      const active = now - session.modifiedAt < activeMs;
+      const selected = session.id === current?.id;
+      const look = [title, folder, ago, active, selected].join('\u0000');
+      const known = items.get(session.id);
+      if (known !== undefined && known.look === look) return known.element;
+      const link = h('a', { className: 'session-item', attrs: { href: `#/${session.id}` } }, [
+        h('span', { className: 'session-title', text: title }),
+        h('span', { className: 'session-sub' }, [h('span', { className: 'session-folder', text: folder }), h('span', { text: ago })]),
+      ]);
+      link.classList.toggle('active', active);
+      link.classList.toggle('selected', selected);
+      items.set(session.id, { look, element: link });
+      return link;
+    });
+    const unchanged = elements.length === list.children.length && elements.every((element, index) => list.children[index] === element);
+    if (!unchanged) list.replaceChildren(...elements);
   };
 
   /** @param {string} id */
@@ -203,15 +215,20 @@ function createPage() {
       current?.step(direction);
     },
     async refresh() {
-      const response = await fetch('/api/sessions').catch(() => undefined);
+      const response = await fetch(`/api/sessions?since=${listVersion ?? ''}`).catch(() => undefined);
       if (response === undefined || !response.ok) return;
       updateNotice.check(response.headers.get('x-viewer-build'));
-      const body = await response.text();
+      const reply = await response.json().catch(() => undefined);
+      if (!isRecord(reply) || typeof reply.version !== 'number' || typeof reply.total !== 'number') return;
+      const changed = parseSessions(reply.sessions);
+      const merged = listVersion === undefined ? changed : mergeSessions(sessions, changed);
+      // Fewer sessions on the server than here: some were deleted — the next poll takes the whole list again.
+      listVersion = merged.length === reply.total ? reply.version : undefined;
       // Re-render only when the list changed or the minute in the "5m"-style labels rolled over.
-      const key = `${body.length}:${hash(body)}:${Math.floor(Date.now() / 60_000)}`;
-      if (key === listKey) return;
-      listKey = key;
-      sessions = parseSessions(JSON.parse(body));
+      const minute = Math.floor(Date.now() / 60_000);
+      if (changed.length === 0 && minute === listMinute) return;
+      listMinute = minute;
+      sessions = merged;
       renderList();
       const info = sessions.find((session) => session.id === current?.id);
       if (info !== undefined) current?.header.updatePlace(info);
@@ -474,16 +491,6 @@ function parseSessions(json) {
     const kind = item.kind === 'sdk' ? 'sdk' : 'interactive';
     return [{ id, project, title: text(item.title), cwd: text(item.cwd), branch: text(item.branch), kind, modifiedAt: item.modifiedAt, size: item.size }];
   });
-}
-
-/**
- * A short fingerprint of a string, to notice a list change without comparing it in full.
- * @param {string} value
- */
-function hash(value) {
-  let result = 0;
-  for (let index = 0; index < value.length; index++) result = (result * 31 + value.charCodeAt(index)) | 0;
-  return result;
 }
 
 /**

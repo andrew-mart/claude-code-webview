@@ -20,6 +20,7 @@ import { readImage } from './images.js';
 import { rewindTarget } from './rewind.js';
 import { createSessionIndex } from './sessions.js';
 import { streamTranscript } from './stream.js';
+import { createTranscriptCache } from './transcript-cache.js';
 import { parseImages } from './uploads.js';
 
 const publicDir = fileURLToPath(new URL('../public', import.meta.url));
@@ -62,12 +63,13 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
   /** Sessions this page rewound: session id → the prompt rewound to; its branch is hidden before the next prompt shows the fork. */
   /** @type {Map<string, string>} */
   const rewinds = new Map();
+  const transcripts = createTranscriptCache({ maxFiles: cachedTranscripts });
   /** @type {Set<string>} */
   const allowedHosts = new Set();
   /** @type {Set<string>} */
   const allowedOrigins = new Set();
   const server = http.createServer((request, response) => {
-    handle({ index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, uploads, about, build, rewinds }, request, response).catch((error) => {
+    handle({ index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, uploads, about, build, rewinds, transcripts }, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
       if (!response.headersSent) response.writeHead(500).end();
       else response.end();
@@ -90,7 +92,7 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
 }
 
 /**
- * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string> }} Deps
+ * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache }} Deps
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
  */
 
@@ -119,8 +121,13 @@ async function handle(deps, request, response) {
       return sendJson(response, { ...deps.about, pid: process.pid });
     case '/api/live':
       return withSession(url, response, async (id) => sendJson(response, await deps.composer.liveState(id)));
-    case '/api/sessions':
-      return sendJson(response, await deps.index.list());
+    case '/api/sessions': {
+      // ?since=<version from the last reply> — only what changed since; an empty version — everything, with a version.
+      const since = url.searchParams.get('since');
+      if (since === null) return sendJson(response, await deps.index.list());
+      const version = Number(since);
+      return sendJson(response, await deps.index.changes(since === '' || !Number.isFinite(version) ? undefined : version));
+    }
     case '/api/branch':
       // The branch checked out in the session's folder now, for the header.
       return withSession(url, response, async (id) => {
@@ -252,6 +259,9 @@ async function transcriptRecords(deps, sessionId) {
   });
 }
 
+/** Transcripts kept read in memory: the sessions opened lately, switched between. */
+const cachedTranscripts = 8;
+
 /** A body larger than this is not a prompt but something else. */
 const maxBodyBytes = 256 * 1024;
 /** A prompt with attached images: the page shrinks photos before sending, this leaves room for several. */
@@ -331,6 +341,7 @@ async function stream(deps, url, id, request, response) {
     send: (event, data) => out.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
     signal: controller.signal,
     pollMs: deps.pollMs,
+    transcripts: deps.transcripts,
   });
   out.end();
 }

@@ -33,7 +33,9 @@ const nearBottomPx = 120;
  * @returns {MountedSession}
  */
 export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind, listener }) {
-  const thread = h('div', { className: 'thread' });
+  // The history arrives in batches of a thousand entries: laid out after each, a long session would be laid out again
+  // and again as it grows. It stays hidden until the whole history is in, then is shown once, at the bottom.
+  const thread = h('div', { className: 'thread', attrs: { hidden: '' } });
   const working = h('div', { className: 'working', attrs: { hidden: '' } }, [h('span', { className: 'spark', text: '✻' }), h('span', { text: 'Working…' })]);
   const jump = h('button', { className: 'jump', title: 'Jump to the latest message', attrs: { type: 'button', hidden: '' } }, [icon('down')]);
   const element = h('div', { className: 'session' }, [thread, working, jump]);
@@ -88,6 +90,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
       resetFeed();
       meta = {};
       ready = false;
+      thread.hidden = true;
     }
     opened = true;
   });
@@ -103,6 +106,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   source.addEventListener('ready', () => {
     ready = true;
     stuck = true;
+    thread.hidden = false;
     toBottom();
     refreshStatus();
   });
@@ -293,7 +297,7 @@ function createFeed(thread, sessionId, hooks) {
       }
       case 'thinking': {
         const group = currentActivity();
-        group.appendThinking(thinkingRow(event));
+        group.appendThinking(() => thinkingRow(event));
         changed.add(group);
         working = true;
         break;
@@ -407,7 +411,7 @@ function createFeed(thread, sessionId, hooks) {
 }
 
 /**
- * @typedef {{ element: HTMLElement, appendThinking: (row: HTMLElement) => void, appendTool: (row: import('./tool-view.js').ToolRow) => void, refresh: () => void }} ActivityGroup
+ * @typedef {{ element: HTMLElement, appendThinking: (build: () => HTMLElement) => void, appendTool: (row: import('./tool-view.js').ToolRow) => void, refresh: () => void }} ActivityGroup
  */
 
 /**
@@ -422,11 +426,12 @@ function activityMode() {
 export const activityModeEvent = 'viewer:activity-mode';
 
 /**
- * A frame of consecutive thinking and tool calls; layoutActivity decides what is visible in it.
+ * A frame of consecutive thinking and tool calls; layoutActivity decides what is visible in it. A row is built and
+ * put into the page only once it is to be seen: folded away, a long session's thousands of calls cost no DOM.
  * @returns {ActivityGroup}
  */
 function createActivityGroup() {
-  /** @type {{ element: HTMLElement, item: () => import('../model/activity.js').ActivityItem }[]} */
+  /** @type {{ build: () => HTMLElement, element: HTMLElement | undefined, item: () => import('../model/activity.js').ActivityItem }[]} */
   const rows = [];
   let expanded = false;
   const header = h('button', { className: 'activity-header', attrs: { type: 'button' } });
@@ -441,8 +446,11 @@ function createActivityGroup() {
     // Without a header the first visible row is the top of the frame, so it needs no separator line above it.
     const flush = header.hidden ? layout.visible.indexOf(true) : -1;
     rows.forEach((row, index) => {
-      row.element.hidden = layout.visible[index] !== true;
-      row.element.classList.toggle('flush', index === flush);
+      const visible = layout.visible[index] === true;
+      if (!visible && row.element === undefined) return;
+      const shown = row.element ?? place(index, row.build());
+      shown.hidden = !visible;
+      shown.classList.toggle('flush', index === flush);
     });
     element.hidden = layout.header.kind === 'none' && !layout.visible.includes(true);
   };
@@ -451,19 +459,30 @@ function createActivityGroup() {
     refresh();
   });
   /**
+   * Puts a row built just now into the page, before the next row that is already there.
+   * @param {number} index
+   * @param {HTMLElement} built
+   */
+  const place = (index, built) => {
+    const row = rows[index];
+    if (row !== undefined) row.element = built;
+    const next = rows.slice(index + 1).find((later) => later.element !== undefined)?.element;
+    element.insertBefore(built, next ?? null);
+    return built;
+  };
+  /**
    * The caller lays the group out (refresh) once it has added everything it had.
-   * @param {HTMLElement} row
+   * @param {() => HTMLElement} build
    * @param {() => import('../model/activity.js').ActivityItem} item
    */
-  const add = (row, item) => {
-    rows.push({ element: row, item });
-    element.append(row);
+  const add = (build, item) => {
+    rows.push({ build, element: undefined, item });
   };
 
   return {
     element,
-    appendThinking: (row) => add(row, () => ({ kind: 'thinking' })),
-    appendTool: (row) => add(row.element, () => ({ kind: 'tool', family: row.family, state: row.state() })),
+    appendThinking: (build) => add(build, () => ({ kind: 'thinking' })),
+    appendTool: (row) => add(row.mount, () => ({ kind: 'tool', family: row.family, state: row.state() })),
     refresh,
   };
 }
