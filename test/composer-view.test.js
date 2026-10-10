@@ -5,14 +5,14 @@ import { composerState, outcomeMessage, parseLiveState, parseOutcome } from '../
 const sessionId = '3f2c9a50-1111-4222-8333-944455556666';
 
 test('composerState_Should_EnableInputOnlyForSessionRunningInHerdr', () => {
-  assert.deepEqual(composerState({ state: 'live', status: 'idle', pane: 'w3D:p1' }, sessionId), {
+  assert.deepEqual(composerState({ state: 'live', status: 'idle', pane: 'w3D:p1' }, sessionId, 'physical'), {
     shown: true,
     enabled: true,
     canInterrupt: false,
     placeholder: 'Message Claude…',
     hint: "Enter to send, Shift+Enter for a new line. The text goes to the session's terminal (herdr pane w3D:p1).",
   });
-  assert.deepEqual(composerState({ state: 'live', status: 'busy', pane: 'w3D:p1' }, sessionId), {
+  assert.deepEqual(composerState({ state: 'live', status: 'busy', pane: 'w3D:p1' }, sessionId, 'physical'), {
     shown: true,
     enabled: true,
     canInterrupt: true,
@@ -21,8 +21,16 @@ test('composerState_Should_EnableInputOnlyForSessionRunningInHerdr', () => {
   });
 });
 
+test('composerState_Should_ExplainSendingByButtonOnTouchKeyboard', () => {
+  // a phone keyboard has no Shift+Enter: Enter starts a new line, the button sends
+  assert.equal(
+    composerState({ state: 'live', status: 'idle', pane: 'w3D:p1' }, sessionId, 'touch').hint,
+    "The ↑ button sends, Enter starts a new line. The text goes to the session's terminal (herdr pane w3D:p1).",
+  );
+});
+
 test('composerState_Should_HideInputWhenHerdrIsNotInstalled', () => {
-  const view = composerState({ state: 'herdr-missing' }, sessionId);
+  const view = composerState({ state: 'herdr-missing' }, sessionId, 'physical');
 
   assert.equal(view.shown, false);
   assert.equal(view.enabled, false);
@@ -34,7 +42,7 @@ test('composerState_Should_ExplainWhyInputIsUnavailable', () => {
 
   assert.deepEqual(
     states.map((live) => {
-      const view = composerState(live, sessionId);
+      const view = composerState(live, sessionId, 'physical');
       return [view.enabled, view.hint];
     }),
     [

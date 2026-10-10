@@ -9,16 +9,22 @@ import { isRecord, text } from './narrow.js';
  * @typedef {'empty' | 'herdr-missing' | 'offline' | 'no-herdr' | 'outside-herdr' | 'send-failed'} SendRefusal
  * @typedef {{ ok: true, pane: string } | { ok: false, error: SendRefusal }} SendOutcome
  * @typedef {{ shown: boolean, enabled: boolean, canInterrupt: boolean, placeholder: string, hint: string }} ComposerView
+ * @typedef {'physical' | 'touch'} Keyboard
  */
 
-const keysHint = 'Enter to send, Shift+Enter for a new line.';
+/**
+ * How sending works: a phone keyboard has no Shift+Enter, so there Enter starts a new line and the button sends.
+ * @type {Readonly<Record<Keyboard, string>>}
+ */
+const keysHint = { physical: 'Enter to send, Shift+Enter for a new line.', touch: 'The ↑ button sends, Enter starts a new line.' };
 
 /**
  * @param {LiveState} live
  * @param {string} sessionId
+ * @param {Keyboard} keyboard
  * @returns {ComposerView}
  */
-export function composerState(live, sessionId) {
+export function composerState(live, sessionId, keyboard) {
   switch (live.state) {
     case 'live': {
       const busy = live.status === 'busy';
@@ -27,7 +33,7 @@ export function composerState(live, sessionId) {
         enabled: true,
         canInterrupt: busy,
         placeholder: busy ? 'Claude is working — your message will be queued' : 'Message Claude…',
-        hint: `${keysHint} The text goes to the session's terminal (herdr pane ${live.pane}).`,
+        hint: `${keysHint[keyboard]} The text goes to the session's terminal (herdr pane ${live.pane}).`,
       };
     }
     case 'herdr-missing':

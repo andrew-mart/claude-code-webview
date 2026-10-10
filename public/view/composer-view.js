@@ -17,11 +17,13 @@ const serverSilent = { shown: true, enabled: false, canInterrupt: false, placeho
  * @returns {{ element: HTMLElement, dispose: () => void }}
  */
 export function createComposer(sessionId) {
+  /** @type {import('../model/composer.js').Keyboard} */
+  const keyboard = matchMedia('(pointer: coarse)').matches ? 'touch' : 'physical';
   const draftKey = `viewer.draft.${sessionId}`;
   const input = h('textarea', { className: 'composer-input', attrs: { rows: '1', 'aria-label': 'Prompt for Claude' } });
   input.value = readDraft(draftKey);
   const interrupt = h('button', { className: 'composer-stop', title: 'Stop — press Esc in the session terminal', attrs: { type: 'button', hidden: '' } }, [icon('stop'), h('span', { text: 'Stop' })]);
-  const send = h('button', { className: 'composer-send', title: 'Send (Enter)', attrs: { type: 'submit' } }, [icon('send')]);
+  const send = h('button', { className: 'composer-send', title: keyboard === 'touch' ? 'Send' : 'Send (Enter)', attrs: { type: 'submit', 'aria-label': 'Send' } }, [icon('send')]);
   const hint = h('div', { className: 'composer-hint' });
   const status = h('div', { className: 'composer-status', attrs: { role: 'status' } });
   const form = h('form', { className: 'composer-box' }, [input, h('div', { className: 'composer-actions' }, [interrupt, send])]);
@@ -48,7 +50,7 @@ export function createComposer(sessionId) {
   const refreshLive = async () => {
     const response = await fetch(`/api/live?session=${encodeURIComponent(sessionId)}`).catch(() => undefined);
     const live = response?.ok ? parseLiveState(await response.json().catch(() => undefined)) : undefined;
-    const view = live === undefined ? serverSilent : composerState(live, sessionId);
+    const view = live === undefined ? serverSilent : composerState(live, sessionId, keyboard);
     element.hidden = !view.shown;
     enabled = view.enabled;
     input.placeholder = view.placeholder;
@@ -85,7 +87,8 @@ export function createComposer(sessionId) {
   });
   input.addEventListener('keydown', (event) => {
     // Enter sends, Shift+Enter inserts a new line; while composing with an IME, Enter confirms the word.
-    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+    // A phone keyboard has no Shift+Enter: there Enter always starts a new line and the button sends.
+    if (keyboard === 'physical' && event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       form.requestSubmit();
     }
@@ -104,7 +107,8 @@ export function createComposer(sessionId) {
 
   void refreshLive();
   const timer = setInterval(() => void refreshLive(), liveRefreshMs);
-  requestAnimationFrame(fit);
+  // An empty box already has the height of one line; measuring it would make the browser lay out the whole page.
+  if (input.value !== '') requestAnimationFrame(fit);
   return {
     element,
     dispose() {

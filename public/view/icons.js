@@ -19,6 +19,7 @@ const paths = {
   cross: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
   down: '<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>',
   bookmark: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
+  menu: '<line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/>',
   list: '<line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><line x1="4" y1="6" x2="4.01" y2="6"/><line x1="4" y1="12" x2="4.01" y2="12"/><line x1="4" y1="18" x2="4.01" y2="18"/>',
   send: '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>',
   stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
@@ -30,14 +31,31 @@ const paths = {
 };
 
 /**
+ * Each icon is parsed once, when the module loads, and then cloned: a long feed has hundreds of icons,
+ * and parsing SVG markup for every one of them made it slow to open.
+ * @type {Readonly<Record<string, HTMLSpanElement>>}
+ */
+const templates = Object.fromEntries(Object.entries(paths).map(([name, markup]) => [name, build(markup)]));
+
+/**
  * @param {string} name — a key of paths; an unknown name draws a wrench
  * @returns {HTMLSpanElement}
  */
 export function icon(name) {
+  const copy = (templates[name] ?? templates.other)?.cloneNode(true);
+  if (!(copy instanceof window.HTMLSpanElement)) throw new Error(`No icon "${name}" and no fallback icon`);
+  return copy;
+}
+
+/**
+ * @param {string} markup — the SVG content
+ * @returns {HTMLSpanElement}
+ */
+function build(markup) {
   const holder = document.createElement('span');
   holder.className = 'icon';
   holder.setAttribute('aria-hidden', 'true');
   // The markup comes from this file's constants, not from transcript data.
-  holder.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths[name] ?? paths.other}</svg>`;
+  holder.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${markup}</svg>`;
   return holder;
 }

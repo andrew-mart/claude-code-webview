@@ -31,6 +31,7 @@ const showSdk = byId('show-sdk', HTMLInputElement);
 const main = byId('main', HTMLElement);
 const emptyState = byId('empty-state', HTMLElement);
 
+const drawers = createDrawers(byId('drawer-backdrop', HTMLElement));
 const settings = createSettings();
 const page = createPage();
 const filePanel = createFilePanel({ panel: byId('file-panel', HTMLElement), layout: byId('layout', HTMLElement) });
@@ -44,7 +45,8 @@ document.addEventListener('click', (event) => {
   filePanel.open({ path, line: lineAttribute(link, 'data-line'), endLine: lineAttribute(link, 'data-end-line') });
 });
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && filePanel.isOpen()) filePanel.close();
+  if (event.key === 'Escape' && drawers.isOpen()) drawers.close();
+  else if (event.key === 'Escape' && filePanel.isOpen()) filePanel.close();
   if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
     event.preventDefault();
     page.step(event.key === 'ArrowUp' ? 'previous' : 'next');
@@ -62,7 +64,10 @@ showSdk.addEventListener('change', () => {
   page.renderList();
   page.followLatest();
 });
-window.addEventListener('hashchange', () => page.openFromHash());
+window.addEventListener('hashchange', () => {
+  drawers.close();
+  page.openFromHash();
+});
 // Bookmarks the browser kept before they moved to the server go there before a session opens.
 void moveLocalBookmarksToServer()
   .then(() => page.refresh())
@@ -111,12 +116,18 @@ function createPage() {
     let view;
     const outline = createOutline({
       element: outlineElement,
-      onJump: (anchorId) => void view?.scrollToAnchor(anchorId),
+      onJump: (anchorId) => {
+        drawers.close();
+        void view?.scrollToAnchor(anchorId);
+      },
       onRemove: (bookmark) => bookmarks.toggle(bookmark),
     });
     outline.setBookmarks(bookmarks.list());
     const unsubscribe = bookmarks.onChange(() => outline.setBookmarks(bookmarks.list()));
     const spy = createScrollSpy(scroller, () => view?.promptElements() ?? [], outline.setCurrent);
+    // While the history loads, finding the prompt on screen would lay out the growing feed on every frame:
+    // the outline learns it once the feed is loaded.
+    let loaded = false;
     view = mountSession({
       scroller,
       sessionId: id,
@@ -124,10 +135,15 @@ function createPage() {
       bookmarks,
       listener: {
         onMeta: header.onMeta,
-        onStatus: header.onStatus,
+        onStatus(next) {
+          header.onStatus(next);
+          if (loaded || next === 'connecting') return;
+          loaded = true;
+          spy.update();
+        },
         onPrompt(prompt) {
           outline.addPrompt(prompt);
-          spy.update();
+          if (loaded) spy.update();
         },
         onReset: outline.clear,
       },
@@ -182,6 +198,8 @@ function createPage() {
       const id = /^#\/([0-9a-f-]{36})$/i.exec(location.hash)?.[1];
       if (id !== undefined) open(id);
       else if (current === undefined) main.replaceChildren(emptyState);
+      // A narrow screen shows either the session list or the open session.
+      document.documentElement.dataset.view = current === undefined ? 'list' : 'session';
     },
   };
 }
@@ -234,8 +252,8 @@ function sessionHeader(info) {
   const title = h('h1', { className: 'title', text: info?.title ?? 'Session' });
   const sub = h('div', { className: 'head-sub' });
   const status = h('span', { className: 'status' });
-  const actions = h('div', { className: 'head-actions' }, [status, ...settings.buttons()]);
-  const element = h('header', { className: 'session-head' }, [h('div', { className: 'head-main' }, [title, sub]), actions]);
+  const actions = h('div', { className: 'head-actions' }, [status, drawerButton('outline', 'list', 'Outline'), ...settings.buttons()]);
+  const element = h('header', { className: 'session-head' }, [drawerButton('sessions', 'menu', 'Sessions'), h('div', { className: 'head-main' }, [title, sub]), actions]);
   /** @type {SessionMeta} */
   let meta = {};
   let place = info;
@@ -355,6 +373,44 @@ function settingKeyOf(value) {
     default:
       return undefined;
   }
+}
+
+/**
+ * On a narrow screen the session list and the outline do not fit beside the feed: they slide over it as drawers,
+ * one at a time, and close on a tap outside, Esc, or once something in them is chosen.
+ * @param {HTMLElement} backdrop
+ */
+function createDrawers(backdrop) {
+  const root = document.documentElement;
+  const close = () => {
+    delete root.dataset.drawer;
+  };
+  backdrop.addEventListener('click', close);
+  return {
+    close,
+    isOpen: () => root.dataset.drawer !== undefined,
+    /** @param {'sessions' | 'outline'} name */
+    toggle(name) {
+      if (root.dataset.drawer === name) close();
+      else root.dataset.drawer = name;
+    },
+  };
+}
+
+/**
+ * A header button that opens a drawer; shown only on a narrow screen.
+ * @param {'sessions' | 'outline'} name
+ * @param {string} iconName
+ * @param {string} label
+ */
+function drawerButton(name, iconName, label) {
+  const button = iconButton(iconName);
+  button.classList.add('drawer-button');
+  button.dataset.drawer = name;
+  button.title = label;
+  button.setAttribute('aria-label', label);
+  button.addEventListener('click', () => drawers.toggle(name));
+  return button;
 }
 
 /**
