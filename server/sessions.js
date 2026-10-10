@@ -31,36 +31,66 @@ const unknownSummary = { title: undefined, cwd: undefined, branch: undefined, ki
  * @param {{ summaryBudgetMs: number }} options
  */
 export function createSessionIndex(root, { summaryBudgetMs }) {
-  /** @type {Map<string, { size: number, modifiedAt: number, summary: SessionSummary }>} */
+  /** summarizedAt — when the summary was made: a page that asked before learns it with the next changes */
+  /** @type {Map<string, { size: number, modifiedAt: number, summary: SessionSummary, summarizedAt: number }>} */
   const summaries = new Map();
   /** @type {Map<string, string>} */
   const pathsById = new Map();
 
   /** @returns {Promise<readonly SessionInfo[]>} */
   async function list() {
+    return (await listed(Date.now())).map(({ info }) => info);
+  }
+
+  /**
+   * The sessions changed since a version the caller got earlier — the file was written, or its summary is new — so a
+   * page that polls the list gets a couple of sessions, not all of them. Without a version, all of them.
+   * total — how many there are: fewer than the caller has means some were deleted.
+   * @param {number | undefined} since
+   * @returns {Promise<{ version: number, total: number, sessions: readonly SessionInfo[] }>}
+   */
+  async function changes(since) {
+    // Taken before the files are looked at: whatever changes while they are, comes with the next changes.
+    const version = Date.now();
+    const all = await listed(version);
+    return { version, total: all.length, sessions: all.filter(({ changedAt }) => since === undefined || changedAt > since).map(({ info }) => info) };
+  }
+
+  /**
+   * @param {number} version — when this listing began: a summary made now goes out with it, so it counts as of then
+   * @returns {Promise<{ info: SessionInfo, changedAt: number }[]>}
+   */
+  async function listed(version) {
     const files = await sessionFiles(root);
     for (const file of files) pathsById.set(file.id, file.path);
     const deadline = Date.now() + summaryBudgetMs;
     const stale = files.filter((file) => cachedSummary(file) === undefined);
     for (let start = 0; start < stale.length && (start === 0 || Date.now() < deadline); start += summaryBatch) {
-      await Promise.all(stale.slice(start, start + summaryBatch).map(summarize));
+      await Promise.all(stale.slice(start, start + summaryBatch).map((file) => summarize(file, version)));
     }
-    return files.map((file) => ({ ...omitPath(file), ...(cachedSummary(file) ?? unknownSummary) }));
+    return files.map((file) => {
+      const cached = cachedSummary(file);
+      const info = { ...omitPath(file), ...(cached === undefined ? unknownSummary : cached.summary) };
+      return { info, changedAt: cached === undefined ? file.modifiedAt : Math.max(file.modifiedAt, cached.summarizedAt) };
+    });
   }
 
   /**
    * @param {SessionFile} file
-   * @returns {SessionSummary | undefined}
+   * @returns {{ summary: SessionSummary, summarizedAt: number } | undefined}
    */
   function cachedSummary(file) {
     const cached = summaries.get(file.path);
-    return cached !== undefined && cached.size === file.size && cached.modifiedAt === file.modifiedAt ? cached.summary : undefined;
+    return cached !== undefined && cached.size === file.size && cached.modifiedAt === file.modifiedAt ? cached : undefined;
   }
 
-  /** @param {SessionFile} file */
-  async function summarize(file) {
+  /**
+   * @param {SessionFile} file
+   * @param {number} version
+   */
+  async function summarize(file, version) {
     const summary = summarizeSession(await edgeLines(file.path, file.size));
-    summaries.set(file.path, { size: file.size, modifiedAt: file.modifiedAt, summary });
+    summaries.set(file.path, { size: file.size, modifiedAt: file.modifiedAt, summary, summarizedAt: version });
   }
 
   /**
@@ -101,7 +131,7 @@ export function createSessionIndex(root, { summaryBudgetMs }) {
     return (await exists(path)) ? path : undefined;
   }
 
-  return { list, find, subagents, findSubagent };
+  return { list, changes, find, subagents, findSubagent };
 }
 
 /**

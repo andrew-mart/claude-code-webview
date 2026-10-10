@@ -13,7 +13,7 @@ import { codeFrame, highlightInto, languageOfPath, renderMarkdown } from './mark
  * @typedef {import('../model/entry.js').TaskNotificationEvent} TaskNotificationEvent
  * @typedef {(toolUseId: string, holder: HTMLElement) => void} OpenSubagent
  * @typedef {'pending' | 'done' | 'error'} ToolState
- * @typedef {{ element: HTMLDetailsElement, family: import('../model/tool.js').ToolFamily, state: () => ToolState, applyResult: (result: ToolResultEvent) => void, applyNotification: (event: TaskNotificationEvent) => void }} ToolRow
+ * @typedef {{ mount: () => HTMLDetailsElement, family: import('../model/tool.js').ToolFamily, state: () => ToolState, applyResult: (result: ToolResultEvent) => void, applyNotification: (event: TaskNotificationEvent) => void }} ToolRow — mount: the row's element, built the first time it is shown: a folded group of calls costs no DOM
  */
 
 const shownLines = 400;
@@ -25,55 +25,83 @@ const shownLines = 400;
  */
 export function createToolRow(call, openSubagent) {
   const summary = summarizeCall(call.name, call.input);
+  /** @type {ToolResultEvent | undefined} */
+  let result;
+  /** @type {ToolState} */
+  let state = 'pending';
+  let metaText = '';
+  /** @type {BuiltRow | undefined} */
+  let built;
+
+  const render = () => {
+    if (built === undefined) return;
+    built.body.replaceChildren(...toolBody(call, result, openSubagent));
+    built.rendered = true;
+  };
+  // What the result says goes onto the row once it is built; the changed line of an edit takes a diff, so only a row
+  // someone can see pays for it.
+  const show = () => {
+    if (built === undefined) return;
+    built.element.dataset.state = state;
+    built.meta.textContent = metaText;
+    const changed = result === undefined ? undefined : firstChangedLine(diffRows(call.name, call.input, result.details));
+    if (built.target instanceof HTMLAnchorElement && changed !== undefined) built.target.setAttribute('data-line', String(changed));
+  };
+
+  return {
+    family: summary.family,
+    state: () => state,
+    mount() {
+      if (built === undefined) {
+        built = buildRow(call, summary);
+        const row = built;
+        row.element.addEventListener('toggle', () => {
+          if (row.element.open && !row.rendered) render();
+        });
+        if (summary.family === 'question') row.element.open = true;
+        show();
+      }
+      return built.element;
+    },
+    applyResult(event) {
+      result = event;
+      state = event.isError ? 'error' : 'done';
+      metaText = summarizeResult(call.name, { isError: event.isError, details: event.details }) ?? '';
+      show();
+      if (built !== undefined && (built.rendered || built.element.open)) render();
+    },
+    applyNotification(event) {
+      metaText = event.status === 'completed' ? 'completed' : event.status;
+      if (event.status === 'failed' || event.status === 'killed') state = 'error';
+      show();
+    },
+  };
+}
+
+/**
+ * @typedef {{ element: HTMLDetailsElement, meta: HTMLElement, target: HTMLElement, body: HTMLElement, rendered: boolean }} BuiltRow
+ */
+
+/**
+ * The row's elements: one line with the tool, its target and the result's summary; the body stays empty until opened.
+ * @param {ToolCallEvent} call
+ * @param {{ family: import('../model/tool.js').ToolFamily, label: string, target: string }} summary
+ * @returns {BuiltRow}
+ */
+function buildRow(call, summary) {
   const meta = h('span', { className: 'tool-meta' });
-  const status = h('span', { className: 'tool-status' });
   const target = targetElement(call, summary.target);
   const head = h('summary', { className: 'tool-head' }, [
     icon(summary.family),
     h('span', { className: 'tool-label', text: summary.label }),
     target,
     meta,
-    status,
+    h('span', { className: 'tool-status' }),
     h('span', { className: 'chevron' }, [icon('chevron')]),
   ]);
   const body = h('div', { className: 'tool-body' });
   const element = h('details', { className: 'tool', attrs: { 'data-family': summary.family, 'data-state': 'pending' } }, [head, body]);
-  /** @type {ToolResultEvent | undefined} */
-  let result;
-  /** @type {ToolState} */
-  let state = 'pending';
-  let rendered = false;
-  const setState = (/** @type {ToolState} */ next) => {
-    state = next;
-    element.dataset.state = next;
-  };
-
-  const render = () => {
-    body.replaceChildren(...toolBody(call, result, openSubagent));
-    rendered = true;
-  };
-  element.addEventListener('toggle', () => {
-    if (element.open && !rendered) render();
-  });
-  if (summary.family === 'question') element.open = true;
-
-  return {
-    element,
-    family: summary.family,
-    state: () => state,
-    applyResult(event) {
-      result = event;
-      setState(event.isError ? 'error' : 'done');
-      const changed = firstChangedLine(diffRows(call.name, call.input, event.details));
-      if (target instanceof HTMLAnchorElement && changed !== undefined) target.setAttribute('data-line', String(changed));
-      meta.textContent = summarizeResult(call.name, { isError: event.isError, details: event.details }) ?? '';
-      if (rendered || element.open) render();
-    },
-    applyNotification(event) {
-      meta.textContent = event.status === 'completed' ? 'completed' : event.status;
-      if (event.status === 'failed' || event.status === 'killed') setState('error');
-    },
-  };
+  return { element, meta, target, body, rendered: false };
 }
 
 /**
