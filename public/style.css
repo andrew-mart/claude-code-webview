@@ -889,14 +889,119 @@ button {
   font: 0.84em/1 var(--font-mono);
 }
 
-.md table {
-  display: block;
+/*
+ * Tables fit the answer's width, or are wide: each column as wide as is comfortable to read (a cell's text up to
+ * 40 characters a line), the table scrolling sideways. The viewer-wide setting, then the session's, then the table's
+ * own button decide: each sets these properties for what is inside it.
+ */
+:root {
+  --table-width: auto;
+  --table-cell-max: none;
+}
+
+:root[data-tables="wide"],
+:root[data-session-tables="wide"],
+.table-frame[data-width="wide"] {
+  --table-width: max-content;
+  --table-cell-max: 40ch;
+}
+
+:root[data-session-tables="fit"],
+.table-frame[data-width="fit"] {
+  --table-width: auto;
+  --table-cell-max: none;
+}
+
+.table-frame {
+  display: flex;
+  flex-direction: column;
+  margin: 0 0 0.5em;
+}
+
+.table-scroll {
   overflow-x: auto;
-  margin: 0 0 0.9em;
+}
+
+.md table {
+  width: var(--table-width);
   border-collapse: collapse;
   font-family: var(--font-ui);
   font-size: 14px;
   line-height: 1.45;
+}
+
+/* A fitted table narrows its columns down to whole words, not further: a word broken in the middle is hard to read.
+   Code in a cell (a long path) still wraps anywhere. */
+.md table .cell {
+  max-width: var(--table-cell-max);
+  overflow-wrap: break-word;
+}
+
+.md table .cell code {
+  overflow-wrap: anywhere;
+}
+
+/* …but not down to a few letters a line. */
+.md table .cell:has(code) {
+  min-width: 10ch;
+}
+
+/* The width button stands under the table's right edge, out of the text's way: it shows on hover, on a touch screen
+   faintly always. */
+.table-width {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  margin: 3px 0 0 auto;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-4);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.table-width .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.table-width:hover {
+  background: var(--bg-hover);
+}
+
+.table-frame:hover .table-width,
+.table-width:focus-visible {
+  opacity: 1;
+}
+
+/* A segmented choice: one of a few options, the chosen one pressed. */
+.segments {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--bg-hover);
+}
+
+.segment {
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  cursor: pointer;
+}
+
+.segment[aria-pressed="true"] {
+  background: var(--bg-elev);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  color: var(--text);
 }
 
 .md th,
@@ -2465,6 +2570,10 @@ a.file-link:hover {
   .bookmark-toggle,
   .rewind-toggle {
     opacity: 0.4;
+  }
+
+  .table-width {
+    opacity: 0.7;
   }
 
   .bookmark-toggle.on,

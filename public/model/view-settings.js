@@ -10,6 +10,7 @@ export const choices = /** @type {const} */ ({
   service: ['hidden', 'shown'],
   follow: ['off', 'on'],
   sdk: ['hidden', 'shown'],
+  tables: ['fit', 'wide'],
 });
 
 /**
@@ -26,6 +27,7 @@ const resultNames = {
   service: { hidden: 'Hide Claude Code service messages', shown: 'Show Claude Code service messages' },
   follow: { off: 'Stop following the active session', on: 'Follow the active session' },
   sdk: { hidden: 'Hide SDK sessions', shown: 'Show SDK sessions' },
+  tables: { fit: 'Fit tables to the width everywhere', wide: 'Widen tables everywhere' },
 };
 
 /**

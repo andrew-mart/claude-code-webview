@@ -76,7 +76,73 @@ export function renderMarkdown(source) {
     pre.replaceWith(place);
     place.replaceWith(codeFrame(pre, code.textContent ?? '', language));
   }
+  for (const table of fragment.querySelectorAll('table')) {
+    const place = document.createComment('');
+    table.replaceWith(place);
+    place.replaceWith(tableFrame(table));
+  }
   return fragment;
+}
+
+/**
+ * A table with a button in its corner: it widens the table past the answer's width — each column as wide as is
+ * comfortable to read, the table scrolling sideways — or fits it back. The button overrides, for this table, what the
+ * session or the whole viewer says (the --table-width property inherited from above, see style.css). A cell's text
+ * sits in a block: a block can be kept from growing too wide, a table cell cannot.
+ * @param {HTMLTableElement} table
+ * @returns {HTMLElement}
+ */
+function tableFrame(table) {
+  for (const cell of table.querySelectorAll('th, td')) {
+    const block = h('div', { className: 'cell' });
+    block.append(...cell.childNodes);
+    cell.append(block);
+  }
+  const button = h('button', { className: 'table-width', attrs: { type: 'button' } });
+  const frame = h('div', { className: 'table-frame' }, [h('div', { className: 'table-scroll' }, [table]), button]);
+  button.addEventListener('click', () => {
+    frame.dataset.width = isWide(frame) ? 'fit' : 'wide';
+    labelWidthButton(frame, button);
+  });
+  // The inherited width may have changed since the label was set: it is read again when the button is about to be used.
+  button.addEventListener('pointerenter', () => labelWidthButton(frame, button));
+  button.addEventListener('focus', () => labelWidthButton(frame, button));
+  labelWidthButton(frame, button);
+  return frame;
+}
+
+/**
+ * The tables' buttons name what a click does: after the session's or the viewer's table setting changed, they are
+ * named again.
+ * @param {ParentNode} root
+ */
+export function relabelTables(root) {
+  for (const frame of root.querySelectorAll('.table-frame')) {
+    const button = frame.querySelector(':scope > .table-width');
+    if (frame instanceof HTMLElement && button instanceof HTMLButtonElement) labelWidthButton(frame, button);
+  }
+}
+
+/**
+ * @param {HTMLElement} frame
+ * @param {HTMLButtonElement} button
+ */
+function labelWidthButton(frame, button) {
+  const wide = isWide(frame);
+  const text = wide ? 'Fit this table to the width' : 'Widen this table, scrolling sideways';
+  button.title = text;
+  button.setAttribute('aria-label', text);
+  button.replaceChildren(icon(wide ? 'narrow' : 'widen'), h('span', { text: wide ? 'Fit' : 'Wide' }));
+}
+
+/**
+ * The table's own choice, otherwise what is inherited from the session or the viewer.
+ * @param {HTMLElement} frame
+ */
+function isWide(frame) {
+  const own = frame.dataset.width;
+  if (own !== undefined) return own === 'wide';
+  return frame.isConnected && getComputedStyle(frame).getPropertyValue('--table-width').trim() === 'max-content';
 }
 
 /**

@@ -13,6 +13,7 @@ import { rewindMessage } from './model/rewind.js';
 import { createOutline } from './view/outline-view.js';
 import { h } from './view/dom.js';
 import { createFilePanel } from './view/file-panel.js';
+import { relabelTables } from './view/markdown.js';
 import { createResizer, restoreWidth } from './view/resizer.js';
 import { icon } from './view/icons.js';
 import { activityModeEvent, jumpMarginPx, mountSession } from './view/session-view.js';
@@ -134,7 +135,9 @@ function createPage() {
     if (current !== undefined) places.set(current.id, current.place());
     current?.dispose();
     const info = sessions.find((session) => session.id === id);
-    const header = createSessionHeader({ place: info, currentBranch: () => fetchBranch(id), leading: drawerButton('sessions', 'menu', 'Sessions'), navigation: [drawerButton('outline', 'list', 'Outline')], tools: settings.buttons() });
+    const tables = sessionTables(id);
+    tables.apply();
+    const header = createSessionHeader({ place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation: [drawerButton('outline', 'list', 'Outline')], tools: settings.buttons() });
     const scroller = h('div', { className: 'scroller' });
     const outlineElement = h('aside', { className: 'outline', attrs: { 'aria-label': 'Outline' } });
     const bookmarks = createBookmarkStore(id);
@@ -305,6 +308,7 @@ const headerSettings = [
   ['service', 'eye'],
   ['font', 'type'],
   ['theme', 'moon'],
+  ['tables', 'table'],
 ];
 
 /**
@@ -332,6 +336,8 @@ function createSettings() {
     root.dataset.font = get('font');
     root.dataset.service = get('service');
     root.dataset.outline = get('outline');
+    root.dataset.tables = get('tables');
+    relabelTables(document);
     const activity = get('activity');
     if (root.dataset.activity !== activity) {
       root.dataset.activity = activity;
@@ -381,6 +387,7 @@ function settingKeyOf(value) {
     case 'service':
     case 'follow':
     case 'sdk':
+    case 'tables':
       return value;
     default:
       return undefined;
@@ -525,6 +532,38 @@ function byId(id, type) {
   const element = document.getElementById(id);
   if (!(element instanceof type)) throw new Error(`Element #${id} is missing in index.html`);
   return element;
+}
+
+/** @type {readonly import('./view/session-header.js').TablesChoice[]} */
+const tablesChoices = ['default', 'fit', 'wide'];
+
+/**
+ * How one session shows its tables, over the viewer-wide setting: as everywhere, fitted to the width or wide. The
+ * choice is remembered by the browser per session and set on the page's root for the stylesheet.
+ * @param {string} sessionId
+ * @returns {import('./view/session-header.js').SessionTables & { apply: () => void }}
+ */
+function sessionTables(sessionId) {
+  const key = `viewer.tables.${sessionId}`;
+  /** @returns {import('./view/session-header.js').TablesChoice} */
+  const value = () => {
+    const stored = readStorage(key);
+    return tablesChoices.find((choice) => choice === stored) ?? 'default';
+  };
+  const apply = () => {
+    const choice = value();
+    if (choice === 'default') delete document.documentElement.dataset.sessionTables;
+    else document.documentElement.dataset.sessionTables = choice;
+    relabelTables(document);
+  };
+  return {
+    value,
+    choose(choice) {
+      writeStorage(key, choice);
+      apply();
+    },
+    apply,
+  };
 }
 
 /** @param {string} key */
