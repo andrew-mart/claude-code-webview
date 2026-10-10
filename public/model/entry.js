@@ -8,9 +8,13 @@ import { isRecord, text } from './narrow.js';
  * @typedef {{ url: string }} Image — a data: URL or the viewer's /api/image link
  * @typedef {{ kind: 'prompt', id: string, at: string, text: string, images: readonly Image[], queued: boolean }} PromptEvent
  * @typedef {{ kind: 'text', id: string, at: string, text: string }} TextEvent
- * @typedef {{ kind: 'tool-call', id: string, at: string, name: string, input: unknown }} ToolCallEvent
+ * full — the call's input was cut for the stream (server/lite.js): the whole entry loads from this line offset
+ * @typedef {{ kind: 'tool-call', id: string, at: string, name: string, input: unknown, full?: number }} ToolCallEvent
  * @typedef {{ type: 'text', text: string } | { type: 'image', image: Image }} ResultPart
- * @typedef {{ kind: 'tool-result', id: string, at: string, toolUseId: string, isError: boolean, parts: readonly ResultPart[], details: unknown }} ToolResultEvent
+ * deferred — the output was left out of the stream: what the folded row shows came along, the whole entry loads
+ * from the line offset full
+ * @typedef {{ full: number, meta: string | undefined, line: number | undefined }} DeferredResult
+ * @typedef {{ kind: 'tool-result', id: string, at: string, toolUseId: string, isError: boolean, parts: readonly ResultPart[], details: unknown, deferred?: DeferredResult }} ToolResultEvent
  * @typedef {{ kind: 'command', id: string, at: string, text: string }} CommandEvent
  * @typedef {{ kind: 'command-output', id: string, at: string, text: string, isError: boolean }} CommandOutputEvent
  * @typedef {{ kind: 'interrupted', id: string, at: string }} InterruptedEvent
@@ -138,7 +142,7 @@ function toneOf(level) {
  * @returns {readonly DisplayEvent[]}
  */
 function interpretUser(stamp, entry, message) {
-  const results = toolResults(stamp, message.content, entry.toolUseResult);
+  const results = toolResults(stamp, message.content, entry.toolUseResult, fullAt(entry));
   if (results.length > 0) return results;
   const raw = joinedText(message.content);
   if (entry.isCompactSummary === true) return [{ kind: 'context-summary', ...stamp, text: raw }];
@@ -239,9 +243,10 @@ function stripAnsi(value) {
  * @param {Stamp} stamp
  * @param {unknown} content
  * @param {unknown} details — toolUseResult: the tool's structured result; its shape depends on the tool
+ * @param {number | undefined} full — where the whole entry loads from, if the stream left its output out
  * @returns {readonly ToolResultEvent[]}
  */
-function toolResults({ id, at }, content, details) {
+function toolResults({ id, at }, content, details, full) {
   return blocks(content).flatMap((block, index) => {
     const toolUseId = text(block.tool_use_id);
     if (block.type !== 'tool_result' || toolUseId === undefined) return [];
@@ -255,7 +260,8 @@ function toolResults({ id, at }, content, details) {
       parts: resultParts(block.content),
       details,
     };
-    return [result];
+    const deferred = isRecord(block.deferred) && full !== undefined ? block.deferred : undefined;
+    return [deferred === undefined || full === undefined ? result : { ...result, deferred: { full, meta: text(deferred.meta), line: typeof deferred.line === 'number' ? deferred.line : undefined } }];
   });
 }
 
@@ -349,7 +355,7 @@ function interpretAssistant(stamp, entry, message) {
   }
   const thinkingMs = typeof entry.thinkingDurationMs === 'number' ? entry.thinkingDurationMs : undefined;
   const events = blocks(message.content).flatMap((block, index) => {
-    const event = assistantBlock({ id: `${stamp.id}:${index}`, at: stamp.at }, block, thinkingMs);
+    const event = assistantBlock({ id: `${stamp.id}:${index}`, at: stamp.at }, block, thinkingMs, fullAt(entry));
     return event === undefined ? [] : [event];
   });
   const usage = contextUsage(stamp, entry, message);
@@ -357,12 +363,22 @@ function interpretAssistant(stamp, entry, message) {
 }
 
 /**
+ * Where the whole entry loads from when the stream sent it lightened (server/lite.js).
+ * @param {Record<string, unknown>} entry
+ * @returns {number | undefined}
+ */
+function fullAt(entry) {
+  return typeof entry.full === 'number' ? entry.full : undefined;
+}
+
+/**
  * @param {Stamp} stamp
  * @param {Record<string, unknown>} block
  * @param {number | undefined} thinkingMs
+ * @param {number | undefined} full — where the whole entry loads from, if the stream cut it
  * @returns {DisplayEvent | undefined}
  */
-function assistantBlock(stamp, block, thinkingMs) {
+function assistantBlock(stamp, block, thinkingMs, full) {
   switch (block.type) {
     case 'text': {
       const body = text(block.text);
@@ -375,7 +391,10 @@ function assistantBlock(stamp, block, thinkingMs) {
     case 'tool_use': {
       const toolId = text(block.id);
       const name = text(block.name);
-      return toolId === undefined || name === undefined ? undefined : { kind: 'tool-call', id: toolId, at: stamp.at, name, input: block.input };
+      if (toolId === undefined || name === undefined) return undefined;
+      /** @type {ToolCallEvent} */
+      const call = { kind: 'tool-call', id: toolId, at: stamp.at, name, input: block.input };
+      return block.cut === true && full !== undefined ? { ...call, full } : call;
     }
     default:
       return undefined;

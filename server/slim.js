@@ -78,17 +78,30 @@ function slimToolResult(details) {
   return rest;
 }
 
+/** Of an answer's usage the feed reads what makes up the context size. */
+const usageFields = ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'];
+
 /**
+ * The message fields the feed reads: role, model, content and the context size. An answer carries much more — the
+ * request's transformations, usage per iteration — which in a long session weighs more than all the answers.
  * @param {Record<string, unknown>} message
  * @param {(n: number) => string} imageUrl
  * @returns {Record<string, unknown>}
  */
 function slimMessage(message, imageUrl) {
-  if (!Array.isArray(message.content)) return message;
-  const content = message.content.map((block) => {
-    if (!isRecord(block) || block.type !== 'thinking') return block;
-    const { signature, ...rest } = block;
-    return rest;
-  });
-  return { ...message, content: mapImages(content, (image, n) => linkImage(image, imageUrl(n))) };
+  /** @type {Record<string, unknown>} */
+  const slim = {};
+  if (message.role !== undefined) slim.role = message.role;
+  if (message.model !== undefined) slim.model = message.model;
+  if (Array.isArray(message.content)) {
+    const content = message.content.map((block) => {
+      if (!isRecord(block) || block.type !== 'thinking') return block;
+      const { signature, ...rest } = block;
+      return rest;
+    });
+    slim.content = mapImages(content, (image, n) => linkImage(image, imageUrl(n)));
+  } else if (message.content !== undefined) slim.content = message.content;
+  const usage = message.usage;
+  if (isRecord(usage)) slim.usage = Object.fromEntries(usageFields.flatMap((field) => (usage[field] === undefined ? [] : [[field, usage[field]]])));
+  return slim;
 }

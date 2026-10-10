@@ -147,7 +147,9 @@ function createPage() {
       element: outlineElement,
       onJump: (anchorId) => {
         drawers.close();
-        void view?.scrollToAnchor(anchorId);
+        const shown = view;
+        // A bookmark in the part of a long session that is not loaded yet: the rest is loaded first.
+        if (shown !== undefined && !shown.scrollToAnchor(anchorId) && shown.hasEarlier()) void shown.loadEarlier().then(() => shown.scrollToAnchor(anchorId));
       },
       onRemove: (bookmark) => bookmarks.toggle(bookmark),
     });

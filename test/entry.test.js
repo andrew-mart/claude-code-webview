@@ -380,3 +380,29 @@ test('interpretEntry_Should_ShowImagesAttachedFromPageAsPicturesNotPaths', () =>
   assert.deepEqual(shown(typed), [{ text: 'Why is the legend cut off?', images: [{ url: '/api/upload/2026-10-10_134501-k3f9qa.jpg' }] }]);
   assert.deepEqual(shown(queued), [{ text: 'And this one', images: [{ url: '/api/upload/2026-10-10_134501-k3f9qa.jpg' }] }]);
 });
+
+test('interpretEntry_Should_TellWhereToLoadCallWhoseInputTheStreamCut', () => {
+  const entry = {
+    type: 'assistant',
+    uuid: 'a9',
+    timestamp: at,
+    full: 4096,
+    message: { role: 'assistant', model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: 'toolu_9', name: 'Write', input: { file_path: 'a.md', content: 'line…' }, cut: true }] },
+  };
+
+  assert.deepEqual(interpretEntry(entry), [{ kind: 'tool-call', id: 'toolu_9', at, name: 'Write', input: { file_path: 'a.md', content: 'line…' }, full: 4096 }]);
+});
+
+test('interpretEntry_Should_KeepSummaryOfResultWhoseOutputTheStreamLeftOut', () => {
+  const entry = {
+    type: 'user',
+    uuid: 'u9',
+    timestamp: at,
+    full: 8192,
+    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_9', is_error: false, deferred: { meta: '+4 −2', line: 12 } }] },
+  };
+
+  assert.deepEqual(interpretEntry(entry), [
+    { kind: 'tool-result', id: 'u9:0', at, toolUseId: 'toolu_9', isError: false, parts: [], details: undefined, deferred: { full: 8192, meta: '+4 −2', line: 12 } },
+  ]);
+});

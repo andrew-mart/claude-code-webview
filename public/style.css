@@ -727,6 +727,54 @@ button {
   font-size: 13.5px;
 }
 
+/* A row's output that the stream left out, on its way from the server. */
+.tool-loading {
+  padding: 8px 12px;
+  color: var(--text-4);
+  font-size: 13px;
+}
+
+/* While the history comes in: in the middle of the empty feed, with how many entries are in so far. */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40vh;
+  color: var(--text-3);
+  font-size: 14px;
+}
+
+.loading .spark {
+  display: inline-block;
+  color: var(--accent);
+  animation: spin 2.4s linear infinite;
+}
+
+.loading-count {
+  color: var(--text-4);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Above the latest part a long session opened with: the way to the rest of it. */
+.earlier {
+  display: block;
+  margin: 0 auto 18px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--text-3);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.earlier:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
 .working .spark {
   display: inline-block;
   animation: spin 2.4s linear infinite;

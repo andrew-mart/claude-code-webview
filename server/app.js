@@ -19,7 +19,9 @@ import { readBranch } from './git.js';
 import { readImage } from './images.js';
 import { rewindTarget } from './rewind.js';
 import { createSessionIndex } from './sessions.js';
+import { slimEntry } from './slim.js';
 import { streamTranscript } from './stream.js';
+import { readLineAt } from './tail.js';
 import { createTranscriptCache } from './transcript-cache.js';
 import { parseImages } from './uploads.js';
 
@@ -144,6 +146,8 @@ async function handle(deps, request, response) {
       return sendFile(url, response);
     case '/api/image':
       return withSession(url, response, async (id) => sendImage(deps, url, id, response));
+    case '/api/entry':
+      return withSession(url, response, async (id) => sendEntry(deps, url, id, response));
     default:
       return servePage(deps.build, url.pathname, response);
   }
@@ -259,6 +263,16 @@ async function transcriptRecords(deps, sessionId) {
   });
 }
 
+/**
+ * ?tail=<n> — the stream starts with the latest n entries.
+ * @param {URL} url
+ * @returns {number | undefined}
+ */
+function tailOf(url) {
+  const tail = Number(url.searchParams.get('tail'));
+  return Number.isInteger(tail) && tail > 0 ? tail : undefined;
+}
+
 /** Transcripts kept read in memory: the sessions opened lately, switched between. */
 const cachedTranscripts = 8;
 
@@ -337,11 +351,12 @@ async function stream(deps, url, id, request, response) {
     locate: agentId === null ? () => deps.index.find(id) : () => deps.index.findSubagent(id, agentId),
     scope: agentId === null ? 'main' : 'subagent',
     rewoundAt: () => (agentId === null ? deps.rewinds.get(id) : undefined),
-    imageUrl: (lineStart, n) => `/api/image?session=${id}${agentId === null ? '' : `&agent=${agentId}`}&at=${lineStart}&n=${n}`,
+    imageUrl: (lineStart, n) => imageLink(id, agentId, lineStart, n),
     send: (event, data) => out.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
     signal: controller.signal,
     pollMs: deps.pollMs,
     transcripts: deps.transcripts,
+    tail: tailOf(url),
   });
   out.end();
 }
@@ -392,6 +407,55 @@ async function sendImage(deps, url, id, response) {
 
 /** @type {Readonly<Record<'not-found' | 'not-raster', number>>} */
 const imageRefusalStatus = { 'not-found': 404, 'not-raster': 415 };
+
+/**
+ * The n-th image of the entry on the line that starts at lineStart, for the page to load when it is in view.
+ * @param {string} id
+ * @param {string | null} agentId
+ * @param {number} lineStart
+ * @param {number} n
+ */
+function imageLink(id, agentId, lineStart, n) {
+  return `/api/image?session=${id}${agentId === null ? '' : `&agent=${agentId}`}&at=${lineStart}&n=${n}`;
+}
+
+/**
+ * An entry whole — with the tool output the stream left out of it (lite.js): the page asks for it when the row opens.
+ * ?at= — where its line starts, as the stream gave it; an offset inside a line finds nothing.
+ * @param {Deps} deps
+ * @param {URL} url
+ * @param {string} id
+ * @param {http.ServerResponse} response
+ */
+async function sendEntry(deps, url, id, response) {
+  const agentId = url.searchParams.get('agent');
+  const lineStart = Number(url.searchParams.get('at'));
+  if ((agentId !== null && !agentIdPattern.test(agentId)) || !Number.isSafeInteger(lineStart) || lineStart < 0) {
+    response.writeHead(400).end('Bad entry link');
+    return;
+  }
+  const path = agentId === null ? await deps.index.find(id) : await deps.index.findSubagent(id, agentId);
+  const line = path === undefined ? undefined : await readLineAt(path, lineStart);
+  const raw = line === undefined ? undefined : parseLine(line);
+  const entry = raw === undefined ? undefined : slimEntry(raw, agentId === null ? 'main' : 'subagent', (n) => imageLink(id, agentId, lineStart, n));
+  if (entry === undefined) {
+    response.writeHead(404).end('Not found');
+    return;
+  }
+  return sendJson(response, entry);
+}
+
+/**
+ * @param {string} line
+ * @returns {unknown}
+ */
+function parseLine(line) {
+  try {
+    return JSON.parse(line);
+  } catch {
+    return undefined; // not an entry
+  }
+}
 
 /**
  * File text for the right-hand panel. Any absolute path is served: the page is open only on this machine,
