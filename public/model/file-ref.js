@@ -5,9 +5,12 @@
  * @typedef {{ index: number, text: string, path: string, line: number | undefined, endLine: number | undefined }} FileRef
  */
 
-/** A path character and a path's last character: a trailing dot ends the sentence, it is not part of the name. */
-const pathChar = String.raw`[^\s"'\`<>|*?()[\]{},;:]`;
-const pathEnd = String.raw`[^\s"'\`<>|*?()[\]{},;:.]`;
+/**
+ * A path character and a path's last character: a trailing dot ends the sentence, it is not part of the name.
+ * Typographic quotes («», “”, ‘’) close the quote around a path, they are not part of it either.
+ */
+const pathChar = String.raw`[^\s"'\`<>|*?()[\]{},;:«»“”‘’„]`;
+const pathEnd = String.raw`[^\s"'\`<>|*?()[\]{},;:.«»“”‘’„]`;
 const windowsPath = String.raw`[A-Za-z]:[\\/]${pathChar}*${pathEnd}`;
 /**
  * A macOS/Linux path counts as a reference only if it starts with ~ or a common root: otherwise addresses
