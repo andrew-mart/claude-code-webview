@@ -37,6 +37,11 @@ function fakeComposer() {
         calls.push(['interrupt', id]);
         return { ok: true, pane: 'w3D:p1' };
       },
+      /** @param {string} id @param {import('../server/composer.js').RewindRequest} request @returns {Promise<import('../server/composer.js').RewindReply>} */
+      rewind: async (id, request) => {
+        calls.push(['rewind', id, JSON.stringify(request)]);
+        return { ok: true, restoredPrompt: true };
+      },
     },
   };
 }
@@ -460,4 +465,33 @@ test('stream_Should_RebuildFeedWhenSessionIsRewoundWhileOpen', async (t) => {
 
   assert.equal((await next()).event, 'reset');
   assert.deepEqual(uuids(await next()), ['u1', 'a1', 'p3']);
+});
+
+test('rewind_Should_RewindToChosenMessageAndHideItsBranchFromFeedAtOnce', async (t) => {
+  const { file, base, port, calls } = await withServer(t);
+  await appendFile(file, answerLine('a1', 'u1') + childPrompt('p2', 'a1', 'Now test it') + answerLine('a2', 'p2'));
+  const next = await openStream(base, t);
+  assert.deepEqual(uuids(await next()), ['u1', 'a1', 'p2', 'a2']);
+  assert.equal((await next()).event, 'ready');
+
+  const response = await post(port, '/api/rewind', pageHeaders(port), JSON.stringify({ session: sessionId, prompt: 'p2', action: 'conversation' }));
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(JSON.parse(response.body), { ok: true, prompt: 'Now test it' });
+  assert.deepEqual(calls, [['rewind', sessionId, JSON.stringify({ stepsUp: 1, prompt: 'Now test it', action: 'conversation' })]]);
+  // the terminal no longer shows the rewound messages, so neither does the page
+  assert.equal((await next()).event, 'reset');
+  assert.deepEqual(uuids(await next()), ['u1', 'a1']);
+});
+
+test('rewind_Should_RefuseUnknownMessageOrActionWithoutTouchingTerminal', async (t) => {
+  const { file, port, calls } = await withServer(t);
+  await appendFile(file, answerLine('a1', 'u1'));
+  /** @param {unknown} request */
+  const rewind = (request) => post(port, '/api/rewind', pageHeaders(port), JSON.stringify({ session: sessionId, ...Object(request) }));
+
+  const replies = await Promise.all([rewind({ prompt: 'a1', action: 'conversation' }), rewind({ prompt: 'u1', action: 'delete' })]);
+
+  assert.deepEqual(replies.map((reply) => reply.status), [404, 400]);
+  assert.deepEqual(calls, []);
 });

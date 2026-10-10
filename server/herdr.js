@@ -50,7 +50,7 @@ export function createHerdrRunner(target) {
           resolve({ ok: false, error: `${error.message}${stderr === '' ? '' : `: ${stderr.trim()}`}`, missing: error.code === 'ENOENT' });
           return;
         }
-        resolve({ ok: true, json: parseJson(stdout) });
+        resolve({ ok: true, json: parseJson(stdout), text: stdout });
       });
     });
 }

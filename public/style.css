@@ -1611,6 +1611,142 @@ table.diff tr.gap td {
   fill: currentColor;
 }
 
+/* Rewind to before a prompt: next to its bookmark flag, shown the same way. */
+.rewind-toggle {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-4);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.msg.user > .rewind-toggle {
+  align-self: center;
+}
+
+.anchor:hover > .rewind-toggle,
+.rewind-toggle:focus-visible {
+  opacity: 1;
+}
+
+.rewind-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.rewind-toggle .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.rewind-dialog {
+  width: min(460px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+  color: var(--text);
+}
+
+.rewind-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.rewind-dialog h2 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.rewind-quote {
+  margin: 0 0 14px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg-bubble);
+  color: var(--text-2);
+  font-size: 13.5px;
+}
+
+.rewind-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rewind-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rewind-choice:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+
+.rewind-choice:disabled,
+.rewind-cancel:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.rewind-label {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.rewind-detail {
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
+.rewind-status {
+  min-height: 1.4em;
+  margin-top: 10px;
+  color: var(--ok);
+  font-size: 13px;
+}
+
+.rewind-status[data-tone="error"] {
+  color: var(--danger);
+}
+
+.rewind-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.rewind-note {
+  color: var(--text-4);
+  font-size: 12px;
+}
+
+.rewind-cancel {
+  flex: none;
+  padding: 8px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-elev);
+  cursor: pointer;
+}
+
 /* Highlight of the message jumped to from the outline. */
 .anchor.flash {
   animation: flash 1.6s ease-out;
@@ -1973,7 +2109,8 @@ a.file-link:hover {
 
 /* A touch screen has no hover: controls that wait for it stay visible. */
 @media (hover: none) {
-  .bookmark-toggle {
+  .bookmark-toggle,
+  .rewind-toggle {
     opacity: 0.4;
   }
 

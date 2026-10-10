@@ -15,6 +15,7 @@ import { parseBookmarkChange } from '../public/model/bookmarks.js';
 import { isRecord } from '../public/model/narrow.js';
 import { readTextFile } from './files.js';
 import { readImage } from './images.js';
+import { rewindTarget } from './rewind.js';
 import { createSessionIndex } from './sessions.js';
 import { streamTranscript } from './stream.js';
 import { parseImages } from './uploads.js';
@@ -44,7 +45,7 @@ const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 const agentIdPattern = /^[0-9a-z]{1,64}$/i;
 
 /**
- * @typedef {{ liveState: (sessionId: string) => Promise<import('./composer.js').LiveState>, send: (sessionId: string, text: string) => Promise<import('./composer.js').SendOutcome>, interrupt: (sessionId: string) => Promise<import('./composer.js').SendOutcome> }} Composer
+ * @typedef {{ liveState: (sessionId: string) => Promise<import('./composer.js').LiveState>, send: (sessionId: string, text: string) => Promise<import('./composer.js').SendOutcome>, interrupt: (sessionId: string) => Promise<import('./composer.js').SendOutcome>, rewind: (sessionId: string, request: import('./composer.js').RewindRequest) => Promise<import('./composer.js').RewindReply> }} Composer
  * @typedef {{ name: string, version: string }} About
  */
 
@@ -173,6 +174,8 @@ async function handleWrite(deps, url, request, response) {
     }
     case '/api/interrupt':
       return sendJson(response, await deps.composer.interrupt(sessionId));
+    case '/api/rewind':
+      return rewind(deps, sessionId, isRecord(body) ? body : {}, response);
     case '/api/bookmarks': {
       const change = parseBookmarkChange(isRecord(body) ? body.change : undefined);
       if (change === undefined) {
@@ -184,6 +187,39 @@ async function handleWrite(deps, url, request, response) {
     default:
       response.writeHead(404).end('Not found');
   }
+}
+
+/** @type {readonly import('./rewind.js').RewindAction[]} */
+const rewindActions = ['both', 'conversation', 'code', 'summarize-from', 'summarize-up-to'];
+
+/**
+ * Rewind to before a message, as /rewind in the terminal does. After the conversation is rewound the feed hides the
+ * rewound messages at once: the transcript shows the fork only when the next prompt arrives.
+ * @param {Deps} deps
+ * @param {string} sessionId
+ * @param {Record<string, unknown>} body — { prompt: the message's uuid, action }
+ * @param {http.ServerResponse} response
+ */
+async function rewind(deps, sessionId, body, response) {
+  const action = rewindActions.find((known) => known === body.action);
+  if (action === undefined || typeof body.prompt !== 'string') {
+    response.writeHead(400).end('Bad rewind request');
+    return;
+  }
+  const path = await deps.index.find(sessionId);
+  const records = path === undefined ? [] : (await readFile(path, 'utf8')).split('\n').flatMap((line) => {
+    try {
+      return line === '' ? [] : [JSON.parse(line)];
+    } catch {
+      return []; // a line still being written
+    }
+  });
+  const target = rewindTarget(records, body.prompt);
+  // A message sent while Claude was working joined that turn: the menu does not list it.
+  if (target === undefined) return sendJson(response, { ok: false, error: 'not-listed' }, 404);
+  const reply = await deps.composer.rewind(sessionId, { ...target, action });
+  if (reply.ok && (action === 'both' || action === 'conversation')) deps.rewinds.set(sessionId, body.prompt);
+  return sendJson(response, reply.ok ? { ok: true, ...(reply.restoredPrompt ? { prompt: target.prompt } : {}) } : reply);
 }
 
 /** A body larger than this is not a prompt but something else. */

@@ -7,6 +7,8 @@ import { listedSessions } from './model/session-list.js';
 import { actionLabel, choices, nextChoice } from './model/view-settings.js';
 import { createBookmarkStore, moveLocalBookmarksToServer } from './view/bookmark-store.js';
 import { createComposer } from './view/composer-view.js';
+import { createRewindDialog } from './view/rewind-dialog.js';
+import { rewindMessage } from './model/rewind.js';
 import { createOutline } from './view/outline-view.js';
 import { h } from './view/dom.js';
 import { createFilePanel } from './view/file-panel.js';
@@ -79,8 +81,9 @@ function createPage() {
   /** @type {readonly SessionInfo[]} */
   let sessions = [];
   let listKey = '';
-  /** @type {{ id: string, dispose: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof sessionHeader> } | undefined} */
+  /** @type {{ id: string, dispose: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof sessionHeader>, rewound: (reply: import('./model/rewind.js').RewindReply) => void } | undefined} */
   let current;
+  const rewindDialog = createRewindDialog({ onDone: (reply) => current?.rewound(reply) });
 
   /** @param {string} text — the search box text; following ignores it */
   const listed = (text) => listedSessions(sessions, { sdk: showSdk.checked ? 'shown' : 'hidden', search: text });
@@ -134,6 +137,7 @@ function createPage() {
       sessionId: id,
       agentId: undefined,
       bookmarks,
+      onRewind: (prompt) => rewindDialog.open(id, prompt),
       listener: {
         onMeta: header.onMeta,
         onStatus(next) {
@@ -159,6 +163,11 @@ function createPage() {
       step: (direction) => {
         const target = spy.target(direction);
         if (target !== undefined) void mounted.scrollToAnchor(target);
+      },
+      // Like the terminal, the rewound message comes back into the box to be edited and sent again.
+      rewound(reply) {
+        composer.say(rewindMessage(reply), 'ok');
+        if (reply.ok && reply.prompt !== undefined) composer.fill(reply.prompt);
       },
       dispose() {
         mounted.dispose();

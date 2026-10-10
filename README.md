@@ -60,6 +60,15 @@ screenshot anywhere on the page (Ctrl+V), or drop files on the box. The page sca
 `~/.claude-code-webview/uploads/` and lists their paths at the end of the prompt, and Claude Code opens them with its
 Read tool. In the feed the list shows as pictures again.
 
+Rewind works as Esc Esc does in the terminal: the ↶ next to one of your messages offers the same choices — restore
+code and conversation, the conversation, or the code, summarize from or up to that message. The viewer drives
+Claude Code's `/rewind` menu with keys, checks every step on the screen (the message by its full text on the
+confirmation) and closes the menu if anything looks different. It works only while Claude waits for input. After the
+conversation is restored, the message comes back into the box on the page to be edited and sent again.
+
+The feed shows only the active branch of a conversation: a rewind deletes nothing from the transcript, so the
+messages it undid are left out.
+
 Without herdr everything else works and the input box is simply not shown.
 
 To let the viewer find your herdr, start it once from a herdr pane — herdr sets `HERDR_BIN_PATH` and

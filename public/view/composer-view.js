@@ -15,7 +15,7 @@ const serverSilent = { shown: true, enabled: false, canInterrupt: false, placeho
 
 /**
  * @param {string} sessionId
- * @returns {{ element: HTMLElement, dispose: () => void }}
+ * @returns {{ element: HTMLElement, say: (message: string, tone: 'ok' | 'error') => void, fill: (text: string) => void, dispose: () => void }}
  */
 export function createComposer(sessionId) {
   /** @type {import('../model/composer.js').Keyboard} */
@@ -144,6 +144,18 @@ export function createComposer(sessionId) {
   if (input.value !== '') requestAnimationFrame(fit);
   return {
     element,
+    say,
+    /**
+     * Puts a rewound message back into the box for editing, as the terminal does.
+     * @param {string} text
+     */
+    fill(text) {
+      input.value = text;
+      writeDraft(draftKey, text);
+      fit();
+      refreshButtons();
+      if (keyboard === 'physical') input.focus();
+    },
     dispose() {
       clearInterval(timer);
       clearTimeout(noticeTimer);
