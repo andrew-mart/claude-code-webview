@@ -1,6 +1,7 @@
 // @ts-check
 // Prompt box under the feed: the prompt goes to the session terminal via herdr (server: /api/send, /api/interrupt).
 import { composerState, outcomeMessage, parseLiveState, parseOutcome } from '../model/composer.js';
+import { createAttachmentPicker } from './attachment-picker.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
 
@@ -26,20 +27,22 @@ export function createComposer(sessionId) {
   const send = h('button', { className: 'composer-send', title: keyboard === 'touch' ? 'Send' : 'Send (Enter)', attrs: { type: 'submit', 'aria-label': 'Send' } }, [icon('send')]);
   const hint = h('div', { className: 'composer-hint' });
   const status = h('div', { className: 'composer-status', attrs: { role: 'status' } });
-  const form = h('form', { className: 'composer-box' }, [input, h('div', { className: 'composer-actions' }, [interrupt, send])]);
-  const element = h('div', { className: 'composer' }, [form, h('div', { className: 'composer-footer' }, [hint, status])]);
   let enabled = false;
   let sending = false;
   /** @type {ReturnType<typeof setTimeout> | undefined} */
   let noticeTimer;
+  const attachments = createAttachmentPicker({ onChange: () => refreshButtons(), onError: (message) => say(message, 'error') });
+  const form = h('form', { className: 'composer-box' }, [attachments.list, attachments.button, input, h('div', { className: 'composer-actions' }, [interrupt, send])]);
+  const element = h('div', { className: 'composer' }, [form, h('div', { className: 'composer-footer' }, [hint, status]), attachments.input]);
 
   const fit = () => {
     input.style.height = 'auto';
     input.style.height = `${input.scrollHeight}px`;
   };
   const refreshButtons = () => {
-    send.disabled = !enabled || sending || input.value.trim() === '';
+    send.disabled = !enabled || sending || (input.value.trim() === '' && attachments.images().length === 0);
     input.disabled = !enabled;
+    attachments.button.disabled = !enabled;
   };
   const say = (/** @type {string} */ message, /** @type {'ok' | 'error'} */ tone) => {
     clearTimeout(noticeTimer);
@@ -58,7 +61,10 @@ export function createComposer(sessionId) {
     interrupt.hidden = !view.canInterrupt;
     refreshButtons();
   };
-  /** @param {'/api/send' | '/api/interrupt'} path @param {Record<string, string>} payload */
+  /**
+   * @param {'/api/send' | '/api/interrupt'} path
+   * @param {{ text?: string, images?: readonly import('./attachment-picker.js').AttachedImage[] }} payload
+   */
   const post = async (path, payload) => {
     const response = await fetch(path, {
       method: 'POST',
@@ -73,11 +79,14 @@ export function createComposer(sessionId) {
     if (send.disabled) return;
     sending = true;
     refreshButtons();
-    void post('/api/send', { text: input.value }).then((outcome) => {
+    const images = attachments.images();
+    if (images.length > 0) say(`Sending ${images.length === 1 ? 'the image' : `${images.length} images`}…`, 'ok');
+    void post('/api/send', { text: input.value, images }).then((outcome) => {
       sending = false;
       if (outcome?.ok === true) {
         input.value = '';
         writeDraft(draftKey, '');
+        attachments.clear();
         fit();
       }
       say(outcome === undefined ? 'The viewer server did not answer. The text stays in the box.' : outcomeMessage(outcome), outcome?.ok === true ? 'ok' : 'error');
@@ -92,6 +101,22 @@ export function createComposer(sessionId) {
       event.preventDefault();
       form.requestSubmit();
     }
+  });
+  // A screenshot pasted from the clipboard or images dropped on the box are attached like picked ones.
+  input.addEventListener('paste', (event) => {
+    const files = [...(event.clipboardData?.files ?? [])].filter((file) => file.type.startsWith('image/'));
+    if (files.length === 0) return;
+    event.preventDefault();
+    void attachments.add(files);
+  });
+  form.addEventListener('dragover', (event) => {
+    if (event.dataTransfer?.types.includes('Files')) event.preventDefault();
+  });
+  form.addEventListener('drop', (event) => {
+    const files = [...(event.dataTransfer?.files ?? [])];
+    if (files.length === 0) return;
+    event.preventDefault();
+    if (enabled) void attachments.add(files);
   });
   input.addEventListener('input', () => {
     writeDraft(draftKey, input.value);

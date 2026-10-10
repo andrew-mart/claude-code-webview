@@ -365,3 +365,15 @@ test('interpretEntry_Should_ShowImagesTheServerLinksToAndNoImagesFromOtherSites'
 
   assert.deepEqual(prompt?.kind === 'prompt' ? prompt.images : undefined, [{ url: '/api/image?session=s1&at=0&n=0' }]);
 });
+
+test('interpretEntry_Should_ShowImagesAttachedFromPageAsPicturesNotPaths', () => {
+  const photo = 'C:\\Users\\ann\\.claude-code-webview\\uploads\\2026-10-10_134501-k3f9qa.jpg';
+  const typed = { type: 'user', uuid: 'u7', timestamp: at, message: { role: 'user', content: `Why is the legend cut off?\n\nAttached images:\n${photo}` } };
+  const queued = { type: 'attachment', uuid: 'q7', timestamp: at, attachment: { type: 'queued_command', commandMode: 'prompt', origin: { kind: 'human' }, prompt: `And this one\n\nAttached images:\n${photo}` } };
+
+  /** @param {unknown} entry */
+  const shown = (entry) => interpretEntry(entry).flatMap((event) => (event.kind === 'prompt' ? [{ text: event.text, images: event.images }] : []));
+
+  assert.deepEqual(shown(typed), [{ text: 'Why is the legend cut off?', images: [{ url: '/api/upload/2026-10-10_134501-k3f9qa.jpg' }] }]);
+  assert.deepEqual(shown(queued), [{ text: 'And this one', images: [{ url: '/api/upload/2026-10-10_134501-k3f9qa.jpg' }] }]);
+});

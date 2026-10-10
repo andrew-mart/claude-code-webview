@@ -10,12 +10,14 @@ import { extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { constants as zlibConstants, createGzip, gzip } from 'node:zlib';
+import { withAttachedImages } from '../public/model/attachments.js';
 import { parseBookmarkChange } from '../public/model/bookmarks.js';
 import { isRecord } from '../public/model/narrow.js';
 import { readTextFile } from './files.js';
 import { readImage } from './images.js';
 import { createSessionIndex } from './sessions.js';
 import { streamTranscript } from './stream.js';
+import { parseImages } from './uploads.js';
 
 const publicDir = fileURLToPath(new URL('../public', import.meta.url));
 
@@ -47,11 +49,11 @@ const agentIdPattern = /^[0-9a-z]{1,64}$/i;
  */
 
 /**
- * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, about: About }} options
+ * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About }} options
  *   about — package name and version for /api/health
  * @returns {Promise<{ port: number, close: () => void }>}
  */
-export async function startServer({ root, host, port, pollMs, composer, bookmarks, about }) {
+export async function startServer({ root, host, port, pollMs, composer, bookmarks, uploads, about }) {
   const index = createSessionIndex(root, { summaryBudgetMs: 1500 });
   const build = await pageBuild();
   /** @type {Set<string>} */
@@ -59,7 +61,7 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
   /** @type {Set<string>} */
   const allowedOrigins = new Set();
   const server = http.createServer((request, response) => {
-    handle({ index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, about, build }, request, response).catch((error) => {
+    handle({ index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, uploads, about, build }, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
       if (!response.headersSent) response.writeHead(500).end();
       else response.end();
@@ -82,7 +84,8 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
 }
 
 /**
- * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, about: About, build: string }} Deps
+ * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string }} Deps
+ * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
  */
 
 /**
@@ -103,6 +106,7 @@ async function handle(deps, request, response) {
     response.writeHead(405).end();
     return;
   }
+  if (url.pathname.startsWith('/api/upload/')) return sendUpload(deps, decodeURIComponent(url.pathname.slice('/api/upload/'.length)), response);
   switch (url.pathname) {
     case '/api/health':
       // This reply tells the CLI that the port is held by the viewer itself, and which process to stop.
@@ -145,15 +149,25 @@ async function handleWrite(deps, url, request, response) {
     response.writeHead(403).end('Forbidden: request did not come from the viewer page');
     return;
   }
-  const body = await readJsonBody(request);
+  const body = await readJsonBody(request, url.pathname === '/api/send' ? maxSendBytes : maxBodyBytes);
   const sessionId = isRecord(body) && typeof body.session === 'string' && sessionIdPattern.test(body.session) ? body.session : undefined;
   if (sessionId === undefined) {
     response.writeHead(400).end('Bad session id');
     return;
   }
   switch (url.pathname) {
-    case '/api/send':
-      return sendJson(response, await deps.composer.send(sessionId, isRecord(body) && typeof body.text === 'string' ? body.text : ''));
+    case '/api/send': {
+      const attached = parseImages(isRecord(body) ? body.images : undefined);
+      if (!attached.ok) {
+        response.writeHead(400).end(attached.error);
+        return;
+      }
+      // Claude Code opens attached images by path; the files stay only if the terminal took the prompt.
+      const paths = await deps.uploads.save(attached.images);
+      const outcome = await deps.composer.send(sessionId, withAttachedImages(isRecord(body) && typeof body.text === 'string' ? body.text : '', paths));
+      if (!outcome.ok) await deps.uploads.remove(paths);
+      return sendJson(response, outcome);
+    }
     case '/api/interrupt':
       return sendJson(response, await deps.composer.interrupt(sessionId));
     case '/api/bookmarks': {
@@ -171,19 +185,22 @@ async function handleWrite(deps, url, request, response) {
 
 /** A body larger than this is not a prompt but something else. */
 const maxBodyBytes = 256 * 1024;
+/** A prompt with attached images: the page shrinks photos before sending, this leaves room for several. */
+const maxSendBytes = 48 * 1024 * 1024;
 
 /**
  * @param {http.IncomingMessage} request
+ * @param {number} limit
  * @returns {Promise<unknown>} — undefined if the body is not JSON or is too large
  */
-async function readJsonBody(request) {
+async function readJsonBody(request, limit) {
   /** @type {Buffer[]} */
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     if (!(chunk instanceof Buffer)) continue;
     size += chunk.length;
-    if (size > maxBodyBytes) return undefined;
+    if (size > limit) return undefined;
     chunks.push(chunk);
   }
   try {
@@ -246,6 +263,22 @@ async function stream(deps, url, id, request, response) {
     pollMs: deps.pollMs,
   });
   out.end();
+}
+
+/**
+ * An image attached to a prompt from the page.
+ * @param {Deps} deps
+ * @param {string} name
+ * @param {http.ServerResponse} response
+ */
+async function sendUpload(deps, name, response) {
+  const image = await deps.uploads.read(name);
+  if (image === undefined) {
+    response.writeHead(404).end('Not found');
+    return;
+  }
+  response.writeHead(200, { 'Content-Type': image.mediaType, 'Content-Length': image.bytes.length, 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
+  response.end(image.bytes);
 }
 
 /**

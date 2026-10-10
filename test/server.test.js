@@ -1,12 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { appendFile, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { startServer } from '../server/app.js';
 import { createBookmarkFile } from '../server/bookmarks.js';
+import { createUploads } from '../server/uploads.js';
 
 const sessionId = '3f2c9a50-1111-4222-8333-944455556666';
 const at = '2026-10-09T07:02:11.686Z';
@@ -48,9 +49,9 @@ async function withServer(t) {
   const file = join(project, `${sessionId}.jsonl`);
   await writeFile(file, promptLine('u1', 'First question'));
   const { composer, calls } = fakeComposer();
-  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), about: { name: 'claude-code-webview', version: '9.9.9' } });
+  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' } });
   t.after(() => server.close());
-  return { file, base: `http://127.0.0.1:${server.port}`, port: server.port, calls };
+  return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls };
 }
 
 /**
@@ -370,4 +371,48 @@ test('api_Should_NameBuildSoOpenPageNoticesUpdate', async (t) => {
   const sessions = await fetch(`${base}/api/sessions`);
 
   assert.equal(sessions.headers.get('x-viewer-build'), build);
+});
+
+test('send_Should_SaveAttachedImageAndSendItsPathAfterText', async (t) => {
+  const { port, base, calls } = await withServer(t);
+  const body = JSON.stringify({ session: sessionId, text: 'Why is the legend cut off?', images: [{ mediaType: 'image/png', data: pngBytes.toString('base64') }] });
+
+  const response = await post(port, '/api/send', pageHeaders(port), body);
+
+  assert.equal(response.status, 200);
+  const sent = calls[0]?.[2] ?? '';
+  const path = /^Why is the legend cut off\?\n\nAttached images:\n(.+\.png)$/.exec(sent)?.[1];
+  assert.ok(path, `the prompt does not end with the image path: ${sent}`);
+  assert.deepEqual(await readFile(path), pngBytes);
+  const served = await fetch(`${base}/api/upload/${basename(path)}`);
+  assert.equal(served.headers.get('content-type'), 'image/png');
+  assert.deepEqual(Buffer.from(await served.arrayBuffer()), pngBytes);
+});
+
+test('send_Should_RefuseImagesItCannotSafelyShowAndSaveNothing', async (t) => {
+  const { port, root, calls } = await withServer(t);
+  const attempts = [
+    [{ mediaType: 'image/svg+xml', data: Buffer.from('<svg onload="alert(1)"/>').toString('base64') }],
+    [{ mediaType: 'image/png', data: 12345 }],
+    'not a list',
+  ];
+
+  const statuses = await Promise.all(
+    attempts.map(async (images) => (await post(port, '/api/send', pageHeaders(port), JSON.stringify({ session: sessionId, text: 'Look', images }))).status),
+  );
+
+  assert.deepEqual(statuses, [400, 400, 400]);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(await readdir(join(root, 'uploads')).catch(() => []), []);
+});
+
+test('upload_Should_ServeOnlyImagesTheViewerSaved', async (t) => {
+  const { base, root } = await withServer(t);
+  await mkdir(join(root, 'uploads'), { recursive: true });
+  await writeFile(join(root, 'outside.png'), pngBytes);
+  await writeFile(join(root, 'uploads', 'notes.txt'), 'not an image');
+
+  const statuses = await Promise.all(['/api/upload/..%2Foutside.png', '/api/upload/missing.png', '/api/upload/notes.txt'].map(async (path) => (await fetch(`${base}${path}`)).status));
+
+  assert.deepEqual(statuses, [404, 404, 404]);
 });
