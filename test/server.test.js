@@ -5,6 +5,7 @@ import { appendFile, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer } from '../server/app.js';
+import { createBookmarkFile } from '../server/bookmarks.js';
 
 const sessionId = '3f2c9a50-1111-4222-8333-944455556666';
 const at = '2026-10-09T07:02:11.686Z';
@@ -46,7 +47,7 @@ async function withServer(t) {
   const file = join(project, `${sessionId}.jsonl`);
   await writeFile(file, promptLine('u1', 'First question'));
   const { composer, calls } = fakeComposer();
-  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, about: { name: 'claude-code-webview', version: '9.9.9' } });
+  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), about: { name: 'claude-code-webview', version: '9.9.9' } });
   t.after(() => server.close());
   return { file, base: `http://127.0.0.1:${server.port}`, port: server.port, calls };
 }
@@ -201,4 +202,26 @@ test('server_Should_RejectRequestForForeignHost', async (t) => {
   });
 
   assert.equal(status, 403);
+});
+
+/** @type {import('../public/model/bookmarks.js').Bookmark} */
+const report = { id: 'a1:0', kind: 'answer', label: 'Test results', at: '2026-10-09T10:05:00.000Z' };
+
+test('bookmarks_Should_KeepBookmarkAddedOnViewerPageForEveryLaterRequest', async (t) => {
+  const { base, port } = await withServer(t);
+
+  const added = await post(port, '/api/bookmarks', pageHeaders(port), JSON.stringify({ session: sessionId, change: { action: 'add', bookmark: report } }));
+  const listed = await fetch(`${base}/api/bookmarks?session=${sessionId}`);
+
+  assert.equal(added.status, 200);
+  assert.deepEqual(await listed.json(), [report]);
+});
+
+test('bookmarks_Should_RejectChangeOfUnknownShape', async (t) => {
+  const { port } = await withServer(t);
+  const malformed = [{ action: 'add', bookmark: { id: 1 } }, { action: 'rename', id: 'a1:0' }, undefined];
+
+  const responses = await Promise.all(malformed.map((change) => post(port, '/api/bookmarks', pageHeaders(port), JSON.stringify({ session: sessionId, change }))));
+
+  assert.deepEqual(responses.map((response) => response.status), [400, 400, 400]);
 });

@@ -7,6 +7,7 @@ import http from 'node:http';
 import { homedir } from 'node:os';
 import { extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseBookmarkChange } from '../public/model/bookmarks.js';
 import { isRecord } from '../public/model/narrow.js';
 import { readTextFile } from './files.js';
 import { createSessionIndex } from './sessions.js';
@@ -42,18 +43,18 @@ const agentIdPattern = /^[0-9a-z]{1,64}$/i;
  */
 
 /**
- * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, about: About }} options
+ * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, about: About }} options
  *   about — package name and version for /api/health
  * @returns {Promise<{ port: number, close: () => void }>}
  */
-export async function startServer({ root, host, port, pollMs, composer, about }) {
+export async function startServer({ root, host, port, pollMs, composer, bookmarks, about }) {
   const index = createSessionIndex(root, { summaryBudgetMs: 1500 });
   /** @type {Set<string>} */
   const allowedHosts = new Set();
   /** @type {Set<string>} */
   const allowedOrigins = new Set();
   const server = http.createServer((request, response) => {
-    handle({ index, allowedHosts, allowedOrigins, pollMs, composer, about }, request, response).catch((error) => {
+    handle({ index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, about }, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
       if (!response.headersSent) response.writeHead(500).end();
       else response.end();
@@ -76,7 +77,7 @@ export async function startServer({ root, host, port, pollMs, composer, about })
 }
 
 /**
- * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, about: About }} Deps
+ * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, about: About }} Deps
  */
 
 /**
@@ -105,6 +106,8 @@ async function handle(deps, request, response) {
       return sendJson(response, await deps.index.list());
     case '/api/subagents':
       return withSession(url, response, async (id) => sendJson(response, await deps.index.subagents(id)));
+    case '/api/bookmarks':
+      return withSession(url, response, async (id) => sendJson(response, await deps.bookmarks.list(id)));
     case '/api/stream':
       return withSession(url, response, async (id) => stream(deps, url, id, request, response));
     case '/api/file':
@@ -115,8 +118,8 @@ async function handle(deps, request, response) {
 }
 
 /**
- * Writing to a session's terminal is the only thing the server does besides reading; sessions run
- * with permission to execute commands. So the request is accepted only from the viewer's own page:
+ * Writes — text to a session's terminal, bookmark changes — come only from the viewer's own page: sessions run
+ * with permission to execute commands. So the request is accepted only from that page:
  * Origin is our address, the body is JSON, and the X-Viewer header is present. A form or fetch from another
  * site cannot send such a request without a CORS preflight, and the server does not allow CORS.
  * @param {Deps} deps
@@ -144,6 +147,14 @@ async function handleWrite(deps, url, request, response) {
       return sendJson(response, await deps.composer.send(sessionId, isRecord(body) && typeof body.text === 'string' ? body.text : ''));
     case '/api/interrupt':
       return sendJson(response, await deps.composer.interrupt(sessionId));
+    case '/api/bookmarks': {
+      const change = parseBookmarkChange(isRecord(body) ? body.change : undefined);
+      if (change === undefined) {
+        response.writeHead(400).end('Bad bookmark change');
+        return;
+      }
+      return sendJson(response, await deps.bookmarks.change(sessionId, change));
+    }
     default:
       response.writeHead(404).end('Not found');
   }
