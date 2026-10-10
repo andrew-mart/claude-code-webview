@@ -19,9 +19,9 @@ function fakeHerdr({ fail = false, missing = false } = {}) {
     if (missing) return { ok: false, error: 'spawn herdr ENOENT', missing: true };
     if (fail) return { ok: false, error: 'no herdr server is running', missing: false };
     const [, command, , pane] = args;
-    if (command === 'list') return { ok: true, json: { result: { panes: [{ agent: 'claude', pane_id: 'w2:p1' }, { agent: 'claude', pane_id: 'w3D:p1' }] } } };
-    if (command === 'process-info') return { ok: true, json: { result: { process_info: { foreground_processes: [{ pid: pane === 'w3D:p1' ? 94168 : 555 }] } } } };
-    return { ok: true, json: { result: { type: 'ok' } } };
+    if (command === 'list') return { ok: true, json: { result: { panes: [{ agent: 'claude', pane_id: 'w2:p1' }, { agent: 'claude', pane_id: 'w3D:p1' }] } }, text: '' };
+    if (command === 'process-info') return { ok: true, json: { result: { process_info: { foreground_processes: [{ pid: pane === 'w3D:p1' ? 94168 : 555 }] } } }, text: '' };
+    return { ok: true, json: { result: { type: 'ok' } }, text: '' };
   };
   return { run, calls };
 }
@@ -91,8 +91,18 @@ test('liveState_Should_ExplainWhySessionCannotReceiveText', async () => {
 test('liveState_Should_TreatHerdrErrorReplyAsUnavailable', async () => {
   // This is how herdr replies when the client is older than the running server.
   /** @returns {Promise<import('../server/composer.js').HerdrReply>} */
-  const mismatch = async () => ({ ok: true, json: { id: 'cli:pane:list', error: { code: 'protocol_mismatch', message: 'upgrade the Herdr client' } } });
+  const mismatch = async () => ({ ok: true, json: { id: 'cli:pane:list', error: { code: 'protocol_mismatch', message: 'upgrade the Herdr client' } }, text: '' });
   const composer = createComposer({ readRecords: async () => [record], herdr: mismatch });
 
   assert.deepEqual(await composer.liveState(sessionId), { state: 'no-herdr', status: 'busy' });
+});
+
+test('rewind_Should_TouchTerminalOnlyWhileClaudeWaitsForInput', async () => {
+  const request = { stepsUp: 1, prompt: 'Now test it', action: /** @type {const} */ ('conversation') };
+  const busy = fakeHerdr();
+  const offline = fakeHerdr();
+
+  assert.deepEqual(await composerOf([record], busy).rewind(sessionId, request), { ok: false, error: 'busy' });
+  assert.deepEqual(await composerOf([], offline).rewind(sessionId, request), { ok: false, error: 'offline' });
+  assert.deepEqual([...busy.calls, ...offline.calls].filter(([, command]) => command === 'send-keys' || command === 'send-text'), []);
 });

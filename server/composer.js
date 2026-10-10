@@ -6,15 +6,19 @@
 //   herdr pane send-text / send-keys → the text and Enter, as if the user typed them
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { isRecord, text } from '../public/model/narrow.js';
 import { claudePaneIds, foregroundPids, toTerminalInput } from './herdr.js';
+import { driveRewind } from './rewind.js';
 
 /**
- * @typedef {{ ok: true, json: unknown } | { ok: false, error: string, missing: boolean }} HerdrReply — missing: herdr is not installed (no such program)
+ * @typedef {{ ok: true, json: unknown, text: string } | { ok: false, error: string, missing: boolean }} HerdrReply — text: what herdr printed; missing: herdr is not installed (no such program)
  * @typedef {(args: readonly string[]) => Promise<HerdrReply>} RunHerdr
  * @typedef {{ pid: number, sessionId: string, status: string, updatedAt: number }} LiveRecord
  * @typedef {import('../public/model/composer.js').LiveState} LiveState — the /api/live contract, shared with the page
  * @typedef {import('../public/model/composer.js').SendOutcome} SendOutcome
+ * @typedef {{ stepsUp: number, prompt: string, action: import('./rewind.js').RewindAction }} RewindRequest
+ * @typedef {import('./rewind.js').RewindOutcome | { ok: false, error: 'herdr-missing' | 'offline' | 'no-herdr' | 'outside-herdr' | 'busy' }} RewindReply
  */
 
 const presenceTtlMs = 30_000;
@@ -143,13 +147,36 @@ export function createComposer({ readRecords, herdr }) {
       if (!place.ok) return place;
       return press(place, [['send-keys', 'esc']]);
     },
+    /**
+     * Rewind the session to before a message, through Claude Code's /rewind menu in its terminal. Only while Claude
+     * waits for input: the keys would interrupt a turn in progress.
+     * @param {string} sessionId
+     * @param {RewindRequest} request
+     * @returns {Promise<RewindReply>}
+     */
+    async rewind(sessionId, request) {
+      const place = await locate(sessionId);
+      if (place.kind !== 'live') return { ok: false, error: place.kind };
+      if (place.record.status === 'busy') return { ok: false, error: 'busy' };
+      const { pane } = place;
+      /** @type {import('./rewind.js').Terminal} */
+      const terminal = {
+        read: async () => {
+          const reply = await herdr(['pane', 'read', pane, '--source', 'visible', '--format', 'text']);
+          return reply.ok ? reply.text : undefined;
+        },
+        keys: async (...keys) => succeeded(await herdr(['pane', 'send-keys', pane, ...keys])),
+        text: async (text) => succeeded(await herdr(['pane', 'send-text', pane, text])),
+      };
+      return driveRewind(terminal, { ...request, wait: (ms) => delay(ms) });
+    },
   };
 }
 
 /**
  * herdr reports a failure either by its exit code or by an error field in the JSON (e.g. protocol_mismatch).
  * @param {HerdrReply} reply
- * @returns {reply is { ok: true, json: unknown }}
+ * @returns {reply is { ok: true, json: unknown, text: string }}
  */
 function succeeded(reply) {
   return reply.ok && !(isRecord(reply.json) && reply.json.error !== undefined);

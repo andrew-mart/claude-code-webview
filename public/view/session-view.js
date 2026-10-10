@@ -28,16 +28,16 @@ const staleMs = 15 * 60_000;
 const nearBottomPx = 120;
 
 /**
- * @param {{ scroller: HTMLElement, sessionId: string, agentId: string | undefined, bookmarks: import('./bookmark-store.js').BookmarkStore | undefined, listener: SessionListener }} options
- * — bookmarks: undefined for a nested subagent feed, which has no bookmarks
+ * @param {{ scroller: HTMLElement, sessionId: string, agentId: string | undefined, bookmarks: import('./bookmark-store.js').BookmarkStore | undefined, onRewind: ((prompt: Anchor) => void) | undefined, listener: SessionListener }} options
+ * — bookmarks: undefined for a nested subagent feed, which has no bookmarks; onRewind: likewise, a subagent cannot be rewound
  * @returns {MountedSession}
  */
-export function mountSession({ scroller, sessionId, agentId, bookmarks, listener }) {
+export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind, listener }) {
   const thread = h('div', { className: 'thread' });
   const working = h('div', { className: 'working', attrs: { hidden: '' } }, [h('span', { className: 'spark', text: '✻' }), h('span', { text: 'Working…' })]);
   const jump = h('button', { className: 'jump', title: 'Jump to the latest message', attrs: { type: 'button', hidden: '' } }, [icon('down')]);
   const element = h('div', { className: 'session' }, [thread, working, jump]);
-  const anchors = createAnchors(bookmarks);
+  const anchors = createAnchors(bookmarks, onRewind);
   /** @type {HTMLElement[]} */
   const prompts = [];
   const feed = createFeed(thread, sessionId, {
@@ -148,8 +148,9 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, listener
 /**
  * Messages one can come back to: each has a bookmark flag, and its element can be found by id.
  * @param {import('./bookmark-store.js').BookmarkStore | undefined} bookmarks
+ * @param {((prompt: Anchor) => void) | undefined} onRewind — offers to rewind to a prompt; undefined in a subagent feed
  */
-function createAnchors(bookmarks) {
+function createAnchors(bookmarks, onRewind) {
   /** @type {Map<string, { element: HTMLElement, button: HTMLButtonElement | undefined }>} */
   const registry = new Map();
   const press = (/** @type {HTMLButtonElement} */ button, /** @type {boolean} */ on) => {
@@ -180,6 +181,15 @@ function createAnchors(bookmarks) {
         });
         press(button, store.has(anchor.id));
         holder.prepend(button);
+      }
+      // A prompt can be rewound to, as with Esc Esc in the terminal.
+      if (anchor.kind === 'prompt' && onRewind !== undefined) {
+        const rewind = h('button', { className: 'rewind-toggle', title: 'Rewind to before this message', attrs: { type: 'button', 'aria-label': 'Rewind to before this message' } }, [icon('rewind')]);
+        rewind.addEventListener('click', (event) => {
+          event.stopPropagation();
+          onRewind(anchor);
+        });
+        holder.prepend(rewind);
       }
       registry.set(anchor.id, { element: holder, button });
       return holder;
@@ -567,6 +577,7 @@ async function openSubagentTranscript(sessionId, toolUseId, holder) {
     sessionId,
     agentId,
     bookmarks: undefined,
+    onRewind: undefined,
     listener: { onMeta: () => {}, onStatus: () => {}, onPrompt: () => {}, onReset: () => {} },
   });
   scroller.append(view.element);
