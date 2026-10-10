@@ -416,3 +416,48 @@ test('upload_Should_ServeOnlyImagesTheViewerSaved', async (t) => {
 
   assert.deepEqual(statuses, [404, 404, 404]);
 });
+
+/** @param {string} uuid @param {string} parentUuid @param {string} text */
+const childPrompt = (uuid, parentUuid, text) =>
+  `${JSON.stringify({ type: 'user', uuid, parentUuid, timestamp: at, promptSource: 'typed', message: { role: 'user', content: text } })}\n`;
+/** @param {string} uuid @param {string} parentUuid */
+const answerLine = (uuid, parentUuid) =>
+  `${JSON.stringify({ type: 'assistant', uuid, parentUuid, timestamp: at, message: { role: 'assistant', model: 'm', content: [{ type: 'text', text: `answer ${uuid}` }] } })}\n`;
+
+/**
+ * @param {string} base
+ * @param {import('node:test').TestContext} t
+ */
+async function openStream(base, t) {
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const response = await fetch(`${base}/api/stream?session=${sessionId}`, { signal: controller.signal });
+  assert.ok(response.body);
+  return sseEvents(response.body);
+}
+
+/** @param {{ data: unknown }} event */
+const uuids = (event) => (Array.isArray(event.data) ? event.data.map((/** @type {{ uuid: string }} */ entry) => entry.uuid) : []);
+
+test('stream_Should_ShowOnlyActiveBranchOfRewoundConversation', async (t) => {
+  const { file, base } = await withServer(t);
+  // u1 is the first prompt; p2 was rewound and p3 sent from the same point instead
+  await appendFile(file, answerLine('a1', 'u1') + childPrompt('p2', 'a1', 'Now test it') + answerLine('a2', 'p2') + childPrompt('p3', 'a1', 'Now test it properly'));
+
+  const next = await openStream(base, t);
+
+  assert.deepEqual(uuids(await next()), ['u1', 'a1', 'p3']);
+});
+
+test('stream_Should_RebuildFeedWhenSessionIsRewoundWhileOpen', async (t) => {
+  const { file, base } = await withServer(t);
+  await appendFile(file, answerLine('a1', 'u1') + childPrompt('p2', 'a1', 'Now test it') + answerLine('a2', 'p2'));
+  const next = await openStream(base, t);
+  assert.deepEqual(uuids(await next()), ['u1', 'a1', 'p2', 'a2']);
+  assert.equal((await next()).event, 'ready');
+
+  await appendFile(file, childPrompt('p3', 'a1', 'Now test it properly'));
+
+  assert.equal((await next()).event, 'reset');
+  assert.deepEqual(uuids(await next()), ['u1', 'a1', 'p3']);
+});
