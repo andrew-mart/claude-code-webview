@@ -56,7 +56,7 @@ the session's terminal and submitted with Enter, exactly as if you typed it ther
 queues it. "Stop" sends Esc. Drafts are kept per session.
 
 Images can go with a prompt: pick them with the paperclip (on a phone — from the gallery or the camera), paste a
-screenshot, or drop files on the box. The page scales photos down to 2048 px before sending; the viewer saves them in
+screenshot anywhere on the page (Ctrl+V), or drop files on the box. The page scales photos down to 2048 px before sending; the viewer saves them in
 `~/.claude-code-webview/uploads/` and lists their paths at the end of the prompt, and Claude Code opens them with its
 Read tool. In the feed the list shows as pictures again.
 

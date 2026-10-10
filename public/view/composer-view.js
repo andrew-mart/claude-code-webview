@@ -103,12 +103,20 @@ export function createComposer(sessionId) {
     }
   });
   // A screenshot pasted from the clipboard or images dropped on the box are attached like picked ones.
-  input.addEventListener('paste', (event) => {
+  // Ctrl+V with an image works anywhere on the page, not only in the box; another field (the session search)
+  // keeps its ordinary paste.
+  /** @param {ClipboardEvent} event */
+  const onPaste = (event) => {
+    const target = event.target;
+    const otherField = target instanceof HTMLElement && target !== input && (target.isContentEditable || target.matches('input, textarea, select'));
+    if (otherField || !enabled || element.hidden) return;
     const files = [...(event.clipboardData?.files ?? [])].filter((file) => file.type.startsWith('image/'));
     if (files.length === 0) return;
     event.preventDefault();
     void attachments.add(files);
-  });
+    if (keyboard === 'physical') input.focus();
+  };
+  document.addEventListener('paste', onPaste);
   form.addEventListener('dragover', (event) => {
     if (event.dataTransfer?.types.includes('Files')) event.preventDefault();
   });
@@ -139,6 +147,7 @@ export function createComposer(sessionId) {
     dispose() {
       clearInterval(timer);
       clearTimeout(noticeTimer);
+      document.removeEventListener('paste', onPaste);
     },
   };
 }
