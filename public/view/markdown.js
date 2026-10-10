@@ -100,15 +100,34 @@ function tableFrame(table) {
   }
   const button = h('button', { className: 'table-width', attrs: { type: 'button' } });
   const frame = h('div', { className: 'table-frame' }, [h('div', { className: 'table-scroll' }, [table]), button]);
+  // A wide table is much shorter than a fitted one: what is below it would jump. The button stays where it was under
+  // the pointer — the feed scrolls by as much as the table changed.
   button.addEventListener('click', () => {
+    const before = button.getBoundingClientRect().top;
     frame.dataset.width = isWide(frame) ? 'fit' : 'wide';
     labelWidthButton(frame, button);
+    const shift = button.getBoundingClientRect().top - before;
+    const scroller = scrollingAncestor(frame);
+    if (shift !== 0 && scroller !== undefined) scroller.scrollTop += shift;
   });
   // The inherited width may have changed since the label was set: it is read again when the button is about to be used.
   button.addEventListener('pointerenter', () => labelWidthButton(frame, button));
   button.addEventListener('focus', () => labelWidthButton(frame, button));
   labelWidthButton(frame, button);
   return frame;
+}
+
+/**
+ * The nearest element that scrolls what is inside it: the feed, or the panel of a subagent's transcript.
+ * @param {Element} element
+ * @returns {Element | undefined}
+ */
+function scrollingAncestor(element) {
+  for (let parent = element.parentElement; parent !== null; parent = parent.parentElement) {
+    const overflow = getComputedStyle(parent).overflowY;
+    if (overflow === 'auto' || overflow === 'scroll') return parent;
+  }
+  return document.scrollingElement ?? undefined;
 }
 
 /**

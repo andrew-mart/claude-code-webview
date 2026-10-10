@@ -17,8 +17,9 @@ import { createToolRow } from './tool-view.js';
  * @typedef {import('../model/bookmarks.js').Bookmark} Anchor — a message one can come back to: a prompt, an answer, a subagent report
  * @typedef {{ onMeta: (meta: SessionMeta) => void, onStatus: (status: SessionStatus) => void, onPrompt: (prompt: Anchor) => void, onReset: () => void }} SessionListener
  * @typedef {{ anchor: (anchor: Anchor, content: HTMLElement) => HTMLElement, onPrompt: (prompt: Anchor) => void, loadEntry: import('./tool-view.js').LoadEntry }} FeedHooks
- * @typedef {{ element: HTMLElement, dispose: () => void, scrollToAnchor: (id: string) => boolean, promptElements: () => readonly HTMLElement[], place: () => ReadingPlace, hasEarlier: () => boolean, loadEarlier: () => Promise<void> }} MountedSession
- * hasEarlier — the session opened with its latest part, the rest is not loaded; loadEarlier loads it
+ * @typedef {{ element: HTMLElement, dispose: () => void, scrollToAnchor: (id: string) => boolean, promptElements: () => readonly HTMLElement[], place: () => ReadingPlace, hasEarlier: () => boolean, loadEarlier: () => Promise<void>, keepPlace: (change: () => void) => void }} MountedSession
+ * hasEarlier — the session opened with its latest part, the rest is not loaded; loadEarlier loads it;
+ * keepPlace — runs a change that resizes the feed (a font, wide tables) keeping the reader at the same message
  * Where the reader is in the feed: at the bottom, following new messages, or at a message — the one at the top of the
  * view, offset px below the view's top edge (negative: partly scrolled past).
  * @typedef {{ kind: 'bottom' } | { kind: 'message', id: string, offset: number }} ReadingPlace
@@ -257,6 +258,23 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     promptElements: () => prompts,
     hasEarlier: () => !earlier.hidden,
     loadEarlier,
+    keepPlace(change) {
+      // At the bottom the feed keeps following it by itself.
+      if (!ready || stuck) {
+        change();
+        return;
+      }
+      // What is at the top edge of the view — a paragraph, a table row — stays there; a whole message would be too
+      // coarse: the change may be inside it.
+      const view = scroller.getBoundingClientRect();
+      const atTop = document.elementFromPoint(view.left + view.width / 2, view.top + 4);
+      const anchor = atTop instanceof HTMLElement && thread.contains(atTop) ? atTop : undefined;
+      const before = anchor?.getBoundingClientRect().top;
+      const place = currentPlace();
+      change();
+      if (anchor !== undefined && before !== undefined && anchor.isConnected) scroller.scrollTop += anchor.getBoundingClientRect().top - before;
+      else if (place.kind === 'message') returnTo(place);
+    },
     place: currentPlace,
   };
 }
