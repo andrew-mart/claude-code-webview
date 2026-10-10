@@ -89,8 +89,11 @@ function createPage() {
   /** @type {number | undefined} */
   let listVersion;
   let listMinute = 0;
-  /** @type {{ id: string, dispose: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, rewound: (reply: import('./model/rewind.js').RewindReply) => void } | undefined} */
+  /** @type {{ id: string, dispose: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, rewound: (reply: import('./model/rewind.js').RewindReply) => void } | undefined} */
   let current;
+  /** Where the reader left each session opened in this tab: coming back returns there. */
+  /** @type {Map<string, import('./view/session-view.js').ReadingPlace>} */
+  const places = new Map();
   const rewindDialog = createRewindDialog({ onDone: (reply) => current?.rewound(reply) });
 
   /** @param {string} text — the search box text; following ignores it */
@@ -127,6 +130,7 @@ function createPage() {
   /** @param {string} id */
   const open = (id) => {
     if (current?.id === id) return;
+    if (current !== undefined) places.set(current.id, current.place());
     current?.dispose();
     const info = sessions.find((session) => session.id === id);
     const header = createSessionHeader({ place: info, currentBranch: () => fetchBranch(id), leading: drawerButton('sessions', 'menu', 'Sessions'), navigation: [drawerButton('outline', 'list', 'Outline')], tools: settings.buttons() });
@@ -155,6 +159,7 @@ function createPage() {
       agentId: undefined,
       bookmarks,
       onRewind: (prompt) => rewindDialog.open(id, prompt),
+      startAt: places.get(id),
       listener: {
         onMeta: header.onMeta,
         onStatus(next) {
@@ -187,6 +192,7 @@ function createPage() {
     current = {
       id,
       header,
+      place: () => mounted.place(),
       step: (direction) => {
         const target = spy.target(direction);
         if (target !== undefined) void mounted.scrollToAnchor(target);

@@ -17,7 +17,10 @@ import { createToolRow } from './tool-view.js';
  * @typedef {import('../model/bookmarks.js').Bookmark} Anchor — a message one can come back to: a prompt, an answer, a subagent report
  * @typedef {{ onMeta: (meta: SessionMeta) => void, onStatus: (status: SessionStatus) => void, onPrompt: (prompt: Anchor) => void, onReset: () => void }} SessionListener
  * @typedef {{ anchor: (anchor: Anchor, content: HTMLElement) => HTMLElement, onPrompt: (prompt: Anchor) => void }} FeedHooks
- * @typedef {{ element: HTMLElement, dispose: () => void, scrollToAnchor: (id: string) => boolean, promptElements: () => readonly HTMLElement[] }} MountedSession
+ * @typedef {{ element: HTMLElement, dispose: () => void, scrollToAnchor: (id: string) => boolean, promptElements: () => readonly HTMLElement[], place: () => ReadingPlace }} MountedSession
+ * Where the reader is in the feed: at the bottom, following new messages, or at a message — the one at the top of the
+ * view, offset px below the view's top edge (negative: partly scrolled past).
+ * @typedef {{ kind: 'bottom' } | { kind: 'message', id: string, offset: number }} ReadingPlace
  */
 
 /** Gap between a jumped-to message and the top of the scroll area, px. */
@@ -25,14 +28,16 @@ export const jumpMarginPx = 16;
 
 /** A session with no new entries for longer than this counts as stopped, even if the turn has not ended. */
 const staleMs = 15 * 60_000;
-const nearBottomPx = 120;
+/** The feed follows new messages only from its very bottom: a line above it, the reader is reading the history. */
+const stickPx = 8;
 
 /**
- * @param {{ scroller: HTMLElement, sessionId: string, agentId: string | undefined, bookmarks: import('./bookmark-store.js').BookmarkStore | undefined, onRewind: ((prompt: Anchor) => void) | undefined, listener: SessionListener }} options
- * — bookmarks: undefined for a nested subagent feed, which has no bookmarks; onRewind: likewise, a subagent cannot be rewound
+ * @param {{ scroller: HTMLElement, sessionId: string, agentId: string | undefined, bookmarks: import('./bookmark-store.js').BookmarkStore | undefined, onRewind: ((prompt: Anchor) => void) | undefined, listener: SessionListener, startAt: ReadingPlace | undefined }} options
+ * — bookmarks: undefined for a nested subagent feed, which has no bookmarks; onRewind: likewise, a subagent cannot be rewound;
+ * startAt — where the reader left the session last time; undefined — at the bottom
  * @returns {MountedSession}
  */
-export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind, listener }) {
+export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind, listener, startAt }) {
   // The history arrives in batches of a thousand entries: laid out after each, a long session would be laid out again
   // and again as it grows. It stays hidden until the whole history is in, then is shown once, at the bottom.
   const thread = h('div', { className: 'thread', attrs: { hidden: '' } });
@@ -66,7 +71,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   if (agentId !== undefined) query.set('agent', agentId);
   const source = new EventSource(`/api/stream?${query}`);
 
-  const nearBottom = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < nearBottomPx;
+  const nearBottom = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= stickPx;
   const toBottom = () => {
     scroller.scrollTop = scroller.scrollHeight;
   };
@@ -87,6 +92,8 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   source.addEventListener('open', () => {
     // Reconnect: the server sends the transcript again from the start.
     if (opened) {
+      // the reader stays where they were once the history is in again
+      resumeAt = currentPlace();
       resetFeed();
       meta = {};
       ready = false;
@@ -105,9 +112,12 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   });
   source.addEventListener('ready', () => {
     ready = true;
-    stuck = true;
     thread.hidden = false;
-    toBottom();
+    const returned = resumeAt?.kind === 'message' && returnTo(resumeAt);
+    resumeAt = undefined;
+    stuck = !returned;
+    if (stuck) toBottom();
+    jump.hidden = stuck;
     refreshStatus();
   });
   source.addEventListener('reset', () => {
@@ -129,6 +139,25 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     toBottom();
     jump.hidden = true;
   });
+  /** @returns {ReadingPlace} */
+  const currentPlace = () => {
+    if (!ready || stuck) return { kind: 'bottom' };
+    const top = scroller.getBoundingClientRect().top;
+    const message = [...thread.querySelectorAll('[data-anchor]')].find((anchored) => anchored.getBoundingClientRect().bottom > top);
+    return message instanceof HTMLElement && message.dataset.anchor !== undefined ? { kind: 'message', id: message.dataset.anchor, offset: message.getBoundingClientRect().top - top } : { kind: 'bottom' };
+  };
+  /**
+   * @param {{ id: string, offset: number }} place
+   * @returns {boolean} — false if the message is no longer in the feed (the session was rewound)
+   */
+  const returnTo = ({ id, offset }) => {
+    const message = anchors.find(id);
+    if (message === undefined) return false;
+    scroller.scrollTop += message.getBoundingClientRect().top - scroller.getBoundingClientRect().top - offset;
+    return true;
+  };
+  /** @type {ReadingPlace | undefined} */
+  let resumeAt = startAt;
   const timer = setInterval(refreshStatus, 30_000);
   const relayout = () => feed.relayout();
   document.addEventListener(activityModeEvent, relayout);
@@ -158,6 +187,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
       return true;
     },
     promptElements: () => prompts,
+    place: currentPlace,
   };
 }
 
@@ -609,6 +639,7 @@ async function openSubagentTranscript(sessionId, toolUseId, holder) {
     scroller,
     sessionId,
     agentId,
+    startAt: undefined,
     bookmarks: undefined,
     onRewind: undefined,
     listener: { onMeta: () => {}, onStatus: () => {}, onPrompt: () => {}, onReset: () => {} },
