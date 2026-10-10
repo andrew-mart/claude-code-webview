@@ -6,18 +6,18 @@
   <meta name="theme-color" content="#faf9f5" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#262624" media="(prefers-color-scheme: dark)">
   <title>Claude Code Webview</title>
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/style.css">
+  <link rel="icon" href="{{assets}}/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="{{assets}}/style.css">
   <script type="importmap">
     {
       "imports": {
-        "marked": "/vendor/marked.js",
-        "dompurify": "/vendor/purify.js",
-        "highlight.js": "/vendor/highlight.js"
+        "marked": "{{assets}}/vendor/marked.js",
+        "dompurify": "{{assets}}/vendor/purify.js",
+        "highlight.js": "{{assets}}/vendor/highlight.js"
       }
     }
   </script>
-  <script type="module" src="/app.js"></script>
+  <script type="module" src="{{assets}}/app.js"></script>
 </head>
 <body>
   <div class="layout" id="layout">

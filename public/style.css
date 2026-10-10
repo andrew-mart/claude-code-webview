@@ -1745,6 +1745,35 @@ a.file-link:hover {
   }
 }
 
+/* The viewer was updated while the page was open: one tap loads the new version. */
+.update-notice {
+  position: fixed;
+  top: calc(10px + env(safe-area-inset-top));
+  left: 50%;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px 8px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+  color: var(--text-2);
+  font-size: 13.5px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.update-reload {
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
 /* Drawer buttons and their backdrop exist only on a narrow screen. */
 .drawer-button,
 .drawer-backdrop {
