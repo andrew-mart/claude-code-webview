@@ -9,6 +9,7 @@ export const choices = /** @type {const} */ ({
   font: ['serif', 'sans'],
   service: ['hidden', 'shown'],
   follow: ['off', 'on'],
+  sdk: ['hidden', 'shown'],
 });
 
 /**
@@ -24,6 +25,7 @@ const resultNames = {
   font: { serif: 'Serif answers', sans: 'Sans-serif answers' },
   service: { hidden: 'Hide Claude Code service messages', shown: 'Show Claude Code service messages' },
   follow: { off: 'Stop following the active session', on: 'Follow the active session' },
+  sdk: { hidden: 'Hide SDK sessions', shown: 'Show SDK sessions' },
 };
 
 /**
