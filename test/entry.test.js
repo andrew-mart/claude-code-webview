@@ -40,7 +40,7 @@ test('interpretEntry_Should_CollectPromptTextAndImagesWithoutSystemReminders', (
       id: 'u4',
       at,
       text: '[Image #1] the legend overlaps',
-      images: [{ mediaType: 'image/png', data: 'iVBOR' }],
+      images: [{ url: 'data:image/png;base64,iVBOR' }],
       queued: true,
     },
   ]);
@@ -316,7 +316,7 @@ test('interpretEntry_Should_TurnToolResultIntoPartsLinkedToCall', () => {
       isError: true,
       parts: [
         { type: 'text', text: 'a.txt' },
-        { type: 'image', image: { mediaType: 'image/png', data: 'iVBOR' } },
+        { type: 'image', image: { url: 'data:image/png;base64,iVBOR' } },
       ],
       details: { stdout: 'a.txt', stderr: '', interrupted: false },
     },
@@ -342,4 +342,26 @@ test('interpretEntry_Should_ReadStringToolResultAsSingleTextPart', () => {
       details: undefined,
     },
   ]);
+});
+
+test('interpretEntry_Should_ShowImagesTheServerLinksToAndNoImagesFromOtherSites', () => {
+  const entry = {
+    type: 'user',
+    uuid: 'u5',
+    timestamp: at,
+    message: {
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'webview', url: '/api/image?session=s1&at=0&n=0', media_type: 'image/png' } },
+        // an image the API fetched by URL: showing it would tell that site who opened the session and when
+        { type: 'image', source: { type: 'url', url: 'https://tracker.example/pixel.png' } },
+        { type: 'image', source: { type: 'webview', url: 'https://tracker.example/pixel.png', media_type: 'image/png' } },
+        { type: 'text', text: 'two screenshots' },
+      ],
+    },
+  };
+
+  const [prompt] = interpretEntry(entry);
+
+  assert.deepEqual(prompt?.kind === 'prompt' ? prompt.images : undefined, [{ url: '/api/image?session=s1&at=0&n=0' }]);
 });

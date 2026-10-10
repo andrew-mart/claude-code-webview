@@ -10,13 +10,14 @@ const batchSize = 1000;
 
 /**
  * @typedef {(event: 'entries' | 'ready' | 'reset' | 'missing', data: unknown) => void} Send
+ * @typedef {(lineStart: number, n: number) => string} ImageUrl — the link to the n-th image of the entry on the line that starts at lineStart
  */
 
 /**
  * Runs until the signal is aborted. The file is looked up again on every round: after /cd it moves.
- * @param {{ locate: () => Promise<string | undefined>, scope: 'main' | 'subagent', send: Send, signal: AbortSignal, pollMs: number }} options
+ * @param {{ locate: () => Promise<string | undefined>, scope: 'main' | 'subagent', imageUrl: ImageUrl, send: Send, signal: AbortSignal, pollMs: number }} options
  */
-export async function streamTranscript({ locate, scope, send, signal, pollMs }) {
+export async function streamTranscript({ locate, scope, imageUrl, send, signal, pollMs }) {
   let offset = 0;
   /** @type {Buffer} */
   let carry = Buffer.alloc(0);
@@ -34,7 +35,7 @@ export async function streamTranscript({ locate, scope, send, signal, pollMs }) 
         send('reset', null);
       }
       if (size > offset) {
-        const read = await readRange(path, offset, size, carry, scope, send);
+        const read = await readRange(path, offset, size, carry, { scope, imageUrl, send });
         offset = read.offset;
         carry = read.carry;
       }
@@ -50,11 +51,10 @@ export async function streamTranscript({ locate, scope, send, signal, pollMs }) 
  * @param {number} from
  * @param {number} to
  * @param {Buffer} carry
- * @param {'main' | 'subagent'} scope
- * @param {Send} send
+ * @param {{ scope: 'main' | 'subagent', imageUrl: ImageUrl, send: Send }} output
  * @returns {Promise<{ offset: number, carry: Buffer }>}
  */
-async function readRange(path, from, to, carry, scope, send) {
+async function readRange(path, from, to, carry, output) {
   const handle = await open(path, 'r');
   let offset = from;
   let rest = carry;
@@ -63,10 +63,12 @@ async function readRange(path, from, to, carry, scope, send) {
       const chunk = Buffer.alloc(Math.min(chunkBytes, to - offset));
       const { bytesRead } = await handle.read(chunk, 0, chunk.length, offset);
       if (bytesRead === 0) break;
+      // the carried start of a line was read before this chunk: line offsets count from it
+      const linesStart = offset - rest.length;
       offset += bytesRead;
       const split = splitLines(rest, chunk.subarray(0, bytesRead));
       rest = split.carry;
-      sendEntries(split.lines, scope, send);
+      sendEntries(split.lines, linesStart, output);
     }
   } finally {
     await handle.close();
@@ -75,12 +77,14 @@ async function readRange(path, from, to, carry, scope, send) {
 }
 
 /**
- * @param {readonly string[]} lines
- * @param {'main' | 'subagent'} scope
- * @param {Send} send
+ * @param {readonly { text: string, start: number }[]} lines
+ * @param {number} linesStart — the file offset that line starts count from
+ * @param {{ scope: 'main' | 'subagent', imageUrl: ImageUrl, send: Send }} output
  */
-function sendEntries(lines, scope, send) {
-  const entries = lines.map((line) => slimEntry(parseLine(line), scope)).filter((entry) => entry !== undefined);
+function sendEntries(lines, linesStart, { scope, imageUrl, send }) {
+  const entries = lines
+    .map((line) => slimEntry(parseLine(line.text), scope, (n) => imageUrl(linesStart + line.start, n)))
+    .filter((entry) => entry !== undefined);
   for (let start = 0; start < entries.length; start += batchSize) send('entries', entries.slice(start, start + batchSize));
 }
 

@@ -2,6 +2,7 @@
 // Transcript entry → what the feed in the browser needs. The rest (file snapshots, the system prompt,
 // thinking signatures, the full file text before an edit) weighs megabytes and is not shown in the feed.
 import { isRecord } from '../public/model/narrow.js';
+import { linkImage, mapImages } from './images.js';
 
 const shownTypes = new Set(['user', 'assistant', 'system', 'ai-title', 'custom-title', 'cost-state']);
 
@@ -32,9 +33,10 @@ const shownFields = [
 /**
  * @param {unknown} raw
  * @param {'main' | 'subagent'} scope — subagent entries (isSidechain) are not shown in the main transcript
+ * @param {(n: number) => string} imageUrl — the link to the entry's n-th image (images weigh megabytes, the page loads them on demand)
  * @returns {Record<string, unknown> | undefined}
  */
-export function slimEntry(raw, scope) {
+export function slimEntry(raw, scope, imageUrl) {
   if (!isRecord(raw) || typeof raw.type !== 'string') return undefined;
   if (scope === 'main' && raw.isSidechain === true) return undefined;
   if (raw.type === 'attachment') return slimAttachment(raw);
@@ -43,7 +45,7 @@ export function slimEntry(raw, scope) {
   const slim = {};
   for (const field of shownFields) if (raw[field] !== undefined) slim[field] = raw[field];
   if (isRecord(slim.toolUseResult)) slim.toolUseResult = slimToolResult(slim.toolUseResult);
-  if (isRecord(slim.message)) slim.message = slimMessage(slim.message);
+  if (isRecord(slim.message)) slim.message = slimMessage(slim.message, imageUrl);
   return slim;
 }
 
@@ -66,9 +68,9 @@ function slimAttachment(raw) {
  */
 function slimToolResult(details) {
   const { originalFile, ...rest } = details;
-  // Read puts the whole text it read here — the same text is in tool_result.
+  // Read puts the whole text or image it read here — the same text or image is in tool_result.
   if (isRecord(rest.file)) {
-    const { content, ...file } = rest.file;
+    const { content, base64, ...file } = rest.file;
     return { ...rest, file };
   }
   return rest;
@@ -76,16 +78,15 @@ function slimToolResult(details) {
 
 /**
  * @param {Record<string, unknown>} message
+ * @param {(n: number) => string} imageUrl
  * @returns {Record<string, unknown>}
  */
-function slimMessage(message) {
+function slimMessage(message, imageUrl) {
   if (!Array.isArray(message.content)) return message;
-  return {
-    ...message,
-    content: message.content.map((block) => {
-      if (!isRecord(block) || block.type !== 'thinking') return block;
-      const { signature, ...rest } = block;
-      return rest;
-    }),
-  };
+  const content = message.content.map((block) => {
+    if (!isRecord(block) || block.type !== 'thinking') return block;
+    const { signature, ...rest } = block;
+    return rest;
+  });
+  return { ...message, content: mapImages(content, (image, n) => linkImage(image, imageUrl(n))) };
 }

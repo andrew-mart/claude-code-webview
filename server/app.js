@@ -2,14 +2,17 @@
 // The viewer's HTTP server: static files, the session list, the stream of transcript entries.
 // Transcripts contain everything the agent saw, secrets included, so the server listens only on a local address
 // and answers only requests whose Host is that address: a page from another site cannot read it via DNS rebinding.
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import http from 'node:http';
 import { homedir } from 'node:os';
 import { extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+import { constants as zlibConstants, createGzip, gzip } from 'node:zlib';
 import { parseBookmarkChange } from '../public/model/bookmarks.js';
 import { isRecord } from '../public/model/narrow.js';
 import { readTextFile } from './files.js';
+import { readImage } from './images.js';
 import { createSessionIndex } from './sessions.js';
 import { streamTranscript } from './stream.js';
 
@@ -112,6 +115,8 @@ async function handle(deps, request, response) {
       return withSession(url, response, async (id) => stream(deps, url, id, request, response));
     case '/api/file':
       return sendFile(url, response);
+    case '/api/image':
+      return withSession(url, response, async (id) => sendImage(deps, url, id, response));
     default:
       return serveFile(url.pathname, response);
   }
@@ -211,10 +216,19 @@ async function stream(deps, url, id, request, response) {
     response.writeHead(400).end('Bad agent id');
     return;
   }
-  response.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
+  const zipped = acceptsGzip(response);
+  response.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-store',
+    Connection: 'keep-alive',
+    ...(zipped ? { 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' } : {}),
+  });
   response.flushHeaders();
+  // A session's history is megabytes of text that gzip shrinks several times; every event is flushed at once.
+  const out = zipped ? createGzip({ flush: zlibConstants.Z_SYNC_FLUSH }) : response;
+  if (out !== response) out.pipe(response);
   const controller = new AbortController();
-  const ping = setInterval(() => response.write(': ping\n\n'), 15_000);
+  const ping = setInterval(() => out.write(': ping\n\n'), 15_000);
   request.on('close', () => {
     controller.abort();
     clearInterval(ping);
@@ -222,12 +236,44 @@ async function stream(deps, url, id, request, response) {
   await streamTranscript({
     locate: agentId === null ? () => deps.index.find(id) : () => deps.index.findSubagent(id, agentId),
     scope: agentId === null ? 'main' : 'subagent',
-    send: (event, data) => response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
+    imageUrl: (lineStart, n) => `/api/image?session=${id}${agentId === null ? '' : `&agent=${agentId}`}&at=${lineStart}&n=${n}`,
+    send: (event, data) => out.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
     signal: controller.signal,
     pollMs: deps.pollMs,
   });
-  response.end();
+  out.end();
 }
+
+/**
+ * An image of a transcript entry, whose link the stream sent instead of its bytes.
+ * @param {Deps} deps
+ * @param {URL} url
+ * @param {string} id
+ * @param {http.ServerResponse} response
+ */
+async function sendImage(deps, url, id, response) {
+  const agentId = url.searchParams.get('agent');
+  const lineStart = Number(url.searchParams.get('at'));
+  const n = Number(url.searchParams.get('n'));
+  const valid = (agentId === null || agentIdPattern.test(agentId)) && Number.isSafeInteger(lineStart) && lineStart >= 0 && Number.isSafeInteger(n) && n >= 0;
+  if (!valid) {
+    response.writeHead(400).end('Bad image link');
+    return;
+  }
+  const path = agentId === null ? await deps.index.find(id) : await deps.index.findSubagent(id, agentId);
+  /** @type {import('./images.js').ImageOutcome} */
+  const outcome = path === undefined ? { ok: false, error: 'not-found' } : await readImage(path, lineStart, n);
+  if (!outcome.ok) {
+    response.writeHead(imageRefusalStatus[outcome.error]).end();
+    return;
+  }
+  // A transcript line never changes once written, so the browser may keep the image.
+  response.writeHead(200, { 'Content-Type': outcome.mediaType, 'Content-Length': outcome.bytes.length, 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
+  response.end(outcome.bytes);
+}
+
+/** @type {Readonly<Record<'not-found' | 'not-raster', number>>} */
+const imageRefusalStatus = { 'not-found': 404, 'not-raster': 415 };
 
 /**
  * File text for the right-hand panel. Any absolute path is served: the page is open only on this machine,
@@ -250,9 +296,33 @@ const maxFileBytes = 2 * 1024 * 1024;
  * @param {unknown} body
  * @param {number} [status]
  */
-function sendJson(response, body, status = 200) {
-  response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-  response.end(JSON.stringify(body));
+async function sendJson(response, body, status = 200) {
+  await sendBody(response, status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }, Buffer.from(JSON.stringify(body)));
+}
+
+/** Bodies smaller than this gain nothing from gzip. */
+const minGzipBytes = 1024;
+const gzipAsync = promisify(gzip);
+
+/**
+ * A reply, gzipped when the browser accepts it and the body is worth compressing.
+ * @param {http.ServerResponse} response
+ * @param {number} status
+ * @param {Record<string, string>} headers
+ * @param {Buffer} body
+ */
+async function sendBody(response, status, headers, body) {
+  if (body.length < minGzipBytes || !acceptsGzip(response)) {
+    response.writeHead(status, headers).end(body);
+    return;
+  }
+  const zipped = await gzipAsync(body);
+  response.writeHead(status, { ...headers, 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' }).end(zipped);
+}
+
+/** @param {http.ServerResponse} response */
+function acceptsGzip(response) {
+  return /\bgzip\b/.test(response.req.headers['accept-encoding'] ?? '');
 }
 
 /**
@@ -261,13 +331,19 @@ function sendJson(response, body, status = 200) {
  */
 async function serveFile(pathname, response) {
   const file = vendor.get(pathname) ?? publicFile(pathname === '/' ? '/index.html' : pathname);
-  const body = file === undefined ? undefined : await readFile(file).catch(() => undefined);
-  if (file === undefined || body === undefined) {
+  const info = file === undefined ? undefined : await stat(file).catch(() => undefined);
+  if (file === undefined || info === undefined || !info.isFile()) {
     response.writeHead(404).end('Not found');
     return;
   }
-  response.writeHead(200, { 'Content-Type': contentTypes[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-cache' });
-  response.end(body);
+  // The browser asks every time (no-cache) but downloads the file again only when it has changed.
+  const etag = `W/"${info.size}-${Math.trunc(info.mtimeMs)}"`;
+  if (response.req.headers['if-none-match'] === etag) {
+    response.writeHead(304, { ETag: etag, 'Cache-Control': 'no-cache' }).end();
+    return;
+  }
+  const headers = { 'Content-Type': contentTypes[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-cache', ETag: etag };
+  await sendBody(response, 200, headers, await readFile(file));
 }
 
 /**
