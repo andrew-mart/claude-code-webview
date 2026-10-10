@@ -4,7 +4,7 @@ import { isRecord, text } from './narrow.js';
 // A Claude Code transcript line (~/.claude/projects/<project>/<session>.jsonl) → display events.
 
 /**
- * @typedef {{ mediaType: string, data: string }} Image
+ * @typedef {{ url: string }} Image — a data: URL or the viewer's /api/image link
  * @typedef {{ kind: 'prompt', id: string, at: string, text: string, images: readonly Image[], queued: boolean }} PromptEvent
  * @typedef {{ kind: 'text', id: string, at: string, text: string }} TextEvent
  * @typedef {{ kind: 'tool-call', id: string, at: string, name: string, input: unknown }} ToolCallEvent
@@ -299,14 +299,20 @@ function resultPart(block) {
 }
 
 /**
+ * An image kept in the transcript (base64) or served by the viewer (a link the server put instead of base64).
+ * Images from other sites are not shown: loading one would tell that site who opened the session and when.
  * @param {Record<string, unknown>} block
  * @returns {Image | undefined}
  */
 function image(block) {
   if (block.type !== 'image' || !isRecord(block.source)) return undefined;
-  const mediaType = text(block.source.media_type);
-  const data = text(block.source.data);
-  return mediaType !== undefined && data !== undefined ? { mediaType, data } : undefined;
+  const { source } = block;
+  const mediaType = text(source.media_type);
+  const data = text(source.data);
+  const url = text(source.url);
+  if (source.type === 'base64' && mediaType !== undefined && data !== undefined) return { url: `data:${mediaType};base64,${data}` };
+  if (source.type === 'webview' && url !== undefined && url.startsWith('/api/image?')) return { url };
+  return undefined;
 }
 
 /**

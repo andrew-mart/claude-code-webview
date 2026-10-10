@@ -4,6 +4,7 @@ import http from 'node:http';
 import { appendFile, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 import { startServer } from '../server/app.js';
 import { createBookmarkFile } from '../server/bookmarks.js';
 
@@ -224,4 +225,119 @@ test('bookmarks_Should_RejectChangeOfUnknownShape', async (t) => {
   const responses = await Promise.all(malformed.map((change) => post(port, '/api/bookmarks', pageHeaders(port), JSON.stringify({ session: sessionId, change }))));
 
   assert.deepEqual(responses.map((response) => response.status), [400, 400, 400]);
+});
+
+/** The start of a PNG file: the bytes do not have to form a whole picture, only to come back unchanged. */
+const pngBytes = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+/**
+ * @param {string} uuid
+ * @param {string} mediaType
+ */
+const imageLine = (uuid, mediaType) =>
+  `${JSON.stringify({ type: 'user', uuid, timestamp: at, cwd: 'D:\\dev\\x', promptSource: 'typed', message: { role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: mediaType, data: pngBytes.toString('base64') } }, { type: 'text', text: 'see the screenshot' }] } })}\n`;
+
+/**
+ * The link the stream sent instead of the image of the entry.
+ * @param {string} base
+ * @param {import('node:test').TestContext} t
+ * @param {string} uuid
+ * @returns {Promise<string>}
+ */
+async function streamedImageLink(base, t, uuid) {
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const response = await fetch(`${base}/api/stream?session=${sessionId}`, { signal: controller.signal });
+  assert.ok(response.body);
+  const { data } = await sseEvents(response.body)();
+  const entry = data.find((/** @type {{ uuid: string }} */ e) => e.uuid === uuid);
+  return entry.message.content[0].source.url;
+}
+
+test('stream_Should_SendImageAsLinkThatServerAnswersWithImageBytes', async (t) => {
+  const { file, base } = await withServer(t);
+  await appendFile(file, imageLine('u2', 'image/png'));
+
+  const link = await streamedImageLink(base, t, 'u2');
+  const image = await fetch(`${base}${link}`);
+
+  assert.equal(image.status, 200);
+  assert.equal(image.headers.get('content-type'), 'image/png');
+  assert.deepEqual(Buffer.from(await image.arrayBuffer()), pngBytes);
+});
+
+test('image_Should_RefuseOffsetInsideLineMissingImageAndImageThatCouldRunScript', async (t) => {
+  const { file, base } = await withServer(t);
+  await appendFile(file, imageLine('u2', 'image/png'));
+  await appendFile(file, imageLine('u3', 'image/svg+xml'));
+  const link = new URL(await streamedImageLink(base, t, 'u2'), base);
+  const svg = new URL(await streamedImageLink(base, t, 'u3'), base);
+  /** @param {URL} url @param {string} name @param {string} value */
+  const changed = (url, name, value) => {
+    const copy = new URL(url);
+    copy.searchParams.set(name, value);
+    return copy;
+  };
+
+  const statuses = await Promise.all(
+    [changed(link, 'at', String(Number(link.searchParams.get('at')) + 5)), changed(link, 'n', '1'), svg].map(async (url) => (await fetch(url)).status),
+  );
+
+  assert.deepEqual(statuses, [404, 404, 415]);
+});
+
+/**
+ * A GET whose body comes back as raw bytes, compressed or not.
+ * @param {number} port
+ * @param {string} path
+ * @param {Record<string, string>} headers
+ * @returns {Promise<{ status: number | undefined, headers: http.IncomingHttpHeaders, body: Buffer }>}
+ */
+function rawGet(port, path, headers) {
+  return new Promise((resolve, reject) => {
+    http
+      .get({ host: '127.0.0.1', port, path, headers }, (response) => {
+        /** @type {Buffer[]} */
+        const chunks = [];
+        response.on('data', (chunk) => chunks.push(chunk));
+        response.on('end', () => resolve({ status: response.statusCode, headers: response.headers, body: Buffer.concat(chunks) }));
+      })
+      .on('error', reject);
+  });
+}
+
+test('server_Should_GzipRepliesForBrowsersThatAcceptIt', async (t) => {
+  const { port } = await withServer(t);
+
+  const [zipped, plain] = await Promise.all([rawGet(port, '/app.js', { 'accept-encoding': 'gzip, deflate, br' }), rawGet(port, '/app.js', {})]);
+
+  assert.equal(zipped.headers['content-encoding'], 'gzip');
+  assert.equal(plain.headers['content-encoding'], undefined);
+  assert.ok(zipped.body.length < plain.body.length / 2, 'the page script did not get smaller');
+  assert.deepEqual(gunzipSync(zipped.body), plain.body);
+});
+
+test('stream_Should_DeliverEachGzippedEventWithoutWaitingForMore', async (t) => {
+  const { base } = await withServer(t);
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+
+  // fetch unzips by itself; the events must arrive while the stream stays open
+  const response = await fetch(`${base}/api/stream?session=${sessionId}`, { headers: { 'accept-encoding': 'gzip' }, signal: controller.signal });
+  assert.equal(response.headers.get('content-encoding'), 'gzip');
+  assert.ok(response.body);
+  const next = sseEvents(response.body);
+
+  assert.equal((await next()).event, 'entries');
+  assert.equal((await next()).event, 'ready');
+});
+
+test('server_Should_AnswerUnchangedPageFileWithNotModified', async (t) => {
+  const { port } = await withServer(t);
+
+  const first = await rawGet(port, '/style.css', {});
+  const again = await rawGet(port, '/style.css', { 'if-none-match': String(first.headers.etag) });
+
+  assert.equal(first.status, 200);
+  assert.equal(again.status, 304);
+  assert.equal(again.body.length, 0);
 });
