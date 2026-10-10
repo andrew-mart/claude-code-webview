@@ -23,7 +23,7 @@ export function createComposer(sessionId) {
   const draftKey = `viewer.draft.${sessionId}`;
   const input = h('textarea', { className: 'composer-input', attrs: { rows: '1', 'aria-label': 'Prompt for Claude' } });
   input.value = readDraft(draftKey);
-  const interrupt = h('button', { className: 'composer-stop', title: 'Stop — press Esc in the session terminal', attrs: { type: 'button', hidden: '' } }, [icon('stop'), h('span', { text: 'Stop' })]);
+  const interrupt = h('button', { className: 'composer-stop', title: 'Stop — press Esc in the session terminal', attrs: { type: 'button', hidden: '', 'aria-label': 'Stop' } }, [icon('stop')]);
   const send = h('button', { className: 'composer-send', title: keyboard === 'touch' ? 'Send' : 'Send (Enter)', attrs: { type: 'submit', 'aria-label': 'Send' } }, [icon('send')]);
   const hint = h('div', { className: 'composer-hint' });
   const status = h('div', { className: 'composer-status', attrs: { role: 'status' } });

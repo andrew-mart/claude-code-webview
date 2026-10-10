@@ -1431,16 +1431,15 @@ table.diff tr.gap td {
 }
 
 .composer-stop {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  display: grid;
+  place-items: center;
+  width: 32px;
   height: 32px;
-  padding: 0 12px;
+  padding: 0;
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   background: var(--bg-elev);
   color: var(--text-2);
-  font-size: 12.5px;
   cursor: pointer;
 }
 
@@ -2214,12 +2213,9 @@ a.file-link:hover {
 @media (pointer: coarse) {
   .icon-button,
   .composer-send,
+  .composer-stop,
   .composer-attach {
     width: 40px;
-    height: 40px;
-  }
-
-  .composer-stop {
     height: 40px;
   }
 
