@@ -71,3 +71,15 @@ test('renderMarkdown_Should_OpenFileUrlLinksInPanel', () => {
     { text: 'file', path: 'D:/dev/x y/z.md', line: '3', inside: 'P' },
   ]);
 });
+
+test('renderMarkdown_Should_MakeHeadingOfJustFilePathCaptionOverCode', () => {
+  const holder = html(renderMarkdown('### D:/dev/app/server/rewind.js:131\n```js\nawait keys();\n```\n\n### Results\n\n### Changes in D:/dev/app/a.js'));
+
+  const headings = [...holder.querySelectorAll('h3')].map((heading) => [heading.textContent, heading.classList.contains('file-caption')]);
+
+  assert.deepEqual(headings, [
+    ['D:/dev/app/server/rewind.js:131', true],
+    ['Results', false],
+    ['Changes in D:/dev/app/a.js', false],
+  ]);
+});

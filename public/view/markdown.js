@@ -61,6 +61,11 @@ export function renderMarkdown(source) {
     link.rel = 'noopener noreferrer';
   }
   linkFileRefs(fragment);
+  // A heading that is nothing but a file path names the code below it: it is shown as a caption, not as a heading.
+  for (const heading of fragment.querySelectorAll('h1, h2, h3, h4, h5, h6')) {
+    const links = heading.querySelectorAll('a.file-link');
+    if (links.length === 1 && heading.textContent?.trim() === links[0]?.textContent?.trim()) heading.classList.add('file-caption');
+  }
   for (const code of fragment.querySelectorAll('pre > code')) {
     const language = /language-([\w+-]+)/.exec(code.className)?.[1];
     if (language !== undefined) highlightInto(code, code.textContent ?? '', language);

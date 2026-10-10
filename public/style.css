@@ -716,6 +716,15 @@ button {
   margin: 0 0 0.9em;
 }
 
+/* A heading that is only a file path (### path:line) is the caption of the code below it, not a heading.
+   The second selector outweighs the headings of sans-serif answers. */
+.md .file-caption,
+:root[data-font] .md.answer .file-caption {
+  margin: 1.1em 0 0.4em;
+  color: var(--text-2);
+  font: 500 13px/1.45 var(--font-mono);
+}
+
 .md img {
   max-width: 100%;
 }
