@@ -341,3 +341,33 @@ test('server_Should_AnswerUnchangedPageFileWithNotModified', async (t) => {
   assert.equal(again.status, 304);
   assert.equal(again.body.length, 0);
 });
+
+/** @param {string} html */
+const buildOf = (html) => /\/b\/([0-9a-f]+)\/app\.js/.exec(html)?.[1];
+
+test('page_Should_LinkItsFilesUnderCurrentBuildSoNoCacheCanServeOldOnes', async (t) => {
+  const { port } = await withServer(t);
+
+  const page = await rawGet(port, '/', {});
+  const html = page.body.toString('utf8');
+  const build = buildOf(html);
+
+  assert.ok(build, 'the page script is not under a build path');
+  for (const file of ['style.css', 'app.js', 'favicon.svg', 'vendor/marked.js', 'vendor/purify.js', 'vendor/highlight.js']) {
+    assert.ok(html.includes(`/b/${build}/${file}`), `${file} is not under the build path`);
+  }
+  assert.equal(page.headers['cache-control'], 'no-store');
+  const [plain, built] = await Promise.all([rawGet(port, '/app.js', {}), rawGet(port, `/b/${build}/app.js`, {})]);
+  assert.equal(built.status, 200);
+  assert.deepEqual(built.body, plain.body);
+  assert.match(String(built.headers['cache-control']), /immutable/);
+});
+
+test('api_Should_NameBuildSoOpenPageNoticesUpdate', async (t) => {
+  const { port, base } = await withServer(t);
+  const build = buildOf((await rawGet(port, '/', {})).body.toString('utf8'));
+
+  const sessions = await fetch(`${base}/api/sessions`);
+
+  assert.equal(sessions.headers.get('x-viewer-build'), build);
+});

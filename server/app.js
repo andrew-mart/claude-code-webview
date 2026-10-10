@@ -2,7 +2,8 @@
 // The viewer's HTTP server: static files, the session list, the stream of transcript entries.
 // Transcripts contain everything the agent saw, secrets included, so the server listens only on a local address
 // and answers only requests whose Host is that address: a page from another site cannot read it via DNS rebinding.
-import { readFile, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import http from 'node:http';
 import { homedir } from 'node:os';
 import { extname, join, resolve, sep } from 'node:path';
@@ -52,12 +53,13 @@ const agentIdPattern = /^[0-9a-z]{1,64}$/i;
  */
 export async function startServer({ root, host, port, pollMs, composer, bookmarks, about }) {
   const index = createSessionIndex(root, { summaryBudgetMs: 1500 });
+  const build = await pageBuild();
   /** @type {Set<string>} */
   const allowedHosts = new Set();
   /** @type {Set<string>} */
   const allowedOrigins = new Set();
   const server = http.createServer((request, response) => {
-    handle({ index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, about }, request, response).catch((error) => {
+    handle({ index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, about, build }, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
       if (!response.headersSent) response.writeHead(500).end();
       else response.end();
@@ -80,7 +82,7 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
 }
 
 /**
- * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, about: About }} Deps
+ * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, about: About, build: string }} Deps
  */
 
 /**
@@ -93,6 +95,8 @@ async function handle(deps, request, response) {
     response.writeHead(403).end('Forbidden host');
     return;
   }
+  // An open page compares this with the build it was loaded from and offers to reload after an update.
+  response.setHeader('X-Viewer-Build', deps.build);
   const url = new URL(request.url ?? '/', 'http://localhost');
   if (request.method === 'POST') return handleWrite(deps, url, request, response);
   if (request.method !== 'GET') {
@@ -118,7 +122,7 @@ async function handle(deps, request, response) {
     case '/api/image':
       return withSession(url, response, async (id) => sendImage(deps, url, id, response));
     default:
-      return serveFile(url.pathname, response);
+      return servePage(deps.build, url.pathname, response);
   }
 }
 
@@ -325,24 +329,60 @@ function acceptsGzip(response) {
   return /\bgzip\b/.test(response.req.headers['accept-encoding'] ?? '');
 }
 
+/** A page file under the build path: /b/<build>/app.js is /app.js of that build. */
+const buildPath = /^\/b\/[0-9a-f]{1,64}(\/.+)$/;
+
 /**
+ * The page links its files under the current build path, so after an update they have new URLs and no cache —
+ * the browser's or a proxy's — can serve the old ones; under such a URL a file never changes and may be kept.
+ * @param {string} build
  * @param {string} pathname
  * @param {http.ServerResponse} response
  */
-async function serveFile(pathname, response) {
+async function servePage(build, pathname, response) {
+  if (pathname === '/' || pathname === '/index.html') {
+    const html = (await readFile(join(publicDir, 'index.html'), 'utf8')).replaceAll('{{assets}}', `/b/${build}`);
+    return sendBody(response, 200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }, Buffer.from(html));
+  }
+  const built = buildPath.exec(pathname)?.[1];
+  if (built !== undefined) return serveFile(built, response, 'private, max-age=31536000, immutable');
+  return serveFile(pathname, response, 'no-cache');
+}
+
+/**
+ * A fingerprint of the page files: it changes whenever one of them changes, and the page's file URLs change with it.
+ * @returns {Promise<string>}
+ */
+async function pageBuild() {
+  const names = await readdir(publicDir, { recursive: true });
+  const files = [...names.map((name) => join(publicDir, name)), ...vendor.values()].sort();
+  const hash = createHash('sha256');
+  for (const file of files) {
+    const info = await stat(file).catch(() => undefined);
+    if (info?.isFile()) hash.update(`${file}:${info.size}:${info.mtimeMs}\n`);
+  }
+  return hash.digest('hex').slice(0, 12);
+}
+
+/**
+ * @param {string} pathname
+ * @param {http.ServerResponse} response
+ * @param {string} cacheControl
+ */
+async function serveFile(pathname, response, cacheControl) {
   const file = vendor.get(pathname) ?? publicFile(pathname === '/' ? '/index.html' : pathname);
   const info = file === undefined ? undefined : await stat(file).catch(() => undefined);
   if (file === undefined || info === undefined || !info.isFile()) {
     response.writeHead(404).end('Not found');
     return;
   }
-  // The browser asks every time (no-cache) but downloads the file again only when it has changed.
+  // Without the build path the browser asks every time (no-cache) but downloads the file again only when it has changed.
   const etag = `W/"${info.size}-${Math.trunc(info.mtimeMs)}"`;
   if (response.req.headers['if-none-match'] === etag) {
-    response.writeHead(304, { ETag: etag, 'Cache-Control': 'no-cache' }).end();
+    response.writeHead(304, { ETag: etag, 'Cache-Control': cacheControl }).end();
     return;
   }
-  const headers = { 'Content-Type': contentTypes[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-cache', ETag: etag };
+  const headers = { 'Content-Type': contentTypes[extname(file)] ?? 'application/octet-stream', 'Cache-Control': cacheControl, ETag: etag };
   await sendBody(response, 200, headers, await readFile(file));
 }
 

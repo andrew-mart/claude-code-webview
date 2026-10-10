@@ -30,6 +30,7 @@ const follow = byId('follow', HTMLInputElement);
 const showSdk = byId('show-sdk', HTMLInputElement);
 const main = byId('main', HTMLElement);
 const emptyState = byId('empty-state', HTMLElement);
+const updateNotice = createUpdateNotice();
 
 const drawers = createDrawers(byId('drawer-backdrop', HTMLElement));
 const settings = createSettings();
@@ -179,6 +180,7 @@ function createPage() {
     async refresh() {
       const response = await fetch('/api/sessions').catch(() => undefined);
       if (response === undefined || !response.ok) return;
+      updateNotice.check(response.headers.get('x-viewer-build'));
       const body = await response.text();
       // Re-render only when the list changed or the minute in the "5m"-style labels rolled over.
       const key = `${body.length}:${hash(body)}:${Math.floor(Date.now() / 60_000)}`;
@@ -373,6 +375,25 @@ function settingKeyOf(value) {
     default:
       return undefined;
   }
+}
+
+/**
+ * After the viewer is updated, a page opened earlier keeps running the old code — and on a phone there is no gesture
+ * to reload it. The page knows its build from its own URL (/b/<build>/app.js) and offers to reload once the server
+ * names another build.
+ */
+function createUpdateNotice() {
+  const ownBuild = /\/b\/([0-9a-f]+)\//.exec(import.meta.url)?.[1];
+  const reload = h('button', { className: 'update-reload', text: 'Reload', attrs: { type: 'button' } });
+  reload.addEventListener('click', () => location.reload());
+  const element = h('div', { className: 'update-notice', attrs: { role: 'status', hidden: '' } }, [h('span', { text: 'The viewer was updated' }), reload]);
+  document.body.append(element);
+  return {
+    /** @param {string | null} serverBuild — the X-Viewer-Build header of a reply */
+    check(serverBuild) {
+      if (ownBuild !== undefined && serverBuild !== null && serverBuild !== ownBuild) element.hidden = false;
+    },
+  };
 }
 
 /**
