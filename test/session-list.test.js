@@ -23,20 +23,20 @@ test('listedSessions_Should_MatchSearchInTitleOrFolderIgnoringCase', () => {
   assert.deepEqual(ids(listedSessions(sessions, { sdk: 'hidden', search: 'document' })), []);
 });
 
-test('mergeSessions_Should_PutChangedSessionsInPlaceOfOldOnesNewestFirst', () => {
+test('mergeSessions_Should_PutChangedSessionsInPlaceOfOldOnesLatestActivityFirst', () => {
   const known = [
-    { id: 'b', title: 'Second', modifiedAt: 200 },
-    { id: 'a', title: 'First', modifiedAt: 100 },
+    { id: 'b', title: 'Busiest', activeAt: 400 },
+    { id: 'a', title: 'First', activeAt: 100 },
   ];
 
   const merged = mergeSessions(known, [
-    { id: 'a', title: 'First, renamed', modifiedAt: 300 },
-    { id: 'c', title: 'Brand new', modifiedAt: 250 },
+    { id: 'a', title: 'First, renamed', activeAt: 300 },
+    { id: 'c', title: 'Brand new', activeAt: 250 },
   ]);
 
   assert.deepEqual(merged, [
-    { id: 'a', title: 'First, renamed', modifiedAt: 300 },
-    { id: 'c', title: 'Brand new', modifiedAt: 250 },
-    { id: 'b', title: 'Second', modifiedAt: 200 },
+    { id: 'b', title: 'Busiest', activeAt: 400 },
+    { id: 'a', title: 'First, renamed', activeAt: 300 },
+    { id: 'c', title: 'Brand new', activeAt: 250 },
   ]);
 });
