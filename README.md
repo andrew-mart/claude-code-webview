@@ -26,6 +26,7 @@ claude-code-webview --background     # run without a terminal window
 
 - **All sessions** of every project, newest first, with titles, project folder and age; an orange dot marks a session
   written to in the last two minutes. "Follow the active session" switches to whichever session was written to last.
+  Sessions that a program drives (`claude -p`, the Agent SDK) are hidden until you tick "Show SDK sessions".
 - **The feed**:
   - prompts with images, slash commands and `!` shell commands with their output;
   - answers in markdown with syntax highlighting;

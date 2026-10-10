@@ -25,9 +25,13 @@
         <span>Claude Code Webview</span>
       </div>
       <input class="search" id="search" type="search" placeholder="Search by title or folder" autocomplete="off">
-      <label class="follow">
+      <label class="sidebar-option">
         <input type="checkbox" id="follow">
         <span>Follow the active session</span>
+      </label>
+      <label class="sidebar-option" title="Sessions that a program drives through claude -p or the Agent SDK">
+        <input type="checkbox" id="show-sdk">
+        <span>Show SDK sessions</span>
       </label>
       <nav class="session-list" id="session-list" aria-label="Sessions"></nav>
     </aside>

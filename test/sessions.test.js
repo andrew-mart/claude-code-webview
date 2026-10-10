@@ -31,7 +31,20 @@ test('summarizeSession_Should_FallBackToFirstPromptLineAndTakeLatestCwd', () => 
     '{"broken line',
   ];
 
-  assert.deepEqual(summarizeSession(lines), { title: 'Build a viewer', cwd: 'C:\\projects\\blog', branch: 'master' });
+  assert.deepEqual(summarizeSession(lines), { title: 'Build a viewer', cwd: 'C:\\projects\\blog', branch: 'master', kind: 'interactive' });
+});
+
+/**
+ * @param {string} text
+ * @param {string} entrypoint — how Claude Code was started: cli, sdk-cli, sdk-ts…
+ */
+const promptFrom = (text, entrypoint) =>
+  line({ type: 'user', uuid: text, timestamp: at, cwd: 'D:\\dev\\notes', entrypoint, promptSource: entrypoint === 'cli' ? 'typed' : 'sdk', message: { role: 'user', content: text } });
+
+test('summarizeSession_Should_TellSessionsDrivenOnlyThroughSdk', () => {
+  assert.equal(summarizeSession([promptFrom('Name this document', 'sdk-cli')]).kind, 'sdk');
+  assert.equal(summarizeSession([promptFrom('Build a viewer', 'cli')]).kind, 'interactive');
+  assert.equal(summarizeSession([promptFrom('Name this document', 'sdk-ts'), promptFrom('Now explain it', 'cli')]).kind, 'interactive', 'resumed in a terminal');
 });
 
 test('list_Should_FindLatestFolderBehindHugeLastLine', async () => {

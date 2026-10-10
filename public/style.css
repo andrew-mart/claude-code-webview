@@ -201,7 +201,7 @@ button {
   border-color: var(--border-strong);
 }
 
-.follow {
+.sidebar-option {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -211,7 +211,7 @@ button {
   cursor: pointer;
 }
 
-.follow input {
+.sidebar-option input {
   accent-color: var(--accent);
   margin: 0;
 }

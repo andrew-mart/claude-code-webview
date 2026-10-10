@@ -7,8 +7,10 @@ import { interpretEntry } from '../public/model/entry.js';
 import { isRecord, text } from '../public/model/narrow.js';
 
 /**
- * @typedef {{ title: string | undefined, cwd: string | undefined, branch: string | undefined }} SessionSummary
- * @typedef {{ id: string, project: string, title: string | undefined, cwd: string | undefined, branch: string | undefined, modifiedAt: number, size: number }} SessionInfo
+ * interactive — someone works in it (a terminal, an IDE); sdk — a program drives it through the Agent SDK or claude -p.
+ * @typedef {'interactive' | 'sdk'} SessionKind
+ * @typedef {{ title: string | undefined, cwd: string | undefined, branch: string | undefined, kind: SessionKind }} SessionSummary
+ * @typedef {{ id: string, project: string, title: string | undefined, cwd: string | undefined, branch: string | undefined, kind: SessionKind, modifiedAt: number, size: number }} SessionInfo
  * @typedef {{ agentId: string, toolUseId: string | undefined, agentType: string | undefined, description: string | undefined }} SubagentInfo
  * @typedef {{ path: string, project: string, id: string, modifiedAt: number, size: number }} SessionFile
  */
@@ -19,7 +21,7 @@ const tailBytes = 64 * 1024;
 const maxTailBytes = 4 * 1024 * 1024;
 const summaryBatch = 16;
 /** @type {SessionSummary} */
-const unknownSummary = { title: undefined, cwd: undefined, branch: undefined };
+const unknownSummary = { title: undefined, cwd: undefined, branch: undefined, kind: 'interactive' };
 
 /**
  * Session index with a summary cache: a file is reread only if its size or modification time changed.
@@ -194,24 +196,28 @@ async function exists(path) {
 /**
  * Title: the one set by the user, otherwise the latest one Claude Code generated, otherwise the first line of the first prompt.
  * Folder and branch are the last recorded ones: the session may have been moved with /cd.
+ * A session is an SDK one when every record that names how Claude Code was started names the SDK.
  * @param {readonly string[]} lines — JSONL lines (start and end of the file)
  * @returns {SessionSummary}
  */
 export function summarizeSession(lines) {
-  /** @type {{ custom: string | undefined, ai: string | undefined, prompt: string | undefined, cwd: string | undefined, branch: string | undefined }} */
-  const seen = { custom: undefined, ai: undefined, prompt: undefined, cwd: undefined, branch: undefined };
+  /** @type {{ custom: string | undefined, ai: string | undefined, prompt: string | undefined, cwd: string | undefined, branch: string | undefined, sdk: boolean, interactive: boolean }} */
+  const seen = { custom: undefined, ai: undefined, prompt: undefined, cwd: undefined, branch: undefined, sdk: false, interactive: false };
   for (const line of lines) {
     const raw = parse(line);
     if (!isRecord(raw)) continue;
     seen.cwd = text(raw.cwd) ?? seen.cwd;
     seen.branch = text(raw.gitBranch) ?? seen.branch;
+    const entrypoint = text(raw.entrypoint);
+    if (entrypoint !== undefined && entrypoint.startsWith('sdk')) seen.sdk = true;
+    if (entrypoint !== undefined && !entrypoint.startsWith('sdk')) seen.interactive = true;
     for (const event of interpretEntry(raw)) {
       if (event.kind === 'title' && event.custom) seen.custom = event.title;
       if (event.kind === 'title' && !event.custom) seen.ai = event.title;
       if (event.kind === 'prompt' && seen.prompt === undefined && event.text !== '') seen.prompt = event.text.split('\n', 1)[0];
     }
   }
-  return { title: seen.custom ?? seen.ai ?? seen.prompt, cwd: seen.cwd, branch: seen.branch };
+  return { title: seen.custom ?? seen.ai ?? seen.prompt, cwd: seen.cwd, branch: seen.branch, kind: seen.sdk && !seen.interactive ? 'sdk' : 'interactive' };
 }
 
 /**

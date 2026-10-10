@@ -3,6 +3,7 @@
 import { formatAgo, formatTokens } from './model/format.js';
 import { isRecord, text } from './model/narrow.js';
 import { currentIndex, stepTarget } from './model/outline.js';
+import { listedSessions } from './model/session-list.js';
 import { actionLabel, choices, nextChoice } from './model/view-settings.js';
 import { createBookmarkStore } from './view/bookmark-store.js';
 import { createComposer } from './view/composer-view.js';
@@ -13,7 +14,7 @@ import { icon } from './view/icons.js';
 import { activityModeEvent, jumpMarginPx, mountSession } from './view/session-view.js';
 
 /**
- * @typedef {{ id: string, project: string, title: string | undefined, cwd: string | undefined, branch: string | undefined, modifiedAt: number, size: number }} SessionInfo
+ * @typedef {{ id: string, project: string, title: string | undefined, cwd: string | undefined, branch: string | undefined, kind: 'interactive' | 'sdk', modifiedAt: number, size: number }} SessionInfo
  * @typedef {import('./view/session-view.js').SessionMeta} SessionMeta
  * @typedef {import('./view/session-view.js').SessionStatus} SessionStatus
  * @typedef {import('./model/view-settings.js').SettingKey} SettingKey
@@ -26,6 +27,7 @@ const activeMs = 2 * 60_000;
 const list = byId('session-list', HTMLElement);
 const search = byId('search', HTMLInputElement);
 const follow = byId('follow', HTMLInputElement);
+const showSdk = byId('show-sdk', HTMLInputElement);
 const main = byId('main', HTMLElement);
 const emptyState = byId('empty-state', HTMLElement);
 
@@ -49,9 +51,15 @@ document.addEventListener('keydown', (event) => {
   }
 });
 follow.checked = settings.get('follow') === 'on';
+showSdk.checked = settings.get('sdk') === 'shown';
 search.addEventListener('input', () => page.renderList());
 follow.addEventListener('change', () => {
   settings.set('follow', follow.checked ? 'on' : 'off');
+  page.followLatest();
+});
+showSdk.addEventListener('change', () => {
+  settings.set('sdk', showSdk.checked ? 'shown' : 'hidden');
+  page.renderList();
   page.followLatest();
 });
 window.addEventListener('hashchange', () => page.openFromHash());
@@ -65,10 +73,12 @@ function createPage() {
   /** @type {{ id: string, dispose: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof sessionHeader> } | undefined} */
   let current;
 
+  /** @param {string} text — the search box text; following ignores it */
+  const listed = (text) => listedSessions(sessions, { sdk: showSdk.checked ? 'shown' : 'hidden', search: text });
+
   const renderList = () => {
-    const filter = search.value.trim().toLowerCase();
     const now = Date.now();
-    const shown = sessions.filter((session) => filter === '' || `${session.title ?? ''} ${session.cwd ?? ''}`.toLowerCase().includes(filter));
+    const shown = listed(search.value);
     list.replaceChildren(
       ...shown.map((session) => {
         const link = h('a', { className: 'session-item', attrs: { href: `#/${session.id}` } }, [
@@ -161,7 +171,7 @@ function createPage() {
       this.followLatest();
     },
     followLatest() {
-      const latest = sessions[0];
+      const [latest] = listed('');
       if (follow.checked && latest !== undefined && latest.id !== current?.id) location.hash = `#/${latest.id}`;
     },
     openFromHash() {
@@ -262,7 +272,7 @@ function sessionHeader(info) {
 
 /**
  * View settings remembered by the browser: agent actions brief or detailed, theme, answer font,
- * service messages, following.
+ * service messages, following, SDK sessions in the list.
  */
 function createSettings() {
   /** @param {SettingKey} key */
@@ -336,6 +346,7 @@ function settingKeyOf(value) {
     case 'font':
     case 'service':
     case 'follow':
+    case 'sdk':
       return value;
     default:
       return undefined;
@@ -360,7 +371,8 @@ function parseSessions(json) {
     const id = text(item.id);
     const project = text(item.project);
     if (id === undefined || project === undefined || typeof item.modifiedAt !== 'number' || typeof item.size !== 'number') return [];
-    return [{ id, project, title: text(item.title), cwd: text(item.cwd), branch: text(item.branch), modifiedAt: item.modifiedAt, size: item.size }];
+    const kind = item.kind === 'sdk' ? 'sdk' : 'interactive';
+    return [{ id, project, title: text(item.title), cwd: text(item.cwd), branch: text(item.branch), kind, modifiedAt: item.modifiedAt, size: item.size }];
   });
 }
 
