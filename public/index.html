@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#faf9f5" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#262624" media="(prefers-color-scheme: dark)">
   <title>Claude Code Webview</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
@@ -40,5 +42,6 @@
     </main>
     <aside class="file-panel" id="file-panel" aria-label="File" hidden></aside>
   </div>
+  <div class="drawer-backdrop" id="drawer-backdrop"></div>
 </body>
 </html>

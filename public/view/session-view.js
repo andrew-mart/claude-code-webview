@@ -206,6 +206,10 @@ function createFeed(thread, sessionId, hooks) {
   const tools = new Map();
   /** @type {ActivityGroup[]} */
   const groups = [];
+  // Groups whose rows changed while a batch of entries is applied: each is laid out once at the end of the batch,
+  // not after every row — a group of dozens of tool calls would otherwise be laid out dozens of times.
+  /** @type {Set<ActivityGroup>} */
+  const changed = new Set();
   /** @type {HTMLElement | undefined} */
   let turn;
   /** @type {ActivityGroup | undefined} */
@@ -265,28 +269,32 @@ function createFeed(thread, sessionId, hooks) {
         activity = undefined;
         break;
       }
-      case 'thinking':
-        currentActivity().appendThinking(thinkingRow(event));
+      case 'thinking': {
+        const group = currentActivity();
+        group.appendThinking(thinkingRow(event));
+        changed.add(group);
         working = true;
         break;
+      }
       case 'tool-call': {
         const row = createToolRow(event, openSubagent);
         const group = currentActivity();
         tools.set(event.id, { row, group });
         group.appendTool(row);
+        changed.add(group);
         working = true;
         break;
       }
       case 'tool-result': {
         const placed = tools.get(event.toolUseId);
         placed?.row.applyResult(event);
-        placed?.group.refresh();
+        if (placed !== undefined) changed.add(placed.group);
         break;
       }
       case 'task-notification': {
         const placed = event.toolUseId === undefined ? undefined : tools.get(event.toolUseId);
         placed?.row.applyNotification(event);
-        placed?.group.refresh();
+        if (placed !== undefined) changed.add(placed.group);
         top(notice(`Background task: ${event.summary}`, event.status === 'completed' ? 'info' : 'warning'));
         break;
       }
@@ -351,6 +359,8 @@ function createFeed(thread, sessionId, hooks) {
           top(notice('This record could not be shown — see the browser console', 'error'));
         }
       }
+      for (const group of changed) group.refresh();
+      changed.clear();
       return meta;
     },
     /** The action display mode changed — rebuild the layout of every group. */
@@ -361,6 +371,7 @@ function createFeed(thread, sessionId, hooks) {
       thread.replaceChildren();
       tools.clear();
       groups.length = 0;
+      changed.clear();
       turn = undefined;
       activity = undefined;
       working = false;
@@ -415,11 +426,14 @@ function createActivityGroup() {
     expanded = !expanded;
     refresh();
   });
-  /** @param {HTMLElement} row @param {() => import('../model/activity.js').ActivityItem} item */
+  /**
+   * The caller lays the group out (refresh) once it has added everything it had.
+   * @param {HTMLElement} row
+   * @param {() => import('../model/activity.js').ActivityItem} item
+   */
   const add = (row, item) => {
     rows.push({ element: row, item });
     element.append(row);
-    refresh();
   };
 
   return {
@@ -489,10 +503,13 @@ function thinkingRow(event) {
   const label = event.durationMs === undefined ? 'Thinking' : `Thought for ${formatDuration(event.durationMs)}`;
   const head = [h('span', { className: 'spark', text: '✻' }), h('span', { className: 'tool-label', text: label })];
   if (event.text.trim() === '') return h('div', { className: 'thinking empty', title: 'Claude Code does not store the thinking text in the transcript' }, head);
-  return h('details', { className: 'thinking' }, [
-    h('summary', { className: 'tool-head' }, [...head, h('span', { className: 'chevron' }, [icon('chevron')])]),
-    h('div', { className: 'md thinking-text' }, [renderMarkdown(event.text)]),
-  ]);
+  // The text is rendered on the first open: most thinking stays folded, and a long session has hundreds of them.
+  const body = h('div', { className: 'md thinking-text' });
+  const row = h('details', { className: 'thinking' }, [h('summary', { className: 'tool-head' }, [...head, h('span', { className: 'chevron' }, [icon('chevron')])]), body]);
+  row.addEventListener('toggle', () => {
+    if (row.open && body.childElementCount === 0) body.append(renderMarkdown(event.text));
+  });
+  return row;
 }
 
 /**

@@ -44,6 +44,9 @@ claude-code-webview --background     # run without a terminal window
   jump between them) and your bookmarks: hover a prompt, an answer or a subagent report and click the flag to keep it
   one click away. Bookmarks are kept by the viewer in `~/.claude-code-webview/bookmarks.json`, so every browser and
   device that opens it sees the same ones.
+- **Phones.** On a narrow screen the session list and the outline slide in from the sides, bookmark flags stay
+  visible without hover, and on a touch keyboard Enter starts a new line while the ↑ button sends. Images load only
+  when they scroll into view, and replies are gzipped, so a long session costs a phone about a megabyte, not dozens.
 - Light and dark themes, serif or sans answers, optional display of Claude Code's service messages.
 
 ## Sending prompts from the page (optional, needs herdr)
