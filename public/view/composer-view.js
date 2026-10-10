@@ -1,6 +1,6 @@
 // @ts-check
 // Prompt box under the feed: the prompt goes to the session terminal via herdr (server: /api/send, /api/interrupt).
-import { composerState, outcomeMessage, parseLiveState, parseOutcome } from '../model/composer.js';
+import { composerState, outcomeMessage, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, stopMessage } from '../model/composer.js';
 import { createAttachmentPicker } from './attachment-picker.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
@@ -64,6 +64,7 @@ export function createComposer(sessionId) {
   /**
    * @param {'/api/send' | '/api/interrupt'} path
    * @param {{ text?: string, images?: readonly import('./attachment-picker.js').AttachedImage[] }} payload
+   * @returns {Promise<unknown>} — the reply's JSON; undefined if the server did not answer
    */
   const post = async (path, payload) => {
     const response = await fetch(path, {
@@ -71,7 +72,37 @@ export function createComposer(sessionId) {
       headers: { 'Content-Type': 'application/json', 'X-Viewer': '1' },
       body: JSON.stringify({ session: sessionId, ...payload }),
     }).catch(() => undefined);
-    return response?.ok ? parseOutcome(await response.json().catch(() => undefined)) : undefined;
+    return response?.ok ? response.json().catch(() => undefined) : undefined;
+  };
+  /**
+   * The images of a prompt that came back, attached again: the viewer still has them.
+   * @param {readonly string[]} urls
+   */
+  const reattach = async (urls) => {
+    const files = await Promise.all(
+      urls.map(async (url) => {
+        const response = await fetch(url).catch(() => undefined);
+        const blob = response?.ok ? await response.blob().catch(() => undefined) : undefined;
+        return blob === undefined ? undefined : new File([blob], url.slice(url.lastIndexOf('/') + 1), { type: blob.type });
+      }),
+    );
+    const loaded = files.filter((file) => file !== undefined);
+    if (loaded.length < urls.length) say('Some images of the message could not be loaded again.', 'error');
+    if (loaded.length > 0) await attachments.add(loaded);
+  };
+  /**
+   * A prompt that came back — stopped before Claude started on it, or rewound — goes into the box for editing, as the
+   * terminal does.
+   * @param {string} prompt
+   */
+  const fill = (prompt) => {
+    const restored = promptForBox(prompt, input.value);
+    input.value = restored.text;
+    writeDraft(draftKey, restored.text);
+    fit();
+    refreshButtons();
+    if (keyboard === 'physical') input.focus();
+    void reattach(restored.images);
   };
 
   form.addEventListener('submit', (event) => {
@@ -81,7 +112,8 @@ export function createComposer(sessionId) {
     refreshButtons();
     const images = attachments.images();
     if (images.length > 0) say(`Sending ${images.length === 1 ? 'the image' : `${images.length} images`}…`, 'ok');
-    void post('/api/send', { text: input.value, images }).then((outcome) => {
+    void post('/api/send', { text: input.value, images }).then((json) => {
+      const outcome = parseOutcome(json);
       sending = false;
       if (outcome?.ok === true) {
         input.value = '';
@@ -131,9 +163,16 @@ export function createComposer(sessionId) {
     fit();
     refreshButtons();
   });
+  // A prompt Claude had not started on comes back into the box, as Esc in the terminal does. Watching for it takes a
+  // moment: the button waits, so a second press does not reach the terminal as a second Esc.
   interrupt.addEventListener('click', () => {
-    void post('/api/interrupt', {}).then((outcome) => {
-      say(outcome?.ok === true ? 'Esc sent — Claude will stop the current turn.' : outcome === undefined ? 'The viewer server did not answer.' : outcomeMessage(outcome), outcome?.ok === true ? 'ok' : 'error');
+    interrupt.disabled = true;
+    say('Stopping…', 'ok');
+    void post('/api/interrupt', {}).then((json) => {
+      const outcome = parseStopOutcome(json);
+      interrupt.disabled = false;
+      if (outcome?.ok === true && outcome.prompt !== undefined) fill(outcome.prompt);
+      say(outcome === undefined ? 'The viewer server did not answer.' : stopMessage(outcome), outcome?.ok === true ? 'ok' : 'error');
       void refreshLive();
     });
   });
@@ -145,17 +184,7 @@ export function createComposer(sessionId) {
   return {
     element,
     say,
-    /**
-     * Puts a rewound message back into the box for editing, as the terminal does.
-     * @param {string} text
-     */
-    fill(text) {
-      input.value = text;
-      writeDraft(draftKey, text);
-      fit();
-      refreshButtons();
-      if (keyboard === 'physical') input.focus();
-    },
+    fill,
     dispose() {
       clearInterval(timer);
       clearTimeout(noticeTimer);

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { linkOf, rewoundEntries } from '../server/branch.js';
+import { linkOf, rewoundEntries, takenBackPrompt } from '../server/branch.js';
 
 /** @param {string} uuid @param {string | null} parentUuid @param {string} text */
 const prompt = (uuid, parentUuid, text) => ({ type: 'user', uuid, parentUuid, message: { role: 'user', content: text } });
@@ -35,4 +35,14 @@ test('rewoundEntries_Should_HideFromPointRewoundFromThePageBeforeNextPromptArriv
   const records = [prompt('p1', null, 'Build it'), answer('a1', 'p1'), prompt('p2', 'a1', 'Now test it'), answer('a2', 'p2'), toolResult('r1', 'a2')];
 
   assert.deepEqual(hidden(records, 'p2'), ['a2', 'p2', 'r1']);
+});
+
+test('takenBackPrompt_Should_FindStoppedPromptOnlyIfNothingAnsweredIt', () => {
+  const stoppedLate = [prompt('p1', null, 'Build it'), answer('a1', 'p1'), prompt('p2', 'a1', 'Now test it')];
+  // the stopped prompt never reached the transcript; an earlier one with the same words has its answer
+  const stoppedEarly = [prompt('p1', null, 'Now test it'), answer('a1', 'p1')];
+
+  assert.equal(takenBackPrompt(stoppedLate, 'Now  test\nit'), 'p2');
+  assert.equal(takenBackPrompt(stoppedLate, 'Build it'), undefined);
+  assert.equal(takenBackPrompt(stoppedEarly, 'Now test it'), undefined);
 });

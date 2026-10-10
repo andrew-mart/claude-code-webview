@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { confirmShows, driveRewind, inputBox, optionKey, rewindTarget } from '../server/rewind.js';
+import { inputBox } from '../server/claude-screen.js';
+import { confirmShows, driveRewind, optionKey, rewindTarget } from '../server/rewind.js';
 
 // Screens of Claude Code 2.1 in a narrow terminal, as `herdr pane read --source visible` returns them.
 const idleTyped = `● Write(note.txt)

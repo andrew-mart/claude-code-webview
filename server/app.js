@@ -13,6 +13,7 @@ import { constants as zlibConstants, createGzip, gzip } from 'node:zlib';
 import { withAttachedImages } from '../public/model/attachments.js';
 import { parseBookmarkChange } from '../public/model/bookmarks.js';
 import { isRecord } from '../public/model/narrow.js';
+import { takenBackPrompt } from './branch.js';
 import { readTextFile } from './files.js';
 import { readImage } from './images.js';
 import { rewindTarget } from './rewind.js';
@@ -45,7 +46,7 @@ const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 const agentIdPattern = /^[0-9a-z]{1,64}$/i;
 
 /**
- * @typedef {{ liveState: (sessionId: string) => Promise<import('./composer.js').LiveState>, send: (sessionId: string, text: string) => Promise<import('./composer.js').SendOutcome>, interrupt: (sessionId: string) => Promise<import('./composer.js').SendOutcome>, rewind: (sessionId: string, request: import('./composer.js').RewindRequest) => Promise<import('./composer.js').RewindReply> }} Composer
+ * @typedef {{ liveState: (sessionId: string) => Promise<import('./composer.js').LiveState>, send: (sessionId: string, text: string) => Promise<import('./composer.js').SendOutcome>, interrupt: (sessionId: string) => Promise<import('./composer.js').StopReply>, rewind: (sessionId: string, request: import('./composer.js').RewindRequest) => Promise<import('./composer.js').RewindReply> }} Composer
  * @typedef {{ name: string, version: string }} About
  */
 
@@ -173,7 +174,7 @@ async function handleWrite(deps, url, request, response) {
       return sendJson(response, outcome);
     }
     case '/api/interrupt':
-      return sendJson(response, await deps.composer.interrupt(sessionId));
+      return stop(deps, sessionId, response);
     case '/api/rewind':
       return rewind(deps, sessionId, isRecord(body) ? body : {}, response);
     case '/api/bookmarks': {
@@ -206,20 +207,42 @@ async function rewind(deps, sessionId, body, response) {
     response.writeHead(400).end('Bad rewind request');
     return;
   }
+  const target = rewindTarget(await transcriptRecords(deps, sessionId), body.prompt);
+  // A message sent while Claude was working joined that turn: the menu does not list it.
+  if (target === undefined) return sendJson(response, { ok: false, error: 'not-listed' }, 404);
+  const reply = await deps.composer.rewind(sessionId, { ...target, action });
+  if (reply.ok && (action === 'both' || action === 'conversation')) deps.rewinds.set(sessionId, body.prompt);
+  return sendJson(response, reply.ok ? { ok: true, ...(reply.restoredPrompt ? { prompt: target.prompt } : {}) } : reply);
+}
+
+/**
+ * Stop the current turn, as Esc in the terminal does. A prompt Claude had not started on goes back to the page's box;
+ * if it reached the transcript anyway, the feed hides it at once, as the terminal does.
+ * @param {Deps} deps
+ * @param {string} sessionId
+ * @param {http.ServerResponse} response
+ */
+async function stop(deps, sessionId, response) {
+  const reply = await deps.composer.interrupt(sessionId);
+  const stopped = reply.ok && reply.prompt !== undefined ? takenBackPrompt(await transcriptRecords(deps, sessionId), reply.prompt) : undefined;
+  if (stopped !== undefined) deps.rewinds.set(sessionId, stopped);
+  return sendJson(response, reply);
+}
+
+/**
+ * @param {Deps} deps
+ * @param {string} sessionId
+ * @returns {Promise<readonly unknown[]>} — the session's transcript entries in file order
+ */
+async function transcriptRecords(deps, sessionId) {
   const path = await deps.index.find(sessionId);
-  const records = path === undefined ? [] : (await readFile(path, 'utf8')).split('\n').flatMap((line) => {
+  return path === undefined ? [] : (await readFile(path, 'utf8')).split('\n').flatMap((line) => {
     try {
       return line === '' ? [] : [JSON.parse(line)];
     } catch {
       return []; // a line still being written
     }
   });
-  const target = rewindTarget(records, body.prompt);
-  // A message sent while Claude was working joined that turn: the menu does not list it.
-  if (target === undefined) return sendJson(response, { ok: false, error: 'not-listed' }, 404);
-  const reply = await deps.composer.rewind(sessionId, { ...target, action });
-  if (reply.ok && (action === 'both' || action === 'conversation')) deps.rewinds.set(sessionId, body.prompt);
-  return sendJson(response, reply.ok ? { ok: true, ...(reply.restoredPrompt ? { prompt: target.prompt } : {}) } : reply);
 }
 
 /** A body larger than this is not a prompt but something else. */

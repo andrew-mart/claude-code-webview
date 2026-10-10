@@ -7,10 +7,12 @@ const record = { pid: 94168, sessionId, kind: 'interactive', status: 'busy', upd
 
 /**
  * A fake herdr: two panes with Claude, the target one is w3D:p1 with process 94168. Records every call.
- * fail — herdr is installed but does not answer; missing — herdr is not installed at all.
- * @param {{ fail?: boolean, missing?: boolean }} [options]
+ * fail — herdr is installed but does not answer; missing — herdr is not installed at all; screens — what the pane
+ * shows, one per read, the last one stays.
+ * @param {{ fail?: boolean, missing?: boolean, screens?: readonly string[] }} [options]
  */
-function fakeHerdr({ fail = false, missing = false } = {}) {
+function fakeHerdr({ fail = false, missing = false, screens = [''] } = {}) {
+  let reads = 0;
   /** @type {string[][]} */
   const calls = [];
   /** @param {readonly string[]} args @returns {Promise<import('../server/composer.js').HerdrReply>} */
@@ -20,6 +22,7 @@ function fakeHerdr({ fail = false, missing = false } = {}) {
     if (fail) return { ok: false, error: 'no herdr server is running', missing: false };
     const [, command, , pane] = args;
     if (command === 'list') return { ok: true, json: { result: { panes: [{ agent: 'claude', pane_id: 'w2:p1' }, { agent: 'claude', pane_id: 'w3D:p1' }] } }, text: '' };
+    if (command === 'read') return { ok: true, json: undefined, text: screens[Math.min(reads++, screens.length - 1)] ?? '' };
     if (command === 'process-info') return { ok: true, json: { result: { process_info: { foreground_processes: [{ pid: pane === 'w3D:p1' ? 94168 : 555 }] } } }, text: '' };
     return { ok: true, json: { result: { type: 'ok' } }, text: '' };
   };
@@ -66,8 +69,17 @@ test('send_Should_RefuseEmptyTextAndOfflineSessionWithoutTouchingTerminal', asyn
 test('interrupt_Should_PressEscapeInSessionPane', async () => {
   const herdr = fakeHerdr();
 
-  assert.deepEqual(await composerOf([record], herdr).interrupt(sessionId), { ok: true, pane: 'w3D:p1' });
+  assert.deepEqual(await composerOf([record], herdr).interrupt(sessionId), { ok: true, pane: 'w3D:p1', prompt: undefined });
   assert.deepEqual(herdr.calls.at(-1), ['pane', 'send-keys', 'w3D:p1', 'esc']);
+});
+
+test('interrupt_Should_GiveBackPromptThePageSentExactlyWhenClaudeHadNotStartedOnIt', async () => {
+  const box = (/** @type {string} */ text) => `● Earlier answer\n────────\n❯ ${text}\n────────\n  ⏵⏵ auto mode on`;
+  const herdr = fakeHerdr({ screens: [box(''), box('Explain the failing\n  test in detail'), box('')] });
+  const composer = composerOf([record], herdr);
+  await composer.send(sessionId, 'Explain the failing\ntest in detail');
+
+  assert.deepEqual(await composer.interrupt(sessionId), { ok: true, pane: 'w3D:p1', prompt: 'Explain the failing\ntest in detail' });
 });
 
 test('liveState_Should_SearchPanesOnlyOnceForRunningProcess', async () => {

@@ -53,7 +53,9 @@ claude-code-webview --background     # run without a terminal window
 
 If you run Claude Code inside [herdr](https://herdr.dev), an input box appears under the feed: the text is typed into
 the session's terminal and submitted with Enter, exactly as if you typed it there. While Claude is busy, Claude Code
-queues it. "Stop" sends Esc. Drafts are kept per session.
+queues it. "Stop" sends Esc. As in the terminal, a prompt Claude had not started on comes back for editing: the viewer
+takes it out of the terminal's input box and puts it into the page's box, exactly as it was sent, before anything
+already typed there. Drafts are kept per session.
 
 Images can go with a prompt: pick them with the paperclip (on a phone — from the gallery or the camera), paste a
 screenshot anywhere on the page (Ctrl+V), or drop files on the box. The page scales photos down to 2048 px before sending; the viewer saves them in
