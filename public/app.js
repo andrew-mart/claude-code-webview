@@ -247,13 +247,24 @@ function createScrollSpy(scroller, prompts, onCurrent) {
 }
 
 /**
+ * The session's status as an icon; the words are in its tooltip.
+ * @type {Readonly<Record<SessionStatus, { label: string, glyph: () => HTMLElement }>>}
+ */
+const statusLooks = {
+  connecting: { label: 'Loading…', glyph: () => icon('reload') },
+  missing: { label: 'Transcript not found', glyph: () => icon('alert') },
+  idle: { label: 'Waiting for input', glyph: () => icon('message') },
+  working: { label: 'Working', glyph: () => h('span', { className: 'spark', text: '✻' }) },
+};
+
+/**
  * Session header: title, folder, model, context size, cost and status.
  * @param {SessionInfo | undefined} info
  */
 function sessionHeader(info) {
   const title = h('h1', { className: 'title', text: info?.title ?? 'Session' });
   const sub = h('div', { className: 'head-sub' });
-  const status = h('span', { className: 'status' });
+  const status = h('span', { className: 'status', attrs: { role: 'status' } });
   const actions = h('div', { className: 'head-actions' }, [status, drawerButton('outline', 'list', 'Outline'), ...settings.buttons()]);
   const element = h('header', { className: 'session-head' }, [drawerButton('sessions', 'menu', 'Sessions'), h('div', { className: 'head-main' }, [title, sub]), actions]);
   /** @type {SessionMeta} */
@@ -283,8 +294,11 @@ function sessionHeader(info) {
     },
     /** @param {SessionStatus} next */
     onStatus(next) {
+      const look = statusLooks[next];
       status.dataset.status = next;
-      status.textContent = { connecting: 'Loading…', missing: 'Transcript not found', idle: 'Waiting for input', working: 'Working' }[next];
+      status.title = look.label;
+      status.setAttribute('aria-label', look.label);
+      status.replaceChildren(look.glyph());
     },
     /** @param {SessionInfo} next */
     updateInfo(next) {
@@ -334,7 +348,8 @@ function createSettings() {
     const label = actionLabel(key, get(key));
     button.title = label;
     button.setAttribute('aria-label', label);
-    if (button.classList.contains('mode-toggle')) button.textContent = label;
+    // The actions button shows what a click does: unfold the folded actions, or fold them back.
+    if (key === 'activity') button.replaceChildren(icon(nextChoice(key, get(key)) === 'detailed' ? 'unfold' : 'fold'));
   };
   /** @param {SettingKey} key */
   const cycle = (key) => set(key, nextChoice(key, get(key)));
@@ -349,7 +364,7 @@ function createSettings() {
     return button;
   };
   const buttons = () => [
-    settingButton('activity', h('button', { className: 'mode-toggle', attrs: { type: 'button' } })),
+    settingButton('activity', iconButton('unfold')),
     settingButton('outline', iconButton('list')),
     settingButton('service', iconButton('eye')),
     settingButton('font', iconButton('type')),

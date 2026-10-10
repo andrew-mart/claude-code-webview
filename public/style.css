@@ -333,30 +333,27 @@ button {
   gap: 4px;
 }
 
+/* The session's status: an icon the size of the header buttons, the words in its tooltip. */
 .status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-right: 6px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: var(--bg-bubble);
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
   color: var(--text-3);
-  font-size: 12px;
-  white-space: nowrap;
+}
+
+.status .spark {
+  font-size: 19px;
+  line-height: 1;
 }
 
 .status[data-status="working"] {
-  color: var(--accent-strong);
+  color: var(--accent);
+  animation: pulse 1.6s ease-in-out infinite;
 }
 
-.status[data-status="working"]::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: pulse 1.6s ease-in-out infinite;
+.status[data-status="connecting"] .icon {
+  animation: spin 1.2s linear infinite;
 }
 
 .status[data-status="missing"] {
@@ -1010,24 +1007,6 @@ summary::-webkit-details-marker {
 .activity > .activity-header[hidden] + *,
 .activity > .flush {
   border-top: 0;
-}
-
-.mode-toggle {
-  min-width: 82px;
-  height: 30px;
-  margin-right: 4px;
-  padding: 0 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-elev);
-  color: var(--text-2);
-  font-size: 12.5px;
-  cursor: pointer;
-}
-
-.mode-toggle:hover {
-  border-color: var(--border-strong);
-  color: var(--text);
 }
 
 .chevron .icon {
@@ -2017,9 +1996,6 @@ a.file-link:hover {
     height: 40px;
   }
 
-  .mode-toggle {
-    height: 36px;
-  }
 
   .composer-input,
   .search {
