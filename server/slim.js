@@ -28,6 +28,8 @@ const shownFields = [
   'aiTitle',
   'customTitle',
   'totalCostUSD',
+  'modelUsage',
+  'effort',
 ];
 
 /**

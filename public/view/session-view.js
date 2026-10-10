@@ -12,7 +12,7 @@ import { createToolRow } from './tool-view.js';
 
 /**
  * @typedef {import('../model/entry.js').DisplayEvent} DisplayEvent
- * @typedef {{ title?: string, customTitle?: string, model?: string, contextTokens?: number, costUsd?: number }} SessionMeta
+ * @typedef {{ title?: string, customTitle?: string, model?: string, contextTokens?: number, effort?: string, costUsd?: number, extendedContext?: boolean }} SessionMeta
  * @typedef {'connecting' | 'missing' | 'idle' | 'working'} SessionStatus
  * @typedef {import('../model/bookmarks.js').Bookmark} Anchor — a message one can come back to: a prompt, an answer, a subagent report
  * @typedef {{ onMeta: (meta: SessionMeta) => void, onStatus: (status: SessionStatus) => void, onPrompt: (prompt: Anchor) => void, onReset: () => void }} SessionListener
@@ -351,6 +351,7 @@ function createFeed(thread, sessionId, hooks) {
       case 'usage':
         meta.model = event.model;
         meta.contextTokens = event.contextTokens;
+        if (event.effort !== undefined) meta.effort = event.effort;
         break;
       case 'title':
         if (event.custom) meta.customTitle = event.title;
@@ -358,6 +359,7 @@ function createFeed(thread, sessionId, hooks) {
         break;
       case 'cost':
         meta.costUsd = event.usd;
+        meta.extendedContext = event.extendedContext;
         break;
       default:
         exhaustive(event);

@@ -1,6 +1,6 @@
 // @ts-check
 // Viewer page: session list on the left, the selected session on the right. Session address is #/<id>.
-import { formatAgo, formatTokens } from './model/format.js';
+import { formatAgo } from './model/format.js';
 import { isRecord, text } from './model/narrow.js';
 import { currentIndex, stepTarget } from './model/outline.js';
 import { listedSessions } from './model/session-list.js';
@@ -8,6 +8,7 @@ import { actionLabel, choices, nextChoice } from './model/view-settings.js';
 import { createBookmarkStore, moveLocalBookmarksToServer } from './view/bookmark-store.js';
 import { createComposer } from './view/composer-view.js';
 import { createRewindDialog } from './view/rewind-dialog.js';
+import { createSessionHeader } from './view/session-header.js';
 import { rewindMessage } from './model/rewind.js';
 import { createOutline } from './view/outline-view.js';
 import { h } from './view/dom.js';
@@ -18,8 +19,6 @@ import { activityModeEvent, jumpMarginPx, mountSession } from './view/session-vi
 
 /**
  * @typedef {{ id: string, project: string, title: string | undefined, cwd: string | undefined, branch: string | undefined, kind: 'interactive' | 'sdk', modifiedAt: number, size: number }} SessionInfo
- * @typedef {import('./view/session-view.js').SessionMeta} SessionMeta
- * @typedef {import('./view/session-view.js').SessionStatus} SessionStatus
  * @typedef {import('./model/view-settings.js').SettingKey} SettingKey
  */
 
@@ -87,7 +86,7 @@ function createPage() {
   /** @type {readonly SessionInfo[]} */
   let sessions = [];
   let listKey = '';
-  /** @type {{ id: string, dispose: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof sessionHeader>, rewound: (reply: import('./model/rewind.js').RewindReply) => void } | undefined} */
+  /** @type {{ id: string, dispose: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, rewound: (reply: import('./model/rewind.js').RewindReply) => void } | undefined} */
   let current;
   const rewindDialog = createRewindDialog({ onDone: (reply) => current?.rewound(reply) });
 
@@ -118,7 +117,7 @@ function createPage() {
     if (current?.id === id) return;
     current?.dispose();
     const info = sessions.find((session) => session.id === id);
-    const header = sessionHeader(info);
+    const header = createSessionHeader({ place: info, currentBranch: () => fetchBranch(id), leading: drawerButton('sessions', 'menu', 'Sessions'), navigation: [drawerButton('outline', 'list', 'Outline')], tools: settings.buttons() });
     const scroller = h('div', { className: 'scroller' });
     const outlineElement = h('aside', { className: 'outline', attrs: { 'aria-label': 'Outline' } });
     const bookmarks = createBookmarkStore(id);
@@ -187,6 +186,7 @@ function createPage() {
       },
       dispose() {
         mounted.dispose();
+        header.dispose();
         composer.dispose();
         unsubscribe();
         bookmarks.dispose();
@@ -214,7 +214,7 @@ function createPage() {
       sessions = parseSessions(JSON.parse(body));
       renderList();
       const info = sessions.find((session) => session.id === current?.id);
-      if (info !== undefined) current?.header.updateInfo(info);
+      if (info !== undefined) current?.header.updatePlace(info);
       this.followLatest();
     },
     followLatest() {
@@ -272,66 +272,16 @@ function createScrollSpy(scroller, prompts, onCurrent) {
 }
 
 /**
- * The session's status as an icon; the words are in its tooltip.
- * @type {Readonly<Record<SessionStatus, { label: string, glyph: () => HTMLElement }>>}
+ * The view buttons in the header and their icons.
+ * @type {readonly (readonly [SettingKey, string])[]}
  */
-const statusLooks = {
-  connecting: { label: 'Loading…', glyph: () => icon('reload') },
-  missing: { label: 'Transcript not found', glyph: () => icon('alert') },
-  idle: { label: 'Waiting for input', glyph: () => icon('message') },
-  working: { label: 'Working', glyph: () => h('span', { className: 'spark', text: '✻' }) },
-};
-
-/**
- * Session header: title, folder, model, context size, cost and status.
- * @param {SessionInfo | undefined} info
- */
-function sessionHeader(info) {
-  const title = h('h1', { className: 'title', text: info?.title ?? 'Session' });
-  const sub = h('div', { className: 'head-sub' });
-  const status = h('span', { className: 'status', attrs: { role: 'status' } });
-  const actions = h('div', { className: 'head-actions' }, [status, drawerButton('outline', 'list', 'Outline'), ...settings.buttons()]);
-  const element = h('header', { className: 'session-head' }, [drawerButton('sessions', 'menu', 'Sessions'), h('div', { className: 'head-main' }, [title, sub]), actions]);
-  /** @type {SessionMeta} */
-  let meta = {};
-  let place = info;
-
-  const renderSub = () => {
-    const parts = [
-      place?.cwd,
-      place?.branch === undefined || place.branch === 'HEAD' ? undefined : `⎇ ${place.branch}`,
-      meta.model,
-      meta.contextTokens === undefined ? undefined : `context ${formatTokens(meta.contextTokens)}`,
-      meta.costUsd === undefined ? undefined : `$${meta.costUsd.toFixed(2)}`,
-    ].filter((part) => part !== undefined);
-    sub.replaceChildren(...parts.map((part) => h('span', { text: part })));
-  };
-  renderSub();
-
-  return {
-    element,
-    /** @param {SessionMeta} next */
-    onMeta(next) {
-      meta = next;
-      title.textContent = meta.customTitle ?? meta.title ?? place?.title ?? 'Session';
-      document.title = `${title.textContent} — Claude Code`;
-      renderSub();
-    },
-    /** @param {SessionStatus} next */
-    onStatus(next) {
-      const look = statusLooks[next];
-      status.dataset.status = next;
-      status.title = look.label;
-      status.setAttribute('aria-label', look.label);
-      status.replaceChildren(look.glyph());
-    },
-    /** @param {SessionInfo} next */
-    updateInfo(next) {
-      place = next;
-      renderSub();
-    },
-  };
-}
+const headerSettings = [
+  ['activity', 'unfold'],
+  ['outline', 'list'],
+  ['service', 'eye'],
+  ['font', 'type'],
+  ['theme', 'moon'],
+];
 
 /**
  * View settings remembered by the browser: agent actions brief or detailed, theme, answer font,
@@ -374,7 +324,9 @@ function createSettings() {
     button.title = label;
     button.setAttribute('aria-label', label);
     // The actions button shows what a click does: unfold the folded actions, or fold them back.
-    if (key === 'activity') button.replaceChildren(icon(nextChoice(key, get(key)) === 'detailed' ? 'unfold' : 'fold'));
+    const glyph = key === 'activity' ? (nextChoice(key, get(key)) === 'detailed' ? 'unfold' : 'fold') : headerSettings.find(([setting]) => setting === key)?.[1];
+    // the label is hidden beside the title and shown in the menu the buttons fold into on a narrow screen
+    if (glyph !== undefined) button.replaceChildren(icon(glyph), h('span', { className: 'head-tool-label', text: label }));
   };
   /** @param {SettingKey} key */
   const cycle = (key) => set(key, nextChoice(key, get(key)));
@@ -388,13 +340,7 @@ function createSettings() {
     labelButton(button);
     return button;
   };
-  const buttons = () => [
-    settingButton('activity', iconButton('unfold')),
-    settingButton('outline', iconButton('list')),
-    settingButton('service', iconButton('eye')),
-    settingButton('font', iconButton('type')),
-    settingButton('theme', iconButton('moon')),
-  ];
+  const buttons = () => headerSettings.map(([key, glyph]) => settingButton(key, iconButton(glyph)));
   return { get, set, applyAll, buttons };
 }
 
@@ -494,6 +440,17 @@ function drawerButton(name, iconName, label) {
   button.setAttribute('aria-label', label);
   button.addEventListener('click', () => drawers.toggle(name));
   return button;
+}
+
+/**
+ * The branch checked out in the session's folder now; undefined outside a repository or when the server does not say.
+ * @param {string} sessionId
+ * @returns {Promise<string | undefined>}
+ */
+async function fetchBranch(sessionId) {
+  const response = await fetch(`/api/branch?session=${encodeURIComponent(sessionId)}`).catch(() => undefined);
+  const json = response?.ok ? await response.json().catch(() => undefined) : undefined;
+  return isRecord(json) ? text(json.branch) : undefined;
 }
 
 /**

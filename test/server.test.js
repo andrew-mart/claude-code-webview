@@ -513,3 +513,16 @@ test('interrupt_Should_HideStoppedPromptClaudeGaveBackFromFeedAtOnce', { timeout
   assert.equal((await next()).event, 'reset');
   assert.deepEqual(uuids(await next()), ['u1', 'a1']);
 });
+
+test('branch_Should_ReadBranchCheckedOutInSessionFolderNotOneTranscriptRecorded', async (t) => {
+  const { file, base } = await withServer(t);
+  const repo = await mkdtemp(join(tmpdir(), 'csv-repo-'));
+  await mkdir(join(repo, '.git'));
+  await writeFile(join(repo, '.git', 'HEAD'), 'ref: refs/heads/feat/header\n');
+  // Claude Code records the branch it saw first; the session moved to another folder with /cd
+  await appendFile(file, `${JSON.stringify({ type: 'user', uuid: 'u2', timestamp: at, cwd: repo, gitBranch: 'HEAD', message: { role: 'user', content: 'Next' } })}\n`);
+
+  const response = await fetch(`${base}/api/branch?session=${sessionId}`);
+
+  assert.deepEqual(await response.json(), { branch: 'feat/header' });
+});

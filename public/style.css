@@ -298,21 +298,33 @@ button {
   color: var(--text-3);
 }
 
+/*
+ * Header: the title over the session's facts, the status and the buttons on the right; the details open below.
+ *   title    actions
+ *   facts    actions
+ *   details  details
+ */
 .session-head {
-  display: flex;
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "title actions"
+    "facts actions"
+    "details details";
   align-items: center;
-  gap: 16px;
+  column-gap: 16px;
   padding: 10px 20px;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
 }
 
-.head-main {
-  flex: 1;
-  min-width: 0;
+.session-head > .drawer-button {
+  grid-area: lead;
 }
 
 .title {
+  grid-area: title;
   overflow: hidden;
   margin: 0;
   font-size: 15px;
@@ -321,23 +333,210 @@ button {
   white-space: nowrap;
 }
 
-.head-sub {
+/* The facts at a glance: one line of small chips; a click opens the details. */
+.head-facts {
+  grid-area: facts;
   display: flex;
-  flex-wrap: wrap;
-  gap: 2px 14px;
+  align-items: center;
+  justify-self: start;
+  gap: 5px;
+  max-width: 100%;
+  margin: 5px 0 0 -2px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: none;
   color: var(--text-3);
+  font: inherit;
   font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
-.head-sub span:first-child {
+.fact {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 5px;
+  max-width: 30ch;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: var(--bg-hover);
+  color: var(--text-2);
+}
+
+.head-facts:hover .fact {
+  background: var(--bg-selected);
+}
+
+.fact > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fact .icon {
+  width: 12px;
+  height: 12px;
+  color: var(--text-3);
+}
+
+.fact-branch {
+  max-width: 44ch;
+}
+
+.fact-folder > span,
+.fact-branch > span {
   font-family: var(--font-mono);
   font-size: 11.5px;
 }
 
+.fact-model .icon {
+  color: var(--accent);
+}
+
+.fact .fact-dim {
+  overflow: visible;
+  color: var(--text-4);
+}
+
+.fact-context {
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.fact-context .fact-dim {
+  margin-left: -3px;
+}
+
+/* How full the context window is: green, amber past 70%, red past 90% — compaction is near. */
+.context-ring {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  transform: rotate(-90deg);
+}
+
+.context-ring circle {
+  fill: none;
+  stroke-width: 2.8;
+}
+
+.ring-track {
+  stroke: var(--border-strong);
+}
+
+.ring-fill {
+  stroke: var(--ok);
+  stroke-linecap: round;
+}
+
+[data-level="warm"] .ring-fill {
+  stroke: var(--warning);
+}
+
+[data-level="hot"] .ring-fill {
+  stroke: var(--danger);
+}
+
+.fact-context[data-level="hot"] {
+  color: var(--danger);
+}
+
+.facts-toggle {
+  display: inline-flex;
+  flex: none;
+  color: var(--text-4);
+}
+
+.facts-toggle .icon {
+  width: 13px;
+  height: 13px;
+  transform: rotate(90deg);
+  transition: transform 0.15s ease;
+}
+
+.head-facts[aria-expanded="true"] .facts-toggle .icon {
+  transform: rotate(-90deg);
+}
+
+/* The details: the full values, one per row. */
+.head-details {
+  grid-area: details;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px 16px;
+  margin: 10px 0 2px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elev);
+  font-size: 12.5px;
+}
+
+.head-details dt {
+  color: var(--text-3);
+}
+
+.head-details dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  min-width: 0;
+  margin: 0;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.head-details code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.context-bar {
+  position: relative;
+  flex: 0 1 180px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.context-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--share) * 100%);
+  border-radius: inherit;
+  background: var(--ok);
+}
+
+.context-bar[data-level="warm"] .context-bar-fill {
+  background: var(--warning);
+}
+
+.context-bar[data-level="hot"] .context-bar-fill {
+  background: var(--danger);
+}
+
 .head-actions {
+  grid-area: actions;
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+/* The view buttons: a row of icons here, a menu with words on a narrow screen. */
+.head-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.head-tool-label,
+.head-actions .head-more {
+  display: none;
 }
 
 /* The session's status: an icon the size of the header buttons, the words in its tooltip. */
@@ -2130,31 +2329,96 @@ a.file-link:hover {
     display: none;
   }
 
-  /* Header: the menu, the title and its details on the first row, the actions on the second. */
+  /*
+   * Header: the session list's button, the title and the actions on the first row; the facts across the whole width
+   * on the second; the folder and the cost only in the details.
+   */
   .session-head {
-    flex-wrap: wrap;
-    gap: 2px 6px;
-    padding: calc(6px + env(safe-area-inset-top)) 8px 6px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "lead title actions"
+      "facts facts facts"
+      "details details details";
+    column-gap: 2px;
+    padding: calc(4px + env(safe-area-inset-top)) 6px 8px;
   }
 
-  .head-main {
-    flex: 1 1 0;
+  .title {
+    padding-left: 2px;
+    font-size: 15.5px;
   }
 
-  .head-sub {
-    flex-wrap: nowrap;
+  .head-facts {
+    margin: 2px 0 0 4px;
     overflow-x: auto;
     scrollbar-width: none;
-    white-space: nowrap;
+  }
+
+  .head-facts::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Three chips fit a phone's width: the branch a little shorter, the effort only in the details. */
+  .fact-folder,
+  .fact-cost,
+  .fact-model .fact-dim {
+    display: none;
+  }
+
+  .fact-branch {
+    max-width: 20ch;
+  }
+
+  .head-details {
+    margin: 8px 4px 0;
   }
 
   .head-actions {
-    flex: 1 1 100%;
-    justify-content: flex-end;
+    gap: 0;
   }
 
-  .head-actions .status {
-    margin-right: auto;
+  .head-actions .head-more {
+    display: inline-grid;
+  }
+
+  /* The view buttons fold into a menu under "⋯": an icon and the words of what a tap does. */
+  .head-tools {
+    position: absolute;
+    top: calc(100% - 6px);
+    right: 8px;
+    z-index: 40;
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    width: min(310px, calc(100vw - 16px));
+    padding: 6px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg-elev);
+    box-shadow: var(--shadow);
+  }
+
+  .head-tools.open {
+    display: flex;
+  }
+
+  .head-tools .icon-button {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 12px;
+    width: 100%;
+    height: 42px;
+    padding: 0 12px;
+    color: var(--text-2);
+    font: inherit;
+    font-size: 14px;
+  }
+
+  .head-tools .head-tool-label {
+    display: inline;
+    text-align: left;
   }
 
   .session {
@@ -2225,8 +2489,13 @@ a.file-link:hover {
     font-size: 16px;
   }
 
-  /* A finger scrolls the box; a scrollbar would only take room from the text. */
+  /*
+   * A finger scrolls the box; a scrollbar would only take room from the text. One line of text is as tall as the
+   * 40px buttons beside it, so its middle is level with theirs.
+   */
   .composer-input {
+    min-height: 40px;
+    padding-block: 8px;
     scrollbar-width: none;
   }
 

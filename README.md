@@ -44,8 +44,14 @@ claude-code-webview --background     # run without a terminal window
   jump between them) and your bookmarks: hover a prompt, an answer or a subagent report and click the flag to keep it
   one click away. Bookmarks are kept by the viewer in `~/.claude-code-webview/bookmarks.json`, so every browser and
   device that opens it sees the same ones.
+- **Session header.** Under the title, one line of facts: the folder, the branch checked out there now, the model and
+  its effort, a ring that fills as the context window does (`412k/1M`; amber past 70%, red past 90%) and the cost.
+  A click opens the details: the full path and how much context is used and left. The window comes from the model
+  as Claude Code gives it (1M for Opus 4.7+, Sonnet 5+, Haiku 5.5, Fable; 200K for earlier ones unless the session ran
+  their `[1m]` variant); for a model Claude Code does not know only the size is shown.
 - **Phones.** On a narrow screen the session list and the outline slide in from the sides, bookmark flags stay
-  visible without hover, and on a touch keyboard Enter starts a new line while the ↑ button sends. Images load only
+  visible without hover, the view buttons fold into a "⋯" menu, and on a touch keyboard Enter starts a new line while
+  the ↑ button sends. Images load only
   when they scroll into view, and replies are gzipped, so a long session costs a phone about a megabyte, not dozens.
 - Light and dark themes, serif or sans answers, optional display of Claude Code's service messages.
 
