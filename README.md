@@ -55,6 +55,11 @@ If you run Claude Code inside [herdr](https://herdr.dev), an input box appears u
 the session's terminal and submitted with Enter, exactly as if you typed it there. While Claude is busy, Claude Code
 queues it. "Stop" sends Esc. Drafts are kept per session.
 
+Images can go with a prompt: pick them with the paperclip (on a phone — from the gallery or the camera), paste a
+screenshot, or drop files on the box. The page scales photos down to 2048 px before sending; the viewer saves them in
+`~/.claude-code-webview/uploads/` and lists their paths at the end of the prompt, and Claude Code opens them with its
+Read tool. In the feed the list shows as pictures again.
+
 Without herdr everything else works and the input box is simply not shown.
 
 To let the viewer find your herdr, start it once from a herdr pane — herdr sets `HERDR_BIN_PATH` and

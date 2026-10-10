@@ -1,4 +1,5 @@
 // @ts-check
+import { splitAttachedImages, uploadUrl } from './attachments.js';
 import { isRecord, text } from './narrow.js';
 
 // A Claude Code transcript line (~/.claude/projects/<project>/<session>.jsonl) → display events.
@@ -78,7 +79,7 @@ function interpretQueued(stamp, attachment) {
   const body = joinedText(attachment.prompt);
   switch (origin.kind) {
     case 'human':
-      return [{ kind: 'prompt', ...stamp, text: withoutReminders(body), images: [], queued: true }];
+      return [{ kind: 'prompt', ...stamp, ...promptParts(withoutReminders(body), []), queued: true }];
     case 'peer':
       return [{ kind: 'subagent-report', ...stamp, name: text(origin.name), text: handBackReport(body) }];
     default:
@@ -150,7 +151,24 @@ function interpretUser(stamp, entry, message) {
   const terminal = terminalEvent(stamp, body);
   if (terminal !== undefined) return [terminal];
   const images = blocks(message.content).map(image).filter((picture) => picture !== undefined);
-  return [{ kind: 'prompt', ...stamp, text: body, images, queued: entry.promptSource === 'queued' }];
+  return [{ kind: 'prompt', ...stamp, ...promptParts(body, images), queued: entry.promptSource === 'queued' }];
+}
+
+/**
+ * A prompt sent from the page lists its attached images at the end; the feed shows them as pictures, not as paths.
+ * A list with a path the viewer did not save is left as text.
+ * @param {string} body
+ * @param {readonly Image[]} images — images the prompt carries itself
+ * @returns {{ text: string, images: readonly Image[] }}
+ */
+function promptParts(body, images) {
+  const { text: rest, paths } = splitAttachedImages(body);
+  const uploaded = paths.flatMap((path) => {
+    const url = uploadUrl(path);
+    return url === undefined ? [] : [{ url }];
+  });
+  if (paths.length === 0 || uploaded.length !== paths.length) return { text: body, images };
+  return { text: rest, images: [...images, ...uploaded] };
 }
 
 /**
