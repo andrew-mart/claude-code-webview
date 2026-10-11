@@ -12,6 +12,7 @@ export const choices = /** @type {const} */ ({
   sdk: ['hidden', 'shown'],
   tables: ['fit', 'wide'],
   workspaces: ['flat', 'grouped'],
+  sidebar: ['herdr', 'sessions'],
 });
 
 /**
@@ -30,6 +31,7 @@ const resultNames = {
   sdk: { hidden: 'Hide SDK sessions', shown: 'Show SDK sessions' },
   tables: { fit: 'Fit tables to the width everywhere', wide: 'Widen tables everywhere' },
   workspaces: { flat: 'List sessions by time', grouped: 'Group sessions by herdr workspace' },
+  sidebar: { herdr: "Show herdr's workspaces and tabs", sessions: 'Show every session' },
 };
 
 /**

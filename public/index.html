@@ -8,13 +8,15 @@
   <title>Claude Code Webview</title>
   <link rel="icon" href="{{assets}}/favicons/{{palette}}.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="{{assets}}/favicons/{{palette}}.png">
+  <link rel="stylesheet" href="{{assets}}/vendor/xterm.css">
   <link rel="stylesheet" href="{{assets}}/style.css">
   <script type="importmap">
     {
       "imports": {
         "marked": "{{assets}}/vendor/marked.js",
         "dompurify": "{{assets}}/vendor/purify.js",
-        "highlight.js": "{{assets}}/vendor/highlight.js"
+        "highlight.js": "{{assets}}/vendor/highlight.js",
+        "@xterm/xterm": "{{assets}}/vendor/xterm.js"
       }
     }
   </script>
@@ -27,20 +29,27 @@
         <span class="spark" aria-hidden="true">✻</span>
         <span>Claude Code Webview</span>
       </div>
+      <div class="sidebar-modes" id="sidebar-modes" role="group" aria-label="What the sidebar shows" hidden>
+        <button type="button" data-mode="herdr" title="herdr's workspaces and their tabs, as herdr shows them">herdr</button>
+        <button type="button" data-mode="sessions" title="Every session, latest first">Sessions</button>
+      </div>
       <input class="search" id="search" type="search" placeholder="Search by title or folder" autocomplete="off">
-      <label class="sidebar-option">
-        <input type="checkbox" id="follow">
-        <span>Follow the active session</span>
-      </label>
-      <label class="sidebar-option" title="Sessions that a program drives through claude -p or the Agent SDK">
-        <input type="checkbox" id="show-sdk">
-        <span>Show SDK sessions</span>
-      </label>
-      <label class="sidebar-option" id="group-workspaces-option" title="herdr's workspaces: the one a session runs or ran in, or the only one with a pane open in its folder" hidden>
-        <input type="checkbox" id="group-workspaces">
-        <span>Group by herdr workspace</span>
-      </label>
+      <div class="session-options" id="session-options">
+        <label class="sidebar-option">
+          <input type="checkbox" id="follow">
+          <span>Follow the active session</span>
+        </label>
+        <label class="sidebar-option" title="Sessions that a program drives through claude -p or the Agent SDK">
+          <input type="checkbox" id="show-sdk">
+          <span>Show SDK sessions</span>
+        </label>
+        <label class="sidebar-option" id="group-workspaces-option" title="herdr's workspaces: the one a session runs or ran in, or the only one with a pane open in its folder" hidden>
+          <input type="checkbox" id="group-workspaces">
+          <span>Group by herdr workspace</span>
+        </label>
+      </div>
       <nav class="session-list" id="session-list" aria-label="Sessions"></nav>
+      <div class="herdr-panel" id="herdr-panel" hidden></div>
     </aside>
     <main class="main" id="main">
       <div class="empty-state" id="empty-state">Pick a session on the left</div>

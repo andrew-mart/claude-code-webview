@@ -9,6 +9,9 @@ import { actionLabel, choices, nextChoice } from './model/view-settings.js';
 import { createBookmarkStore, moveLocalBookmarksToServer } from './view/bookmark-store.js';
 import { createComposer } from './view/composer-view.js';
 import { createDrawers } from './view/drawers.js';
+import { openedAt, parseHerdrLayout, placeOf } from './model/herdr.js';
+import { createHerdrSidebar, createTabBar } from './view/herdr-panel.js';
+import { mountTerminal } from './view/terminal-view.js';
 import { openOfflineStore } from './view/offline-store.js';
 import { createRewindDialog } from './view/rewind-dialog.js';
 import { createSessionHeader } from './view/session-header.js';
@@ -30,6 +33,8 @@ import { activityModeEvent, jumpMarginPx, mountSession } from './view/session-vi
 const refreshMs = 4000;
 /** The herdr workspaces of the sessions change seldom: they are asked about this often. */
 const workspacesEveryMs = 15_000;
+/** What herdr shows — its agents' status above all — is asked about this often. */
+const herdrEveryMs = 3000;
 /** While the viewer answers, the latest sessions are saved to read offline this often at most… */
 const keepEveryMs = 5 * 60_000;
 /** …that many of the latest ones worked on, within this stretch of time, their latest entries. */
@@ -45,6 +50,9 @@ const follow = byId('follow', HTMLInputElement);
 const showSdk = byId('show-sdk', HTMLInputElement);
 const groupWorkspaces = byId('group-workspaces', HTMLInputElement);
 const groupWorkspacesOption = byId('group-workspaces-option', HTMLElement);
+const sidebarModes = byId('sidebar-modes', HTMLElement);
+const sessionOptions = byId('session-options', HTMLElement);
+const herdrPanel = byId('herdr-panel', HTMLElement);
 const main = byId('main', HTMLElement);
 const emptyState = byId('empty-state', HTMLElement);
 const updateNotice = createUpdateNotice();
@@ -86,7 +94,16 @@ document.addEventListener('keydown', (event) => {
 });
 follow.checked = settings.get('follow') === 'on';
 showSdk.checked = settings.get('sdk') === 'shown';
-search.addEventListener('input', () => page.renderList());
+search.addEventListener('input', () => {
+  page.renderList();
+  page.renderHerdr();
+});
+for (const button of sidebarModes.querySelectorAll('button[data-mode]')) {
+  button.addEventListener('click', () => {
+    settings.set('sidebar', button.getAttribute('data-mode') ?? '');
+    page.renderHerdr();
+  });
+}
 follow.addEventListener('change', () => {
   settings.set('follow', follow.checked ? 'on' : 'off');
   page.followLatest();
@@ -104,6 +121,7 @@ groupWorkspaces.addEventListener('change', () => {
 window.addEventListener('hashchange', () => {
   drawers.arrive();
   page.openFromHash();
+  page.renderHerdr();
 });
 // Bookmarks the browser kept before they moved to the server go there before a session opens.
 void moveLocalBookmarksToServer()
@@ -112,6 +130,8 @@ void moveLocalBookmarksToServer()
 setInterval(() => void page.refresh(), refreshMs);
 void page.refreshWorkspaces();
 setInterval(() => void page.refreshWorkspaces(), workspacesEveryMs);
+void page.refreshHerdr();
+setInterval(() => void page.refreshHerdr(), herdrEveryMs);
 // The page itself opens from the browser's copy when the viewer is out of reach (sw.js); the browser is asked to keep
 // the saved copies rather than clear them to make room.
 if ('serviceWorker' in navigator) {
@@ -141,6 +161,20 @@ function createPage() {
   /** @type {Workspaces} */
   let workspaces = { herdr: false, of: new Map() };
   let workspacesKnown = '';
+  /** What herdr shows (server/herdr-view.js): the sidebar's herdr mode and the tabs above the open session. */
+  /** @type {import('./model/herdr.js').HerdrLayout} */
+  let herdrLayout = { herdr: false, workspaces: [] };
+  let herdrKnown = '';
+  const herdrSidebar = createHerdrSidebar(herdrPanel);
+  const tabBar = createTabBar();
+  /** The herdr pane whose terminal the page shows (#/pane/<id>) instead of a session. */
+  /** @type {{ id: string, terminal: ReturnType<typeof mountTerminal> } | undefined} */
+  let currentPane;
+  /**
+   * The size of a pane's terminal, as herdr lays it out.
+   * @param {string} paneId
+   */
+  const paneSize = (paneId) => placeOf(herdrLayout, { kind: 'pane', id: paneId })?.tab.panes.find((pane) => pane.id === paneId)?.size;
 
   /** @param {string} text — the search box text; following ignores it */
   const listed = (text) => listedSessions(sessions, { sdk: showSdk.checked ? 'shown' : 'hidden', search: text, workspaces: workspaces.of });
@@ -242,9 +276,31 @@ function createPage() {
     await refreshMarks();
   };
 
+  /**
+   * The terminal of a herdr pane — a shell, nvim, another agent — in place of a session.
+   * @param {string} paneId
+   */
+  const openPane = (paneId) => {
+    if (currentPane?.id === paneId) return;
+    if (current !== undefined) places.set(current.id, current.place());
+    current?.dispose();
+    current = undefined;
+    currentPane?.terminal.dispose();
+    const terminal = mountTerminal({ pane: paneId, size: paneSize(paneId) });
+    const place = placeOf(herdrLayout, { kind: 'pane', id: paneId });
+    // On a phone the sidebar is a drawer: the terminal's top row opens it, as a session's header does.
+    const name = place === undefined ? paneId : `${place.workspace.label} · ${place.tab.label}`;
+    const top = h('div', { className: 'terminal-top' }, [drawerButton('sessions', 'menu', 'Sessions'), h('span', { className: 'terminal-title', text: name })]);
+    main.replaceChildren(top, tabBar.element, terminal.element);
+    currentPane = { id: paneId, terminal };
+    renderList();
+  };
+
   /** @param {string} id */
   const open = (id) => {
     if (current?.id === id) return;
+    currentPane?.terminal.dispose();
+    currentPane = undefined;
     if (current !== undefined) places.set(current.id, current.place());
     current?.dispose();
     const info = sessions.find((session) => session.id === id);
@@ -314,7 +370,7 @@ function createPage() {
       label: 'Outline width',
       className: 'outline-resizer',
     });
-    main.replaceChildren(header.element, h('div', { className: 'main-body' }, [h('div', { className: 'feed-column' }, [scroller, composer.element]), outlineResizer, outlineElement]));
+    main.replaceChildren(tabBar.element, header.element, h('div', { className: 'main-body' }, [h('div', { className: 'feed-column' }, [scroller, composer.element]), outlineResizer, outlineElement]));
     const mounted = view;
     current = {
       id,
@@ -402,12 +458,42 @@ function createPage() {
       if (follow.checked && latest !== undefined && latest.id !== current?.id) location.hash = `#/${latest.id}`;
     },
     openFromHash() {
-      const id = /^#\/([0-9a-f-]{36})$/i.exec(location.hash)?.[1];
-      if (id !== undefined) open(id);
-      else if (current === undefined) main.replaceChildren(emptyState);
+      const opened = openedAt(location.hash);
+      if (opened?.kind === 'session') open(opened.id);
+      else if (opened?.kind === 'pane') openPane(opened.id);
+      else if (current === undefined && currentPane === undefined) main.replaceChildren(emptyState);
       // A narrow screen shows the session list while the address names no session — going back to it shows the list
-      // again, the session stays open behind it — and the session otherwise.
-      document.documentElement.dataset.view = id === undefined ? 'list' : 'session';
+      // again, the session stays open behind it — and the session or terminal otherwise.
+      document.documentElement.dataset.view = opened === undefined ? 'list' : 'session';
+    },
+    /** herdr in the sidebar — when it is the sidebar's mode — and the tabs above what the page shows. */
+    renderHerdr() {
+      const mode = herdrLayout.herdr ? settings.get('sidebar') : 'sessions';
+      sidebarModes.hidden = !herdrLayout.herdr;
+      for (const button of sidebarModes.querySelectorAll('button[data-mode]')) button.classList.toggle('selected', button.getAttribute('data-mode') === mode);
+      herdrPanel.hidden = mode !== 'herdr';
+      list.hidden = mode === 'herdr';
+      sessionOptions.hidden = mode === 'herdr';
+      if (mode === 'herdr') search.placeholder = 'Search workspaces and tabs';
+      else search.placeholder = workspaces.herdr ? 'Search by title, folder or workspace' : 'Search by title or folder';
+      const opened = openedAt(location.hash);
+      if (mode === 'herdr') herdrSidebar.render(herdrLayout, opened, search.value);
+      tabBar.render(herdrLayout, opened);
+      // A terminal opened before the page heard from herdr takes its pane's size now.
+      const size = currentPane === undefined ? undefined : paneSize(currentPane.id);
+      if (size !== undefined) currentPane?.terminal.resize(size);
+    },
+    /** What herdr shows now: its workspaces, tabs, panes and their agents' status. */
+    async refreshHerdr() {
+      const response = await fetch('/api/herdr').catch(() => undefined);
+      const reply = response?.ok ? await response.json().catch(() => undefined) : undefined;
+      // Out of the viewer's reach the page keeps what it knew.
+      if (reply === undefined) return;
+      const known = JSON.stringify(reply);
+      if (known === herdrKnown) return;
+      herdrKnown = known;
+      herdrLayout = parseHerdrLayout(reply);
+      this.renderHerdr();
     },
   };
 }

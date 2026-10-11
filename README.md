@@ -71,12 +71,25 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   session list a little and colours the tab icon and the iPhone home screen icon — two viewers, say on two computers, are
   told apart at a glance.
 
-## With herdr: sending prompts and workspaces (optional)
+## With herdr: workspaces, tabs, terminals and sending prompts (optional)
 
 herdr is not needed to read sessions. If you run Claude Code inside [herdr](https://herdr.dev), the viewer can do more:
-type prompts into the sessions and group the session list by herdr's workspaces. Without herdr — not installed, not
-running, or turned off with `--no-herdr` — everything else works, and the input box, Stop, rewind and the workspaces
-are simply not shown.
+lay herdr out as herdr does — its workspaces, their tabs with the agents' status, terminals — and type prompts into
+the sessions. Without herdr — not installed, not running, or turned off with `--no-herdr` — everything else works, and
+the herdr view, the terminals, the input box, Stop and rewind are simply not shown.
+
+### herdr's layout
+
+The sidebar switches between "herdr" and "Sessions". In "herdr" it shows herdr's workspaces in herdr's order, each
+with its agents' status — working, waiting for you, done, idle — and under them the tabs of the chosen workspace with
+their own status and what runs in them. Above an open session — or terminal — the tabs of its workspace sit in a row,
+as in herdr, to switch between them. A tab with Claude Code opens its session's feed; any other tab — a shell, nvim,
+another agent — opens its terminal. The search finds workspaces and tabs by name and by what runs in them.
+
+A terminal mirrors the one in herdr, at its size: what herdr shows comes within a fifth of a second of typing, and the
+keys you type go to it as they are — Enter, arrows, Ctrl+C. herdr does not tell where the cursor is, so no cursor is
+drawn. On a phone the terminal's font shrinks to fit the width, down to a readable size, and it scrolls sideways past
+that. A tab split into several panes shows the one running Claude Code, or else its first pane.
 
 ### Sending prompts
 
@@ -100,9 +113,9 @@ conversation is restored, the message comes back into the box on the page to be 
 The feed shows only the active branch of a conversation: a rewind deletes nothing from the transcript, so the
 messages it undid are left out.
 
-### Workspaces
+### Workspaces in the session list
 
-The session list shows each session's herdr workspace next to its folder (unless they are named alike), the search
+In "Sessions" the session list shows each session's herdr workspace next to its folder (unless they are named alike), the search
 finds sessions by workspace, and "Group by herdr workspace" gathers the list under the workspaces' names — the latest
 worked on first, the sessions with no workspace last. A session's workspace is:
 
@@ -229,9 +242,9 @@ npm run check        # TypeScript checks the JavaScript through JSDoc in strict 
 | Folder | Contents |
 | --- | --- |
 | `bin/`, `cli/` | the `claude-code-webview` command: arguments, foreground/background start, stop, shortcut |
-| `server/` | HTTP server, session list, transcript stream, file panel, sending prompts and workspaces through herdr |
+| `server/` | HTTP server, session list, transcript stream, file panel; through herdr: its layout, terminals, sending prompts |
 | `public/model/` | pure functions: transcript parsing, tool rows and diffs, file links, outline, formatting |
-| `public/view/` | rendering of the feed, tool rows, markdown, file panel, outline, input box |
+| `public/view/` | rendering of the feed, tool rows, markdown, file panel, outline, input box, herdr view, terminal |
 | `assets/`, `scripts/` | shortcut icon, and the script that draws it and the home screen icons (`public/favicons/*.png`) |
 | `test/` | tests |
 

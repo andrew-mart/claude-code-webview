@@ -5,7 +5,7 @@
 import { execFile } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { isRecord } from '../public/model/narrow.js';
+import { isRecord, text } from '../public/model/narrow.js';
 
 /**
  * @param {string} file — .run/herdr.json
@@ -128,32 +128,76 @@ export function foregroundPids(json) {
 }
 
 /**
- * Workspace labels by workspace id (the `herdr workspace list` reply).
- * @param {unknown} json
- * @returns {Map<string, string>}
+ * @typedef {typeof agentStatuses[number]} AgentStatus — what herdr makes of the agent in a pane, a tab or a workspace
+ * @typedef {{ id: string, number: number, label: string, status: AgentStatus, activeTab: string | undefined }} HerdrWorkspace
+ * @typedef {{ id: string, workspaceId: string, number: number, label: string, status: AgentStatus }} HerdrTab
+ * @typedef {{ cols: number, rows: number }} PaneSize
+ * @typedef {{ paneId: string, workspaceId: string, tabId: string | undefined, cwd: string | undefined, agent: string | undefined, status: AgentStatus, title: string | undefined, size: PaneSize | undefined }} Pane
+ *   cwd: the folder of its shell or program; agent: the coding agent herdr recognized there (claude, codex, …);
+ *   title: the terminal's title; size: its terminal's, from the tab's layout
+ * @typedef {{ workspaces: readonly HerdrWorkspace[], tabs: readonly HerdrTab[], panes: readonly Pane[] }} HerdrSnapshot
  */
-export function workspaceLabels(json) {
-  const workspaces = isRecord(json) && isRecord(json.result) && Array.isArray(json.result.workspaces) ? json.result.workspaces.filter(isRecord) : [];
-  return new Map(workspaces.flatMap((workspace) => (typeof workspace.workspace_id === 'string' && typeof workspace.label === 'string' ? [[workspace.workspace_id, workspace.label]] : [])));
+
+const agentStatuses = /** @type {const} */ (['idle', 'working', 'blocked', 'done', 'unknown']);
+
+/**
+ * What herdr shows: its workspaces, their tabs and the panes in them (the `herdr api snapshot` reply).
+ * @param {unknown} json
+ * @returns {HerdrSnapshot | undefined}
+ */
+export function snapshotOf(json) {
+  const snapshot = isRecord(json) && isRecord(json.result) && isRecord(json.result.snapshot) ? json.result.snapshot : undefined;
+  if (snapshot === undefined) return undefined;
+  const sizes = paneSizes(snapshot.layouts);
+  return {
+    workspaces: recordsIn(snapshot.workspaces).flatMap((workspace) =>
+      typeof workspace.workspace_id === 'string' && typeof workspace.label === 'string' && typeof workspace.number === 'number'
+        ? [{ id: workspace.workspace_id, number: workspace.number, label: workspace.label, status: statusOf(workspace.agent_status), activeTab: text(workspace.active_tab_id) }]
+        : [],
+    ),
+    tabs: recordsIn(snapshot.tabs).flatMap((tab) =>
+      typeof tab.tab_id === 'string' && typeof tab.workspace_id === 'string' && typeof tab.label === 'string' && typeof tab.number === 'number'
+        ? [{ id: tab.tab_id, workspaceId: tab.workspace_id, number: tab.number, label: tab.label, status: statusOf(tab.agent_status) }]
+        : [],
+    ),
+    panes: recordsIn(snapshot.panes).flatMap((pane) =>
+      typeof pane.pane_id === 'string' && typeof pane.workspace_id === 'string'
+        ? [{ paneId: pane.pane_id, workspaceId: pane.workspace_id, tabId: text(pane.tab_id), cwd: text(pane.cwd), agent: text(pane.agent), status: statusOf(pane.agent_status), title: text(pane.terminal_title_stripped), size: sizes.get(pane.pane_id) }]
+        : [],
+    ),
+  };
 }
 
 /**
- * @typedef {{ paneId: string, workspaceId: string, cwd: string | undefined, claude: boolean }} Pane — cwd: the folder
- *   of its shell or program; claude: herdr recognized Claude Code there
+ * The size of each pane's terminal, in columns and rows, from the layouts of the tabs.
+ * @param {unknown} layouts
+ * @returns {Map<string, PaneSize>} — by pane id
  */
+function paneSizes(layouts) {
+  return new Map(
+    recordsIn(layouts).flatMap((layout) =>
+      recordsIn(layout.panes).flatMap((pane) => {
+        const rect = isRecord(pane.rect) ? pane.rect : {};
+        return typeof pane.pane_id === 'string' && typeof rect.width === 'number' && typeof rect.height === 'number' ? [/** @type {const} */ ([pane.pane_id, { cols: rect.width, rows: rect.height }])] : [];
+      }),
+    ),
+  );
+}
 
 /**
- * Every pane with its workspace and folder (the `herdr pane list` reply).
- * @param {unknown} json
- * @returns {readonly Pane[]}
+ * @param {unknown} value
+ * @returns {Record<string, unknown>[]}
  */
-export function panesOf(json) {
-  const panes = isRecord(json) && isRecord(json.result) && Array.isArray(json.result.panes) ? json.result.panes.filter(isRecord) : [];
-  return panes.flatMap((pane) =>
-    typeof pane.pane_id === 'string' && typeof pane.workspace_id === 'string'
-      ? [{ paneId: pane.pane_id, workspaceId: pane.workspace_id, cwd: typeof pane.cwd === 'string' ? pane.cwd : undefined, claude: pane.agent === 'claude' }]
-      : [],
-  );
+function recordsIn(value) {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+/**
+ * @param {unknown} value
+ * @returns {AgentStatus}
+ */
+function statusOf(value) {
+  return agentStatuses.find((status) => status === value) ?? 'unknown';
 }
 
 /**
