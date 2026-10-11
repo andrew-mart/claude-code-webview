@@ -183,3 +183,26 @@ test('herdrView_Should_LayOutWorkspacesTabsAndPanes_WithSessionOfClaudePane', as
     ],
   });
 });
+
+// A Claude Code process outside herdr — in an IDE, a plain terminal — is in no pane. herdr is asked about its panes'
+// processes once for it, not on every look: each round is a request per pane, and herdr answers a terminal's keys
+// after them
+test('herdrView_Should_LookForPaneOfProcessOnce_WhenItRunsOutsideHerdr', async (t) => {
+  /** @type {string[]} */
+  const asked = [];
+  const herdr = fakeHerdr(jobSearch);
+  /** @param {readonly string[]} args */
+  const counting = (args) => {
+    asked.push(args.slice(0, 2).join(' '));
+    return herdr(args);
+  };
+  const outside = { pid: 777, sessionId: '0b1c2d3e-4444-4555-8666-977788899900', kind: 'interactive', status: 'idle', updatedAt: 2 };
+  const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
+  const view = createHerdrView({ herdr: counting, readRecords: async () => [runningRecord, outside], file: join(folder, 'workspaces.json'), refreshMs: 0 });
+
+  await view.workspacesOf([]);
+  await view.workspacesOf([]);
+  await view.workspacesOf([]);
+
+  assert.equal(asked.filter((call) => call === 'pane process-info').length, 1);
+});
