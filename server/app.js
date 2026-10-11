@@ -56,11 +56,12 @@ const agentIdPattern = /^[0-9a-z]{1,64}$/i;
  */
 
 /**
- * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette }} options
- *   about — package name and version for /api/health; palette — the page's colours (public/model/palettes.js)
+ * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[] }} options
+ *   about — package name and version for /api/health; palette — the page's colours (public/model/palettes.js);
+ *   publicAddresses — where else the page is opened at, answered as the local address is
  * @returns {Promise<{ port: number, close: () => void }>}
  */
-export async function startServer({ root, host, port, pollMs, composer, bookmarks, uploads, about, palette }) {
+export async function startServer({ root, host, port, pollMs, composer, bookmarks, uploads, about, palette, publicAddresses }) {
   const index = createSessionIndex(root, { summaryBudgetMs: 1500 });
   const build = await pageBuild();
   /** Sessions this page rewound: session id → the prompt rewound to; its branch is hidden before the next prompt shows the fork. */
@@ -85,6 +86,10 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
     allowedHosts.add(`${name}:${address.port}`);
     allowedOrigins.add(`http://${name}:${address.port}`);
   }
+  for (const publicAddress of publicAddresses) {
+    allowedHosts.add(publicAddress.host);
+    allowedOrigins.add(publicAddress.origin);
+  }
   return {
     port: address.port,
     close: () => {
@@ -97,6 +102,8 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
 /**
  * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette }} Deps
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
+ * @typedef {{ origin: string, host: string }} PublicAddress — where the page is opened from outside, behind a tunnel:
+ *   origin https://viewer.example.com, host viewer.example.com
  */
 
 /**

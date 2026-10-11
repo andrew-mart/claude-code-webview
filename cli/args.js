@@ -5,7 +5,7 @@ import { paletteNamed, palettes } from '../public/model/palettes.js';
 
 /**
  * @typedef {'serve' | 'background' | 'stop' | 'restart' | 'install-shortcut' | 'help' | 'version'} Action
- * @typedef {{ action: Action, port: number, open: boolean, startMenu: boolean, palette: import('../public/model/palettes.js').Palette }} Command
+ * @typedef {{ action: Action, port: number, open: boolean, startMenu: boolean, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[] }} Command
  */
 
 export const defaultPort = 7788;
@@ -31,7 +31,26 @@ export function parseCommand(argv) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) return { ok: false, error: `Invalid --port value "${values.port}": expected a number from 1 to 65535.` };
   const palette = paletteNamed(values.palette);
   if (palette === undefined) return { ok: false, error: `Invalid --palette value "${values.palette}": expected one of ${palettes.join(', ')}.` };
-  return { ok: true, command: { action: chosen[0] ?? 'serve', port, open: !values['no-open'], startMenu: values['start-menu'], palette } };
+  /** @type {import('../server/app.js').PublicAddress[]} */
+  const publicAddresses = [];
+  for (const value of values['public-url']) {
+    const address = publicAddressOf(value);
+    if (address === undefined) return { ok: false, error: `Invalid --public-url value "${value}": expected the address the page is opened at from outside, such as https://viewer.example.com.` };
+    publicAddresses.push(address);
+  }
+  return { ok: true, command: { action: chosen[0] ?? 'serve', port, open: !values['no-open'], startMenu: values['start-menu'], palette, publicAddresses } };
+}
+
+/**
+ * @param {string} text — a --public-url value
+ * @returns {import('../server/app.js').PublicAddress | undefined} — none for anything but http(s)://host[:port][/]: the
+ *   page is served from the root
+ */
+function publicAddressOf(text) {
+  if (!URL.canParse(text)) return undefined;
+  const url = new URL(text);
+  const bare = url.pathname === '/' && url.search === '' && url.hash === '' && url.username === '' && url.password === '';
+  return bare && (url.protocol === 'https:' || url.protocol === 'http:') ? { origin: url.origin, host: url.host } : undefined;
 }
 
 /** @param {readonly string[]} argv */
@@ -42,6 +61,7 @@ function parseOptions(argv) {
     options: {
       port: { type: 'string', short: 'p', default: String(defaultPort) },
       palette: { type: 'string', default: 'clay' },
+      'public-url': { type: 'string', multiple: true, default: [] },
       'no-open': { type: 'boolean', default: false },
       background: { type: 'boolean', short: 'b', default: false },
       stop: { type: 'boolean', default: false },
