@@ -9,6 +9,7 @@ import { h, inlineImage } from './dom.js';
 import { icon } from './icons.js';
 import { renderMarkdown } from './markdown.js';
 import { feedToKeep, keptEntries } from '../model/offline.js';
+import { queueAfter, waitingPrompts } from '../model/queue.js';
 import { createToolRow } from './tool-view.js';
 
 /**
@@ -64,7 +65,8 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   const earlier = h('button', { className: 'earlier', attrs: { type: 'button', hidden: '' } });
   const working = h('div', { className: 'working', attrs: { hidden: '' } }, [h('span', { className: 'spark', text: '✻' }), h('span', { text: 'Working…' })]);
   const jump = h('button', { className: 'jump', title: 'Jump to the latest message', attrs: { type: 'button', hidden: '' } }, [icon('down')]);
-  const element = h('div', { className: 'session' }, [earlier, thread, loading, working, jump]);
+  const waitingBox = h('div', { className: 'waiting-prompts', attrs: { hidden: '' } });
+  const element = h('div', { className: 'session' }, [earlier, thread, loading, working, waitingBox, jump]);
   const anchors = createAnchors(bookmarks, onRewind);
   /** @type {HTMLElement[]} */
   const prompts = [];
@@ -80,7 +82,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     if (!response.ok) throw new Error(`The viewer server gave no entry at ${full} of session ${sessionId}: ${response.status}`);
     return response.json();
   };
-  const feed = createFeed(thread, sessionId, {
+  const feed = createFeed({ thread, waitingBox }, sessionId, {
     loadEntry,
     anchor: anchors.decorate,
     onPrompt(prompt) {
@@ -433,12 +435,25 @@ function createAnchors(bookmarks, onRewind) {
 
 /**
  * Lays events out in the feed: prompts and markers as separate rows, Claude's answer as a turn block,
- * consecutive thinking and tool calls within a turn as one group.
- * @param {HTMLElement} thread
+ * consecutive thinking and tool calls within a turn as one group. Under the feed — the prompts waiting in Claude
+ * Code's queue (model/queue.js), until Claude takes them and they come as messages.
+ * @param {{ thread: HTMLElement, waitingBox: HTMLElement }} parts
  * @param {string} sessionId
  * @param {FeedHooks} hooks
  */
-function createFeed(thread, sessionId, hooks) {
+function createFeed({ thread, waitingBox }, sessionId, hooks) {
+  /** @type {import('../model/queue.js').Queue} */
+  let queue = [];
+  /** The waiting prompts on screen, to redraw them only when they change — entries come every few seconds. */
+  let shownWaiting = '[]';
+  const showWaiting = () => {
+    const waiting = waitingPrompts(queue);
+    const key = JSON.stringify(waiting);
+    if (key === shownWaiting) return;
+    shownWaiting = key;
+    waitingBox.replaceChildren(...waiting.map(waitingBubble));
+    waitingBox.hidden = waiting.length === 0;
+  };
   /** A call row and the group it sits in: the result arrives later and changes the group layout. */
   /** @type {Map<string, { row: import('./tool-view.js').ToolRow, group: ActivityGroup }>} */
   const tools = new Map();
@@ -591,6 +606,7 @@ function createFeed(thread, sessionId, hooks) {
       /** @type {SessionMeta} */
       const meta = {};
       for (const entry of entries) {
+        queue = queueAfter(queue, entry);
         // An entry that fails to render must not break the rest of the feed.
         try {
           for (const event of interpretEntry(entry)) apply(event, meta);
@@ -601,6 +617,7 @@ function createFeed(thread, sessionId, hooks) {
       }
       for (const group of changed) group.refresh();
       changed.clear();
+      showWaiting();
       return meta;
     },
     /** The action display mode changed — rebuild the layout of every group. */
@@ -616,6 +633,8 @@ function createFeed(thread, sessionId, hooks) {
       activity = undefined;
       working = false;
       lastActivity = 0;
+      queue = [];
+      showWaiting();
     },
     isWorking: () => working,
     lastActivity: () => lastActivity,
@@ -748,6 +767,20 @@ function promptBubble(event) {
   ]);
   if (event.queued) bubble.append(h('div', { className: 'queued', text: 'sent while Claude was working' }));
   return h('div', { className: 'msg user' }, [bubble]);
+}
+
+/**
+ * A prompt waiting in Claude Code's queue: not in the conversation yet.
+ * @param {string} waiting — its text; '' — a prompt of images only
+ * @returns {HTMLElement}
+ */
+function waitingBubble(waiting) {
+  return h('div', { className: 'msg user waiting' }, [
+    h('div', { className: 'bubble' }, [
+      h('div', { className: 'bubble-text', text: waiting === '' ? 'Images' : waiting }),
+      h('div', { className: 'queued', text: 'Queued — Claude reads it after the current step' }),
+    ]),
+  ]);
 }
 
 /**

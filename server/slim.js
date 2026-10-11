@@ -4,9 +4,10 @@
 import { isRecord } from '../public/model/narrow.js';
 import { linkImage, mapImages } from './images.js';
 
-const shownTypes = new Set(['user', 'assistant', 'system', 'ai-title', 'custom-title', 'cost-state']);
+// queue-operation: Claude Code's notes on prompts waiting until it takes them (public/model/queue.js)
+const shownTypes = new Set(['user', 'assistant', 'system', 'ai-title', 'custom-title', 'cost-state', 'queue-operation']);
 
-/** Entry fields that public/model/entry.js reads. */
+/** Entry fields that public/model/entry.js and public/model/queue.js read. */
 const shownFields = [
   'type',
   'subtype',
@@ -30,6 +31,7 @@ const shownFields = [
   'totalCostUSD',
   'modelUsage',
   'effort',
+  'operation',
 ];
 
 /**

@@ -127,3 +127,19 @@ test('slimEntry_Should_KeepOfMessageOnlyWhatFeedReads', () => {
     usage: { input_tokens: 2, cache_creation_input_tokens: 300, cache_read_input_tokens: 4000 },
   });
 });
+
+// A prompt sent while Claude works waits in Claude Code's queue; the transcript notes the queue before the prompt itself
+test('slimEntry_Should_KeepQueueNotesSoPageShowsPromptsWaitingInQueue', () => {
+  const sessionId = '0f6c5d1e-1a2b-4c3d-8e9f-001122334455';
+
+  assert.deepEqual(
+    [
+      slimEntry({ type: 'queue-operation', operation: 'enqueue', timestamp: at, sessionId, content: 'And the tests' }, 'main', linkTo),
+      slimEntry({ type: 'queue-operation', operation: 'dequeue', timestamp: at, sessionId }, 'main', linkTo),
+    ],
+    [
+      { type: 'queue-operation', operation: 'enqueue', timestamp: at, content: 'And the tests' },
+      { type: 'queue-operation', operation: 'dequeue', timestamp: at },
+    ],
+  );
+});
