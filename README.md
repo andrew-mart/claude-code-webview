@@ -87,10 +87,13 @@ open session — or terminal — the tabs of its workspace sit in a row, as in h
 tab with Claude Code opens its feed; any other tab — a shell, nvim, another agent — opens its terminal. The search finds
 workspaces and sessions by name and by what runs in them.
 
-A terminal mirrors the one in herdr, at its size: what herdr shows comes within a fifth of a second of typing, and the
-keys you type go to it as they are — Enter, arrows, Ctrl+C. herdr does not tell where the cursor is, so no cursor is
-drawn. On a phone the terminal's font shrinks to fit the width, down to a readable size, and it scrolls sideways past
-that. A tab split into several panes shows the one running Claude Code, or else its first pane.
+A terminal mirrors the one in herdr, at its size: the keys you type go to it as they are — Enter, arrows, Ctrl+C — and
+what herdr shows comes back within a few hundredths of a second (the viewer talks to herdr through its socket; where
+the socket is not known, through the herdr program, a fifth of a second). herdr does not tell where the cursor is, so no
+cursor is drawn. On a phone the terminal's font shrinks to fit the width, down to a readable size, and it scrolls
+sideways past that. A tab split into several panes shows the one running Claude Code, or else its first pane.
+
+![A herdr tab's terminal next to the herdr sidebar](docs/terminal.png)
 
 ### Sending prompts
 
@@ -173,6 +176,8 @@ page still opens and shows what it saved, and catches up once the computer is ba
 On a phone the session list and the outline slide in from the sides, and the swipe from the left edge — the browser's
 Back — brings back the list the session was chosen in. On the touch keyboard Enter starts a new line and ↑ sends; the
 paperclip takes photos from the gallery or the camera.
+
+![On a phone: a session with its herdr tabs, the herdr sidebar, a terminal](docs/mobile.png)
 
 Several computers? Give each its own tunnel, hostname and `--palette`, and the pages are told apart at a glance.
 
