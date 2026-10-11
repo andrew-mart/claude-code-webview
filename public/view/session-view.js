@@ -8,6 +8,7 @@ import { isRecord, text } from '../model/narrow.js';
 import { h, inlineImage } from './dom.js';
 import { icon } from './icons.js';
 import { renderMarkdown } from './markdown.js';
+import { feedToKeep, keptEntries } from '../model/offline.js';
 import { createToolRow } from './tool-view.js';
 
 /**
@@ -23,6 +24,8 @@ import { createToolRow } from './tool-view.js';
  * Where the reader is in the feed: at the bottom, following new messages, or at a message — the one at the top of the
  * view, offset px below the view's top edge (negative: partly scrolled past).
  * @typedef {{ kind: 'bottom' } | { kind: 'message', id: string, offset: number }} ReadingPlace
+ * The session's copy kept to read offline (view/offline-store.js) and whether the viewer answers now.
+ * @typedef {{ load: () => Promise<import('./offline-store.js').SavedFeed | undefined>, save: (feed: import('./offline-store.js').SavedFeed) => void, online: () => boolean, onOnline: (listener: () => void) => () => void }} Keeping
  */
 
 /** Gap between a jumped-to message and the top of the scroll area, px. */
@@ -37,20 +40,26 @@ const stickPx = 8;
  * out a few thousand entries for seconds, so it starts with fewer.
  */
 const initialTail = { wide: 2000, narrow: 800 };
+/** New entries are kept for reading offline at most this often. */
+const keepDelayMs = 15_000;
+/** Out of reach, the viewer is tried again this often even without news that it answers. */
+const retryMs = 20_000;
 
 /**
- * @param {{ scroller: HTMLElement, sessionId: string, agentId: string | undefined, bookmarks: import('./bookmark-store.js').BookmarkStore | undefined, onRewind: ((prompt: Anchor) => void) | undefined, listener: SessionListener, startAt: ReadingPlace | undefined }} options
+ * @param {{ scroller: HTMLElement, sessionId: string, agentId: string | undefined, bookmarks: import('./bookmark-store.js').BookmarkStore | undefined, onRewind: ((prompt: Anchor) => void) | undefined, listener: SessionListener, startAt: ReadingPlace | undefined, keeping: Keeping | undefined }} options
  * — bookmarks: undefined for a nested subagent feed, which has no bookmarks; onRewind: likewise, a subagent cannot be rewound;
- * startAt — where the reader left the session last time; undefined — at the bottom
+ * startAt — where the reader left the session last time; undefined — at the bottom; keeping — the copy kept to read
+ * offline, undefined for a nested subagent feed
  * @returns {MountedSession}
  */
-export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind, listener, startAt }) {
+export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind, listener, startAt, keeping }) {
   // The history arrives in batches of a thousand entries: laid out after each, a long session would be laid out again
   // and again as it grows. It stays hidden until the whole history is in, then is shown once, at the bottom.
   const thread = h('div', { className: 'thread', attrs: { hidden: '' } });
   // Meanwhile the reader sees that it loads, and how far it got.
   const loadingCount = h('span', { className: 'loading-count' });
-  const loading = h('div', { className: 'loading', attrs: { role: 'status' } }, [h('span', { className: 'spark', text: '✻' }), h('span', { text: 'Loading the session…' }), loadingCount]);
+  const loadingText = h('span', { text: 'Loading the session…' });
+  const loading = h('div', { className: 'loading', attrs: { role: 'status' } }, [h('span', { className: 'spark', text: '✻' }), loadingText, loadingCount]);
   // A long session opens with its latest part; the rest comes on request.
   const earlier = h('button', { className: 'earlier', attrs: { type: 'button', hidden: '' } });
   const working = h('div', { className: 'working', attrs: { hidden: '' } }, [h('span', { className: 'spark', text: '✻' }), h('span', { text: 'Working…' })]);
@@ -119,6 +128,9 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     meta = {};
     ready = false;
     received = 0;
+    kept = [];
+    earlierCount = 0;
+    fromSaved = false;
     thread.hidden = true;
     earlier.hidden = true;
     loading.hidden = false;
@@ -135,17 +147,26 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     const next = new EventSource(`/api/stream?${query}`);
     let opened = false;
     next.addEventListener('open', () => {
-      // Reconnect: the server sends the transcript again from the start.
-      if (opened) startOver();
+      // Reconnect, or the viewer answers after the saved copy was shown: the server sends the transcript from the start.
+      if (opened || fromSaved) startOver();
       opened = true;
+    });
+    next.addEventListener('error', () => {
+      // The viewer is out of reach: the saved copy meanwhile. A stream refused outright (a proxy's error page) is not
+      // retried by the browser — it is opened again when the viewer answers.
+      if (!ready) void showSaved();
+      if (next.readyState === EventSource.CLOSED) waitForViewer();
     });
     next.addEventListener('earlier', (message) => {
       const count = Number(JSON.parse(message.data)?.count);
+      earlierCount = count;
       earlier.textContent = `Show ${count.toLocaleString('en-US')} earlier entries`;
       earlier.hidden = !(count > 0);
     });
     next.addEventListener('entries', (message) => {
       const entries = JSON.parse(message.data);
+      if (Array.isArray(entries)) kept.push(...entries);
+      if (ready) scheduleKeep();
       const update = feed.apply(entries);
       if (Object.keys(update).length > 0) {
         meta = { ...meta, ...update };
@@ -160,14 +181,8 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     });
     next.addEventListener('ready', () => {
       ready = true;
-      thread.hidden = false;
-      loading.hidden = true;
-      const returned = resumeAt?.kind === 'message' && returnTo(resumeAt);
-      resumeAt = undefined;
-      stuck = !returned;
-      if (stuck) toBottom();
-      jump.hidden = stuck;
-      refreshStatus();
+      showFeed();
+      keepNow();
       const waiting = onReady;
       onReady = [];
       for (const resolve of waiting) resolve();
@@ -175,6 +190,8 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     next.addEventListener('reset', () => {
       resetFeed();
       meta = {};
+      kept = [];
+      earlierCount = 0;
       earlier.hidden = true;
     });
     next.addEventListener('missing', () => {
@@ -183,7 +200,80 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     });
     return next;
   };
-  let source = connect(matchMedia('(max-width: 820px)').matches ? initialTail.narrow : initialTail.wide);
+  /** The history in, the feed is shown once, at the reader's place. */
+  const showFeed = () => {
+    thread.hidden = false;
+    loading.hidden = true;
+    const returned = resumeAt?.kind === 'message' && returnTo(resumeAt);
+    resumeAt = undefined;
+    stuck = !returned;
+    if (stuck) toBottom();
+    jump.hidden = stuck;
+    refreshStatus();
+  };
+  // What the server sent, kept to read offline: once the history is in, then at most every so often, and when the page
+  // is put away or the session closed.
+  /** @type {unknown[]} */
+  let kept = [];
+  let earlierCount = 0;
+  /** The feed shows the saved copy, not what the server sent. */
+  let fromSaved = false;
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let keepTimer;
+  const keepNow = () => {
+    clearTimeout(keepTimer);
+    keepTimer = undefined;
+    if (keeping === undefined || fromSaved || !ready || kept.length === 0) return;
+    keeping.save({ ...feedToKeep({ entries: kept, earlier: earlierCount }, keptEntries), savedAt: Date.now() });
+  };
+  const scheduleKeep = () => {
+    keepTimer ??= setTimeout(keepNow, keepDelayMs);
+  };
+  const onHidden = () => {
+    if (document.visibilityState === 'hidden') keepNow();
+  };
+  document.addEventListener('visibilitychange', onHidden);
+  /** The copy saved the last time, while the viewer is out of reach. */
+  const showSaved = async () => {
+    if (keeping === undefined || fromSaved) return;
+    const saved = await keeping.load();
+    if (ready || fromSaved) return;
+    if (saved === undefined) {
+      loadingText.textContent = 'The viewer is out of reach, and this session is not saved to read offline.';
+      loadingCount.textContent = '';
+      return;
+    }
+    fromSaved = true;
+    ready = true;
+    const update = feed.apply(saved.entries);
+    meta = { ...meta, ...update };
+    listener.onMeta(meta);
+    earlier.hidden = true;
+    showFeed();
+  };
+  /** @type {(() => void) | undefined} */
+  let stopWaiting;
+  /** The stream is opened again once the viewer answers — or, failing that news, after a while anyway. */
+  const waitForViewer = () => {
+    if (keeping === undefined || stopWaiting !== undefined) return;
+    const retry = () => {
+      stopWaiting?.();
+      stopWaiting = undefined;
+      source.close();
+      source = connect(tail);
+    };
+    const unsubscribeOnline = keeping.onOnline(retry);
+    const retryTimer = setTimeout(retry, retryMs);
+    stopWaiting = () => {
+      unsubscribeOnline();
+      clearTimeout(retryTimer);
+    };
+  };
+  /** How many of the latest entries the stream starts with; undefined once the whole session was asked for. */
+  /** @type {number | undefined} */
+  let tail = matchMedia('(max-width: 820px)').matches ? initialTail.narrow : initialTail.wide;
+  let source = connect(tail);
+  if (keeping !== undefined && !keeping.online()) void showSaved();
   /**
    * The whole session, the reader staying at the message they were at.
    * @returns {Promise<void>} — once it is in
@@ -191,7 +281,8 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   const loadEarlier = () => {
     source.close();
     startOver();
-    source = connect(undefined);
+    tail = undefined;
+    source = connect(tail);
     return new Promise((resolve) => onReady.push(resolve));
   };
   earlier.addEventListener('click', () => void loadEarlier());
@@ -233,6 +324,9 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   return {
     element,
     dispose() {
+      keepNow();
+      stopWaiting?.();
+      document.removeEventListener('visibilitychange', onHidden);
       source.close();
       onReady = [];
       clearInterval(timer);
@@ -728,6 +822,7 @@ async function openSubagentTranscript(sessionId, toolUseId, holder) {
     sessionId,
     agentId,
     startAt: undefined,
+    keeping: undefined,
     bookmarks: undefined,
     onRewind: undefined,
     listener: { onMeta: () => {}, onStatus: () => {}, onPrompt: () => {}, onReset: () => {} },

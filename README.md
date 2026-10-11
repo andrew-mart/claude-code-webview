@@ -57,6 +57,12 @@ claude-code-webview --background     # run without a terminal window
   front: the row shows its summary, and the output loads when the row is opened. A 120 MB transcript opens in about
   a second. Images load only
   when they scroll into view, and replies are gzipped, so a long session costs a phone about a megabyte, not dozens.
+- **Offline.** With the viewer out of reach — the computer off, a proxy in front of it answering with an error, no
+  network — the page still opens (a service worker keeps it) and shows what this browser saved: the session list and
+  the sessions you opened, plus the latest few sessions worked on, saved in the background while the viewer answered.
+  "Offline · reading saved copies" shows meanwhile; once the viewer answers, the page reconnects and catches up, keeping
+  your place. On an iPhone, add the page to the Home Screen: Safari may clear a website's saved data after a week
+  without visits.
 - **Tables.** A table fits the answer's width, narrowing its columns down to whole words. When that is too cramped —
   on a phone especially — "Wide" under the table gives each column a comfortable width and lets the table scroll
   sideways. The same choice can be made for all tables of a session (in the header's details) or of the whole viewer

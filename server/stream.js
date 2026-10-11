@@ -55,17 +55,10 @@ export async function streamTranscript({ locate, scope, imageUrl, rewoundAt, sen
           continue;
         }
         for (const { link } of fresh) if (link.turn && link.parent !== undefined) promptParents.add(link.parent);
-        const shown = shownEntries(
-          fresh,
-          rewoundEntries(
-            read.entries.map(({ link }) => link),
-            point,
-          ),
-        );
         // A long session opens with its latest entries; the page asks for the rest when the reader wants it.
-        const omitted = sent === 0 && tail !== undefined ? Math.max(shown.length - tail, 0) : 0;
-        if (omitted > 0) send('earlier', { count: omitted });
-        sendBatches(shown.slice(omitted), send);
+        const part = sent === 0 ? openingPart(read.entries, point, tail) : { earlier: 0, entries: shownEntries(fresh, rewoundEntries(read.entries.map(({ link }) => link), point)) };
+        if (part.earlier > 0) send('earlier', { count: part.earlier });
+        sendBatches(part.entries, send);
         sent = read.entries.length;
       }
       if (!announced) send('ready', null);
@@ -73,6 +66,20 @@ export async function streamTranscript({ locate, scope, imageUrl, rewoundAt, sen
     }
     await delay(pollMs, undefined, { signal }).catch(() => undefined);
   }
+}
+
+/**
+ * What a page gets of a transcript when it opens it: the entries it shows, on the active branch — the latest tail of
+ * them, and how many came before.
+ * @param {readonly CachedEntry[]} entries — the whole transcript
+ * @param {string | undefined} rewoundAt — the prompt the page rewound the session to, if it did
+ * @param {number | undefined} tail — undefined: all of them
+ * @returns {{ earlier: number, entries: Record<string, unknown>[] }}
+ */
+export function openingPart(entries, rewoundAt, tail) {
+  const shown = shownEntries(entries, rewoundEntries(entries.map(({ link }) => link), rewoundAt));
+  const earlier = tail === undefined ? 0 : Math.max(shown.length - tail, 0);
+  return { earlier, entries: shown.slice(earlier) };
 }
 
 /**

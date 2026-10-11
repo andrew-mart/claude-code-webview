@@ -42,7 +42,7 @@
     "stop": "node bin/claude-code-webview.js --stop",
     "restart": "node bin/claude-code-webview.js --restart",
     "test": "node --test",
-    "check": "tsc -p .",
+    "check": "tsc -p . && tsc -p tsconfig.sw.json",
     "prepublishOnly": "npm run check && npm test"
   },
   "dependencies": {

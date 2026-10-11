@@ -571,3 +571,12 @@ test('entry_Should_GiveWholeEntryWhoseToolOutputTheStreamLeftOut', async (t) => 
   assert.deepEqual([whole.toolUseResult.file.numLines, whole.message.content[0].content], [120, output]);
   assert.equal(inside.status, 404);
 });
+
+test('snapshot_Should_GiveLatestEntriesOfSessionAtOnceToKeepForReadingOffline', async (t) => {
+  const { file, base } = await withServer(t);
+  await appendFile(file, answerLine('a1', 'u1') + childPrompt('p2', 'a1', 'Second question') + answerLine('a2', 'p2'));
+
+  const snapshot = await (await fetch(`${base}/api/snapshot?session=${sessionId}&tail=2`)).json();
+
+  assert.deepEqual({ earlier: snapshot.earlier, uuids: snapshot.entries.map((/** @type {{ uuid: string }} */ entry) => entry.uuid) }, { earlier: 2, uuids: ['p2', 'a2'] });
+});
