@@ -168,13 +168,21 @@ function createPage() {
   const herdrSidebar = createHerdrSidebar(herdrPanel);
   const tabBar = createTabBar();
   /** The herdr pane whose terminal the page shows (#/pane/<id>) instead of a session. */
-  /** @type {{ id: string, terminal: ReturnType<typeof mountTerminal> } | undefined} */
+  /** @type {{ id: string, terminal: ReturnType<typeof mountTerminal>, title: HTMLElement } | undefined} */
   let currentPane;
   /**
    * The size of a pane's terminal, as herdr lays it out.
    * @param {string} paneId
    */
   const paneSize = (paneId) => placeOf(herdrLayout, { kind: 'pane', id: paneId })?.tab.panes.find((pane) => pane.id === paneId)?.size;
+  /**
+   * A pane's name for its terminal's top row: its workspace and tab, or its id until the page has heard from herdr.
+   * @param {string} paneId
+   */
+  const paneName = (paneId) => {
+    const place = placeOf(herdrLayout, { kind: 'pane', id: paneId });
+    return place === undefined ? paneId : `${place.workspace.label} · ${place.tab.label}`;
+  };
 
   /** @param {string} text — the search box text; following ignores it */
   const listed = (text) => listedSessions(sessions, { sdk: showSdk.checked ? 'shown' : 'hidden', search: text, workspaces: workspaces.of });
@@ -287,12 +295,11 @@ function createPage() {
     current = undefined;
     currentPane?.terminal.dispose();
     const terminal = mountTerminal({ pane: paneId, size: paneSize(paneId) });
-    const place = placeOf(herdrLayout, { kind: 'pane', id: paneId });
     // On a phone the sidebar is a drawer: the terminal's top row opens it, as a session's header does.
-    const name = place === undefined ? paneId : `${place.workspace.label} · ${place.tab.label}`;
-    const top = h('div', { className: 'terminal-top' }, [drawerButton('sessions', 'menu', 'Sessions'), h('span', { className: 'terminal-title', text: name })]);
+    const title = h('span', { className: 'terminal-title', text: paneName(paneId) });
+    const top = h('div', { className: 'terminal-top' }, [drawerButton('sessions', 'menu', 'Sessions'), title]);
     main.replaceChildren(top, tabBar.element, terminal.element);
-    currentPane = { id: paneId, terminal };
+    currentPane = { id: paneId, terminal, title };
     renderList();
   };
 
@@ -450,8 +457,9 @@ function createPage() {
       workspacesKnown = known;
       workspaces = next;
       groupWorkspacesOption.hidden = !next.herdr;
-      search.placeholder = next.herdr ? 'Search by title, folder or workspace' : 'Search by title or folder';
       renderList();
+      // the search box's hint depends on the sidebar's mode as well
+      this.renderHerdr();
     },
     followLatest() {
       const [latest] = listed('');
@@ -479,9 +487,11 @@ function createPage() {
       const opened = openedAt(location.hash);
       if (mode === 'herdr') herdrSidebar.render(herdrLayout, opened, search.value);
       tabBar.render(herdrLayout, opened);
-      // A terminal opened before the page heard from herdr takes its pane's size now.
-      const size = currentPane === undefined ? undefined : paneSize(currentPane.id);
-      if (size !== undefined) currentPane?.terminal.resize(size);
+      // A terminal opened before the page heard from herdr takes its pane's size and name now.
+      if (currentPane === undefined) return;
+      const size = paneSize(currentPane.id);
+      if (size !== undefined) currentPane.terminal.resize(size);
+      currentPane.title.textContent = paneName(currentPane.id);
     },
     /** What herdr shows now: its workspaces, tabs, panes and their agents' status. */
     async refreshHerdr() {
