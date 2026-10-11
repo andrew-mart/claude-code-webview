@@ -28,6 +28,8 @@ Usage: claude-code-webview [options]
       --restart         stop and start again in the background
   -p, --port <port>     port on 127.0.0.1 (default 7788)
       --no-open         do not open the browser
+      --palette <name>  the page's accent colour, to tell two viewers apart:
+                        clay (default), sea, moss or plum
       --install-shortcut  create a desktop shortcut that starts the viewer (Windows);
                         add --start-menu to put it into the Start menu instead
   -h, --help            show this help
@@ -89,7 +91,7 @@ async function serveHere(command, about) {
     return 0;
   }
   if (found.kind === 'other') return portTaken(command.port);
-  const server = await serve({ port: command.port, about });
+  const server = await serve({ port: command.port, about, palette: command.palette });
   if (command.open) openBrowser(server.url);
   console.log('Press Ctrl+C to stop.');
   const shutdown = () => {
@@ -113,7 +115,7 @@ async function startInBackground(command) {
   if (found.kind === 'free') {
     await mkdir(stateDir, { recursive: true });
     const log = await open(logFile, 'a');
-    const child = spawn(process.execPath, [binPath, '--port', String(command.port), '--no-open'], {
+    const child = spawn(process.execPath, [binPath, '--port', String(command.port), '--palette', command.palette, '--no-open'], {
       cwd: homedir(),
       detached: true,
       windowsHide: true,

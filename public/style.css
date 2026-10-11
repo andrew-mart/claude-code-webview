@@ -179,7 +179,8 @@ button {
   gap: 10px;
   min-height: 0;
   padding: 14px 10px 10px;
-  background: var(--bg-sidebar);
+  /* a palette other than the default tints the list a little: two viewers side by side are told apart */
+  background: color-mix(in srgb, var(--accent) var(--palette-tint, 0%), var(--bg-sidebar));
   border-right: 1px solid var(--border);
 }
 
@@ -2708,4 +2709,59 @@ table.diff,
 /* Offline, a session with no saved copy cannot be opened: it fades. */
 .session-item.unavailable {
   opacity: 0.45;
+}
+
+/*
+ * Palettes (--palette): the accent colour, a touch of it in the session list, the tab icon (favicons/). Clay, the
+ * default, is Claude's own and needs nothing here.
+ */
+:root[data-palette="sea"] {
+  --accent: #3a7bb8;
+  --accent-strong: #2f6699;
+  --palette-tint: 7%;
+}
+
+:root[data-palette="moss"] {
+  --accent: #5e8c4a;
+  --accent-strong: #4c753b;
+  --palette-tint: 7%;
+}
+
+:root[data-palette="plum"] {
+  --accent: #8e5bae;
+  --accent-strong: #774a94;
+  --palette-tint: 7%;
+}
+
+/* On a dark background each palette is a step lighter, to read as well as the default does. */
+@media (prefers-color-scheme: dark) {
+  :root[data-palette="sea"]:not([data-theme="light"]) {
+    --accent: #5a9ad6;
+    --accent-strong: #4787c4;
+  }
+
+  :root[data-palette="moss"]:not([data-theme="light"]) {
+    --accent: #7fae69;
+    --accent-strong: #6b9a56;
+  }
+
+  :root[data-palette="plum"]:not([data-theme="light"]) {
+    --accent: #b083d0;
+    --accent-strong: #9c6fbd;
+  }
+}
+
+:root[data-palette="sea"][data-theme="dark"] {
+  --accent: #5a9ad6;
+  --accent-strong: #4787c4;
+}
+
+:root[data-palette="moss"][data-theme="dark"] {
+  --accent: #7fae69;
+  --accent-strong: #6b9a56;
+}
+
+:root[data-palette="plum"][data-theme="dark"] {
+  --accent: #b083d0;
+  --accent-strong: #9c6fbd;
 }

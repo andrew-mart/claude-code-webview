@@ -32,17 +32,17 @@ const herdrSources = {
 };
 
 /**
- * @param {{ port: number, about: import('../server/app.js').About }} options
+ * @param {{ port: number, about: import('../server/app.js').About, palette: import('../public/model/palettes.js').Palette }} options
  * @returns {Promise<{ url: string, close: () => void }>}
  */
-export async function serve({ port, about }) {
+export async function serve({ port, about, palette }) {
   await mkdir(stateDir, { recursive: true });
   const herdrFile = join(stateDir, 'herdr.json');
   const herdr = resolveHerdr(process.env, await readSavedHerdr(herdrFile));
   if (herdr.source === 'env' && herdr.socketPath !== undefined) await saveHerdr(herdrFile, { binPath: herdr.bin, socketPath: herdr.socketPath });
   const claude = claudeDir(process.env);
   const composer = createComposer({ readRecords: () => readSessionRecords(join(claude, 'sessions')), herdr: createHerdrRunner(herdr) });
-  const server = await startServer({ root: join(claude, 'projects'), host: '127.0.0.1', port, pollMs: 400, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), uploads: createUploads(join(stateDir, 'uploads')), about });
+  const server = await startServer({ root: join(claude, 'projects'), host: '127.0.0.1', port, pollMs: 400, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), uploads: createUploads(join(stateDir, 'uploads')), about, palette });
   const url = `http://127.0.0.1:${server.port}/`;
   console.log(`Claude Code Webview ${about.version}: ${url}`);
   console.log(`Sessions: ${join(claude, 'projects')}`);

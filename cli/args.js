@@ -1,10 +1,11 @@
 // @ts-check
 // Arguments of the claude-code-webview command.
 import { parseArgs } from 'node:util';
+import { paletteNamed, palettes } from '../public/model/palettes.js';
 
 /**
  * @typedef {'serve' | 'background' | 'stop' | 'restart' | 'install-shortcut' | 'help' | 'version'} Action
- * @typedef {{ action: Action, port: number, open: boolean, startMenu: boolean }} Command
+ * @typedef {{ action: Action, port: number, open: boolean, startMenu: boolean, palette: import('../public/model/palettes.js').Palette }} Command
  */
 
 export const defaultPort = 7788;
@@ -28,7 +29,9 @@ export function parseCommand(argv) {
   if (chosen.length > 1) return { ok: false, error: `Choose one action: ${chosen.map((flag) => `--${flag}`).join(' and ')} cannot be used together.` };
   const port = Number(values.port);
   if (!Number.isInteger(port) || port < 1 || port > 65535) return { ok: false, error: `Invalid --port value "${values.port}": expected a number from 1 to 65535.` };
-  return { ok: true, command: { action: chosen[0] ?? 'serve', port, open: !values['no-open'], startMenu: values['start-menu'] } };
+  const palette = paletteNamed(values.palette);
+  if (palette === undefined) return { ok: false, error: `Invalid --palette value "${values.palette}": expected one of ${palettes.join(', ')}.` };
+  return { ok: true, command: { action: chosen[0] ?? 'serve', port, open: !values['no-open'], startMenu: values['start-menu'], palette } };
 }
 
 /** @param {readonly string[]} argv */
@@ -38,6 +41,7 @@ function parseOptions(argv) {
     strict: true,
     options: {
       port: { type: 'string', short: 'p', default: String(defaultPort) },
+      palette: { type: 'string', default: 'clay' },
       'no-open': { type: 'boolean', default: false },
       background: { type: 'boolean', short: 'b', default: false },
       stop: { type: 'boolean', default: false },
