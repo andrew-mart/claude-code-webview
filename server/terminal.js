@@ -1,31 +1,58 @@
 // @ts-check
 // A herdr pane's terminal in the page — a shell, nvim, another agent:
-//   herdr pane read --format ansi  → its screen with colours, read again and again while a page shows it
-//   herdr pane send-text           → the keys the page's terminal produced, as they are: Enter as \r, an arrow as its
-//                                    escape sequence, Ctrl+C as \x03 — herdr passes the text to the terminal untouched
-// herdr tells no cursor position, so the page hides the cursor.
-import { setTimeout as delay } from 'node:timers/promises';
-import { succeeded } from './herdr.js';
+//   its screen with colours, read again and again while a page shows it, sent when it changes;
+//   the keys the page's terminal produced, typed into it as they are: Enter as \r, an arrow as its escape sequence,
+//   Ctrl+C as \x03 — herdr passes the text to the terminal untouched.
+// herdr tells no cursor position, so the page hides the cursor. How the screen is read and the keys typed — herdr's
+// socket, or its program — is the PaneIo given.
 
 /**
  * @typedef {{ ok: true } | { ok: false, error: 'herdr-missing' | 'gone' }} TypeOutcome — gone: the pane closed, or
  *   herdr does not answer
+ * @typedef {{ ok: true, text: string } | { ok: false, missing: boolean }} ScreenRead — missing: herdr is not installed
+ * @typedef {{ read: (pane: string) => Promise<ScreenRead>, type: (pane: string, text: string) => Promise<TypeOutcome> }} PaneIo
  */
 
 /**
- * @param {{ herdr: import('./composer.js').RunHerdr, quickMs: number, slowMs: number, quickForMs: number }} deps
- *   the screen is read every quickMs for quickForMs after it changed or was typed into, every slowMs otherwise
+ * @param {{ io: PaneIo, quickMs: number, slowMs: number, quickForMs: number }} deps — the screen is read every quickMs
+ *   for quickForMs after it changed or was typed into, every slowMs otherwise
  */
-export function createTerminals({ herdr, quickMs, slowMs, quickForMs }) {
+export function createTerminals({ io, quickMs, slowMs, quickForMs }) {
   /** When each pane was typed into or changed last. */
   /** @type {Map<string, number>} */
   const lively = new Map();
   /** The keys waiting for a send to the pane to finish, and that send's outcome. */
   /** @type {Map<string, { waiting: string, flight: Promise<TypeOutcome> }>} */
   const outboxes = new Map();
+  /** The streams of each pane waiting for their next read: keys typed into the pane wake them. */
+  /** @type {Map<string, Set<() => void>>} */
+  const sleepers = new Map();
 
   /**
-   * Sends what waits in the pane's outbox until nothing does; keys typed meanwhile go with the next send.
+   * Waits ms — less if the signal is aborted, or keys are typed into the pane meanwhile.
+   * @param {string} pane
+   * @param {number} ms
+   * @param {AbortSignal} signal
+   * @returns {Promise<void>}
+   */
+  const pause = (pane, ms, signal) =>
+    new Promise((resolve) => {
+      const waiting = sleepers.get(pane) ?? new Set();
+      sleepers.set(pane, waiting);
+      const wake = () => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', wake);
+        waiting.delete(wake);
+        resolve();
+      };
+      const timer = setTimeout(wake, ms);
+      signal.addEventListener('abort', wake, { once: true });
+      waiting.add(wake);
+    });
+
+  /**
+   * Sends what waits in the pane's outbox until nothing does; keys typed meanwhile go with the next send. Each send
+   * wakes the pane's streams: the screen with the keys in it is read at once.
    * @param {string} pane
    * @param {{ waiting: string }} outbox
    * @returns {Promise<TypeOutcome>}
@@ -36,8 +63,8 @@ export function createTerminals({ herdr, quickMs, slowMs, quickForMs }) {
     while (outbox.waiting !== '' && outcome.ok) {
       const text = outbox.waiting;
       outbox.waiting = '';
-      const reply = await herdr(['pane', 'send-text', pane, text]);
-      outcome = succeeded(reply) ? { ok: true } : { ok: false, error: !reply.ok && reply.missing ? 'herdr-missing' : 'gone' };
+      outcome = await io.type(pane, text);
+      for (const wake of [...(sleepers.get(pane) ?? [])]) wake();
     }
     outboxes.delete(pane);
     return outcome;
@@ -55,18 +82,18 @@ export function createTerminals({ herdr, quickMs, slowMs, quickForMs }) {
       /** @type {string | undefined} */
       let shown;
       while (!signal.aborted) {
-        const reply = await herdr(['pane', 'read', pane, '--source', 'visible', '--format', 'ansi']);
-        if (!reply.ok) {
-          send('gone', { missing: reply.missing });
+        const screen = await io.read(pane);
+        if (!screen.ok) {
+          send('gone', { missing: screen.missing });
           return;
         }
-        if (reply.text !== shown) {
-          shown = reply.text;
+        if (screen.text !== shown) {
+          shown = screen.text;
           lively.set(pane, Date.now());
-          send('screen', { text: reply.text });
+          send('screen', { text: screen.text });
         }
         const quick = Date.now() - (lively.get(pane) ?? 0) < quickForMs;
-        await delay(quick ? quickMs : slowMs, undefined, { signal }).catch(() => undefined);
+        await pause(pane, quick ? quickMs : slowMs, signal);
       }
     },
     /**

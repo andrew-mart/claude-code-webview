@@ -214,3 +214,22 @@ export function succeeded(reply) {
  * @type {import('./composer.js').RunHerdr}
  */
 export const herdrTurnedOff = async () => ({ ok: false, error: 'herdr is turned off with --no-herdr', missing: true });
+
+/**
+ * A pane's terminal through herdr's commands — given to its socket or its program (herdr-socket.js).
+ * @param {import('./composer.js').RunHerdr} herdr
+ * @returns {import('./terminal.js').PaneIo}
+ */
+export function paneIoOf(herdr) {
+  return {
+    async read(pane) {
+      const reply = await herdr(['pane', 'read', pane, '--source', 'visible', '--format', 'ansi']);
+      return reply.ok ? { ok: true, text: reply.text } : { ok: false, missing: reply.missing };
+    },
+    async type(pane, text) {
+      const reply = await herdr(['pane', 'send-text', pane, text]);
+      if (succeeded(reply)) return { ok: true };
+      return { ok: false, error: !reply.ok && reply.missing ? 'herdr-missing' : 'gone' };
+    },
+  };
+}

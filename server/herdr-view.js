@@ -29,6 +29,9 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs }) {
   /** A process's pane does not change while it runs: process-info is asked once for each Claude process. */
   /** @type {Map<number, string>} */
   const paneByPid = new Map();
+  /** Claude Code processes in no pane — run in an IDE, a plain terminal: not looked for again on every look at herdr. */
+  /** @type {Set<number>} */
+  const outsideHerdr = new Set();
   /** The workspace of every session seen running, by session id — read from the file once. */
   /** @type {Promise<Map<string, string>> | undefined} */
   let remembered;
@@ -47,7 +50,11 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs }) {
    */
   const runningSessions = async (panes) => {
     const records = [...latestRecords(await readRecords()).values()];
-    if (records.some((record) => !paneByPid.has(record.pid))) await findPanes(panes);
+    const unknown = records.filter((record) => !paneByPid.has(record.pid) && !outsideHerdr.has(record.pid));
+    if (unknown.length > 0) {
+      await findPanes(panes);
+      for (const record of unknown) if (!paneByPid.has(record.pid)) outsideHerdr.add(record.pid);
+    }
     const shown = new Set(panes.map((pane) => pane.paneId));
     return new Map(
       records.flatMap((record) => {

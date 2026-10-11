@@ -9,7 +9,8 @@ import { createBookmarkFile } from '../server/bookmarks.js';
 import { createUploads } from '../server/uploads.js';
 import { createComposer } from '../server/composer.js';
 import { readSessionRecords } from '../server/registry.js';
-import { createHerdrRunner, herdrTurnedOff, readSavedHerdr, resolveHerdr, saveHerdr } from '../server/herdr.js';
+import { createHerdrRunner, herdrTurnedOff, paneIoOf, readSavedHerdr, resolveHerdr, saveHerdr } from '../server/herdr.js';
+import { createHerdrSocket, socketRunner } from '../server/herdr-socket.js';
 import { createHerdrView } from '../server/herdr-view.js';
 import { createTerminals } from '../server/terminal.js';
 
@@ -44,13 +45,14 @@ const herdrRefreshMs = 3_000;
  */
 export async function serve({ port, about, palette, publicAddresses, herdr }) {
   await mkdir(stateDir, { recursive: true });
-  const { run, note } = await herdrToUse(herdr);
+  const { run, via, note } = await herdrToUse(herdr);
   const claude = claudeDir(process.env);
   const readRecords = () => readSessionRecords(join(claude, 'sessions'));
   const composer = createComposer({ readRecords, herdr: run });
   const herdrView = createHerdrView({ herdr: run, readRecords, file: join(stateDir, 'workspaces.json'), refreshMs: herdrRefreshMs });
-  // A terminal on the page shows the pane's screen within a fifth of a second of typing, and within a second otherwise.
-  const terminals = createTerminals({ herdr: run, quickMs: 200, slowMs: 1000, quickForMs: 4000 });
+  // A terminal on the page: through herdr's socket a screen is read in a millisecond or two, so it is read every 40 ms
+  // while typing; through the herdr program every call starts a process, a tenth of a second.
+  const terminals = createTerminals({ io: paneIoOf(run), quickMs: via === 'socket' ? 40 : 200, slowMs: via === 'socket' ? 500 : 1000, quickForMs: 4000 });
   const server = await startServer({ root: join(claude, 'projects'), host: '127.0.0.1', port, pollMs: 400, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), uploads: createUploads(join(stateDir, 'uploads')), about, palette, publicAddresses, herdrView, terminals });
   const url = `http://127.0.0.1:${server.port}/`;
   console.log(`Claude Code Webview ${about.version}: ${url}`);
@@ -63,14 +65,18 @@ export async function serve({ port, about, palette, publicAddresses, herdr }) {
 /**
  * The herdr the viewer types prompts and finds workspaces through, and the log line about it.
  * @param {'on' | 'off'} use
- * @returns {Promise<{ run: import('../server/composer.js').RunHerdr, note: string }>}
+ * @returns {Promise<{ run: import('../server/composer.js').RunHerdr, via: 'socket' | 'program', note: string }>} — via: how
+ *   herdr is reached: its socket, when known — a millisecond or two a call — or its program, a tenth of a second
  */
 async function herdrToUse(use) {
-  if (use === 'off') return { run: herdrTurnedOff, note: 'herdr: off (--no-herdr) — the viewer only reads sessions.' };
+  if (use === 'off') return { run: herdrTurnedOff, via: 'program', note: 'herdr: off (--no-herdr) — the viewer only reads sessions.' };
   const herdrFile = join(stateDir, 'herdr.json');
   const herdr = resolveHerdr(process.env, await readSavedHerdr(herdrFile));
   if (herdr.source === 'env' && herdr.socketPath !== undefined) await saveHerdr(herdrFile, { binPath: herdr.bin, socketPath: herdr.socketPath });
-  return { run: createHerdrRunner(herdr), note: `herdr: ${herdr.bin} — ${herdrSources[herdr.source]}. Without herdr the viewer only reads sessions.` };
+  const program = createHerdrRunner(herdr);
+  const note = `herdr: ${herdr.bin} — ${herdrSources[herdr.source]}. Without herdr the viewer only reads sessions.`;
+  if (herdr.socketPath === undefined) return { run: program, via: 'program', note };
+  return { run: socketRunner(createHerdrSocket(herdr.socketPath), program), via: 'socket', note: `${note} Talks to it through its socket.` };
 }
 
 /** @param {string} url */
