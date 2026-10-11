@@ -1,7 +1,8 @@
 // @ts-check
-// herdr as herdr itself lays it out: in the sidebar its workspaces, and under them the tabs of the chosen one with their
-// agents' status; above the open session or terminal, the tabs of its workspace to switch between.
-import { placeOf, searchLayout, tabTarget } from '../model/herdr.js';
+// herdr as herdr itself lays it out: in the sidebar its workspaces, and under them every session of every workspace with
+// its agent's status, the latest active first; above the open session or terminal, the tabs of its workspace to switch
+// between.
+import { placeOf, searchLayout, sessionsByActivity, tabTarget } from '../model/herdr.js';
 import { h } from './dom.js';
 
 /** @type {Readonly<Record<import('../model/herdr.js').AgentStatus, string>>} */
@@ -42,9 +43,6 @@ function link(target, className, children) {
  * @param {HTMLElement} element — the sidebar's place for it
  */
 export function createHerdrSidebar(element) {
-  /** The workspace the reader picked here; until then, the one of what the page shows. */
-  /** @type {string | undefined} */
-  let picked;
   let shown = '';
 
   return {
@@ -55,9 +53,9 @@ export function createHerdrSidebar(element) {
      */
     render(layout, opened, search) {
       const workspaces = searchLayout(layout.workspaces, search);
+      const sessions = sessionsByActivity(layout.workspaces, search);
       const place = opened === undefined ? undefined : placeOf(layout, opened);
-      const chosen = workspaces.find((workspace) => workspace.id === picked) ?? workspaces.find((workspace) => workspace.id === place?.workspace.id) ?? workspaces[0];
-      const look = JSON.stringify([workspaces, place?.tab.id, chosen?.id]);
+      const look = JSON.stringify([workspaces, sessions.map(({ pane }) => pane.id), place?.tab.id, opened]);
       if (look === shown) return;
       shown = look;
       const list = workspaces.map((workspace) => {
@@ -67,24 +65,25 @@ export function createHerdrSidebar(element) {
           h('span', { className: 'herdr-name', text: workspace.label }),
           statusDot(workspace.status),
         ]);
-        row.classList.toggle('selected', workspace.id === chosen?.id);
-        row.addEventListener('click', () => {
-          picked = workspace.id;
-          shown = '';
-        });
+        row.classList.toggle('selected', workspace.id === place?.workspace.id);
         return row;
       });
-      const tabs = (chosen?.tabs ?? []).map((tab) => {
-        const row = link(tabTarget(tab), 'herdr-tab', [
-          statusDot(tab.status),
-          h('span', { className: 'herdr-tab-text' }, [h('span', { className: 'herdr-tab-name', text: `${tab.number} ${tab.label}` }), h('span', { className: 'herdr-tab-content', text: tabContent(tab) })]),
+      const rows = sessions.map(({ workspace, tab, pane }) => {
+        const what = pane.agent === 'claude' ? undefined : pane.agent;
+        const row = link(pane.session === undefined ? `#/pane/${pane.id}` : `#/${pane.session}`, 'herdr-tab', [
+          statusDot(pane.status),
+          h('span', { className: 'herdr-tab-text' }, [
+            h('span', { className: 'herdr-tab-name', text: `${tab.number} ${tab.label}` }),
+            h('span', { className: 'herdr-tab-content', text: [workspace.label, what, pane.title].filter((part) => part !== undefined && part !== '').join(' · ') }),
+          ]),
         ]);
-        row.classList.toggle('selected', tab.id === place?.tab.id);
+        row.classList.toggle('selected', opened !== undefined && (opened.kind === 'session' ? pane.session === opened.id : pane.id === opened.id));
         return row;
       });
       element.replaceChildren(
         h('div', { className: 'herdr-workspaces', attrs: { role: 'list' } }, list),
-        ...(chosen === undefined ? [] : [h('div', { className: 'herdr-tabs-head', text: chosen.label }), h('div', { className: 'herdr-tabs', attrs: { role: 'list' } }, tabs)]),
+        h('div', { className: 'herdr-tabs-head', text: `Sessions · ${sessions.length}` }),
+        h('div', { className: 'herdr-tabs', attrs: { role: 'list' } }, rows),
       );
     },
   };

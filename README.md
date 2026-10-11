@@ -81,10 +81,11 @@ the herdr view, the terminals, the input box, Stop and rewind are simply not sho
 ### herdr's layout
 
 The sidebar switches between "herdr" and "Sessions". In "herdr" it shows herdr's workspaces in herdr's order, each
-with its agents' status — working, waiting for you, done, idle — and under them the tabs of the chosen workspace with
-their own status and what runs in them. Above an open session — or terminal — the tabs of its workspace sit in a row,
-as in herdr, to switch between them. A tab with Claude Code opens its session's feed; any other tab — a shell, nvim,
-another agent — opens its terminal. The search finds workspaces and tabs by name and by what runs in them.
+with its agents' status — working, waiting for you, done, idle — and under them, as herdr lists its agents, every
+session of every workspace: Claude Code, Codex and other agents, the one whose agent changed state last first. Above an
+open session — or terminal — the tabs of its workspace sit in a row, as in herdr, to switch between them. A session or
+tab with Claude Code opens its feed; any other tab — a shell, nvim, another agent — opens its terminal. The search finds
+workspaces and sessions by name and by what runs in them.
 
 A terminal mirrors the one in herdr, at its size: what herdr shows comes within a fifth of a second of typing, and the
 keys you type go to it as they are — Enter, arrows, Ctrl+C. herdr does not tell where the cursor is, so no cursor is

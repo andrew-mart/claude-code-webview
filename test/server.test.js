@@ -57,7 +57,7 @@ const webWorkspace = {
   label: 'web',
   status: 'working',
   activeTab: 'w1:t1',
-  tabs: [{ id: 'w1:t1', number: 1, label: 'viewer', status: 'working', panes: [{ id: 'w1:p1', agent: 'claude', status: 'working', title: 'First question', session: sessionId, size: { cols: 120, rows: 40 } }] }],
+  tabs: [{ id: 'w1:t1', number: 1, label: 'viewer', status: 'working', panes: [{ id: 'w1:p1', agent: 'claude', status: 'working', title: 'First question', session: sessionId, size: { cols: 120, rows: 40 }, activity: 7 }] }],
 };
 
 /**

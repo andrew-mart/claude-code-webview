@@ -474,7 +474,7 @@ function createPage() {
       herdrPanel.hidden = mode !== 'herdr';
       list.hidden = mode === 'herdr';
       sessionOptions.hidden = mode === 'herdr';
-      if (mode === 'herdr') search.placeholder = 'Search workspaces and tabs';
+      if (mode === 'herdr') search.placeholder = 'Search workspaces and sessions';
       else search.placeholder = workspaces.herdr ? 'Search by title, folder or workspace' : 'Search by title or folder';
       const opened = openedAt(location.hash);
       if (mode === 'herdr') herdrSidebar.render(herdrLayout, opened, search.value);
