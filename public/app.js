@@ -8,6 +8,7 @@ import { listedSessions, mergeSessions } from './model/session-list.js';
 import { actionLabel, choices, nextChoice } from './model/view-settings.js';
 import { createBookmarkStore, moveLocalBookmarksToServer } from './view/bookmark-store.js';
 import { createComposer } from './view/composer-view.js';
+import { createDrawers } from './view/drawers.js';
 import { openOfflineStore } from './view/offline-store.js';
 import { createRewindDialog } from './view/rewind-dialog.js';
 import { createSessionHeader } from './view/session-header.js';
@@ -52,7 +53,7 @@ const connection = createConnection((online) => {
   page.renderList();
 });
 
-const drawers = createDrawers(byId('drawer-backdrop', HTMLElement));
+const drawers = createDrawers({ root: document.documentElement, backdrop: byId('drawer-backdrop', HTMLElement), history });
 // A view setting that resizes the feed keeps the reader at the message they were at.
 const settings = createSettings((change) => page.keepPlace(change));
 const page = createPage();
@@ -92,7 +93,7 @@ showSdk.addEventListener('change', () => {
   page.followLatest();
 });
 window.addEventListener('hashchange', () => {
-  drawers.close();
+  drawers.arrive();
   page.openFromHash();
 });
 // Bookmarks the browser kept before they moved to the server go there before a session opens.
@@ -342,8 +343,9 @@ function createPage() {
       const id = /^#\/([0-9a-f-]{36})$/i.exec(location.hash)?.[1];
       if (id !== undefined) open(id);
       else if (current === undefined) main.replaceChildren(emptyState);
-      // A narrow screen shows either the session list or the open session.
-      document.documentElement.dataset.view = current === undefined ? 'list' : 'session';
+      // A narrow screen shows the session list while the address names no session — going back to it shows the list
+      // again, the session stays open behind it — and the session otherwise.
+      document.documentElement.dataset.view = id === undefined ? 'list' : 'session';
     },
   };
 }
@@ -527,30 +529,8 @@ function mountSidebarResizer(sidebar) {
 }
 
 /**
- * On a narrow screen the session list and the outline do not fit beside the feed: they slide over it as drawers,
- * one at a time, and close on a tap outside, Esc, or once something in them is chosen.
- * @param {HTMLElement} backdrop
- */
-function createDrawers(backdrop) {
-  const root = document.documentElement;
-  const close = () => {
-    delete root.dataset.drawer;
-  };
-  backdrop.addEventListener('click', close);
-  return {
-    close,
-    isOpen: () => root.dataset.drawer !== undefined,
-    /** @param {'sessions' | 'outline'} name */
-    toggle(name) {
-      if (root.dataset.drawer === name) close();
-      else root.dataset.drawer = name;
-    },
-  };
-}
-
-/**
  * A header button that opens a drawer; shown only on a narrow screen.
- * @param {'sessions' | 'outline'} name
+ * @param {import('./view/drawers.js').Drawer} name
  * @param {string} iconName
  * @param {string} label
  */
