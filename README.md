@@ -71,9 +71,16 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   session list a little and colours the tab icon and the iPhone home screen icon — two viewers, say on two computers, are
   told apart at a glance.
 
-## Sending prompts from the page (optional, needs herdr)
+## With herdr: sending prompts and workspaces (optional)
 
-If you run Claude Code inside [herdr](https://herdr.dev), an input box appears under the feed: the text is typed into
+herdr is not needed to read sessions. If you run Claude Code inside [herdr](https://herdr.dev), the viewer can do more:
+type prompts into the sessions and group the session list by herdr's workspaces. Without herdr — not installed, not
+running, or turned off with `--no-herdr` — everything else works, and the input box, Stop, rewind and the workspaces
+are simply not shown.
+
+### Sending prompts
+
+An input box appears under the feed: the text is typed into
 the session's terminal and submitted with Enter, exactly as if you typed it there. While Claude is busy, Claude Code
 queues it. "Stop" sends Esc. As in the terminal, a prompt Claude had not started on comes back for editing: the viewer
 takes it out of the terminal's input box and puts it into the page's box, exactly as it was sent, before anything
@@ -93,7 +100,18 @@ conversation is restored, the message comes back into the box on the page to be 
 The feed shows only the active branch of a conversation: a rewind deletes nothing from the transcript, so the
 messages it undid are left out.
 
-Without herdr everything else works and the input box is simply not shown.
+### Workspaces
+
+The session list shows each session's herdr workspace next to its folder (unless they are named alike), the search
+finds sessions by workspace, and "Group by herdr workspace" gathers the list under the workspaces' names — the latest
+worked on first, the sessions with no workspace last. A session's workspace is:
+
+- the one whose pane runs it, while it runs — and it stays its workspace after the session ends
+  (`~/.claude-code-webview/workspaces.json`);
+- for a session never seen running, the workspace whose panes are open in its folder, if just one workspace has panes
+  there.
+
+### Finding herdr
 
 To let the viewer find your herdr, start it once from a herdr pane — herdr sets `HERDR_BIN_PATH` and
 `HERDR_SOCKET_PATH` there, and the viewer remembers them in `~/.claude-code-webview/herdr.json` for launches outside
@@ -156,6 +174,7 @@ Several computers? Give each its own tunnel, hostname and `--palette`, and the p
 | `node bin/claude-code-webview.js --palette sea` | another accent colour: clay (default), sea, moss, plum |
 | `node bin/claude-code-webview.js --public-url https://viewer.example.com` | also answer at this address, behind a tunnel (see **On your phone**); repeat for more |
 | `node bin/claude-code-webview.js --no-open` | do not open the browser |
+| `node bin/claude-code-webview.js --no-herdr` | do not use herdr even if it is found: the page only reads sessions |
 | `node bin/claude-code-webview.js --install-shortcut` | Windows: desktop shortcut that starts the viewer in the background (`--start-menu` for the Start menu) |
 
 `npm start -- <options>` does the same as `node bin/claude-code-webview.js <options>`.
@@ -210,7 +229,7 @@ npm run check        # TypeScript checks the JavaScript through JSDoc in strict 
 | Folder | Contents |
 | --- | --- |
 | `bin/`, `cli/` | the `claude-code-webview` command: arguments, foreground/background start, stop, shortcut |
-| `server/` | HTTP server, session list, transcript stream, file panel, sending prompts through herdr |
+| `server/` | HTTP server, session list, transcript stream, file panel, sending prompts and workspaces through herdr |
 | `public/model/` | pure functions: transcript parsing, tool rows and diffs, file links, outline, formatting |
 | `public/view/` | rendering of the feed, tool rows, markdown, file panel, outline, input box |
 | `assets/`, `scripts/` | shortcut icon, and the script that draws it and the home screen icons (`public/favicons/*.png`) |

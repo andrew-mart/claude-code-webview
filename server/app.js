@@ -56,12 +56,13 @@ const agentIdPattern = /^[0-9a-z]{1,64}$/i;
  */
 
 /**
- * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[] }} options
+ * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], workspaces: Workspaces }} options
  *   about — package name and version for /api/health; palette — the page's colours (public/model/palettes.js);
- *   publicAddresses — where else the page is opened at, answered as the local address is
+ *   publicAddresses — where else the page is opened at, answered as the local address is; workspaces — the herdr
+ *   workspaces of sessions (workspaces.js)
  * @returns {Promise<{ port: number, close: () => void }>}
  */
-export async function startServer({ root, host, port, pollMs, composer, bookmarks, uploads, about, palette, publicAddresses }) {
+export async function startServer({ root, host, port, pollMs, composer, bookmarks, uploads, about, palette, publicAddresses, workspaces }) {
   const index = createSessionIndex(root, { summaryBudgetMs: 1500 });
   const build = await pageBuild();
   /** Sessions this page rewound: session id → the prompt rewound to; its branch is hidden before the next prompt shows the fork. */
@@ -73,7 +74,7 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
   /** @type {Set<string>} */
   const allowedOrigins = new Set();
   const server = http.createServer((request, response) => {
-    handle({ index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, uploads, about, build, rewinds, transcripts, palette }, request, response).catch((error) => {
+    handle({ index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, uploads, about, build, rewinds, transcripts, palette, workspaces }, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
       if (!response.headersSent) response.writeHead(500).end();
       else response.end();
@@ -100,7 +101,8 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
 }
 
 /**
- * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette }} Deps
+ * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, workspaces: Workspaces }} Deps
+ * @typedef {Pick<ReturnType<typeof import('./workspaces.js').createWorkspaces>, 'of'>} Workspaces
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
  * @typedef {{ origin: string, host: string }} PublicAddress — where the page is opened from outside, behind a tunnel:
  *   origin https://viewer.example.com, host viewer.example.com
@@ -144,6 +146,9 @@ async function handle(deps, request, response) {
         const cwd = (await deps.index.list()).find((session) => session.id === id)?.cwd;
         return sendJson(response, { branch: cwd === undefined ? undefined : await readBranch(cwd) });
       });
+    case '/api/workspaces':
+      // The page asks every few seconds: an unchanged reply goes without its body.
+      return sendRevalidated(response, await deps.workspaces.of(await deps.index.list()));
     case '/api/subagents':
       return withSession(url, response, async (id) => sendJson(response, await deps.index.subagents(id)));
     case '/api/bookmarks':
@@ -508,6 +513,22 @@ const maxFileBytes = 2 * 1024 * 1024;
  */
 async function sendJson(response, body, status = 200) {
   await sendBody(response, status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }, Buffer.from(JSON.stringify(body)));
+}
+
+/**
+ * JSON the browser keeps and asks about again: the same reply as last time comes back as 304 Not Modified.
+ * @param {http.ServerResponse} response
+ * @param {unknown} body
+ */
+async function sendRevalidated(response, body) {
+  const json = Buffer.from(JSON.stringify(body));
+  const etag = `"${createHash('sha256').update(json).digest('base64url').slice(0, 27)}"`;
+  const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache', ETag: etag };
+  if (response.req.headers['if-none-match'] === etag) {
+    response.writeHead(304, headers).end();
+    return;
+  }
+  await sendBody(response, 200, headers, json);
 }
 
 /** Bodies smaller than this gain nothing from gzip. */

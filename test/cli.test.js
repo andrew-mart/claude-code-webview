@@ -11,17 +11,17 @@ test('isTemporaryInstall_Should_RecognizeNpxCacheOnEverySystem', () => {
 });
 
 test('parseCommand_Should_ServeAndOpenBrowserByDefault', () => {
-  assert.deepEqual(parseCommand([]), { ok: true, command: { action: 'serve', port: 7788, open: true, startMenu: false, palette: 'clay', publicAddresses: [] } });
+  assert.deepEqual(parseCommand([]), { ok: true, command: { action: 'serve', port: 7788, open: true, startMenu: false, palette: 'clay', publicAddresses: [], herdr: 'on' } });
 });
 
 test('parseCommand_Should_ReadActionPortAndBrowserFlag', () => {
   assert.deepEqual(parseCommand(['--background', '--port', '7800', '--no-open']), {
     ok: true,
-    command: { action: 'background', port: 7800, open: false, startMenu: false, palette: 'clay', publicAddresses: [] },
+    command: { action: 'background', port: 7800, open: false, startMenu: false, palette: 'clay', publicAddresses: [], herdr: 'on' },
   });
   assert.deepEqual(parseCommand(['--install-shortcut', '--start-menu']), {
     ok: true,
-    command: { action: 'install-shortcut', port: 7788, open: true, startMenu: true, palette: 'clay', publicAddresses: [] },
+    command: { action: 'install-shortcut', port: 7788, open: true, startMenu: true, palette: 'clay', publicAddresses: [], herdr: 'on' },
   });
   assert.deepEqual(
     [parseCommand(['-v']), parseCommand(['--help'])].map((parsed) => parsed.ok && parsed.command.action),
@@ -60,4 +60,12 @@ test('parseCommand_Should_RejectPublicUrlThatIsNotJustAnAddress', () => {
     const told = parsed.ok ? 'accepted' : parsed.error;
     assert.ok(told.startsWith(`Invalid --public-url value "${value}"`), `${value}: ${told}`);
   }
+});
+
+// herdr is used when it is found; --no-herdr keeps the viewer read-only even then
+test('parseCommand_Should_TurnHerdrOffOnRequest', () => {
+  assert.deepEqual(
+    [parseCommand([]), parseCommand(['--no-herdr'])].map((parsed) => parsed.ok && parsed.command.herdr),
+    ['on', 'off'],
+  );
 });

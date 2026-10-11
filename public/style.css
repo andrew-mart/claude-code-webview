@@ -287,6 +287,50 @@ button {
   white-space: nowrap;
 }
 
+/* Where a session is: its herdr workspace, when that is not named as the folder, and the folder. */
+.session-place {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.session-workspace {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  color: var(--accent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The head of a herdr workspace's sessions in the grouped list. */
+.session-group {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 4px 10px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.session-group:first-child {
+  margin-top: 4px;
+}
+
+.session-group.outside .session-group-name {
+  font-weight: 500;
+  text-transform: none;
+}
+
+.session-group-count {
+  color: var(--text-4);
+  font-weight: 400;
+}
+
 .main {
   display: flex;
   flex-direction: column;

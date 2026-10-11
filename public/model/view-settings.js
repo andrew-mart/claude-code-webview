@@ -11,6 +11,7 @@ export const choices = /** @type {const} */ ({
   follow: ['off', 'on'],
   sdk: ['hidden', 'shown'],
   tables: ['fit', 'wide'],
+  workspaces: ['flat', 'grouped'],
 });
 
 /**
@@ -28,6 +29,7 @@ const resultNames = {
   follow: { off: 'Stop following the active session', on: 'Follow the active session' },
   sdk: { hidden: 'Hide SDK sessions', shown: 'Show SDK sessions' },
   tables: { fit: 'Fit tables to the width everywhere', wide: 'Widen tables everywhere' },
+  workspaces: { flat: 'List sessions by time', grouped: 'Group sessions by herdr workspace' },
 };
 
 /**

@@ -126,3 +126,47 @@ export function foregroundPids(json) {
   const processes = Array.isArray(info.foreground_processes) ? info.foreground_processes.filter(isRecord) : [];
   return processes.flatMap((process) => (typeof process.pid === 'number' ? [process.pid] : []));
 }
+
+/**
+ * Workspace labels by workspace id (the `herdr workspace list` reply).
+ * @param {unknown} json
+ * @returns {Map<string, string>}
+ */
+export function workspaceLabels(json) {
+  const workspaces = isRecord(json) && isRecord(json.result) && Array.isArray(json.result.workspaces) ? json.result.workspaces.filter(isRecord) : [];
+  return new Map(workspaces.flatMap((workspace) => (typeof workspace.workspace_id === 'string' && typeof workspace.label === 'string' ? [[workspace.workspace_id, workspace.label]] : [])));
+}
+
+/**
+ * @typedef {{ paneId: string, workspaceId: string, cwd: string | undefined, claude: boolean }} Pane — cwd: the folder
+ *   of its shell or program; claude: herdr recognized Claude Code there
+ */
+
+/**
+ * Every pane with its workspace and folder (the `herdr pane list` reply).
+ * @param {unknown} json
+ * @returns {readonly Pane[]}
+ */
+export function panesOf(json) {
+  const panes = isRecord(json) && isRecord(json.result) && Array.isArray(json.result.panes) ? json.result.panes.filter(isRecord) : [];
+  return panes.flatMap((pane) =>
+    typeof pane.pane_id === 'string' && typeof pane.workspace_id === 'string'
+      ? [{ paneId: pane.pane_id, workspaceId: pane.workspace_id, cwd: typeof pane.cwd === 'string' ? pane.cwd : undefined, claude: pane.agent === 'claude' }]
+      : [],
+  );
+}
+
+/**
+ * herdr reports a failure either by its exit code or by an error field in the JSON (e.g. protocol_mismatch).
+ * @param {import('./composer.js').HerdrReply} reply
+ * @returns {reply is { ok: true, json: unknown, text: string }}
+ */
+export function succeeded(reply) {
+  return reply.ok && !(isRecord(reply.json) && reply.json.error !== undefined);
+}
+
+/**
+ * herdr turned off (--no-herdr): as if it were not installed, so the page only reads sessions.
+ * @type {import('./composer.js').RunHerdr}
+ */
+export const herdrTurnedOff = async () => ({ ok: false, error: 'herdr is turned off with --no-herdr', missing: true });
