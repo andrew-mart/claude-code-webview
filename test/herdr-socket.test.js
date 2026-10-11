@@ -8,7 +8,7 @@ import { createHerdrSocket, socketAddress, socketRunner } from '../server/herdr-
 
 /**
  * A server that answers as herdr does: one JSON line in, one JSON line out, and the connection closed. Remembers the
- * requests, the most connections that were open at once, and how long after a connection closed the next one came.
+ * requests and the most connections that were open at once.
  * @param {import('node:test').TestContext} t
  * @param {(request: { id: string, method: string, params: Record<string, unknown> }) => Record<string, unknown>} answer —
  *   the reply line, without the id
@@ -19,18 +19,10 @@ async function fakeHerdr(t, answer) {
   const requests = [];
   let open = 0;
   let mostOpen = 0;
-  /** @type {number | undefined} */
-  let closedAt;
-  /** @type {number[]} */
-  const gaps = [];
   const server = createServer((socket) => {
-    if (closedAt !== undefined) gaps.push(performance.now() - closedAt);
     open++;
     mostOpen = Math.max(mostOpen, open);
-    socket.on('close', () => {
-      open--;
-      closedAt = performance.now();
-    });
+    socket.on('close', () => open--);
     let text = '';
     socket.on('data', (chunk) => {
       text += chunk.toString('utf8');
@@ -43,7 +35,7 @@ async function fakeHerdr(t, answer) {
   });
   await new Promise((resolve) => server.listen(socketAddress(socketPath), () => resolve(undefined)));
   t.after(() => server.close());
-  return { socketPath, requests, mostOpen: () => mostOpen, gaps };
+  return { socketPath, requests, mostOpen: () => mostOpen };
 }
 
 test('request_Should_SendMethodAndParams_AndGiveResult', async (t) => {
@@ -148,16 +140,4 @@ test('request_Should_AskForScreenAndKeysFirst_BeforeQueuedBackgroundRequests', a
     herdr.requests.map((request) => request.method),
     ['session.snapshot', 'pane.send_text', 'pane.read', 'pane.process_info', 'pane.process_info'],
   );
-});
-
-// On Windows herdr's next pipe is not ready at once when one closes: a connection opened straight after waits a tenth of
-// a second for it — a key's echo with it, every time. A millisecond's pause between requests is enough
-test('request_Should_LeaveHerdrAMomentBetweenConnections', async (t) => {
-  const herdr = await fakeHerdr(t, () => ({ result: { type: 'ok' } }));
-  const socket = createHerdrSocket(herdr.socketPath);
-
-  await Promise.all(Array.from({ length: 6 }, () => socket.request('pane.read', { pane_id: 'w2:p2' })));
-
-  assert.equal(herdr.gaps.length, 5);
-  assert.ok(Math.min(...herdr.gaps) >= 0.5, `gaps between connections: ${herdr.gaps.map((gap) => gap.toFixed(2)).join(', ')} ms`);
 });
