@@ -5,6 +5,7 @@ import { appendFile, mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:f
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
+import { palettes } from '../public/model/palettes.js';
 import { startServer } from '../server/app.js';
 import { createBookmarkFile } from '../server/bookmarks.js';
 import { createUploads } from '../server/uploads.js';
@@ -592,4 +593,25 @@ test('page_Should_WearPaletteTheViewerWasStartedWith', async (t) => {
 
   assert.match(page, /<html lang="en" data-palette="sea">/);
   assert.match(page, /<link rel="icon" href="\/b\/[0-9a-f]+\/favicons\/sea\.svg"/);
+});
+
+// iOS puts no SVG on the home screen: without a PNG of its own it takes a shot of the page instead
+test('page_Should_OfferHomeScreenIconInItsPalette_ForEveryPalette', async (t) => {
+  for (const palette of palettes) {
+    const { base } = await withServer(t, { palette });
+
+    const page = await (await fetch(`${base}/`)).text();
+    const href = /<link rel="apple-touch-icon" href="([^"]+)">/.exec(page)?.[1];
+    assert.match(String(href), new RegExp(`^/b/[0-9a-f]+/favicons/${palette}\\.png$`));
+    const icon = await fetch(`${base}${href}`);
+    const body = Buffer.from(await icon.arrayBuffer());
+
+    assert.equal(icon.headers.get('content-type'), 'image/png');
+    // PNG header: the size iOS asks for, and colour type 2 — no alpha channel, since iOS paints transparent corners black
+    assert.deepEqual(
+      { signature: body.subarray(1, 4).toString('ascii'), width: body.readUInt32BE(16), height: body.readUInt32BE(20), colourType: body.readUInt8(25) },
+      { signature: 'PNG', width: 180, height: 180, colourType: 2 },
+      palette,
+    );
+  }
 });

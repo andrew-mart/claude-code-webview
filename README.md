@@ -69,7 +69,8 @@ claude-code-webview --background     # run without a terminal window
   (a view button); the table's own button overrides the session, the session overrides the viewer.
 - Light and dark themes, serif or sans answers, optional display of Claude Code's service messages.
 - **Palettes.** `--palette sea` (or `moss`, `plum`; `clay`, Claude's own, is the default) changes the accent colour, tints the
-  session list a little and colours the tab icon — two viewers, say on two computers, are told apart at a glance.
+  session list a little and colours the tab icon and the iPhone home screen icon — two viewers, say on two computers, are
+  told apart at a glance.
 
 ## Sending prompts from the page (optional, needs herdr)
 
@@ -175,7 +176,7 @@ npm run check        # TypeScript checks the JavaScript through JSDoc in strict 
 | `server/` | HTTP server, session list, transcript stream, file panel, sending prompts through herdr |
 | `public/model/` | pure functions: transcript parsing, tool rows and diffs, file links, outline, formatting |
 | `public/view/` | rendering of the feed, tool rows, markdown, file panel, outline, input box |
-| `assets/`, `scripts/` | shortcut icon and the script that draws it |
+| `assets/`, `scripts/` | shortcut icon, and the script that draws it and the home screen icons (`public/favicons/*.png`) |
 | `test/` | tests |
 
 ## License

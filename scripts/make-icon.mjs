@@ -1,25 +1,50 @@
 // @ts-check
-// The shortcut icon (assets/icon.ico) — the same drawing as public/favicon.svg: an orange square and a white asterisk.
-// Run: node scripts/make-icon.mjs. Draws the pixels itself (4×4 samples per pixel for anti-aliasing) and packs the PNGs into an ICO.
-import { writeFile } from 'node:fs/promises';
+// Icons drawn like public/favicons/<palette>.svg — a square in the palette's colour and a white asterisk — where an SVG won't do:
+//   assets/icon.ico — the shortcut icon, in clay;
+//   public/favicons/<palette>.png — the home screen icon of iOS, 180 px: a full square without transparency (iOS rounds
+//   the corners itself and paints transparent ones black).
+// Run: node scripts/make-icon.mjs. Draws the pixels itself (4×4 samples per pixel for anti-aliasing); the colour of each
+// palette is taken from its SVG.
+import { readFile, writeFile } from 'node:fs/promises';
 import { deflateSync, crc32 } from 'node:zlib';
+import { palettes } from '../public/model/palettes.js';
 
-const sizes = [16, 24, 32, 48, 64, 256];
-const accent = [0xd9, 0x77, 0x57];
+const icoSizes = [16, 24, 32, 48, 64, 256];
+const homeScreenSize = 180;
 const light = [0xfa, 0xf9, 0xf5];
+const favicons = new URL('../public/favicons/', import.meta.url);
 
-const images = sizes.map((size) => png(size, render(size)));
-await writeFile(new URL('../assets/icon.ico', import.meta.url), ico(sizes, images));
-console.log(`assets/icon.ico: ${sizes.join(', ')} px`);
+const clay = await accentOf('clay');
+const icoImages = icoSizes.map((size) => png(size, render(size, { corner: 7, accent: clay }), 'rgba'));
+await writeFile(new URL('../assets/icon.ico', import.meta.url), ico(icoSizes, icoImages));
+console.log(`assets/icon.ico: ${icoSizes.join(', ')} px`);
+for (const palette of palettes) {
+  const pixels = render(homeScreenSize, { corner: 0, accent: await accentOf(palette) });
+  await writeFile(new URL(`${palette}.png`, favicons), png(homeScreenSize, pixels, 'rgb'));
+  console.log(`public/favicons/${palette}.png: ${homeScreenSize} px`);
+}
 
 /**
- * The drawing in 0..32 coordinates, as in favicon.svg: a rounded square (r = 7) and four lines of width 3.
+ * The square's colour in public/favicons/<palette>.svg.
+ * @param {import('../public/model/palettes.js').Palette} palette
+ * @returns {Promise<readonly number[]>} red, green, blue
+ */
+async function accentOf(palette) {
+  const svg = await readFile(new URL(`${palette}.svg`, favicons), 'utf8');
+  const hex = /<rect [^>]*fill="#([0-9a-f]{6})"/i.exec(svg)?.[1];
+  if (hex === undefined) throw new Error(`public/favicons/${palette}.svg: no <rect fill="#rrggbb"> to take the ${palette} colour from`);
+  return [0, 2, 4].map((at) => parseInt(hex.slice(at, at + 2), 16));
+}
+
+/**
+ * The drawing in 0..32 coordinates, as in the SVGs: a square with rounded corners and four lines of width 3.
  * @param {number} x
  * @param {number} y
+ * @param {number} corner — radius of the square's corners; 0 — sharp, the square fills the whole picture
  * @returns {'accent' | 'light' | 'none'}
  */
-function shapeAt(x, y) {
-  if (!insideRoundedSquare(x, y, 32, 7)) return 'none';
+function shapeAt(x, y, corner) {
+  if (!insideRoundedSquare(x, y, 32, corner)) return 'none';
   const lines = [
     [16, 6, 16, 26],
     [6, 16, 26, 16],
@@ -29,8 +54,12 @@ function shapeAt(x, y) {
   return lines.some(([x1 = 0, y1 = 0, x2 = 0, y2 = 0]) => distanceToSegment(x, y, x1, y1, x2, y2) <= 1.5) ? 'light' : 'accent';
 }
 
-/** @param {number} size @returns {Uint8Array} RGBA */
-function render(size) {
+/**
+ * @param {number} size
+ * @param {{ corner: number, accent: readonly number[] }} drawing — see shapeAt; accent: the square's red, green, blue
+ * @returns {Uint8Array} RGBA
+ */
+function render(size, { corner, accent }) {
   const pixels = new Uint8Array(size * size * 4);
   const samples = 4;
   for (let py = 0; py < size; py++) {
@@ -39,7 +68,7 @@ function render(size) {
       let lightHits = 0;
       for (let sy = 0; sy < samples; sy++) {
         for (let sx = 0; sx < samples; sx++) {
-          const shape = shapeAt(((px + (sx + 0.5) / samples) * 32) / size, ((py + (sy + 0.5) / samples) * 32) / size);
+          const shape = shapeAt(((px + (sx + 0.5) / samples) * 32) / size, ((py + (sy + 0.5) / samples) * 32) / size, corner);
           if (shape === 'accent') accentHits++;
           if (shape === 'light') lightHits++;
         }
@@ -70,14 +99,24 @@ function distanceToSegment(px, py, x1, y1, x2, y2) {
   return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1)));
 }
 
-/** @param {number} size @param {Uint8Array} rgba @returns {Buffer} */
-function png(size, rgba) {
-  const rows = Buffer.alloc(size * (size * 4 + 1));
-  for (let y = 0; y < size; y++) Buffer.from(rgba.subarray(y * size * 4, (y + 1) * size * 4)).copy(rows, y * (size * 4 + 1) + 1);
+/**
+ * @param {number} size
+ * @param {Uint8Array} rgba
+ * @param {'rgba' | 'rgb'} format — rgb: without the alpha channel, for a picture that has no transparent pixels
+ * @returns {Buffer}
+ */
+function png(size, rgba, format) {
+  const channels = format === 'rgba' ? 4 : 3;
+  const rowLength = size * channels + 1; // each row starts with its filter byte, 0 — none
+  const rows = Buffer.alloc(size * rowLength);
+  for (let pixel = 0; pixel < size * size; pixel++) {
+    const at = Math.floor(pixel / size) * rowLength + 1 + (pixel % size) * channels;
+    rows.set(rgba.subarray(pixel * 4, pixel * 4 + channels), at);
+  }
   const header = Buffer.alloc(13);
   header.writeUInt32BE(size, 0);
   header.writeUInt32BE(size, 4);
-  header.set([8, 6, 0, 0, 0], 8); // 8 bits per channel, RGBA, no interlacing
+  header.set([8, format === 'rgba' ? 6 : 2, 0, 0, 0], 8); // 8 bits per channel, colour type (6 — RGBA, 2 — RGB), no interlacing
   return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', header), chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))]);
 }
 
