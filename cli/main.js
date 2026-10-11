@@ -33,6 +33,7 @@ Usage: claude-code-webview [options]
       --public-url <url>  an address the page is also opened at, behind a tunnel such as
                         Cloudflare Tunnel: https://viewer.example.com (repeat for more);
                         keep it behind a login such as Cloudflare Access
+      --no-herdr        do not use herdr even if it is found: the page only reads sessions
       --install-shortcut  create a desktop shortcut that starts the viewer (Windows);
                         add --start-menu to put it into the Start menu instead
   -h, --help            show this help
@@ -42,7 +43,8 @@ Environment:
   CLAUDE_CONFIG_DIR     Claude Code config directory (default ~/.claude)
 
 Sending prompts from the page needs herdr (https://herdr.dev): run the viewer once from a herdr pane,
-it remembers how to reach herdr. Without herdr everything else works, the input box is hidden.`;
+it remembers how to reach herdr; its workspaces then group the session list. Without herdr everything else works,
+the input box and the workspaces are not shown.`;
 
 /**
  * @param {readonly string[]} argv
@@ -94,7 +96,7 @@ async function serveHere(command, about) {
     return 0;
   }
   if (found.kind === 'other') return portTaken(command.port);
-  const server = await serve({ port: command.port, about, palette: command.palette, publicAddresses: command.publicAddresses });
+  const server = await serve({ port: command.port, about, palette: command.palette, publicAddresses: command.publicAddresses, herdr: command.herdr });
   if (command.open) openBrowser(server.url);
   console.log('Press Ctrl+C to stop.');
   const shutdown = () => {
@@ -119,7 +121,7 @@ async function startInBackground(command) {
     await mkdir(stateDir, { recursive: true });
     const log = await open(logFile, 'a');
     const publicUrls = command.publicAddresses.flatMap((publicAddress) => ['--public-url', publicAddress.origin]);
-    const child = spawn(process.execPath, [binPath, '--port', String(command.port), '--palette', command.palette, ...publicUrls, '--no-open'], {
+    const child = spawn(process.execPath, [binPath, '--port', String(command.port), '--palette', command.palette, ...publicUrls, ...(command.herdr === 'off' ? ['--no-herdr'] : []), '--no-open'], {
       cwd: homedir(),
       detached: true,
       windowsHide: true,

@@ -4,18 +4,16 @@
 //   ~/.claude/sessions/<pid>.json  → pid of the process that has the session open (written by Claude Code itself)
 //   herdr pane list + process-info → the pane where that process is in the foreground
 //   herdr pane send-text / send-keys → the text and Enter, as if the user typed them
-import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { isRecord, text } from '../public/model/narrow.js';
-import { claudePaneIds, foregroundPids, toTerminalInput } from './herdr.js';
+import { claudePaneIds, foregroundPids, succeeded, toTerminalInput } from './herdr.js';
+import { latestRecords } from './registry.js';
 import { driveRewind } from './rewind.js';
 import { driveStop } from './stop.js';
 
 /**
  * @typedef {{ ok: true, json: unknown, text: string } | { ok: false, error: string, missing: boolean }} HerdrReply — text: what herdr printed; missing: herdr is not installed (no such program)
  * @typedef {(args: readonly string[]) => Promise<HerdrReply>} RunHerdr
- * @typedef {{ pid: number, sessionId: string, status: string, updatedAt: number }} LiveRecord
+ * @typedef {import('./registry.js').LiveRecord} LiveRecord
  * @typedef {import('../public/model/composer.js').LiveState} LiveState — the /api/live contract, shared with the page
  * @typedef {import('../public/model/composer.js').SendOutcome} SendOutcome
  * @typedef {{ stepsUp: number, prompt: string, action: import('./rewind.js').RewindAction }} RewindRequest
@@ -79,7 +77,7 @@ export function createComposer({ readRecords, herdr }) {
   async function locate(sessionId) {
     const presence = await herdrPresence();
     if (presence === 'missing') return { kind: 'herdr-missing' };
-    const record = latestRecord(await readRecords(), sessionId);
+    const record = latestRecords(await readRecords()).get(sessionId);
     if (record === undefined) return { kind: 'offline' };
     if (presence === 'unreachable') return { kind: 'no-herdr', record };
     const place = await paneOf(record.pid);
@@ -191,61 +189,4 @@ export function createComposer({ readRecords, herdr }) {
       return driveRewind(terminalOf(place.pane), { ...request, wait: (ms) => delay(ms) });
     },
   };
-}
-
-/**
- * herdr reports a failure either by its exit code or by an error field in the JSON (e.g. protocol_mismatch).
- * @param {HerdrReply} reply
- * @returns {reply is { ok: true, json: unknown, text: string }}
- */
-function succeeded(reply) {
-  return reply.ok && !(isRecord(reply.json) && reply.json.error !== undefined);
-}
-
-/**
- * The registry of running sessions that Claude Code maintains: ~/.claude/sessions/<pid>.json.
- * @param {string} dir
- * @returns {Promise<readonly unknown[]>}
- */
-export async function readSessionRecords(dir) {
-  const names = await readdir(dir).catch(() => []);
-  const records = await Promise.all(
-    names
-      .filter((name) => /^\d+\.json$/.test(name))
-      .map(async (name) => {
-        const content = await readFile(join(dir, name), 'utf8').catch(() => undefined);
-        try {
-          return content === undefined ? undefined : JSON.parse(content);
-        } catch {
-          return undefined; // the file is being rewritten right now — it will be read on the next poll
-        }
-      }),
-  );
-  return records.filter((record) => record !== undefined);
-}
-
-/**
- * The latest record of the interactive session with this id: the session may have been reopened in another process.
- * @param {readonly unknown[]} records
- * @param {string} sessionId
- * @returns {LiveRecord | undefined}
- */
-function latestRecord(records, sessionId) {
-  const matching = records.flatMap((raw) => {
-    const record = parseRecord(raw);
-    return record !== undefined && record.sessionId === sessionId ? [record] : [];
-  });
-  return matching.reduce((/** @type {LiveRecord | undefined} */ latest, record) => (latest === undefined || record.updatedAt > latest.updatedAt ? record : latest), undefined);
-}
-
-/**
- * @param {unknown} raw — contents of ~/.claude/sessions/<pid>.json
- * @returns {LiveRecord | undefined}
- */
-function parseRecord(raw) {
-  if (!isRecord(raw) || raw.kind !== 'interactive' || typeof raw.pid !== 'number') return undefined;
-  const sessionId = text(raw.sessionId);
-  const status = text(raw.status);
-  const updatedAt = typeof raw.updatedAt === 'number' ? raw.updatedAt : 0;
-  return sessionId === undefined || status === undefined ? undefined : { pid: raw.pid, sessionId, status, updatedAt };
 }

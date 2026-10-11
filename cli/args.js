@@ -5,7 +5,8 @@ import { paletteNamed, palettes } from '../public/model/palettes.js';
 
 /**
  * @typedef {'serve' | 'background' | 'stop' | 'restart' | 'install-shortcut' | 'help' | 'version'} Action
- * @typedef {{ action: Action, port: number, open: boolean, startMenu: boolean, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[] }} Command
+ * @typedef {{ action: Action, port: number, open: boolean, startMenu: boolean, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[], herdr: 'on' | 'off' }} Command — herdr: off —
+ *   not used even when found, the page only reads sessions
  */
 
 export const defaultPort = 7788;
@@ -38,7 +39,7 @@ export function parseCommand(argv) {
     if (address === undefined) return { ok: false, error: `Invalid --public-url value "${value}": expected the address the page is opened at from outside, such as https://viewer.example.com.` };
     publicAddresses.push(address);
   }
-  return { ok: true, command: { action: chosen[0] ?? 'serve', port, open: !values['no-open'], startMenu: values['start-menu'], palette, publicAddresses } };
+  return { ok: true, command: { action: chosen[0] ?? 'serve', port, open: !values['no-open'], startMenu: values['start-menu'], palette, publicAddresses, herdr: values['no-herdr'] ? 'off' : 'on' } };
 }
 
 /**
@@ -63,6 +64,7 @@ function parseOptions(argv) {
       palette: { type: 'string', default: 'clay' },
       'public-url': { type: 'string', multiple: true, default: [] },
       'no-open': { type: 'boolean', default: false },
+      'no-herdr': { type: 'boolean', default: false },
       background: { type: 'boolean', short: 'b', default: false },
       stop: { type: 'boolean', default: false },
       restart: { type: 'boolean', default: false },

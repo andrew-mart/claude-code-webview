@@ -4,7 +4,7 @@ import { formatAgo } from './model/format.js';
 import { isRecord, text } from './model/narrow.js';
 import { currentIndex, stepTarget } from './model/outline.js';
 import { feedToKeep, keptEntries, sessionsToSave } from './model/offline.js';
-import { listedSessions, mergeSessions } from './model/session-list.js';
+import { groupedSessions, listedSessions, mergeSessions } from './model/session-list.js';
 import { actionLabel, choices, nextChoice } from './model/view-settings.js';
 import { createBookmarkStore, moveLocalBookmarksToServer } from './view/bookmark-store.js';
 import { createComposer } from './view/composer-view.js';
@@ -28,6 +28,8 @@ import { activityModeEvent, jumpMarginPx, mountSession } from './view/session-vi
  */
 
 const refreshMs = 4000;
+/** The herdr workspaces of the sessions change seldom: they are asked about this often. */
+const workspacesEveryMs = 15_000;
 /** While the viewer answers, the latest sessions are saved to read offline this often at most… */
 const keepEveryMs = 5 * 60_000;
 /** …that many of the latest ones worked on, within this stretch of time, their latest entries. */
@@ -41,6 +43,8 @@ const list = byId('session-list', HTMLElement);
 const search = byId('search', HTMLInputElement);
 const follow = byId('follow', HTMLInputElement);
 const showSdk = byId('show-sdk', HTMLInputElement);
+const groupWorkspaces = byId('group-workspaces', HTMLInputElement);
+const groupWorkspacesOption = byId('group-workspaces-option', HTMLElement);
 const main = byId('main', HTMLElement);
 const emptyState = byId('empty-state', HTMLElement);
 const updateNotice = createUpdateNotice();
@@ -92,6 +96,11 @@ showSdk.addEventListener('change', () => {
   page.renderList();
   page.followLatest();
 });
+groupWorkspaces.checked = settings.get('workspaces') === 'grouped';
+groupWorkspaces.addEventListener('change', () => {
+  settings.set('workspaces', groupWorkspaces.checked ? 'grouped' : 'flat');
+  page.renderList();
+});
 window.addEventListener('hashchange', () => {
   drawers.arrive();
   page.openFromHash();
@@ -101,6 +110,8 @@ void moveLocalBookmarksToServer()
   .then(() => page.refresh())
   .then(() => page.openFromHash());
 setInterval(() => void page.refresh(), refreshMs);
+void page.refreshWorkspaces();
+setInterval(() => void page.refreshWorkspaces(), workspacesEveryMs);
 // The page itself opens from the browser's copy when the viewer is out of reach (sw.js); the browser is asked to keep
 // the saved copies rather than clear them to make room.
 if ('serviceWorker' in navigator) {
@@ -126,36 +137,72 @@ function createPage() {
   const places = new Map();
   const rewindDialog = createRewindDialog({ onDone: (reply) => current?.rewound(reply) });
 
+  /** The herdr workspace of each session (server/workspaces.js); none while herdr is not used or does not answer. */
+  /** @type {Workspaces} */
+  let workspaces = { herdr: false, of: new Map() };
+  let workspacesKnown = '';
+
   /** @param {string} text — the search box text; following ignores it */
-  const listed = (text) => listedSessions(sessions, { sdk: showSdk.checked ? 'shown' : 'hidden', search: text });
+  const listed = (text) => listedSessions(sessions, { sdk: showSdk.checked ? 'shown' : 'hidden', search: text, workspaces: workspaces.of });
 
   // The list is drawn again every time a session changes — every few seconds while Claude works. A session that shows
   // the same as before keeps its element, and the list is touched only when something in it changed.
   /** @type {Map<string, { look: string, element: HTMLAnchorElement }>} */
   const items = new Map();
+  /** @type {Map<string, { look: string, element: HTMLElement }>} */
+  const groupHeads = new Map();
+  /**
+   * @param {SessionInfo} session
+   * @param {number} now
+   * @param {string | undefined} workspace — shown under the title; none in a grouped list, whose group heads name it
+   */
+  const itemOf = (session, now, workspace) => {
+    const title = session.title ?? 'Untitled';
+    const folder = folderName(session.cwd ?? session.project);
+    const ago = formatAgo(session.activeAt, now);
+    const active = now - session.activeAt < activeMs;
+    // Offline, a session with no saved copy cannot be read.
+    const unavailable = !connection.online() && !savedMarks.has(session.id);
+    const selected = session.id === current?.id;
+    // A workspace named as the folder is not repeated.
+    const named = workspace !== undefined && workspace.toLowerCase() !== folder.toLowerCase() ? workspace : '';
+    const look = [title, folder, named, ago, active, selected, unavailable].join('\u0000');
+    const known = items.get(session.id);
+    if (known !== undefined && known.look === look) return known.element;
+    const place = h('span', { className: 'session-place' }, [h('span', { className: 'session-folder', text: folder })]);
+    if (named !== '') place.prepend(h('span', { className: 'session-workspace', text: named }));
+    const link = h('a', { className: 'session-item', attrs: { href: `#/${session.id}` } }, [
+      h('span', { className: 'session-title', text: title }),
+      h('span', { className: 'session-sub' }, [place, h('span', { text: ago })]),
+    ]);
+    link.classList.toggle('active', active);
+    link.classList.toggle('selected', selected);
+    link.classList.toggle('unavailable', unavailable);
+    items.set(session.id, { look, element: link });
+    return link;
+  };
+  /**
+   * @param {string | undefined} workspace — none: the sessions outside herdr's workspaces
+   * @param {number} count
+   */
+  const headOf = (workspace, count) => {
+    const look = `${workspace ?? ''}\u0000${count}`;
+    const known = groupHeads.get(workspace ?? '');
+    if (known !== undefined && known.look === look) return known.element;
+    const head = h('div', { className: workspace === undefined ? 'session-group outside' : 'session-group' }, [
+      h('span', { className: 'session-group-name', text: workspace ?? 'No workspace' }),
+      h('span', { className: 'session-group-count', text: String(count) }),
+    ]);
+    groupHeads.set(workspace ?? '', { look, element: head });
+    return head;
+  };
   const renderList = () => {
     const now = Date.now();
-    const elements = listed(search.value).map((session) => {
-      const title = session.title ?? 'Untitled';
-      const folder = folderName(session.cwd ?? session.project);
-      const ago = formatAgo(session.activeAt, now);
-      const active = now - session.activeAt < activeMs;
-      // Offline, a session with no saved copy cannot be read.
-      const unavailable = !connection.online() && !savedMarks.has(session.id);
-      const selected = session.id === current?.id;
-      const look = [title, folder, ago, active, selected, unavailable].join('\u0000');
-      const known = items.get(session.id);
-      if (known !== undefined && known.look === look) return known.element;
-      const link = h('a', { className: 'session-item', attrs: { href: `#/${session.id}` } }, [
-        h('span', { className: 'session-title', text: title }),
-        h('span', { className: 'session-sub' }, [h('span', { className: 'session-folder', text: folder }), h('span', { text: ago })]),
-      ]);
-      link.classList.toggle('active', active);
-      link.classList.toggle('selected', selected);
-      link.classList.toggle('unavailable', unavailable);
-      items.set(session.id, { look, element: link });
-      return link;
-    });
+    const shown = listed(search.value);
+    const elements =
+      workspaces.herdr && groupWorkspaces.checked
+        ? groupedSessions(shown, workspaces.of).flatMap((group) => [headOf(group.workspace, group.sessions.length), ...group.sessions.map((session) => itemOf(session, now, undefined))])
+        : shown.map((session) => itemOf(session, now, workspaces.of.get(session.id)));
     const unchanged = elements.length === list.children.length && elements.every((element, index) => list.children[index] === element);
     if (!unchanged) list.replaceChildren(...elements);
   };
@@ -334,6 +381,21 @@ function createPage() {
       const info = sessions.find((session) => session.id === current?.id);
       if (info !== undefined) current?.header.updatePlace(info);
       this.followLatest();
+    },
+    /** The herdr workspaces of the sessions: they group the list and are searched by. */
+    async refreshWorkspaces() {
+      const response = await fetch('/api/workspaces').catch(() => undefined);
+      const reply = response?.ok ? await response.json().catch(() => undefined) : undefined;
+      // Out of the viewer's reach the page keeps what it knew.
+      if (reply === undefined) return;
+      const next = parseWorkspaces(reply);
+      const known = JSON.stringify([next.herdr, [...next.of]]);
+      if (known === workspacesKnown) return;
+      workspacesKnown = known;
+      workspaces = next;
+      groupWorkspacesOption.hidden = !next.herdr;
+      search.placeholder = next.herdr ? 'Search by title, folder or workspace' : 'Search by title or folder';
+      renderList();
     },
     followLatest() {
       const [latest] = listed('');
@@ -615,6 +677,20 @@ async function fetchBranch(sessionId) {
  */
 function iconButton(iconName) {
   return h('button', { className: 'icon-button', attrs: { type: 'button' } }, [icon(iconName)]);
+}
+
+/**
+ * @typedef {{ herdr: boolean, of: ReadonlyMap<string, string> }} Workspaces — herdr: whether the viewer reaches herdr;
+ *   of: the workspace of each session, by its id
+ */
+
+/**
+ * @param {unknown} json — the /api/workspaces reply
+ * @returns {Workspaces}
+ */
+function parseWorkspaces(json) {
+  if (!isRecord(json) || json.herdr !== true || !isRecord(json.sessions)) return { herdr: false, of: new Map() };
+  return { herdr: true, of: new Map(Object.entries(json.sessions).flatMap(([id, label]) => (typeof label === 'string' ? [/** @type {const} */ ([id, label])] : []))) };
 }
 
 /**

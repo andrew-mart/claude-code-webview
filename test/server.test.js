@@ -62,7 +62,10 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   const file = join(project, `${sessionId}.jsonl`);
   await writeFile(file, promptLine('u1', 'First question'));
   const { composer, calls } = fakeComposer(takenBack);
-  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses });
+  // herdr puts every listed session into the workspace "web"
+  /** @type {Pick<ReturnType<typeof import('../server/workspaces.js').createWorkspaces>, 'of'>} */
+  const workspaces = { of: async (listed) => ({ herdr: true, sessions: Object.fromEntries(listed.map(({ id }) => [id, 'web'])) }) };
+  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, workspaces });
   t.after(() => server.close());
   return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls };
 }
@@ -626,4 +629,15 @@ test('page_Should_OfferHomeScreenIconInItsPalette_ForEveryPalette', async (t) =>
       palette,
     );
   }
+});
+
+// The herdr workspaces of the listed sessions, for the page to group and search by; asked every few seconds
+test('workspaces_Should_ServeWorkspacesOfListedSessions_And_AnswerUnchangedReplyWithNotModified', async (t) => {
+  const { port } = await withServer(t);
+
+  const first = await rawGet(port, '/api/workspaces', {});
+  const again = await rawGet(port, '/api/workspaces', { 'if-none-match': String(first.headers.etag) });
+
+  assert.equal(first.status, 200);
+  assert.deepEqual({ reply: JSON.parse(first.body.toString('utf8')), again: again.status }, { reply: { herdr: true, sessions: { [sessionId]: 'web' } }, again: 304 });
 });
