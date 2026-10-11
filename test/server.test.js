@@ -52,17 +52,17 @@ function fakeComposer(takenBack) {
 
 /**
  * @param {import('node:test').TestContext} t
- * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette }} [options] - takenBack: see
- *   fakeComposer; palette: the one the viewer is started with
+ * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[] }} [options] - takenBack: see
+ *   fakeComposer; palette, publicAddresses: what the viewer is started with
  */
-async function withServer(t, { takenBack, palette = 'clay' } = {}) {
+async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [] } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'csv-'));
   const project = join(root, 'D--dev-x');
   await mkdir(project);
   const file = join(project, `${sessionId}.jsonl`);
   await writeFile(file, promptLine('u1', 'First question'));
   const { composer, calls } = fakeComposer(takenBack);
-  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette });
+  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses });
   t.after(() => server.close());
   return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls };
 }
@@ -217,6 +217,18 @@ test('server_Should_RejectRequestForForeignHost', async (t) => {
   });
 
   assert.equal(status, 403);
+});
+
+// Behind a tunnel (Cloudflare Tunnel, say) the page is opened at a public address: its requests carry that Host and Origin
+test('server_Should_ServePageOpenedAtPublicAddress_And_TakeItsPrompts', async (t) => {
+  const { port, calls } = await withServer(t, { publicAddresses: [{ origin: 'https://viewer.example.com', host: 'viewer.example.com' }] });
+  const fromPublicPage = { ...pageHeaders(port), host: 'viewer.example.com', origin: 'https://viewer.example.com' };
+
+  const list = await rawGet(port, '/api/sessions', { host: 'viewer.example.com' });
+  const sent = await post(port, '/api/send', fromPublicPage, JSON.stringify({ session: sessionId, text: 'Go on' }));
+
+  assert.deepEqual({ list: list.status, sent: sent.status }, { list: 200, sent: 200 });
+  assert.deepEqual(calls, [['send', sessionId, 'Go on']]);
 });
 
 /** @type {import('../public/model/bookmarks.js').Bookmark} */

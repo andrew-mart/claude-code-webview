@@ -11,17 +11,17 @@ test('isTemporaryInstall_Should_RecognizeNpxCacheOnEverySystem', () => {
 });
 
 test('parseCommand_Should_ServeAndOpenBrowserByDefault', () => {
-  assert.deepEqual(parseCommand([]), { ok: true, command: { action: 'serve', port: 7788, open: true, startMenu: false, palette: 'clay' } });
+  assert.deepEqual(parseCommand([]), { ok: true, command: { action: 'serve', port: 7788, open: true, startMenu: false, palette: 'clay', publicAddresses: [] } });
 });
 
 test('parseCommand_Should_ReadActionPortAndBrowserFlag', () => {
   assert.deepEqual(parseCommand(['--background', '--port', '7800', '--no-open']), {
     ok: true,
-    command: { action: 'background', port: 7800, open: false, startMenu: false, palette: 'clay' },
+    command: { action: 'background', port: 7800, open: false, startMenu: false, palette: 'clay', publicAddresses: [] },
   });
   assert.deepEqual(parseCommand(['--install-shortcut', '--start-menu']), {
     ok: true,
-    command: { action: 'install-shortcut', port: 7788, open: true, startMenu: true, palette: 'clay' },
+    command: { action: 'install-shortcut', port: 7788, open: true, startMenu: true, palette: 'clay', publicAddresses: [] },
   });
   assert.deepEqual(
     [parseCommand(['-v']), parseCommand(['--help'])].map((parsed) => parsed.ok && parsed.command.action),
@@ -40,4 +40,24 @@ test('parseCommand_Should_ReadPaletteThatTellsThisViewerFromAnotherOneAndRejectU
 
   assert.equal(parsed.ok && parsed.command.palette, 'sea');
   assert.deepEqual(parseCommand(['--palette', 'neon']), { ok: false, error: 'Invalid --palette value "neon": expected one of clay, sea, moss, plum.' });
+});
+
+// Behind a tunnel the page is opened at a public address, and its requests carry that Host and Origin
+test('parseCommand_Should_ReadPublicAddressesThePageIsOpenedAt', () => {
+  const parsed = parseCommand(['--public-url', 'https://viewer.example.com', '--public-url', 'https://old.example.com:8443/']);
+
+  assert.deepEqual(parsed.ok && parsed.command.publicAddresses, [
+    { origin: 'https://viewer.example.com', host: 'viewer.example.com' },
+    { origin: 'https://old.example.com:8443', host: 'old.example.com:8443' },
+  ]);
+});
+
+// The page is served from the root of the address, over http or https
+test('parseCommand_Should_RejectPublicUrlThatIsNotJustAnAddress', () => {
+  for (const value of ['https://viewer.example.com/viewer', 'https://viewer.example.com/?a=1', 'ftp://viewer.example.com', 'viewer.example.com']) {
+    const parsed = parseCommand(['--public-url', value]);
+
+    const told = parsed.ok ? 'accepted' : parsed.error;
+    assert.ok(told.startsWith(`Invalid --public-url value "${value}"`), `${value}: ${told}`);
+  }
 });

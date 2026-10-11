@@ -30,6 +30,9 @@ Usage: claude-code-webview [options]
       --no-open         do not open the browser
       --palette <name>  the page's accent colour, to tell two viewers apart:
                         clay (default), sea, moss or plum
+      --public-url <url>  an address the page is also opened at, behind a tunnel such as
+                        Cloudflare Tunnel: https://viewer.example.com (repeat for more);
+                        keep it behind a login such as Cloudflare Access
       --install-shortcut  create a desktop shortcut that starts the viewer (Windows);
                         add --start-menu to put it into the Start menu instead
   -h, --help            show this help
@@ -91,7 +94,7 @@ async function serveHere(command, about) {
     return 0;
   }
   if (found.kind === 'other') return portTaken(command.port);
-  const server = await serve({ port: command.port, about, palette: command.palette });
+  const server = await serve({ port: command.port, about, palette: command.palette, publicAddresses: command.publicAddresses });
   if (command.open) openBrowser(server.url);
   console.log('Press Ctrl+C to stop.');
   const shutdown = () => {
@@ -115,7 +118,8 @@ async function startInBackground(command) {
   if (found.kind === 'free') {
     await mkdir(stateDir, { recursive: true });
     const log = await open(logFile, 'a');
-    const child = spawn(process.execPath, [binPath, '--port', String(command.port), '--palette', command.palette, '--no-open'], {
+    const publicUrls = command.publicAddresses.flatMap((publicAddress) => ['--public-url', publicAddress.origin]);
+    const child = spawn(process.execPath, [binPath, '--port', String(command.port), '--palette', command.palette, ...publicUrls, '--no-open'], {
       cwd: homedir(),
       detached: true,
       windowsHide: true,

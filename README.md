@@ -8,19 +8,18 @@ Every line Claude Code writes to the session transcript shows up on the page wit
 
 ## Quick start
 
-```bash
-npx claude-code-webview
-```
-
-That's it: the viewer starts on http://127.0.0.1:7788 and opens in your browser. If it is already running, the command
-just opens the browser. Requires Node.js 22 or newer. Press Ctrl+C to stop.
-
-Prefer a permanent install?
+The viewer runs from its source. Requires Node.js 22 or newer.
 
 ```bash
-npm install -g claude-code-webview
-claude-code-webview --background     # run without a terminal window
+git clone https://github.com/ryletko/claude-code-webview.git
+cd claude-code-webview
+npm install --omit=dev
+node bin/claude-code-webview.js
 ```
+
+The viewer starts on http://127.0.0.1:7788 and opens in your browser. If it is already running, the command just
+opens the browser. Press Ctrl+C to stop; `node bin/claude-code-webview.js --background` runs it without a terminal
+window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-code-webview.js --restart`.
 
 ## What you get
 
@@ -110,24 +109,61 @@ herdr pane send-text + send-keys     → the text and Enter, into that pane
 
 Questions with options (AskUserQuestion) still need to be answered in the terminal.
 
+## On your phone
+
+The viewer answers on your computer only (`127.0.0.1`). To open it from a phone — at home or anywhere — put it behind
+[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/get-started/create-remote-tunnel/)
+and [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/),
+right on the computer that runs the viewer. `cloudflared` connects out to Cloudflare, so there is no server to rent, no
+port to open on the router and no address to keep track of. The free plans are enough; you need a domain on Cloudflare.
+
+1. **Tunnel.** In the Cloudflare dashboard, **Networking → Tunnels → Create a tunnel**, and install `cloudflared` on
+   the computer with the command the dashboard shows: it runs as a service and starts with the computer.
+2. **Route.** In the tunnel, **Routes → Add route → Published application**: a hostname such as `viewer.example.com`
+   and the service URL `http://localhost:7788`.
+3. **Login.** **Zero Trust → Access controls → Applications → Create new application → Self-hosted and private**, for
+   the same hostname, with the policy **Allow · Include · Emails · you@example.com** and the One-time PIN login (a code
+   by email) or a Google or GitHub account. A long **Session Duration**, a month say, saves logging in again on the
+   phone. Do not skip this step: without it the tunnel shows your sessions — secrets included — to anyone who finds
+   the address, and with herdr lets them type into your terminals.
+4. **Belt and braces.** On the route, turn on
+   [Protect with Access](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/origin-parameters/)
+   (it asks for your team name and the application's AUD tag): `cloudflared` then passes on only requests that carry a
+   valid Access token, even if the Access application is changed or deleted later.
+5. **The viewer.** Start it with its public address:
+   `node bin/claude-code-webview.js --background --public-url https://viewer.example.com`. The viewer answers only its
+   own addresses, so without `--public-url` it turns away whatever comes through the tunnel.
+
+Open `https://viewer.example.com` on the phone, log in, and add the page to the Home Screen (Safari: Share → Add to
+Home Screen). It gets an icon in the viewer's palette, and Safari keeps its saved copies: with the computer off the
+page still opens and shows what it saved, and catches up once the computer is back (see **Offline** above).
+
+On a phone the session list and the outline slide in from the sides, and the swipe from the left edge — the browser's
+Back — brings back the list the session was chosen in. On the touch keyboard Enter starts a new line and ↑ sends; the
+paperclip takes photos from the gallery or the camera.
+
+Several computers? Give each its own tunnel, hostname and `--palette`, and the pages are told apart at a glance.
+
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `claude-code-webview` | start and open the browser; Ctrl+C stops it |
-| `claude-code-webview --background` | start without a terminal window (log: `~/.claude-code-webview/server.log`) |
-| `claude-code-webview --stop` | stop the running viewer |
-| `claude-code-webview --restart` | stop and start again in the background |
-| `claude-code-webview --port 7800` | use another port |
-| `claude-code-webview --palette sea` | another accent colour: clay (default), sea, moss, plum |
-| `claude-code-webview --no-open` | do not open the browser |
-| `claude-code-webview --install-shortcut` | Windows: desktop shortcut that starts the viewer in the background (`--start-menu` for the Start menu) |
+| `node bin/claude-code-webview.js` | start and open the browser; Ctrl+C stops it |
+| `node bin/claude-code-webview.js --background` | start without a terminal window (log: `~/.claude-code-webview/server.log`) |
+| `node bin/claude-code-webview.js --stop` | stop the running viewer |
+| `node bin/claude-code-webview.js --restart` | stop and start again in the background |
+| `node bin/claude-code-webview.js --port 7800` | use another port |
+| `node bin/claude-code-webview.js --palette sea` | another accent colour: clay (default), sea, moss, plum |
+| `node bin/claude-code-webview.js --public-url https://viewer.example.com` | also answer at this address, behind a tunnel (see **On your phone**); repeat for more |
+| `node bin/claude-code-webview.js --no-open` | do not open the browser |
+| `node bin/claude-code-webview.js --install-shortcut` | Windows: desktop shortcut that starts the viewer in the background (`--start-menu` for the Start menu) |
+
+`npm start -- <options>` does the same as `node bin/claude-code-webview.js <options>`.
 
 `--stop` only stops a process that answers on the port as this viewer; another program on the port is left alone.
 Sessions are read from `~/.claude/projects`; if you moved the Claude Code folder, `CLAUDE_CONFIG_DIR` is respected.
 
-The desktop shortcut needs a global install (`npm install -g claude-code-webview`): a copy in the npx cache can be
-cleaned up by npm at any time, so the command refuses to point a shortcut at it.
+The desktop shortcut starts the viewer from the folder it was created in: after moving the folder, create it again.
 
 ## How it works
 
@@ -147,8 +183,10 @@ call through `agent-<id>.meta.json`. A session moved with `/cd` is found in its 
 
 Transcripts contain everything the agent has seen, secrets included. So the viewer:
 
-- listens on `127.0.0.1` only and answers only requests whose `Host` is that address, so a web page cannot read it
-  through DNS rebinding;
+- listens on `127.0.0.1` only and answers only requests whose `Host` is that address (or one given with
+  `--public-url`), so a web page cannot read it through DNS rebinding;
+- leaves the login on a public address to whatever stands in front of it: an address given with `--public-url` must be
+  behind one, such as Cloudflare Access (see **On your phone**);
 - sanitizes markdown from transcripts with DOMPurify;
 - accepts the one write operation — sending a prompt to a terminal — only from its own page: the request must carry
   the viewer's `Origin`, a JSON body and an `X-Viewer` header, which another site cannot send without a CORS preflight
@@ -163,8 +201,7 @@ Transcripts contain everything the agent has seen, secrets included. So the view
 ## Development
 
 ```bash
-git clone https://github.com/ryletko/claude-code-webview.git && cd claude-code-webview
-npm install
+npm install          # with the development tools: TypeScript, jsdom
 npm start            # run from the working copy
 npm test             # node:test — transcript parsing, file links, server, markdown (jsdom), CLI
 npm run check        # TypeScript checks the JavaScript through JSDoc in strict mode
