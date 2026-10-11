@@ -1,20 +1,23 @@
 // @ts-check
-// Which herdr workspace each session belongs to, for grouping and searching the session list:
-//   ~/.claude/sessions/<pid>.json       → the process that has the session open
-//   herdr pane process-info             → the pane that runs that process
-//   herdr pane list + workspace list    → the pane's workspace and its name
-// A session seen running keeps that workspace in a file after it ends; one never seen running is put into the
-// workspace whose panes are open in its folder, if just one workspace has panes there.
+// What herdr shows, as the page needs it: which herdr workspace each session belongs to, for grouping and searching the
+// session list.
+//   ~/.claude/sessions/<pid>.json  → the process that has the session open
+//   herdr pane process-info        → the pane that runs that process
+//   herdr api snapshot             → workspaces, their tabs and panes
+// A session seen running keeps its workspace in a file after it ends; one never seen running is put into the workspace
+// whose panes are open in its folder, if just one workspace has panes there.
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { isRecord } from '../public/model/narrow.js';
-import { foregroundPids, panesOf, succeeded, workspaceLabels } from './herdr.js';
+import { foregroundPids, snapshotOf, succeeded } from './herdr.js';
 import { latestRecords } from './registry.js';
 
 /**
  * @typedef {{ herdr: boolean, sessions: Record<string, string> }} SessionWorkspaces — the /api/workspaces reply.
  *   herdr: whether herdr answers; without it the page shows no workspaces. sessions: the workspace's name, by session id
- * @typedef {{ byFolder: ReadonlyMap<string, string> } | undefined} HerdrView — what herdr showed; undefined: no herdr
+ * @typedef {{ snapshot: import('./herdr.js').HerdrSnapshot, sessionByPane: ReadonlyMap<string, string>, byFolder: ReadonlyMap<string, string> } | undefined} HerdrView
+ *   what herdr showed, the sessions running in its panes, and the workspace of each folder; undefined: no herdr
+ * @typedef {import('./herdr.js').Pane} Pane
  */
 
 /**
@@ -22,7 +25,7 @@ import { latestRecords } from './registry.js';
  *   readRecords — contents of ~/.claude/sessions/*.json; file — where the workspaces of sessions seen running are kept;
  *   refreshMs — herdr is asked at most this often
  */
-export function createWorkspaces({ herdr, readRecords, file, refreshMs }) {
+export function createHerdrView({ herdr, readRecords, file, refreshMs }) {
   /** A process's pane does not change while it runs: process-info is asked once for each Claude process. */
   /** @type {Map<number, string>} */
   const paneByPid = new Map();
@@ -38,28 +41,44 @@ export function createWorkspaces({ herdr, readRecords, file, refreshMs }) {
   };
 
   /**
-   * The sessions running now: their panes' workspaces are remembered.
-   * @param {ReadonlyMap<string, string>} labels
-   * @param {readonly import('./herdr.js').Pane[]} panes
+   * Which session runs in which pane: the processes of Claude Code's registry, found in herdr's panes.
+   * @param {readonly Pane[]} panes
+   * @returns {Promise<Map<string, string>>} — session ids by pane id
    */
-  const rememberRunning = async (labels, panes) => {
+  const runningSessions = async (panes) => {
     const records = [...latestRecords(await readRecords()).values()];
     if (records.some((record) => !paneByPid.has(record.pid))) await findPanes(panes);
+    const shown = new Set(panes.map((pane) => pane.paneId));
+    return new Map(
+      records.flatMap((record) => {
+        const pane = paneByPid.get(record.pid);
+        return pane !== undefined && shown.has(pane) ? [/** @type {const} */ ([pane, record.sessionId])] : [];
+      }),
+    );
+  };
+
+  /**
+   * The workspaces of the sessions running now are remembered.
+   * @param {import('./herdr.js').HerdrSnapshot} snapshot
+   * @param {ReadonlyMap<string, string>} sessionByPane
+   */
+  const rememberRunning = async (snapshot, sessionByPane) => {
+    const labels = workspaceLabels(snapshot);
     const seen = await seenSessions();
     let learned = false;
-    for (const record of records) {
-      const pane = panes.find((known) => known.paneId === paneByPid.get(record.pid));
-      const label = pane === undefined ? undefined : labels.get(pane.workspaceId);
-      if (label === undefined || seen.get(record.sessionId) === label) continue;
-      seen.set(record.sessionId, label);
+    for (const pane of snapshot.panes) {
+      const session = sessionByPane.get(pane.paneId);
+      const label = labels.get(pane.workspaceId);
+      if (session === undefined || label === undefined || seen.get(session) === label) continue;
+      seen.set(session, label);
       learned = true;
     }
     if (learned) await writeRemembered(file, seen);
   };
 
-  /** @param {readonly import('./herdr.js').Pane[]} panes */
+  /** @param {readonly Pane[]} panes */
   const findPanes = async (panes) => {
-    for (const pane of panes.filter((known) => known.claude)) {
+    for (const pane of panes.filter((known) => known.agent === 'claude')) {
       const info = await herdr(['pane', 'process-info', '--pane', pane.paneId]);
       if (succeeded(info)) for (const pid of foregroundPids(info.json)) paneByPid.set(pid, pane.paneId);
     }
@@ -67,13 +86,12 @@ export function createWorkspaces({ herdr, readRecords, file, refreshMs }) {
 
   /** @returns {Promise<HerdrView>} */
   const lookAtHerdr = async () => {
-    const workspaceList = await herdr(['workspace', 'list']);
-    const paneList = await herdr(['pane', 'list']);
-    if (!succeeded(workspaceList) || !succeeded(paneList)) return undefined;
-    const labels = workspaceLabels(workspaceList.json);
-    const panes = panesOf(paneList.json);
-    await rememberRunning(labels, panes);
-    return { byFolder: workspaceByFolder(panes, labels) };
+    const reply = await herdr(['api', 'snapshot']);
+    const snapshot = succeeded(reply) ? snapshotOf(reply.json) : undefined;
+    if (snapshot === undefined) return undefined;
+    const sessionByPane = await runningSessions(snapshot.panes);
+    await rememberRunning(snapshot, sessionByPane);
+    return { snapshot, sessionByPane, byFolder: workspaceByFolder(snapshot.panes, workspaceLabels(snapshot)) };
   };
 
   /** Pages that ask at once, or within refreshMs, share one look at herdr. */
@@ -87,7 +105,7 @@ export function createWorkspaces({ herdr, readRecords, file, refreshMs }) {
      * @param {readonly { id: string, cwd: string | undefined }[]} sessions — the session list
      * @returns {Promise<SessionWorkspaces>}
      */
-    async of(sessions) {
+    async workspacesOf(sessions) {
       const view = await currentView();
       if (view === undefined) return { herdr: false, sessions: {} };
       const seen = await seenSessions();
@@ -97,12 +115,54 @@ export function createWorkspaces({ herdr, readRecords, file, refreshMs }) {
       });
       return { herdr: true, sessions: Object.fromEntries(found) };
     },
+    /** @returns {Promise<import('../public/model/herdr.js').HerdrLayout>} */
+    async layout() {
+      const view = await currentView();
+      return view === undefined ? { herdr: false, workspaces: [] } : { herdr: true, workspaces: layoutOf(view.snapshot, view.sessionByPane) };
+    },
   };
 }
 
 /**
+ * herdr's workspaces and tabs in its own order — by their numbers — with the panes in each tab.
+ * @param {import('./herdr.js').HerdrSnapshot} snapshot
+ * @param {ReadonlyMap<string, string>} sessionByPane
+ * @returns {import('../public/model/herdr.js').HerdrWorkspace[]}
+ */
+function layoutOf(snapshot, sessionByPane) {
+  const byNumber = (/** @type {{ number: number }} */ a, /** @type {{ number: number }} */ b) => a.number - b.number;
+  return [...snapshot.workspaces].sort(byNumber).map((workspace) => ({
+    id: workspace.id,
+    number: workspace.number,
+    label: workspace.label,
+    status: workspace.status,
+    activeTab: workspace.activeTab,
+    tabs: snapshot.tabs
+      .filter((tab) => tab.workspaceId === workspace.id)
+      .sort(byNumber)
+      .map((tab) => ({
+        id: tab.id,
+        number: tab.number,
+        label: tab.label,
+        status: tab.status,
+        panes: snapshot.panes
+          .filter((pane) => pane.tabId === tab.id)
+          .map((pane) => ({ id: pane.paneId, agent: pane.agent, status: pane.status, title: pane.title, session: sessionByPane.get(pane.paneId), size: pane.size })),
+      })),
+  }));
+}
+
+/**
+ * @param {import('./herdr.js').HerdrSnapshot} snapshot
+ * @returns {Map<string, string>} — workspace names by id
+ */
+function workspaceLabels(snapshot) {
+  return new Map(snapshot.workspaces.map((workspace) => [workspace.id, workspace.label]));
+}
+
+/**
  * The workspace of each folder where panes of just one workspace are open.
- * @param {readonly import('./herdr.js').Pane[]} panes
+ * @param {readonly Pane[]} panes
  * @param {ReadonlyMap<string, string>} labels — workspace names by id
  * @returns {Map<string, string>} — by folderKey
  */

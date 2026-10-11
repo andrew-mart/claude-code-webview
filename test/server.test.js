@@ -50,6 +50,16 @@ function fakeComposer(takenBack) {
   };
 }
 
+/** @type {import('../public/model/herdr.js').HerdrWorkspace} */
+const webWorkspace = {
+  id: 'w1',
+  number: 1,
+  label: 'web',
+  status: 'working',
+  activeTab: 'w1:t1',
+  tabs: [{ id: 'w1:t1', number: 1, label: 'viewer', status: 'working', panes: [{ id: 'w1:p1', agent: 'claude', status: 'working', title: 'First question', session: sessionId, size: { cols: 120, rows: 40 } }] }],
+};
+
 /**
  * @param {import('node:test').TestContext} t
  * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[] }} [options] - takenBack: see
@@ -62,12 +72,29 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   const file = join(project, `${sessionId}.jsonl`);
   await writeFile(file, promptLine('u1', 'First question'));
   const { composer, calls } = fakeComposer(takenBack);
-  // herdr puts every listed session into the workspace "web"
-  /** @type {Pick<ReturnType<typeof import('../server/workspaces.js').createWorkspaces>, 'of'>} */
-  const workspaces = { of: async (listed) => ({ herdr: true, sessions: Object.fromEntries(listed.map(({ id }) => [id, 'web'])) }) };
-  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, workspaces });
+  // herdr puts every listed session into the workspace "web", whose one tab runs the session
+  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout'>} */
+  const herdrView = {
+    workspacesOf: async (listed) => ({ herdr: true, sessions: Object.fromEntries(listed.map(({ id }) => [id, 'web'])) }),
+    layout: async () => ({ herdr: true, workspaces: [webWorkspace] }),
+  };
+  // A pane's terminal shows one screen and closes; the keys typed into a pane are recorded
+  /** @type {string[][]} */
+  const typed = [];
+  /** @type {Pick<ReturnType<typeof import('../server/terminal.js').createTerminals>, 'stream' | 'type'>} */
+  const terminals = {
+    stream: async (pane, send) => {
+      send('screen', { text: `\u001b[32m${pane}\u001b[0m $` });
+      send('gone', { missing: false });
+    },
+    type: async (pane, data) => {
+      typed.push([pane, data]);
+      return { ok: true };
+    },
+  };
+  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals });
   t.after(() => server.close());
-  return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls };
+  return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls, typed };
 }
 
 /**
@@ -640,4 +667,47 @@ test('workspaces_Should_ServeWorkspacesOfListedSessions_And_AnswerUnchangedReply
 
   assert.equal(first.status, 200);
   assert.deepEqual({ reply: JSON.parse(first.body.toString('utf8')), again: again.status }, { reply: { herdr: true, sessions: { [sessionId]: 'web' } }, again: 304 });
+});
+
+// herdr as it is — workspaces, tabs, panes — for the sidebar and the tabs in the session header; asked every few seconds
+test('herdr_Should_ServeWhatHerdrShows_And_AnswerUnchangedReplyWithNotModified', async (t) => {
+  const { port } = await withServer(t);
+
+  const first = await rawGet(port, '/api/herdr', {});
+  const again = await rawGet(port, '/api/herdr', { 'if-none-match': String(first.headers.etag) });
+
+  assert.equal(first.status, 200);
+  assert.deepEqual({ reply: JSON.parse(first.body.toString('utf8')), again: again.status }, { reply: { herdr: true, workspaces: [webWorkspace] }, again: 304 });
+});
+
+// A herdr pane's terminal on the page: its screen as it changes, until the pane is gone
+test('pane_Should_StreamScreenOfPaneUntilItIsGone', async (t) => {
+  const { port } = await withServer(t);
+
+  const reply = await rawGet(port, '/api/pane/stream?pane=w1:p2', {});
+
+  assert.equal(reply.status, 200);
+  assert.equal(reply.body.toString('utf8'), `event: screen\ndata: ${JSON.stringify({ text: '\u001b[32mw1:p2\u001b[0m $' })}\n\nevent: gone\ndata: {"missing":false}\n\n`);
+});
+
+// Keys go into a terminal — with the power of whoever sits at it — only from the viewer's own page
+test('pane_Should_TypeKeysFromViewerPage_And_RefuseOtherSites', async (t) => {
+  const { port, typed } = await withServer(t);
+  const body = JSON.stringify({ pane: 'w1:p2', data: 'ls\r' });
+
+  const typedFromPage = await post(port, '/api/pane/input', pageHeaders(port), body);
+  const forged = await post(port, '/api/pane/input', { ...pageHeaders(port), origin: 'https://evil.example' }, body);
+
+  assert.deepEqual([typedFromPage.status, JSON.parse(typedFromPage.body), forged.status], [200, { ok: true }, 403]);
+  assert.deepEqual(typed, [['w1:p2', 'ls\r']]);
+});
+
+// The page imports the terminal as an ES module: a CommonJS file would leave the whole page script unloaded
+test('page_Should_GetTerminalLibraryAsModuleItCanImport', async (t) => {
+  const { port } = await withServer(t);
+
+  const library = await rawGet(port, '/vendor/xterm.js', {});
+
+  assert.equal(library.status, 200);
+  assert.match(library.body.toString('utf8'), /export\s*\{[^}]*\bas Terminal\b/);
 });

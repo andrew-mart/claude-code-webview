@@ -35,6 +35,9 @@ const vendor = new Map([
   ['/vendor/marked.js', fileURLToPath(import.meta.resolve('marked'))],
   ['/vendor/purify.js', fileURLToPath(import.meta.resolve('dompurify'))],
   ['/vendor/highlight.js', fileURLToPath(import.meta.resolve('@highlightjs/cdn-assets/es/highlight.min.js'))],
+  // the ES module: the package's main file is the CommonJS one, which a browser cannot import from
+  ['/vendor/xterm.js', fileURLToPath(import.meta.resolve('@xterm/xterm/lib/xterm.mjs'))],
+  ['/vendor/xterm.css', fileURLToPath(import.meta.resolve('@xterm/xterm/css/xterm.css'))],
 ]);
 
 /** @type {Readonly<Record<string, string>>} */
@@ -49,6 +52,8 @@ const contentTypes = {
 
 const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const agentIdPattern = /^[0-9a-z]{1,64}$/i;
+/** herdr's pane ids: w2:p1, w3D:pK */
+const paneIdPattern = /^[\w:-]{1,40}$/;
 
 /**
  * @typedef {{ liveState: (sessionId: string) => Promise<import('./composer.js').LiveState>, send: (sessionId: string, text: string) => Promise<import('./composer.js').SendOutcome>, interrupt: (sessionId: string) => Promise<import('./composer.js').StopReply>, rewind: (sessionId: string, request: import('./composer.js').RewindRequest) => Promise<import('./composer.js').RewindReply> }} Composer
@@ -56,13 +61,13 @@ const agentIdPattern = /^[0-9a-z]{1,64}$/i;
  */
 
 /**
- * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], workspaces: Workspaces }} options
+ * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals }} options
  *   about — package name and version for /api/health; palette — the page's colours (public/model/palettes.js);
- *   publicAddresses — where else the page is opened at, answered as the local address is; workspaces — the herdr
- *   workspaces of sessions (workspaces.js)
+ *   publicAddresses — where else the page is opened at, answered as the local address is; herdrView — what herdr
+ *   shows (herdr-view.js); terminals — herdr panes' terminals (terminal.js)
  * @returns {Promise<{ port: number, close: () => void }>}
  */
-export async function startServer({ root, host, port, pollMs, composer, bookmarks, uploads, about, palette, publicAddresses, workspaces }) {
+export async function startServer({ root, host, port, pollMs, composer, bookmarks, uploads, about, palette, publicAddresses, herdrView, terminals }) {
   const index = createSessionIndex(root, { summaryBudgetMs: 1500 });
   const build = await pageBuild();
   /** Sessions this page rewound: session id → the prompt rewound to; its branch is hidden before the next prompt shows the fork. */
@@ -74,7 +79,7 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
   /** @type {Set<string>} */
   const allowedOrigins = new Set();
   const server = http.createServer((request, response) => {
-    handle({ index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, uploads, about, build, rewinds, transcripts, palette, workspaces }, request, response).catch((error) => {
+    handle({ index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, uploads, about, build, rewinds, transcripts, palette, herdrView, terminals }, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
       if (!response.headersSent) response.writeHead(500).end();
       else response.end();
@@ -101,8 +106,9 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
 }
 
 /**
- * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, workspaces: Workspaces }} Deps
- * @typedef {Pick<ReturnType<typeof import('./workspaces.js').createWorkspaces>, 'of'>} Workspaces
+ * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals }} Deps
+ * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout'>} HerdrView
+ * @typedef {Pick<ReturnType<typeof import('./terminal.js').createTerminals>, 'stream' | 'type'>} Terminals
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
  * @typedef {{ origin: string, host: string }} PublicAddress — where the page is opened from outside, behind a tunnel:
  *   origin https://viewer.example.com, host viewer.example.com
@@ -146,9 +152,13 @@ async function handle(deps, request, response) {
         const cwd = (await deps.index.list()).find((session) => session.id === id)?.cwd;
         return sendJson(response, { branch: cwd === undefined ? undefined : await readBranch(cwd) });
       });
+    // The page asks about herdr every few seconds: an unchanged reply goes without its body.
     case '/api/workspaces':
-      // The page asks every few seconds: an unchanged reply goes without its body.
-      return sendRevalidated(response, await deps.workspaces.of(await deps.index.list()));
+      return sendRevalidated(response, await deps.herdrView.workspacesOf(await deps.index.list()));
+    case '/api/herdr':
+      return sendRevalidated(response, await deps.herdrView.layout());
+    case '/api/pane/stream':
+      return streamPane(deps, url, request, response);
     case '/api/subagents':
       return withSession(url, response, async (id) => sendJson(response, await deps.index.subagents(id)));
     case '/api/bookmarks':
@@ -188,6 +198,7 @@ async function handleWrite(deps, url, request, response) {
     return;
   }
   const body = await readJsonBody(request, url.pathname === '/api/send' ? maxSendBytes : maxBodyBytes);
+  if (url.pathname === '/api/pane/input') return typeIntoPane(deps, body, response);
   const sessionId = isRecord(body) && typeof body.session === 'string' && sessionIdPattern.test(body.session) ? body.session : undefined;
   if (sessionId === undefined) {
     response.writeHead(400).end('Bad session id');
@@ -221,6 +232,21 @@ async function handleWrite(deps, url, request, response) {
     default:
       response.writeHead(404).end('Not found');
   }
+}
+
+/**
+ * Keys from the page's terminal, typed into a herdr pane.
+ * @param {Deps} deps
+ * @param {unknown} body — { pane, data }
+ * @param {http.ServerResponse} response
+ */
+async function typeIntoPane(deps, body, response) {
+  const pane = isRecord(body) && typeof body.pane === 'string' && paneIdPattern.test(body.pane) ? body.pane : undefined;
+  if (pane === undefined || !isRecord(body) || typeof body.data !== 'string') {
+    response.writeHead(400).end('Bad pane input');
+    return;
+  }
+  return sendJson(response, await deps.terminals.type(pane, body.data));
 }
 
 /** @type {readonly import('./rewind.js').RewindAction[]} */
@@ -345,6 +371,48 @@ async function stream(deps, url, id, request, response) {
     response.writeHead(400).end('Bad agent id');
     return;
   }
+  const events = eventStream(request, response);
+  await streamTranscript({
+    locate: agentId === null ? () => deps.index.find(id) : () => deps.index.findSubagent(id, agentId),
+    scope: agentId === null ? 'main' : 'subagent',
+    rewoundAt: () => (agentId === null ? deps.rewinds.get(id) : undefined),
+    imageUrl: (lineStart, n) => imageLink(id, agentId, lineStart, n),
+    send: events.send,
+    signal: events.signal,
+    pollMs: deps.pollMs,
+    transcripts: deps.transcripts,
+    tail: tailOf(url),
+  });
+  events.end();
+}
+
+/**
+ * A herdr pane's screen for the page's terminal, as it changes, until the pane is gone or the page closes the stream.
+ * @param {Deps} deps
+ * @param {URL} url
+ * @param {http.IncomingMessage} request
+ * @param {http.ServerResponse} response
+ */
+async function streamPane(deps, url, request, response) {
+  const pane = url.searchParams.get('pane');
+  if (pane === null || !paneIdPattern.test(pane)) {
+    response.writeHead(400).end('Bad pane id');
+    return;
+  }
+  const events = eventStream(request, response);
+  await deps.terminals.stream(pane, events.send, events.signal);
+  events.end();
+}
+
+/**
+ * Server-sent events: every one flushed at once, and gzipped when the browser takes it — a session's history is
+ * megabytes of text that gzip shrinks several times, a terminal's screen is mostly colour codes.
+ * @param {http.IncomingMessage} request
+ * @param {http.ServerResponse} response
+ * @returns {{ send: (event: string, data: unknown) => void, signal: AbortSignal, end: () => void }} — signal: aborted
+ *   when the page closes the stream
+ */
+function eventStream(request, response) {
   const zipped = acceptsGzip(response);
   response.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
@@ -353,7 +421,6 @@ async function stream(deps, url, id, request, response) {
     ...(zipped ? { 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' } : {}),
   });
   response.flushHeaders();
-  // A session's history is megabytes of text that gzip shrinks several times; every event is flushed at once.
   const out = zipped ? createGzip({ flush: zlibConstants.Z_SYNC_FLUSH }) : response;
   if (out !== response) out.pipe(response);
   const controller = new AbortController();
@@ -362,18 +429,14 @@ async function stream(deps, url, id, request, response) {
     controller.abort();
     clearInterval(ping);
   });
-  await streamTranscript({
-    locate: agentId === null ? () => deps.index.find(id) : () => deps.index.findSubagent(id, agentId),
-    scope: agentId === null ? 'main' : 'subagent',
-    rewoundAt: () => (agentId === null ? deps.rewinds.get(id) : undefined),
-    imageUrl: (lineStart, n) => imageLink(id, agentId, lineStart, n),
+  return {
     send: (event, data) => out.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
     signal: controller.signal,
-    pollMs: deps.pollMs,
-    transcripts: deps.transcripts,
-    tail: tailOf(url),
-  });
-  out.end();
+    end: () => {
+      clearInterval(ping);
+      out.end();
+    },
+  };
 }
 
 /**

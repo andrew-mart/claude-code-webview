@@ -10,7 +10,8 @@ import { createUploads } from '../server/uploads.js';
 import { createComposer } from '../server/composer.js';
 import { readSessionRecords } from '../server/registry.js';
 import { createHerdrRunner, herdrTurnedOff, readSavedHerdr, resolveHerdr, saveHerdr } from '../server/herdr.js';
-import { createWorkspaces } from '../server/workspaces.js';
+import { createHerdrView } from '../server/herdr-view.js';
+import { createTerminals } from '../server/terminal.js';
 
 /**
  * The viewer's settings and log folder: the remembered herdr (herdr.json), bookmarks of all sessions (bookmarks.json),
@@ -34,8 +35,8 @@ const herdrSources = {
   path: 'from PATH',
 };
 
-/** herdr is asked about its workspaces at most this often: each call starts a process. */
-const workspacesRefreshMs = 15_000;
+/** herdr is asked what it shows at most this often: each call starts a process. */
+const herdrRefreshMs = 3_000;
 
 /**
  * @param {{ port: number, about: import('../server/app.js').About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[], herdr: 'on' | 'off' }} options
@@ -47,8 +48,10 @@ export async function serve({ port, about, palette, publicAddresses, herdr }) {
   const claude = claudeDir(process.env);
   const readRecords = () => readSessionRecords(join(claude, 'sessions'));
   const composer = createComposer({ readRecords, herdr: run });
-  const workspaces = createWorkspaces({ herdr: run, readRecords, file: join(stateDir, 'workspaces.json'), refreshMs: workspacesRefreshMs });
-  const server = await startServer({ root: join(claude, 'projects'), host: '127.0.0.1', port, pollMs: 400, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), uploads: createUploads(join(stateDir, 'uploads')), about, palette, publicAddresses, workspaces });
+  const herdrView = createHerdrView({ herdr: run, readRecords, file: join(stateDir, 'workspaces.json'), refreshMs: herdrRefreshMs });
+  // A terminal on the page shows the pane's screen within a fifth of a second of typing, and within a second otherwise.
+  const terminals = createTerminals({ herdr: run, quickMs: 200, slowMs: 1000, quickForMs: 4000 });
+  const server = await startServer({ root: join(claude, 'projects'), host: '127.0.0.1', port, pollMs: 400, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), uploads: createUploads(join(stateDir, 'uploads')), about, palette, publicAddresses, herdrView, terminals });
   const url = `http://127.0.0.1:${server.port}/`;
   console.log(`Claude Code Webview ${about.version}: ${url}`);
   for (const publicAddress of publicAddresses) console.log(`Also answers at ${publicAddress.origin}/ — keep it behind a login such as Cloudflare Access`);
