@@ -2675,3 +2675,37 @@ table.diff,
 .slash-command {
   font-variant-ligatures: none;
 }
+
+/* Out of the viewer's reach: a strip at the bottom of the screen, above the prompt box, while it lasts. */
+.offline-notice {
+  position: fixed;
+  left: 50%;
+  bottom: calc(96px + env(safe-area-inset-bottom));
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 24px);
+  padding: 6px 14px;
+  white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--border));
+  border-radius: 999px;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+  color: var(--text-2);
+  font-size: 12.5px;
+  transform: translateX(-50%);
+}
+
+.offline-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warning);
+}
+
+/* Offline, a session with no saved copy cannot be opened: it fades. */
+.session-item.unavailable {
+  opacity: 0.45;
+}

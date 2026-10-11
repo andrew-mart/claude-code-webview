@@ -15,5 +15,6 @@
     "types": ["node"],
     "skipLibCheck": true
   },
-  "include": ["bin", "cli", "server", "public", "test", "scripts"]
+  "include": ["bin", "cli", "server", "public", "test", "scripts"],
+  "exclude": ["public/sw.js"]
 }

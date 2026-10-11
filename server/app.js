@@ -20,7 +20,7 @@ import { readImage } from './images.js';
 import { rewindTarget } from './rewind.js';
 import { createSessionIndex } from './sessions.js';
 import { slimEntry } from './slim.js';
-import { streamTranscript } from './stream.js';
+import { openingPart, streamTranscript } from './stream.js';
 import { readLineAt } from './tail.js';
 import { createTranscriptCache } from './transcript-cache.js';
 import { parseImages } from './uploads.js';
@@ -148,6 +148,8 @@ async function handle(deps, request, response) {
       return withSession(url, response, async (id) => sendImage(deps, url, id, response));
     case '/api/entry':
       return withSession(url, response, async (id) => sendEntry(deps, url, id, response));
+    case '/api/snapshot':
+      return withSession(url, response, async (id) => sendSnapshot(deps, url, id, response));
     default:
       return servePage(deps.build, url.pathname, response);
   }
@@ -443,6 +445,24 @@ async function sendEntry(deps, url, id, response) {
     return;
   }
   return sendJson(response, entry);
+}
+
+/**
+ * The opening part of a session at once, as its stream would start: the page keeps it to read offline.
+ * ?tail=<n> — the latest n entries.
+ * @param {Deps} deps
+ * @param {URL} url
+ * @param {string} id
+ * @param {http.ServerResponse} response
+ */
+async function sendSnapshot(deps, url, id, response) {
+  const path = await deps.index.find(id);
+  if (path === undefined) {
+    response.writeHead(404).end('Not found');
+    return;
+  }
+  const read = await deps.transcripts.read(path, { scope: 'main', imageUrl: (lineStart, n) => imageLink(id, null, lineStart, n) });
+  return sendJson(response, openingPart(read.entries, deps.rewinds.get(id), tailOf(url)));
 }
 
 /**

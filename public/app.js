@@ -3,10 +3,12 @@
 import { formatAgo } from './model/format.js';
 import { isRecord, text } from './model/narrow.js';
 import { currentIndex, stepTarget } from './model/outline.js';
+import { feedToKeep, keptEntries, sessionsToSave } from './model/offline.js';
 import { listedSessions, mergeSessions } from './model/session-list.js';
 import { actionLabel, choices, nextChoice } from './model/view-settings.js';
 import { createBookmarkStore, moveLocalBookmarksToServer } from './view/bookmark-store.js';
 import { createComposer } from './view/composer-view.js';
+import { openOfflineStore } from './view/offline-store.js';
 import { createRewindDialog } from './view/rewind-dialog.js';
 import { createSessionHeader } from './view/session-header.js';
 import { rewindMessage } from './model/rewind.js';
@@ -25,6 +27,12 @@ import { activityModeEvent, jumpMarginPx, mountSession } from './view/session-vi
  */
 
 const refreshMs = 4000;
+/** While the viewer answers, the latest sessions are saved to read offline this often at most… */
+const keepEveryMs = 5 * 60_000;
+/** …that many of the latest ones worked on, within this stretch of time, their latest entries. */
+const keptSessions = 8;
+const keptWithinMs = 3 * 24 * 3600_000;
+const keptTail = 800;
 /** A session written to within this many milliseconds is marked as active in the list. */
 const activeMs = 2 * 60_000;
 
@@ -35,6 +43,14 @@ const showSdk = byId('show-sdk', HTMLInputElement);
 const main = byId('main', HTMLElement);
 const emptyState = byId('empty-state', HTMLElement);
 const updateNotice = createUpdateNotice();
+// Out of the viewer's reach — the computer is off — the page shows what it saved: the session list and the sessions'
+// feeds (view/offline-store.js); it reconnects by itself.
+const offline = openOfflineStore();
+const offlineNotice = createOfflineNotice();
+const connection = createConnection((online) => {
+  offlineNotice.hidden = online;
+  page.renderList();
+});
 
 const drawers = createDrawers(byId('drawer-backdrop', HTMLElement));
 // A view setting that resizes the feed keeps the reader at the message they were at.
@@ -84,6 +100,16 @@ void moveLocalBookmarksToServer()
   .then(() => page.refresh())
   .then(() => page.openFromHash());
 setInterval(() => void page.refresh(), refreshMs);
+// The page itself opens from the browser's copy when the viewer is out of reach (sw.js); the browser is asked to keep
+// the saved copies rather than clear them to make room.
+if ('serviceWorker' in navigator) {
+  void navigator.serviceWorker
+    .register('/sw.js')
+    .then(() => navigator.serviceWorker.ready)
+    .then(keepPageForOffline)
+    .catch(() => undefined);
+}
+void navigator.storage?.persist?.().catch(() => false);
 
 function createPage() {
   /** @type {readonly SessionInfo[]} */
@@ -113,8 +139,10 @@ function createPage() {
       const folder = folderName(session.cwd ?? session.project);
       const ago = formatAgo(session.activeAt, now);
       const active = now - session.activeAt < activeMs;
+      // Offline, a session with no saved copy cannot be read.
+      const unavailable = !connection.online() && !savedMarks.has(session.id);
       const selected = session.id === current?.id;
-      const look = [title, folder, ago, active, selected].join('\u0000');
+      const look = [title, folder, ago, active, selected, unavailable].join('\u0000');
       const known = items.get(session.id);
       if (known !== undefined && known.look === look) return known.element;
       const link = h('a', { className: 'session-item', attrs: { href: `#/${session.id}` } }, [
@@ -123,11 +151,47 @@ function createPage() {
       ]);
       link.classList.toggle('active', active);
       link.classList.toggle('selected', selected);
+      link.classList.toggle('unavailable', unavailable);
       items.set(session.id, { look, element: link });
       return link;
     });
     const unchanged = elements.length === list.children.length && elements.every((element, index) => list.children[index] === element);
     if (!unchanged) list.replaceChildren(...elements);
+  };
+
+  /** The sessions whose feed is saved to read offline, and how fresh each copy is. */
+  /** @type {Map<string, import('./view/offline-store.js').SavedMark>} */
+  let savedMarks = new Map();
+  const refreshMarks = async () => {
+    savedMarks = await offline.marks();
+    if (!connection.online()) renderList();
+  };
+  void refreshMarks();
+  /** The viewer does not answer: the list saved the last time it did, if the page has none yet. */
+  const goOffline = async () => {
+    connection.set(false);
+    if (sessions.length > 0) return;
+    const saved = await offline.readList();
+    if (saved === undefined || sessions.length > 0) return;
+    sessions = parseSessions(saved.sessions);
+    renderList();
+  };
+  // While the viewer answers, the latest sessions worked on are saved now and then, to read when it does not — even
+  // ones this browser has not opened.
+  let keptAt = 0;
+  const keepRecent = async () => {
+    if (!connection.online() || document.visibilityState !== 'visible' || Date.now() - keptAt < keepEveryMs) return;
+    keptAt = Date.now();
+    const marks = await offline.marks();
+    for (const id of sessionsToSave(sessions, marks, { now: Date.now(), limit: keptSessions, withinMs: keptWithinMs })) {
+      // The open session keeps its own copy.
+      if (id === current?.id) continue;
+      const response = await fetch(`/api/snapshot?session=${encodeURIComponent(id)}&tail=${keptTail}`).catch(() => undefined);
+      const snapshot = response?.ok ? await response.json().catch(() => undefined) : undefined;
+      if (!isRecord(snapshot) || !Array.isArray(snapshot.entries) || typeof snapshot.earlier !== 'number') break;
+      await offline.saveFeed(id, { ...feedToKeep({ entries: snapshot.entries, earlier: snapshot.earlier }, keptEntries), savedAt: Date.now() });
+    }
+    await refreshMarks();
   };
 
   /** @param {string} id */
@@ -167,6 +231,14 @@ function createPage() {
       bookmarks,
       onRewind: (prompt) => rewindDialog.open(id, prompt),
       startAt: places.get(id),
+      keeping: {
+        load: () => offline.readFeed(id),
+        save: (feed) => {
+          void offline.saveFeed(id, feed).then(refreshMarks);
+        },
+        online: () => connection.online(),
+        onOnline: (listener) => connection.onOnline(listener),
+      },
       listener: {
         onMeta: header.onMeta,
         onStatus(next) {
@@ -238,10 +310,14 @@ function createPage() {
     },
     async refresh() {
       const response = await fetch(`/api/sessions?since=${listVersion ?? ''}`).catch(() => undefined);
-      if (response === undefined || !response.ok) return;
+      // No answer, or a proxy's error page for the viewer: out of reach.
+      const reply = response?.ok ? await response.json().catch(() => undefined) : undefined;
+      if (response === undefined || !isRecord(reply) || typeof reply.version !== 'number' || typeof reply.total !== 'number') {
+        await goOffline();
+        return;
+      }
+      connection.set(true);
       updateNotice.check(response.headers.get('x-viewer-build'));
-      const reply = await response.json().catch(() => undefined);
-      if (!isRecord(reply) || typeof reply.version !== 'number' || typeof reply.total !== 'number') return;
       const changed = parseSessions(reply.sessions);
       const merged = listVersion === undefined ? changed : mergeSessions(sessions, changed);
       // Fewer sessions on the server than here: some were deleted — the next poll takes the whole list again.
@@ -252,6 +328,8 @@ function createPage() {
       listMinute = minute;
       sessions = merged;
       renderList();
+      void offline.saveList(sessions);
+      void keepRecent();
       const info = sessions.find((session) => session.id === current?.id);
       if (info !== undefined) current?.header.updatePlace(info);
       this.followLatest();
@@ -484,6 +562,60 @@ function drawerButton(name, iconName, label) {
   button.setAttribute('aria-label', label);
   button.addEventListener('click', () => drawers.toggle(name));
   return button;
+}
+
+/**
+ * Whether the viewer answers: told by the session list's polls, heard by the open session to reconnect.
+ * @param {(online: boolean) => void} onChange
+ */
+function createConnection(onChange) {
+  let online = true;
+  /** @type {Set<() => void>} */
+  const waiting = new Set();
+  return {
+    online: () => online,
+    /** @param {boolean} next */
+    set(next) {
+      if (next === online) return;
+      online = next;
+      onChange(online);
+      if (online) for (const listener of [...waiting]) listener();
+    },
+    /**
+     * @param {() => void} listener — called when the viewer answers again
+     * @returns {() => void} — stops listening
+     */
+    onOnline(listener) {
+      waiting.add(listener);
+      return () => waiting.delete(listener);
+    },
+  };
+}
+
+/**
+ * The page and its files, saved for the service worker to open offline. The first visit loads them before the
+ * worker runs, so the worker never sees them: the page hands them over itself — its build's files as the browser
+ * loaded them, and the page as the viewer serves it now. The cache names are the ones sw.js uses.
+ */
+async function keepPageForOffline() {
+  const files = performance
+    .getEntriesByType('resource')
+    .map((entry) => new URL(entry.name))
+    .filter((url) => url.origin === location.origin && url.pathname.startsWith('/b/'))
+    .map((url) => url.pathname);
+  const pageNow = await fetch('/', { cache: 'no-store' }).catch(() => undefined);
+  if (pageNow?.ok) await (await caches.open('viewer-page')).put('/', pageNow);
+  await (await caches.open('viewer-files')).addAll([...new Set(files)]);
+}
+
+/** A strip at the top of the page while the viewer is out of reach. */
+function createOfflineNotice() {
+  const element = h('div', { className: 'offline-notice', title: 'The viewer is out of reach: the sessions saved in this browser can be read. It reconnects by itself.', attrs: { role: 'status', hidden: '' } }, [
+    h('span', { className: 'offline-dot' }),
+    h('span', { text: 'Offline · reading saved copies' }),
+  ]);
+  document.body.append(element);
+  return element;
 }
 
 /**
