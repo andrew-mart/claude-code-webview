@@ -6,9 +6,10 @@ import { isRecord, text } from './narrow.js';
 /**
  * @typedef {'idle' | 'working' | 'blocked' | 'done' | 'unknown'} AgentStatus
  * @typedef {{ cols: number, rows: number }} PaneSize
- * @typedef {{ id: string, agent: string | undefined, status: AgentStatus, title: string | undefined, session: string | undefined, size: PaneSize | undefined }} HerdrPane
+ * @typedef {{ id: string, agent: string | undefined, status: AgentStatus, title: string | undefined, session: string | undefined, size: PaneSize | undefined, activity: number | undefined }} HerdrPane
  *   agent: the coding agent herdr recognized there (claude, codex, …); session: the Claude Code session it runs;
- *   size: its terminal's, in columns and rows
+ *   size: its terminal's, in columns and rows; activity: when its agent changed state last, in herdr's count — the
+ *   larger, the more recent
  * @typedef {{ id: string, number: number, label: string, status: AgentStatus, panes: readonly HerdrPane[] }} HerdrTab
  * @typedef {{ id: string, number: number, label: string, status: AgentStatus, activeTab: string | undefined, tabs: readonly HerdrTab[] }} HerdrWorkspace
  * @typedef {{ herdr: boolean, workspaces: readonly HerdrWorkspace[] }} HerdrLayout — herdr: whether it answers
@@ -118,5 +119,24 @@ function parsePane(raw) {
   const status = statuses.find((known) => known === raw.status);
   if (id === undefined || status === undefined) return [];
   const size = isRecord(raw.size) && Number.isInteger(raw.size.cols) && Number.isInteger(raw.size.rows) ? { cols: Number(raw.size.cols), rows: Number(raw.size.rows) } : undefined;
-  return [{ id, agent: text(raw.agent), status, title: text(raw.title), session: text(raw.session), size }];
+  const activity = typeof raw.activity === 'number' ? raw.activity : undefined;
+  return [{ id, agent: text(raw.agent), status, title: text(raw.title), session: text(raw.session), size, activity }];
+}
+
+/**
+ * Every session herdr runs — a pane with a coding agent, in any workspace — as herdr lists its agents: the one whose
+ * agent changed state last first. The search keeps those whose workspace, tab or terminal title match, ignoring case.
+ * @param {readonly HerdrWorkspace[]} workspaces
+ * @param {string} search — the search box text
+ * @returns {{ workspace: HerdrWorkspace, tab: HerdrTab, pane: HerdrPane }[]}
+ */
+export function sessionsByActivity(workspaces, search) {
+  const wanted = search.trim().toLowerCase();
+  const sessions = workspaces.flatMap((workspace) =>
+    workspace.tabs.flatMap((tab) => tab.panes.filter((pane) => pane.agent !== undefined).map((pane) => ({ workspace, tab, pane }))),
+  );
+  const found =
+    wanted === '' ? sessions : sessions.filter(({ workspace, tab, pane }) => [workspace.label, tab.label, pane.title].some((value) => value !== undefined && value.toLowerCase().includes(wanted)));
+  // the panes herdr has not seen an agent change in last, in herdr's own order
+  return found.sort((a, b) => (b.pane.activity ?? -1) - (a.pane.activity ?? -1));
 }

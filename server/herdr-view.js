@@ -154,7 +154,7 @@ function layoutOf(snapshot, sessionByPane) {
         status: tab.status,
         panes: snapshot.panes
           .filter((pane) => pane.tabId === tab.id)
-          .map((pane) => ({ id: pane.paneId, agent: pane.agent, status: pane.status, title: pane.title, session: sessionByPane.get(pane.paneId), size: pane.size })),
+          .map((pane) => ({ id: pane.paneId, agent: pane.agent, status: pane.status, title: pane.title, session: sessionByPane.get(pane.paneId), size: pane.size, activity: pane.activity })),
       })),
   }));
 }

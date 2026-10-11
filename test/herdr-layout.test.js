@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openedAt, parseHerdrLayout, placeOf, searchLayout, tabTarget } from '../public/model/herdr.js';
+import { openedAt, parseHerdrLayout, placeOf, searchLayout, sessionsByActivity, tabTarget } from '../public/model/herdr.js';
 
 const session = '7d4e1b20-2222-4333-8444-955566667777';
 
@@ -12,9 +12,9 @@ const jobSearch = {
   status: 'working',
   activeTab: 'w2:t3',
   tabs: [
-    { id: 'w2:t1', number: 1, label: 'resume', status: 'done', panes: [{ id: 'w2:p1', agent: 'claude', status: 'done', title: 'AI-first description', session, size: undefined }] },
-    { id: 'w2:t2', number: 2, label: 'apply', status: 'unknown', panes: [{ id: 'w2:p2', agent: undefined, status: 'unknown', title: 'powershell', session: undefined, size: { cols: 120, rows: 40 } }] },
-    { id: 'w2:t3', number: 3, label: 'search', status: 'working', panes: [{ id: 'w2:p3', agent: 'claude', status: 'working', title: 'Remote jobs in the EU', session: undefined, size: undefined }] },
+    { id: 'w2:t1', number: 1, label: 'resume', status: 'done', panes: [{ id: 'w2:p1', agent: 'claude', status: 'done', title: 'AI-first description', session, size: undefined, activity: 40 }] },
+    { id: 'w2:t2', number: 2, label: 'apply', status: 'unknown', panes: [{ id: 'w2:p2', agent: undefined, status: 'unknown', title: 'powershell', session: undefined, size: { cols: 120, rows: 40 }, activity: undefined }] },
+    { id: 'w2:t3', number: 3, label: 'search', status: 'working', panes: [{ id: 'w2:p3', agent: 'claude', status: 'working', title: 'Remote jobs in the EU', session: undefined, size: undefined, activity: 90 }] },
   ],
 };
 /** @type {import('../public/model/herdr.js').HerdrWorkspace} */
@@ -24,7 +24,7 @@ const expenses = {
   label: 'expenses',
   status: 'idle',
   activeTab: 'w3:t1',
-  tabs: [{ id: 'w3:t1', number: 1, label: '1', status: 'idle', panes: [{ id: 'w3:p1', agent: 'codex', status: 'idle', title: 'Checklist', session: undefined, size: undefined }] }],
+  tabs: [{ id: 'w3:t1', number: 1, label: '1', status: 'idle', panes: [{ id: 'w3:p1', agent: 'codex', status: 'idle', title: 'Checklist', session: undefined, size: undefined, activity: 60 }] }],
 };
 const layout = { herdr: true, workspaces: [jobSearch, expenses] };
 
@@ -46,8 +46,8 @@ test('tabTarget_Should_PreferPaneWithSession_InSplitTab', () => {
     label: 'split',
     status: 'working',
     panes: [
-      { id: 'w2:p8', agent: undefined, status: 'unknown', title: 'shell', session: undefined, size: undefined },
-      { id: 'w2:p9', agent: 'claude', status: 'working', title: 'Work', session, size: undefined },
+      { id: 'w2:p8', agent: undefined, status: 'unknown', title: 'shell', session: undefined, size: undefined, activity: undefined },
+      { id: 'w2:p9', agent: 'claude', status: 'working', title: 'Work', session, size: undefined, activity: 95 },
     ],
   };
 
@@ -90,4 +90,14 @@ test('parseHerdrLayout_Should_KeepWhatFitsContract_AndDropTheRest', () => {
   assert.deepEqual(parseHerdrLayout(reply), { herdr: true, workspaces: [jobSearch] });
   assert.deepEqual(parseHerdrLayout({ herdr: false, workspaces: [] }), { herdr: false, workspaces: [] });
   assert.deepEqual(parseHerdrLayout('a proxy error page'), { herdr: false, workspaces: [] });
+});
+
+// As herdr lists its agents: every session of every workspace, the one whose agent changed state last first; a pane
+// without an agent — a shell, nvim — is no session
+test('sessionsByActivity_Should_ListEverySessionOfEveryWorkspace_LatestActivityFirst', () => {
+  const found = (/** @type {string} */ text) => sessionsByActivity(layout.workspaces, text).map(({ workspace, tab, pane }) => `${workspace.label}/${tab.label}/${pane.id}`);
+
+  assert.deepEqual(found(''), ['job_search/search/w2:p3', 'expenses/1/w3:p1', 'job_search/resume/w2:p1']);
+  assert.deepEqual(found('EXPENSES'), ['expenses/1/w3:p1']);
+  assert.deepEqual(found(' eu '), ['job_search/search/w2:p3']);
 });

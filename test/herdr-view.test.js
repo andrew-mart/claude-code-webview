@@ -10,7 +10,7 @@ const running = '7d4e1b20-2222-4333-8444-955566667777';
 /**
  * @typedef {{ workspace_id: string, label: string, number?: number, agent_status?: string, active_tab_id?: string }} FakeWorkspace
  * @typedef {{ tab_id: string, workspace_id: string, number: number, label: string, agent_status: string }} FakeTab
- * @typedef {{ pane_id: string, workspace_id: string, cwd: string, tab_id?: string, agent?: string, agent_status?: string, terminal_title_stripped?: string, pid?: number }} FakePane
+ * @typedef {{ pane_id: string, workspace_id: string, cwd: string, tab_id?: string, agent?: string, agent_status?: string, terminal_title_stripped?: string, state_change_seq?: number, pid?: number }} FakePane
  * @typedef {{ tab_id: string, workspace_id: string, panes: { pane_id: string, rect: { x: number, y: number, width: number, height: number } }[] }} FakeLayout
  */
 
@@ -26,7 +26,7 @@ function fakeHerdr({ workspaces = [], tabs = [], panes = [], layouts = [], missi
     if (fail) return { ok: false, error: 'no herdr server is running', missing: false };
     const [subject, command, , pane] = args;
     if (subject === 'api' && command === 'snapshot') {
-      const shown = { workspaces: workspaces.map((workspace, at) => ({ number: at + 1, ...workspace })), tabs, panes: panes.map(({ pid, ...pane }) => pane), layouts };
+      const shown = { workspaces: workspaces.map((workspace, at) => ({ number: at + 1, ...workspace })), tabs, panes: panes.map(({ pid, state_change_seq, ...pane }) => pane), agents: panes.filter((pane) => pane.agent !== undefined).map(({ pid, ...agent }) => agent), layouts };
       return { ok: true, json: { result: { type: 'session_snapshot', snapshot: shown } }, text: '' };
     }
     if (subject === 'pane' && command === 'process-info') {
@@ -147,8 +147,8 @@ test('herdrView_Should_LayOutWorkspacesTabsAndPanes_WithSessionOfClaudePane', as
       { tab_id: 'w2:t1', workspace_id: 'w2', number: 1, label: 'resume', agent_status: 'done' },
     ],
     panes: [
-      { pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:/job_search', agent: 'claude', agent_status: 'done', terminal_title_stripped: 'Resume', pid: 101 },
-      { pane_id: 'w2:p3', workspace_id: 'w2', tab_id: 'w2:t3', cwd: 'D:/job_search', agent: 'claude', agent_status: 'working', terminal_title_stripped: 'Search', pid: 303 },
+      { pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:/job_search', agent: 'claude', agent_status: 'done', terminal_title_stripped: 'Resume', state_change_seq: 50, pid: 101 },
+      { pane_id: 'w2:p3', workspace_id: 'w2', tab_id: 'w2:t3', cwd: 'D:/job_search', agent: 'claude', agent_status: 'working', terminal_title_stripped: 'Search', state_change_seq: 80, pid: 303 },
       { pane_id: 'w3:p1', workspace_id: 'w3', tab_id: 'w3:t1', cwd: 'D:/expenses', agent_status: 'unknown', terminal_title_stripped: 'nvim' },
     ],
     layouts: [
@@ -168,8 +168,8 @@ test('herdrView_Should_LayOutWorkspacesTabsAndPanes_WithSessionOfClaudePane', as
         status: 'working',
         activeTab: 'w2:t3',
         tabs: [
-          { id: 'w2:t1', number: 1, label: 'resume', status: 'done', panes: [{ id: 'w2:p1', agent: 'claude', status: 'done', title: 'Resume', session: running, size: { cols: 154, rows: 44 } }] },
-          { id: 'w2:t3', number: 3, label: 'search', status: 'working', panes: [{ id: 'w2:p3', agent: 'claude', status: 'working', title: 'Search', session: undefined, size: undefined }] },
+          { id: 'w2:t1', number: 1, label: 'resume', status: 'done', panes: [{ id: 'w2:p1', agent: 'claude', status: 'done', title: 'Resume', session: running, size: { cols: 154, rows: 44 }, activity: 50 }] },
+          { id: 'w2:t3', number: 3, label: 'search', status: 'working', panes: [{ id: 'w2:p3', agent: 'claude', status: 'working', title: 'Search', session: undefined, size: undefined, activity: 80 }] },
         ],
       },
       {
@@ -178,7 +178,7 @@ test('herdrView_Should_LayOutWorkspacesTabsAndPanes_WithSessionOfClaudePane', as
         label: 'expenses',
         status: 'idle',
         activeTab: 'w3:t1',
-        tabs: [{ id: 'w3:t1', number: 1, label: '1', status: 'unknown', panes: [{ id: 'w3:p1', agent: undefined, status: 'unknown', title: 'nvim', session: undefined, size: { cols: 100, rows: 30 } }] }],
+        tabs: [{ id: 'w3:t1', number: 1, label: '1', status: 'unknown', panes: [{ id: 'w3:p1', agent: undefined, status: 'unknown', title: 'nvim', session: undefined, size: { cols: 100, rows: 30 }, activity: undefined }] }],
       },
     ],
   });
