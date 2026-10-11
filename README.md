@@ -68,6 +68,8 @@ claude-code-webview --background     # run without a terminal window
   sideways. The same choice can be made for all tables of a session (in the header's details) or of the whole viewer
   (a view button); the table's own button overrides the session, the session overrides the viewer.
 - Light and dark themes, serif or sans answers, optional display of Claude Code's service messages.
+- **Palettes.** `--palette sea` (or `moss`, `plum`; `clay`, Claude's own, is the default) changes the accent colour, tints the
+  session list a little and colours the tab icon — two viewers, say on two computers, are told apart at a glance.
 
 ## Sending prompts from the page (optional, needs herdr)
 
@@ -116,6 +118,7 @@ Questions with options (AskUserQuestion) still need to be answered in the termin
 | `claude-code-webview --stop` | stop the running viewer |
 | `claude-code-webview --restart` | stop and start again in the background |
 | `claude-code-webview --port 7800` | use another port |
+| `claude-code-webview --palette sea` | another accent colour: clay (default), sea, moss, plum |
 | `claude-code-webview --no-open` | do not open the browser |
 | `claude-code-webview --install-shortcut` | Windows: desktop shortcut that starts the viewer in the background (`--start-menu` for the Start menu) |
 

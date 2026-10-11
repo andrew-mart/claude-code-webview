@@ -11,17 +11,17 @@ test('isTemporaryInstall_Should_RecognizeNpxCacheOnEverySystem', () => {
 });
 
 test('parseCommand_Should_ServeAndOpenBrowserByDefault', () => {
-  assert.deepEqual(parseCommand([]), { ok: true, command: { action: 'serve', port: 7788, open: true, startMenu: false } });
+  assert.deepEqual(parseCommand([]), { ok: true, command: { action: 'serve', port: 7788, open: true, startMenu: false, palette: 'clay' } });
 });
 
 test('parseCommand_Should_ReadActionPortAndBrowserFlag', () => {
   assert.deepEqual(parseCommand(['--background', '--port', '7800', '--no-open']), {
     ok: true,
-    command: { action: 'background', port: 7800, open: false, startMenu: false },
+    command: { action: 'background', port: 7800, open: false, startMenu: false, palette: 'clay' },
   });
   assert.deepEqual(parseCommand(['--install-shortcut', '--start-menu']), {
     ok: true,
-    command: { action: 'install-shortcut', port: 7788, open: true, startMenu: true },
+    command: { action: 'install-shortcut', port: 7788, open: true, startMenu: true, palette: 'clay' },
   });
   assert.deepEqual(
     [parseCommand(['-v']), parseCommand(['--help'])].map((parsed) => parsed.ok && parsed.command.action),
@@ -33,4 +33,11 @@ test('parseCommand_Should_RejectInvalidPortConflictingActionsAndUnknownOptions',
   assert.deepEqual(parseCommand(['--port', '99999']), { ok: false, error: 'Invalid --port value "99999": expected a number from 1 to 65535.' });
   assert.deepEqual(parseCommand(['--stop', '--restart']), { ok: false, error: 'Choose one action: --stop and --restart cannot be used together.' });
   assert.equal(parseCommand(['--colour']).ok, false);
+});
+
+test('parseCommand_Should_ReadPaletteThatTellsThisViewerFromAnotherOneAndRejectUnknownOnes', () => {
+  const parsed = parseCommand(['--palette', 'sea']);
+
+  assert.equal(parsed.ok && parsed.command.palette, 'sea');
+  assert.deepEqual(parseCommand(['--palette', 'neon']), { ok: false, error: 'Invalid --palette value "neon": expected one of clay, sea, moss, plum.' });
 });

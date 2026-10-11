@@ -55,11 +55,11 @@ const agentIdPattern = /^[0-9a-z]{1,64}$/i;
  */
 
 /**
- * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About }} options
- *   about — package name and version for /api/health
+ * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette }} options
+ *   about — package name and version for /api/health; palette — the page's colours (public/model/palettes.js)
  * @returns {Promise<{ port: number, close: () => void }>}
  */
-export async function startServer({ root, host, port, pollMs, composer, bookmarks, uploads, about }) {
+export async function startServer({ root, host, port, pollMs, composer, bookmarks, uploads, about, palette }) {
   const index = createSessionIndex(root, { summaryBudgetMs: 1500 });
   const build = await pageBuild();
   /** Sessions this page rewound: session id → the prompt rewound to; its branch is hidden before the next prompt shows the fork. */
@@ -71,7 +71,7 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
   /** @type {Set<string>} */
   const allowedOrigins = new Set();
   const server = http.createServer((request, response) => {
-    handle({ index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, uploads, about, build, rewinds, transcripts }, request, response).catch((error) => {
+    handle({ index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, uploads, about, build, rewinds, transcripts, palette }, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
       if (!response.headersSent) response.writeHead(500).end();
       else response.end();
@@ -94,7 +94,7 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
 }
 
 /**
- * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache }} Deps
+ * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette }} Deps
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
  */
 
@@ -151,7 +151,7 @@ async function handle(deps, request, response) {
     case '/api/snapshot':
       return withSession(url, response, async (id) => sendSnapshot(deps, url, id, response));
     default:
-      return servePage(deps.build, url.pathname, response);
+      return servePage(deps.build, deps.palette, url.pathname, response);
   }
 }
 
@@ -534,12 +534,13 @@ const buildPath = /^\/b\/[0-9a-f]{1,64}(\/.+)$/;
  * The page links its files under the current build path, so after an update they have new URLs and no cache —
  * the browser's or a proxy's — can serve the old ones; under such a URL a file never changes and may be kept.
  * @param {string} build
+ * @param {import('../public/model/palettes.js').Palette} palette — the page's colours and tab icon
  * @param {string} pathname
  * @param {http.ServerResponse} response
  */
-async function servePage(build, pathname, response) {
+async function servePage(build, palette, pathname, response) {
   if (pathname === '/' || pathname === '/index.html') {
-    const html = (await readFile(join(publicDir, 'index.html'), 'utf8')).replaceAll('{{assets}}', `/b/${build}`);
+    const html = (await readFile(join(publicDir, 'index.html'), 'utf8')).replaceAll('{{assets}}', `/b/${build}`).replaceAll('{{palette}}', palette);
     return sendBody(response, 200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }, Buffer.from(html));
   }
   const built = buildPath.exec(pathname)?.[1];

@@ -49,15 +49,19 @@ function fakeComposer(takenBack) {
   };
 }
 
-/** @param {import('node:test').TestContext} t @param {string} [takenBack] - see fakeComposer */
-async function withServer(t, takenBack) {
+/**
+ * @param {import('node:test').TestContext} t
+ * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette }} [options] - takenBack: see
+ *   fakeComposer; palette: the one the viewer is started with
+ */
+async function withServer(t, { takenBack, palette = 'clay' } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'csv-'));
   const project = join(root, 'D--dev-x');
   await mkdir(project);
   const file = join(project, `${sessionId}.jsonl`);
   await writeFile(file, promptLine('u1', 'First question'));
   const { composer, calls } = fakeComposer(takenBack);
-  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' } });
+  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette });
   t.after(() => server.close());
   return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls };
 }
@@ -362,7 +366,7 @@ test('page_Should_LinkItsFilesUnderCurrentBuildSoNoCacheCanServeOldOnes', async 
   const build = buildOf(html);
 
   assert.ok(build, 'the page script is not under a build path');
-  for (const file of ['style.css', 'app.js', 'favicon.svg', 'vendor/marked.js', 'vendor/purify.js', 'vendor/highlight.js']) {
+  for (const file of ['style.css', 'app.js', 'favicons/clay.svg', 'vendor/marked.js', 'vendor/purify.js', 'vendor/highlight.js']) {
     assert.ok(html.includes(`/b/${build}/${file}`), `${file} is not under the build path`);
   }
   assert.equal(page.headers['cache-control'], 'no-store');
@@ -501,7 +505,7 @@ test('rewind_Should_RefuseUnknownMessageOrActionWithoutTouchingTerminal', async 
 });
 
 test('interrupt_Should_HideStoppedPromptClaudeGaveBackFromFeedAtOnce', { timeout: 5000 }, async (t) => {
-  const { file, base, port } = await withServer(t, 'Now test it');
+  const { file, base, port } = await withServer(t, { takenBack: 'Now test it' });
   await appendFile(file, answerLine('a1', 'u1') + childPrompt('p2', 'a1', 'Now test it'));
   const next = await openStream(base, t);
   assert.deepEqual(uuids(await next()), ['u1', 'a1', 'p2']);
@@ -579,4 +583,13 @@ test('snapshot_Should_GiveLatestEntriesOfSessionAtOnceToKeepForReadingOffline', 
   const snapshot = await (await fetch(`${base}/api/snapshot?session=${sessionId}&tail=2`)).json();
 
   assert.deepEqual({ earlier: snapshot.earlier, uuids: snapshot.entries.map((/** @type {{ uuid: string }} */ entry) => entry.uuid) }, { earlier: 2, uuids: ['p2', 'a2'] });
+});
+
+test('page_Should_WearPaletteTheViewerWasStartedWith', async (t) => {
+  const { base } = await withServer(t, { palette: 'sea' });
+
+  const page = await (await fetch(`${base}/`)).text();
+
+  assert.match(page, /<html lang="en" data-palette="sea">/);
+  assert.match(page, /<link rel="icon" href="\/b\/[0-9a-f]+\/favicons\/sea\.svg"/);
 });
