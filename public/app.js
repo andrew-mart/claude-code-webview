@@ -11,6 +11,7 @@ import { createComposer } from './view/composer-view.js';
 import { createDrawers } from './view/drawers.js';
 import { openedAt, parseHerdrLayout, parseNewTab, parseTabChange, placeOf } from './model/herdr.js';
 import { parseHistory } from './model/history.js';
+import { parseUsage, usageText } from './model/usage.js';
 import { createHerdrSidebar, createTabBar } from './view/herdr-panel.js';
 import { mountTerminal } from './view/terminal-view.js';
 import { openOfflineStore } from './view/offline-store.js';
@@ -44,6 +45,8 @@ const keptWithinMs = 3 * 24 * 3600_000;
 const keptTail = 800;
 /** A session written to within this many milliseconds is marked as active in the list. */
 const activeMs = 2 * 60_000;
+/** The account's usage is asked about this often: it is read anew at most with every reply of Claude. */
+const usageEveryMs = 60_000;
 
 const list = byId('session-list', HTMLElement);
 const search = byId('search', HTMLInputElement);
@@ -58,6 +61,7 @@ const sessionOptions = byId('session-options', HTMLElement);
 const herdrPanel = byId('herdr-panel', HTMLElement);
 const main = byId('main', HTMLElement);
 const emptyState = byId('empty-state', HTMLElement);
+const usageBadge = byId('usage', HTMLElement);
 const updateNotice = createUpdateNotice();
 // Out of the viewer's reach — the computer is off — the page shows what it saved: the session list and the sessions'
 // feeds (view/offline-store.js); it reconnects by itself.
@@ -140,6 +144,8 @@ void page.refreshWorkspaces();
 setInterval(() => void page.refreshWorkspaces(), workspacesEveryMs);
 void page.refreshHerdr();
 setInterval(() => void page.refreshHerdr(), herdrEveryMs);
+void refreshUsage();
+setInterval(() => void refreshUsage(), usageEveryMs);
 // The page itself opens from the browser's copy when the viewer is out of reach (sw.js); the browser is asked to keep
 // the saved copies rather than clear them to make room.
 if ('serviceWorker' in navigator) {
@@ -801,6 +807,22 @@ async function keepPageForOffline() {
   const pageNow = await fetch('/', { cache: 'no-store' }).catch(() => undefined);
   if (pageNow?.ok) await (await caches.open('viewer-page')).put('/', pageNow);
   await (await caches.open('viewer-files')).addAll([...new Set(files)]);
+}
+
+/**
+ * The account's usage beside the viewer's name: the 5-hour window and the week, when each resets on hover. Hidden
+ * until Claude Code or a statusline has read it; kept as it is while the viewer is out of reach.
+ */
+async function refreshUsage() {
+  const response = await fetch('/api/usage').catch(() => undefined);
+  if (response === undefined || !response.ok) return;
+  const usage = parseUsage(await response.json().catch(() => undefined));
+  usageBadge.hidden = usage === undefined;
+  if (usage === undefined) return;
+  const shown = usageText(usage, Date.now());
+  usageBadge.textContent = shown.label;
+  usageBadge.dataset.level = shown.level;
+  usageBadge.title = shown.title;
 }
 
 /** A strip at the top of the page while the viewer is out of reach. */

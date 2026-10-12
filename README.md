@@ -48,6 +48,12 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   A click opens the details: the full path and how much context is used and left. The window comes from the model
   as Claude Code gives it (1M for Opus 4.7+, Sonnet 5+, Haiku 5.5, Fable; 200K for earlier ones unless the session ran
   their `[1m]` variant); for a model Claude Code does not know only the size is shown.
+- **Usage.** Beside the viewer's name, how much of your plan's 5-hour window and week is used — `5h 22% · 7d 91%`,
+  amber past 70%, red past 90%; hover for when each resets and how old the reading is. Claude Code reads the usage only
+  now and then and keeps the reading in `~/.claude.json`, so it may be hours old. A statusline command is given a fresh
+  one with every reply (`rate_limits` in its input); have yours drop it into `~/.claude-code-webview/rate-limits.json`
+  and the viewer shows whichever reading is fresher. In a bash statusline:
+  `input=$(cat); echo "$input" | jq -c '.rate_limits // empty' > ~/.claude-code-webview/rate-limits.json`.
 - **Phones.** On a narrow screen the session list and the outline slide in from the sides, bookmark flags stay
   visible without hover, the view buttons fold into a "⋯" menu, and on a touch keyboard Enter starts a new line while
   the ↑ button sends.

@@ -13,11 +13,12 @@ import { createHerdrRunner, herdrTurnedOff, paneIoOf, readSavedHerdr, resolveHer
 import { createHerdrSocket, socketRunner } from '../server/herdr-socket.js';
 import { createHerdrView } from '../server/herdr-view.js';
 import { createTerminals } from '../server/terminal.js';
+import { readUsage } from '../server/usage.js';
 
 /**
  * The viewer's settings and log folder: the remembered herdr (herdr.json), bookmarks of all sessions (bookmarks.json),
  * the herdr workspaces of sessions seen running (workspaces.json), images attached to prompts (uploads/), the background
- * server log (server.log).
+ * server log (server.log), the account's usage a statusline drops in (rate-limits.json, see the README).
  */
 export const stateDir = join(homedir(), '.claude-code-webview');
 
@@ -27,6 +28,15 @@ export const stateDir = join(homedir(), '.claude-code-webview');
  */
 export function claudeDir(env) {
   return env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
+}
+
+/**
+ * Claude Code's own state, its reading of the account's usage among it: .claude.json beside the relocated folder,
+ * otherwise in the home folder.
+ * @param {Readonly<Record<string, string | undefined>>} env
+ */
+function claudeStateFile(env) {
+  return join(env.CLAUDE_CONFIG_DIR ?? homedir(), '.claude.json');
 }
 
 /** @type {Readonly<Record<import('../server/herdr.js').HerdrTarget['source'], string>>} */
@@ -49,11 +59,12 @@ export async function serve({ port, about, palette, publicAddresses, herdr, clau
   const claude = claudeDir(process.env);
   const readRecords = () => readSessionRecords(join(claude, 'sessions'));
   const composer = createComposer({ readRecords, herdr: run });
+  const usageFiles = { claudeState: claudeStateFile(process.env), rateLimits: join(stateDir, 'rate-limits.json') };
   const herdrView = createHerdrView({ herdr: run, readRecords, file: join(stateDir, 'workspaces.json'), refreshMs: herdrRefreshMs, claudeCommand });
   // A terminal on the page: through herdr's socket a screen is read in a millisecond or two, so it is read every 40 ms
   // while typing; through the herdr program every call starts a process, a tenth of a second.
   const terminals = createTerminals({ io: paneIoOf(run), quickMs: via === 'socket' ? 40 : 200, slowMs: via === 'socket' ? 500 : 1000, quickForMs: 4000 });
-  const server = await startServer({ root: join(claude, 'projects'), host: '127.0.0.1', port, pollMs: 400, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), uploads: createUploads(join(stateDir, 'uploads')), about, palette, publicAddresses, herdrView, terminals });
+  const server = await startServer({ root: join(claude, 'projects'), host: '127.0.0.1', port, pollMs: 400, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), uploads: createUploads(join(stateDir, 'uploads')), about, palette, publicAddresses, herdrView, terminals, usage: () => readUsage(usageFiles) });
   const url = `http://127.0.0.1:${server.port}/`;
   console.log(`Claude Code Webview ${about.version}: ${url}`);
   for (const publicAddress of publicAddresses) console.log(`Also answers at ${publicAddress.origin}/ — keep it behind a login such as Cloudflare Access`);
