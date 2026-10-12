@@ -7,12 +7,22 @@ const { window } = new JSDOM('<!doctype html><html><body><main id="layout"><asid
 Object.assign(globalThis, { window, document: window.document, NodeFilter: window.NodeFilter, Text: window.Text });
 const { createFilePanel } = await import('../public/view/file-panel.js');
 
-/** The panel as app.js creates it. */
-function filePanel() {
-  const panel = window.document.getElementById('panel');
-  const layout = window.document.getElementById('layout');
-  assert.ok(panel && layout);
-  const files = createFilePanel({ panel, layout });
+/** @typedef {import('../public/view/editor-opener.js').EditorOpener} EditorOpener */
+
+/** A viewer without an editor. @type {EditorOpener} */
+const noEditor = { reach: async () => 'none', check: async () => 'none', open: async () => ({ ok: false, error: 'no-editor' }) };
+
+/**
+ * The panel as app.js creates it, in a page of its own.
+ * @param {EditorOpener} [editor]
+ */
+function filePanel(editor = noEditor) {
+  const layout = window.document.createElement('main');
+  const panel = window.document.createElement('aside');
+  panel.hidden = true;
+  layout.append(panel);
+  window.document.body.append(layout);
+  const files = createFilePanel({ panel, layout, editor });
   /** Opens the file a link in the feed points at. @param {string} path */
   const open = (path) => files.open({ path, line: undefined, endLine: undefined });
   /** The path of the picture the panel shows. */
@@ -20,7 +30,7 @@ function filePanel() {
     const image = panel.querySelector('.panel-body img');
     return image instanceof window.HTMLImageElement ? new URL(image.src).searchParams.get('path') : undefined;
   };
-  return { panel, open, shownPicture };
+  return { panel, files, open, shownPicture };
 }
 
 /** @param {string} path */
@@ -65,4 +75,37 @@ test('filePanel_Should_KeepFileOpenedLater_When_EarlierPictureFails', () => {
   earlier.dispatchEvent(new window.Event('error'));
 
   assert.equal(shownPicture(), 'D:/dev/x/docs/screenshot.png');
+});
+
+// A file opens in the editor at its marked line from a browser on the viewer's computer; one elsewhere gets no button;
+// one not known yet finds out on the press, and the button goes if the browser is elsewhere
+test('filePanel_Should_OpenFileInEditorAtItsLine_OnViewersComputerOnly', async () => {
+  /** @type {(string | number)[][]} */
+  const opened = [];
+  /** @param {import('../public/model/machine.js').EditorReach} reach @param {import('../public/model/machine.js').EditorReach} checked @returns {EditorOpener} */
+  const editor = (reach, checked) => ({
+    reach: async () => reach,
+    check: async () => checked,
+    open: async (path, line) => {
+      opened.push([path, line]);
+      return { ok: true };
+    },
+  });
+  const panels = [filePanel(editor('same', 'same')), filePanel(editor('elsewhere', 'elsewhere')), filePanel(editor('unknown', 'elsewhere')), filePanel(editor('unknown', 'same'))];
+  for (const { files } of panels) files.open({ path: 'D:/dev/x/App.cs', line: 21, endLine: undefined });
+  const settle = () => new Promise((done) => setTimeout(done, 10));
+  /** @param {HTMLElement} panel */
+  const buttonOf = (panel) => {
+    const button = panel.querySelector('.panel-editor');
+    assert.ok(button instanceof window.HTMLButtonElement);
+    return button;
+  };
+  const shown = () => panels.map(({ panel }) => !buttonOf(panel).hidden);
+  await settle();
+  const before = shown();
+
+  for (const at of [0, 2, 3]) buttonOf(panels[at]?.panel ?? window.document.body).click();
+  await settle();
+
+  assert.deepEqual({ before, after: shown(), opened }, { before: [true, false, true, true], after: [true, false, false, true], opened: [['D:/dev/x/App.cs', 21], ['D:/dev/x/App.cs', 21]] });
 });

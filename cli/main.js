@@ -36,6 +36,10 @@ Usage: claude-code-webview [options]
       --no-herdr        do not use herdr even if it is found: the page only reads sessions
       --claude-command <command>
                         what starts Claude Code in a herdr tab opened from the page (default: claude)
+      --editor-command <command>
+                        opens a file of the file panel in an editor of this computer, from a browser
+                        on it: {path}, {line} and {project} (the nearest folder above with a .sln
+                        or .git) are filled in, e.g. "code --goto {path}:{line}"
       --install-shortcut  create a desktop shortcut that starts the viewer (Windows);
                         add --start-menu to put it into the Start menu instead
   -h, --help            show this help
@@ -98,7 +102,7 @@ async function serveHere(command, about) {
     return 0;
   }
   if (found.kind === 'other') return portTaken(command.port);
-  const server = await serve({ port: command.port, about, palette: command.palette, publicAddresses: command.publicAddresses, herdr: command.herdr, claudeCommand: command.claudeCommand });
+  const server = await serve({ port: command.port, about, palette: command.palette, publicAddresses: command.publicAddresses, herdr: command.herdr, claudeCommand: command.claudeCommand, editor: command.editor?.command });
   if (command.open) openBrowser(server.url);
   console.log('Press Ctrl+C to stop.');
   const shutdown = () => {
@@ -123,7 +127,7 @@ async function startInBackground(command) {
     await mkdir(stateDir, { recursive: true });
     const log = await open(logFile, 'a');
     const publicUrls = command.publicAddresses.flatMap((publicAddress) => ['--public-url', publicAddress.origin]);
-    const child = spawn(process.execPath, [binPath, '--port', String(command.port), '--palette', command.palette, ...publicUrls, ...(command.herdr === 'off' ? ['--no-herdr'] : []), '--claude-command', command.claudeCommand, '--no-open'], {
+    const child = spawn(process.execPath, [binPath, '--port', String(command.port), '--palette', command.palette, ...publicUrls, ...(command.herdr === 'off' ? ['--no-herdr'] : []), '--claude-command', command.claudeCommand, ...(command.editor === undefined ? [] : ['--editor-command', command.editor.text]), '--no-open'], {
       cwd: homedir(),
       detached: true,
       windowsHide: true,

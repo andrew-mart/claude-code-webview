@@ -2,12 +2,14 @@
 // Arguments of the claude-code-webview command.
 import { parseArgs } from 'node:util';
 import { paletteNamed, palettes } from '../public/model/palettes.js';
+import { parseEditorCommand } from '../server/editor.js';
 
 /**
  * @typedef {'serve' | 'background' | 'stop' | 'restart' | 'install-shortcut' | 'help' | 'version'} Action
- * @typedef {{ action: Action, port: number, open: boolean, startMenu: boolean, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[], herdr: 'on' | 'off', claudeCommand: string }} Command — herdr: off —
+ * @typedef {{ action: Action, port: number, open: boolean, startMenu: boolean, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[], herdr: 'on' | 'off', claudeCommand: string, editor: Editor | undefined }} Command — herdr: off —
  *   not used even when found, the page only reads sessions; claudeCommand: what starts Claude Code in a tab opened from
- *   the page
+ *   the page; editor: what opens a file of the file panel in an editor, none if not given
+ * @typedef {{ text: string, command: import('../server/editor.js').EditorCommand }} Editor — text: as it was given
  */
 
 export const defaultPort = 7788;
@@ -43,7 +45,11 @@ export function parseCommand(argv) {
   const claudeCommand = values['claude-command'].trim();
   // typed into a terminal and run with Enter: one line
   if (claudeCommand === '' || /[\r\n]/.test(claudeCommand)) return { ok: false, error: `Invalid --claude-command value "${values['claude-command']}": expected the command that starts Claude Code in a terminal, such as claude.` };
-  return { ok: true, command: { action: chosen[0] ?? 'serve', port, open: !values['no-open'], startMenu: values['start-menu'], palette, publicAddresses, herdr: values['no-herdr'] ? 'off' : 'on', claudeCommand } };
+  const editorText = values['editor-command']?.trim();
+  const editorCommand = editorText === undefined ? undefined : parseEditorCommand(editorText);
+  if (editorText !== undefined && editorCommand === undefined) return { ok: false, error: `Invalid --editor-command value "${values['editor-command']}": expected the command of an editor with {path} for the file — and {line}, {project} if it takes them — such as "code --goto {path}:{line}".` };
+  const editor = editorText === undefined || editorCommand === undefined ? undefined : { text: editorText, command: editorCommand };
+  return { ok: true, command: { action: chosen[0] ?? 'serve', port, open: !values['no-open'], startMenu: values['start-menu'], palette, publicAddresses, herdr: values['no-herdr'] ? 'off' : 'on', claudeCommand, editor } };
 }
 
 /**
@@ -70,6 +76,7 @@ function parseOptions(argv) {
       'no-open': { type: 'boolean', default: false },
       'no-herdr': { type: 'boolean', default: false },
       'claude-command': { type: 'string', default: 'claude' },
+      'editor-command': { type: 'string' },
       background: { type: 'boolean', short: 'b', default: false },
       stop: { type: 'boolean', default: false },
       restart: { type: 'boolean', default: false },

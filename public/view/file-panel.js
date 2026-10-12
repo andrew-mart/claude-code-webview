@@ -29,6 +29,16 @@ const refusals = {
   'not-absolute': 'The path is not absolute — it is unclear which folder it is relative to.',
 };
 
+/** Why the editor did not open the file. */
+/** @type {Readonly<Record<string, string>>} */
+const editorRefusals = {
+  'not-a-file': 'The editor did not open it: the file is not there.',
+  'no-project': 'The editor did not open it: there is no project folder (.sln, .slnx or .git) above the file.',
+  'not-started': "The editor did not start: check the viewer's --editor-command.",
+  'no-editor': 'The viewer has no editor to open files in.',
+};
+const elsewhere = "The editor opens on the viewer's computer, and this browser is on another one.";
+
 /** An <img> does not tell why it did not load. */
 const notShownImage = 'The picture is not shown: the file is gone, larger than 20 MB, or not a picture.';
 
@@ -36,13 +46,17 @@ const notShownImage = 'The picture is not shown: the file is gone, larger than 2
 const panelWidth = { property: '--panel-width', storageKey: 'viewer.panelWidth' };
 
 /**
- * @param {{ panel: HTMLElement, layout: HTMLElement }} elements
+ * @param {{ panel: HTMLElement, layout: HTMLElement, editor: import('./editor-opener.js').EditorOpener }} parts — editor:
+ *   opens the file at its line in the editor of the viewer's computer, from a browser there
  * @returns {FilePanel}
  */
-export function createFilePanel({ panel, layout }) {
+export function createFilePanel({ panel, layout, editor }) {
   const name = h('div', { className: 'panel-name' });
   const path = h('div', { className: 'panel-path' });
   const where = h('span', { className: 'panel-line' });
+  const inEditor = panelButton('external', 'Open in the editor at this line');
+  inEditor.classList.add('panel-editor');
+  inEditor.hidden = true;
   const reload = panelButton('reload', 'Reload file');
   const copy = panelButton('copy', 'Copy path');
   const close = panelButton('cross', 'Close (Esc)');
@@ -60,7 +74,7 @@ export function createFilePanel({ panel, layout }) {
   });
   panel.replaceChildren(
     resizer,
-    h('header', { className: 'panel-head' }, [h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [icon('read'), name, where]), path]), reload, copy, close]),
+    h('header', { className: 'panel-head' }, [h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [icon('read'), name, where]), path]), inEditor, reload, copy, close]),
     body,
   );
   /** @type {FileTarget | undefined} */
@@ -87,10 +101,37 @@ export function createFilePanel({ panel, layout }) {
     showContent(body, target, content);
   };
 
+  /** @param {string} message */
+  const say = (message) => {
+    body.querySelector('.panel-note')?.remove();
+    body.prepend(h('div', { className: 'panel-message panel-note', text: message }));
+  };
+  /** @param {import('../model/machine.js').EditorReach} reach */
+  const offerEditor = (reach) => {
+    inEditor.hidden = reach !== 'same' && reach !== 'unknown';
+    inEditor.title = reach === 'unknown' ? "Open in the editor at this line — first checks that this browser is on the viewer's computer" : 'Open in the editor at this line';
+  };
+  inEditor.addEventListener('click', async () => {
+    const target = current;
+    if (target === undefined) return;
+    const known = await editor.reach();
+    const reach = known === 'unknown' ? await editor.check() : known;
+    offerEditor(reach);
+    if (reach !== 'same') {
+      say(elsewhere);
+      return;
+    }
+    const reply = await editor.open(target.path, target.line ?? 1);
+    if (!reply.ok) say(editorRefusals[reply.error] ?? 'The viewer did not answer.');
+  });
+
   const api = {
     /** @param {FileTarget} target */
     open(target) {
       current = target;
+      void editor.reach().then((reach) => {
+        if (current === target) offerEditor(reach);
+      });
       name.textContent = target.path.split(/[\\/]/).pop() ?? target.path;
       path.textContent = target.path;
       path.title = target.path;

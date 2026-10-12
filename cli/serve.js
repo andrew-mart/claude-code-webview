@@ -14,6 +14,7 @@ import { createHerdrSocket, socketRunner } from '../server/herdr-socket.js';
 import { createHerdrView } from '../server/herdr-view.js';
 import { createTerminals } from '../server/terminal.js';
 import { readUsage } from '../server/usage.js';
+import { openInEditor } from '../server/editor.js';
 
 /**
  * The viewer's settings and log folder: the remembered herdr (herdr.json), bookmarks of all sessions (bookmarks.json),
@@ -50,10 +51,10 @@ const herdrSources = {
 const herdrRefreshMs = 3_000;
 
 /**
- * @param {{ port: number, about: import('../server/app.js').About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[], herdr: 'on' | 'off', claudeCommand: string }} options
+ * @param {{ port: number, about: import('../server/app.js').About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[], herdr: 'on' | 'off', claudeCommand: string, editor: import('../server/editor.js').EditorCommand | undefined }} options
  * @returns {Promise<{ url: string, close: () => void }>}
  */
-export async function serve({ port, about, palette, publicAddresses, herdr, claudeCommand }) {
+export async function serve({ port, about, palette, publicAddresses, herdr, claudeCommand, editor }) {
   await mkdir(stateDir, { recursive: true });
   const { run, via, note } = await herdrToUse(herdr);
   const claude = claudeDir(process.env);
@@ -64,7 +65,7 @@ export async function serve({ port, about, palette, publicAddresses, herdr, clau
   // A terminal on the page: through herdr's socket a screen is read in a millisecond or two, so it is read every 40 ms
   // while typing; through the herdr program every call starts a process, a tenth of a second.
   const terminals = createTerminals({ io: paneIoOf(run), quickMs: via === 'socket' ? 40 : 200, slowMs: via === 'socket' ? 500 : 1000, quickForMs: 4000 });
-  const server = await startServer({ root: join(claude, 'projects'), host: '127.0.0.1', port, pollMs: 400, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), uploads: createUploads(join(stateDir, 'uploads')), about, palette, publicAddresses, herdrView, terminals, usage: () => readUsage(usageFiles), isRunning: async (id) => latestRecords(await readRecords()).has(id) });
+  const server = await startServer({ root: join(claude, 'projects'), host: '127.0.0.1', port, pollMs: 400, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), uploads: createUploads(join(stateDir, 'uploads')), about, palette, publicAddresses, herdrView, terminals, usage: () => readUsage(usageFiles), isRunning: async (id) => latestRecords(await readRecords()).has(id), editor: editor === undefined ? undefined : (path, line) => openInEditor(editor, path, line) });
   const url = `http://127.0.0.1:${server.port}/`;
   console.log(`Claude Code Webview ${about.version}: ${url}`);
   for (const publicAddress of publicAddresses) console.log(`Also answers at ${publicAddress.origin}/ — keep it behind a login such as Cloudflare Access`);
