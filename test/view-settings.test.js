@@ -17,6 +17,8 @@ const labels = [
   ['outline', 'hidden', 'Show outline'],
   ['tables', 'fit', 'Widen tables everywhere'],
   ['tables', 'wide', 'Fit tables to the width everywhere'],
+  ['width', 'column', 'Show the conversation at full width'],
+  ['width', 'full', 'Show the conversation in a column'],
 ];
 
 for (const [key, current, expected] of labels) {

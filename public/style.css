@@ -918,6 +918,12 @@ input.herdr-tab-name.failed {
   padding: 28px 24px 140px;
 }
 
+/* The conversation at full width: the feed and the box under it take the whole column, as wide as the window allows. */
+:root[data-width="full"] .session,
+:root[data-width="full"] .composer {
+  max-width: none;
+}
+
 .thread {
   display: flex;
   flex-direction: column;
