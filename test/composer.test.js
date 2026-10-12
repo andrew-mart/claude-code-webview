@@ -58,6 +58,25 @@ test('send_Should_TypeTextIntoSessionPaneAndPressEnter', async () => {
   ]);
 });
 
+// Claude Code's send-now key (Ctrl+X Ctrl+S, the spelling of Ctrl+Enter every terminal passes on) sends what waits in
+// its queue at once, the box's text with it: the text goes into the box without Enter, which would only queue it; with no
+// text the queue goes alone
+test('sendNow_Should_TypeTextAndPressSendNowKey', async () => {
+  const herdr = fakeHerdr();
+  const composer = composerOf([record], herdr);
+
+  const outcomes = [await composer.sendNow(sessionId, 'stop and check the logs'), await composer.sendNow(sessionId, '  ')];
+
+  assert.deepEqual(outcomes, [{ ok: true, pane: 'w3D:p1' }, { ok: true, pane: 'w3D:p1' }]);
+  assert.deepEqual(herdr.calls.filter((call) => call[1] === 'send-text' || call[1] === 'send-keys'), [
+    ['pane', 'send-text', 'w3D:p1', 'stop and check the logs'],
+    ['pane', 'send-keys', 'w3D:p1', 'ctrl+x'],
+    ['pane', 'send-keys', 'w3D:p1', 'ctrl+s'],
+    ['pane', 'send-keys', 'w3D:p1', 'ctrl+x'],
+    ['pane', 'send-keys', 'w3D:p1', 'ctrl+s'],
+  ]);
+});
+
 test('send_Should_RefuseEmptyTextAndOfflineSessionWithoutTouchingTerminal', async () => {
   const herdr = fakeHerdr();
 

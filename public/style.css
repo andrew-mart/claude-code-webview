@@ -2856,6 +2856,31 @@ table.diff tr.gap td {
   height: 12px;
 }
 
+/* while Claude works: send now, past Claude Code's queue (its Ctrl+Enter) */
+.composer-send-now {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-elev);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.composer-send-now:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.composer-send-now svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
 .composer-stop svg {
   fill: currentColor;
 }

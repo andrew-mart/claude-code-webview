@@ -27,6 +27,8 @@ import { isRecord, text } from './narrow.js';
  * @type {Readonly<Record<Keyboard, string>>}
  */
 const keysHint = { physical: 'Enter to send, Shift+Enter for a new line.', touch: 'The ↑ button sends, Enter starts a new line.' };
+/** While Claude works a message waits in Claude Code's queue — or goes at once, past it. */
+const busyKeysHint = { physical: 'Enter queues it, Ctrl+Enter sends it now, Shift+Enter for a new line.', touch: 'The ↑ button queues it, ⏩ sends it now, Enter starts a new line.' };
 
 /**
  * @param {LiveState} live
@@ -46,7 +48,7 @@ export function composerState(live, sessionId, keyboard) {
         canInterrupt: busy,
         canReopen: false,
         placeholder: busy ? 'Claude is working — your message will be queued' : 'Message Claude…',
-        hint: `${keysHint[keyboard]} The text goes to the session's terminal (herdr pane ${live.pane}).`,
+        hint: `${(busy ? busyKeysHint : keysHint)[keyboard]} The text goes to the session's terminal (herdr pane ${live.pane}).`,
       };
     }
     case 'herdr-missing':
