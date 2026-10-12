@@ -186,6 +186,7 @@ button {
 
 .brand {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 2px 8px 4px;
@@ -195,6 +196,26 @@ button {
 
 .brand .spark {
   font-size: 18px;
+}
+
+/* the account's usage under the viewer's name: the 5-hour window and the week; when each resets — on hover */
+.brand .usage {
+  flex-basis: 100%;
+  margin: -3px 0 0 24px;
+  font-size: 11.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  white-space: nowrap;
+  cursor: default;
+}
+
+.brand .usage[data-level='warm'] {
+  color: var(--warning);
+}
+
+.brand .usage[data-level='hot'] {
+  color: var(--danger);
 }
 
 .search {

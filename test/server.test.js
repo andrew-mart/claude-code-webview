@@ -63,6 +63,9 @@ function fakeComposer(takenBack) {
 /** Where the session ran in herdr: the viewer tab of web, closed since. @type {import('../public/model/history.js').Place} */
 const closedPlace = { workspace: 'web', tab: 'viewer', earlierTabs: [], folder: 'D:/dev/x', firstSeen: 1, lastSeen: 2, open: false, note: undefined };
 
+/** The account's usage as the viewer reads it: the 5-hour window and the week. */
+const accountUsage = { fiveHour: { percent: 22, resetsAt: 1_000_000 }, sevenDay: { percent: 91, resetsAt: 2_000_000 }, readAt: 500 };
+
 /** @type {import('../public/model/herdr.js').HerdrWorkspace} */
 const webWorkspace = {
   id: 'w1',
@@ -125,7 +128,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
       return { ok: true };
     },
   };
-  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals });
+  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage });
   t.after(() => server.close());
   return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls, typed, tabChanges };
 }
@@ -228,6 +231,15 @@ test('history_Should_TellWhereSessionsRanInHerdr', async (t) => {
   const response = await fetch(`${base}/api/history`);
 
   assert.deepEqual({ status: response.status, history: await response.json() }, { status: 200, history: { [sessionId]: { workspace: 'web', tab: 'viewer', earlierTabs: [], folder: 'D:/dev/x', firstSeen: 1, lastSeen: 2, open: false } } });
+});
+
+// The page shows the account's usage the viewer reads: the 5-hour window and the week
+test('usage_Should_TellAccountUsage', async (t) => {
+  const { base } = await withServer(t);
+
+  const response = await fetch(`${base}/api/usage`);
+
+  assert.deepEqual({ status: response.status, usage: await response.json() }, { status: 200, usage: { fiveHour: { percent: 22, resetsAt: 1_000_000 }, sevenDay: { percent: 91, resetsAt: 2_000_000 }, readAt: 500 } });
 });
 
 // A session closed in herdr is opened there again from the page, in the folder its transcript names
