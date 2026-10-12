@@ -12,8 +12,11 @@
   /* a herdr workspace's mark (.tinted): its hue, this light and strong, on the row's left edge */
   --mark-lightness: 0.66;
   --mark-chroma: 0.19;
-  /* a usage meter's spare room (.usage-meter[data-gap='spare']): its green washed into this — the page shows through */
-  --usage-room-wash: transparent;
+  /* a usage meter's spare room (.usage-meter[data-gap='spare']): its green this light, this strong, this opaque — the
+     page shows through */
+  --usage-room-lightness: 1;
+  --usage-room-chroma: 1;
+  --usage-room-alpha: 0.45;
   --bg-code: #f7f6f2;
   --bg-code-bar: #efede6;
   --text: #141413;
@@ -60,7 +63,9 @@
     --bg-selected: rgba(250, 249, 245, 0.085);
     --mark-lightness: 0.74;
     --mark-chroma: 0.16;
-    --usage-room-wash: rgba(222, 220, 209, 0.5);
+    --usage-room-lightness: 0.9;
+    --usage-room-chroma: 0.75;
+    --usage-room-alpha: 0.5;
     --bg-code: #1e1d1c;
     --bg-code-bar: #252422;
     --text: #f5f4ef;
@@ -97,7 +102,9 @@
   --bg-selected: rgba(250, 249, 245, 0.085);
   --mark-lightness: 0.74;
   --mark-chroma: 0.16;
-  --usage-room-wash: rgba(222, 220, 209, 0.5);
+  --usage-room-lightness: 0.9;
+  --usage-room-chroma: 0.75;
+  --usage-room-alpha: 0.5;
   --bg-code: #1e1d1c;
   --bg-code-bar: #252422;
   --text: #f5f4ef;
@@ -254,8 +261,8 @@ button {
    yet, not part of the bar: pale — the overspent red is used, as bright as the blue */
 .usage-meter[data-gap='spare'] {
   --greenness: clamp(0, calc(var(--pace, 0) / 20), 1);
-  --gap-start: color-mix(in oklch, color-mix(in oklch, #6ee7b7 calc(var(--greenness) * 100%), #fde047) 45%, var(--usage-room-wash));
-  --gap-end: color-mix(in oklch, color-mix(in oklch, #10b981 calc(var(--greenness) * 100%), #eab308) 45%, var(--usage-room-wash));
+  --gap-start: oklch(from color-mix(in oklch, #6ee7b7 calc(var(--greenness) * 100%), #fde047) calc(l * var(--usage-room-lightness)) calc(c * var(--usage-room-chroma)) h / var(--usage-room-alpha));
+  --gap-end: oklch(from color-mix(in oklch, #10b981 calc(var(--greenness) * 100%), #eab308) calc(l * var(--usage-room-lightness)) calc(c * var(--usage-room-chroma)) h / var(--usage-room-alpha));
 }
 
 .usage-meter[data-gap='over'] {
