@@ -205,11 +205,14 @@ button {
   font-size: 18px;
 }
 
-/* the account's usage under the viewer's name: the 5-hour window and the week; when each resets — on hover */
+/* the account's usage under the viewer's name: a meter for the 5-hour window and one for the week — how full each is,
+   green to red, and a mark where the window's time has got to; when each resets — on hover */
 .brand .usage {
+  display: flex;
   flex-basis: 100%;
-  margin: -3px 0 0 24px;
-  font-size: 11.5px;
+  gap: 14px;
+  margin: 1px 0 0 24px;
+  font-size: 11px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   color: var(--text-3);
@@ -217,12 +220,49 @@ button {
   cursor: default;
 }
 
-.brand .usage[data-level='warm'] {
-  color: var(--warning);
+.usage-meter {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  --meter: var(--ok);
 }
 
-.brand .usage[data-level='hot'] {
-  color: var(--danger);
+.usage-meter[data-level='warm'] {
+  --meter: var(--warning);
+}
+
+.usage-meter[data-level='hot'] {
+  --meter: var(--danger);
+}
+
+.usage-bar {
+  position: relative;
+  width: 46px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--border);
+}
+
+.usage-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: var(--meter);
+}
+
+.usage-pace {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--text-2);
+}
+
+.usage-percent {
+  min-width: 3ch;
+  color: var(--meter);
 }
 
 .search {
@@ -289,15 +329,24 @@ button {
   white-space: nowrap;
 }
 
-.session-item.active .session-title::before {
+/* a session written to just now: a dot on the right of its title, where the herdr list has its statuses */
+.session-item.active {
+  position: relative;
+}
+
+.session-item.active .session-title {
+  padding-right: 16px;
+}
+
+.session-item.active::after {
   content: "";
-  display: inline-block;
+  position: absolute;
+  top: 13px;
+  right: 10px;
   width: 7px;
   height: 7px;
-  margin: 0 7px 1px 0;
   border-radius: 50%;
   background: var(--accent);
-  vertical-align: middle;
   animation: pulse 1.6s ease-in-out infinite;
 }
 
@@ -476,6 +525,7 @@ button {
 
 .herdr-tab-text {
   display: flex;
+  flex: 1;
   flex-direction: column;
   min-width: 0;
 }

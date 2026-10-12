@@ -11,7 +11,7 @@ import { createComposer } from './view/composer-view.js';
 import { createDrawers } from './view/drawers.js';
 import { openedAt, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf } from './model/herdr.js';
 import { parseHistory } from './model/history.js';
-import { parseUsage, usageText } from './model/usage.js';
+import { parseUsage, usageView } from './model/usage.js';
 import { createHerdrSidebar, createTabBar } from './view/herdr-panel.js';
 import { tintByWorkspace } from './view/workspace-tint.js';
 import { mountTerminal } from './view/terminal-view.js';
@@ -840,10 +840,29 @@ async function refreshUsage() {
   const usage = parseUsage(await response.json().catch(() => undefined));
   usageBadge.hidden = usage === undefined;
   if (usage === undefined) return;
-  const shown = usageText(usage, Date.now());
-  usageBadge.textContent = shown.label;
-  usageBadge.dataset.level = shown.level;
+  const shown = usageView(usage, Date.now());
+  usageBadge.replaceChildren(...shown.meters.map(usageMeter));
   usageBadge.title = shown.title;
+}
+
+/**
+ * A window's meter: its name, how full it is, a mark for how much of it has gone by, the share used.
+ * @param {import('./model/usage.js').UsageMeter} meter
+ */
+function usageMeter(meter) {
+  const fill = h('span', { className: 'usage-fill' });
+  fill.style.width = `${Math.min(100, meter.percent ?? 0)}%`;
+  const bar = h('span', { className: 'usage-bar' }, [fill]);
+  if (meter.elapsed !== undefined) {
+    const pace = h('span', { className: 'usage-pace' });
+    pace.style.left = `${meter.elapsed}%`;
+    bar.append(pace);
+  }
+  return h('span', { className: 'usage-meter', attrs: { 'data-level': meter.level } }, [
+    h('span', { className: 'usage-name', text: meter.name }),
+    bar,
+    h('span', { className: 'usage-percent', text: meter.percent === undefined ? '—' : `${Math.round(meter.percent)}%` }),
+  ]);
 }
 
 /** A strip at the top of the page while the viewer is out of reach. */

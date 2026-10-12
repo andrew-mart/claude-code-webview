@@ -9,7 +9,7 @@ import { isRecord } from './narrow.js';
  *   when Claude Code read it, ms: it reads it while it runs
  */
 
-/** From this share of a window on its line is warm, then hot. */
+/** From this share of a window used its meter is warm, then hot. */
 const warmPercent = 70;
 const hotPercent = 90;
 
@@ -37,28 +37,51 @@ function windowOf(json) {
 }
 
 /**
+ * @typedef {'calm' | 'warm' | 'hot'} UsageLevel
+ * @typedef {{ name: '5h' | '7d', percent: number | undefined, level: UsageLevel, elapsed: number | undefined }} UsageMeter —
+ *   percent: how much is used, none if the window reset after the reading; elapsed: how much of the window has gone
+ *   by, percent — ahead of it, the window is used faster than it passes
+ */
+
+/** The windows: their names, on the meter and on hover, and their length. */
+const windowsOf = /** @type {const} */ ([
+  { name: '5h', said: '5-hour window', ms: 5 * 3_600_000, pick: (/** @type {Usage} */ usage) => usage.fiveHour },
+  { name: '7d', said: 'Week', ms: 7 * 24 * 3_600_000, pick: (/** @type {Usage} */ usage) => usage.sevenDay },
+]);
+
+/**
  * @param {Usage} usage
  * @param {number} now
- * @returns {{ label: string, level: 'calm' | 'warm' | 'hot', title: string }} — level: of the fuller window
+ * @returns {{ meters: UsageMeter[], title: string }}
  */
-export function usageText(usage, now) {
-  const windows = /** @type {const} */ ([
-    ['5h', '5-hour window', usage.fiveHour],
-    ['7d', 'Week', usage.sevenDay],
-  ]);
+export function usageView(usage, now) {
   // a window that reset after the reading: what it says is no longer so
-  const shown = windows.map(([short, name, window]) => ({ short, name, window: window === undefined || (window.resetsAt !== undefined && window.resetsAt <= now) ? undefined : window }));
-  const fullest = Math.max(0, ...shown.flatMap(({ window }) => (window === undefined ? [] : [window.percent])));
+  const shown = windowsOf.map((known) => {
+    const window = known.pick(usage);
+    return { ...known, window: window === undefined || (window.resetsAt !== undefined && window.resetsAt <= now) ? undefined : window };
+  });
   return {
-    label: shown.map(({ short, window }) => `${short} ${window === undefined ? '—' : `${Math.round(window.percent)}%`}`).join(' · '),
-    level: fullest >= hotPercent ? 'hot' : fullest >= warmPercent ? 'warm' : 'calm',
+    meters: shown.map(({ name, ms, window }) => ({
+      name,
+      percent: window?.percent,
+      level: levelOf(window?.percent ?? 0),
+      elapsed: window?.resetsAt === undefined ? undefined : Math.round(Math.min(100, Math.max(0, 100 - ((window.resetsAt - now) / ms) * 100))),
+    })),
     title: [
-      ...shown.map(({ name, window }) =>
-        window === undefined ? `${name}: reset since the reading` : `${name}: ${Math.round(window.percent)}% used${window.resetsAt === undefined ? '' : `, resets in ${span(window.resetsAt - now)}`}`,
+      ...shown.map(({ said, window }) =>
+        window === undefined ? `${said}: reset since the reading` : `${said}: ${Math.round(window.percent)}% used${window.resetsAt === undefined ? '' : `, resets in ${span(window.resetsAt - now)}`}`,
       ),
       `Read ${span(now - usage.readAt)} ago`,
     ].join('\n'),
   };
+}
+
+/**
+ * @param {number} percent
+ * @returns {UsageLevel}
+ */
+function levelOf(percent) {
+  return percent >= hotPercent ? 'hot' : percent >= warmPercent ? 'warm' : 'calm';
 }
 
 /**
