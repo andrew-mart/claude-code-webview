@@ -193,6 +193,29 @@ export function createComposer({ readRecords, herdr }) {
       });
     },
     /**
+     * What waits in Claude Code's queue, sent at once with the box's text: its send-now key — Ctrl+Enter, which a terminal
+     * may pass on as plain Enter; Ctrl+X Ctrl+S reaches it from any. Claude's work that can go to the background goes
+     * there and Claude reads the messages in the same turn; otherwise the turn is stopped and they go next.
+     * @param {string} sessionId
+     * @param {string} text — none: the queue goes alone
+     * @returns {Promise<SendOutcome>}
+     */
+    async sendNow(sessionId, text) {
+      const input = toTerminalInput(text);
+      return inTurn(sessionId, async () => {
+        const place = await target(sessionId);
+        if (!place.ok) return place;
+        const outcome = await press(place, [
+          // into the box without Enter: Enter would only queue it as well
+          ...(input === '' ? [] : [/** @type {const} */ (['send-text', input])]),
+          ['send-keys', 'ctrl+x'],
+          ['send-keys', 'ctrl+s'],
+        ]);
+        if (outcome.ok && input !== '') sentPrompts.set(sessionId, [...(sentPrompts.get(sessionId) ?? []), input].slice(-keptPrompts));
+        return outcome;
+      });
+    },
+    /**
      * A side question, as /btw in the session's terminal: Claude answers from the conversation without adding to it.
      * @param {string} sessionId
      * @param {string} question

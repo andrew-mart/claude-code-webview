@@ -36,6 +36,11 @@ function fakeComposer(takenBack) {
         calls.push(['send', id, text]);
         return { ok: true, pane: 'w3D:p1' };
       },
+      /** @param {string} id @param {string} text @returns {Promise<import('../server/composer.js').SendOutcome>} */
+      sendNow: async (id, text) => {
+        calls.push(['sendNow', id, text]);
+        return { ok: true, pane: 'w3D:p1' };
+      },
       /** @param {string} id @returns {Promise<import('../server/composer.js').StopReply>} */
       interrupt: async (id) => {
         calls.push(['interrupt', id]);
@@ -193,6 +198,19 @@ test('send_Should_PassTextFromViewerPageToSessionTerminal', async (t) => {
   assert.equal(response.status, 200);
   assert.deepEqual(JSON.parse(response.body), { ok: true, pane: 'w3D:p1' });
   assert.deepEqual(calls, [['send', sessionId, 'Go on']]);
+});
+
+// Sent now — Ctrl+Enter on the page while Claude works — the text and what waits in the queue go at once, an empty box
+// sending the queue alone
+test('send_Should_SendNow_WhenPageAsks', async (t) => {
+  const { port, calls } = await withServer(t);
+
+  const replies = await Promise.all([
+    post(port, '/api/send', pageHeaders(port), JSON.stringify({ session: sessionId, text: 'Stop and check the logs', now: true })),
+    post(port, '/api/send', pageHeaders(port), JSON.stringify({ session: sessionId, text: '', now: true })),
+  ]);
+
+  assert.deepEqual({ statuses: replies.map(({ status }) => status), calls: calls.toSorted() }, { statuses: [200, 200], calls: [['sendNow', sessionId, ''], ['sendNow', sessionId, 'Stop and check the logs']] });
 });
 
 // A side question from the page goes to the session's terminal, and its answer comes back to the page

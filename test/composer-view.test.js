@@ -19,7 +19,8 @@ test('composerState_Should_EnableInputOnlyForSessionRunningInHerdr', () => {
     canInterrupt: true,
     canReopen: false,
     placeholder: 'Claude is working — your message will be queued',
-    hint: "Enter to send, Shift+Enter for a new line. The text goes to the session's terminal (herdr pane w3D:p1).",
+    // while Claude works the queue can be skipped: Ctrl+Enter sends at once
+    hint: "Enter queues it, Ctrl+Enter sends it now, Shift+Enter for a new line. The text goes to the session's terminal (herdr pane w3D:p1).",
   });
 });
 
@@ -28,6 +29,10 @@ test('composerState_Should_ExplainSendingByButtonOnTouchKeyboard', () => {
   assert.equal(
     composerState({ state: 'live', status: 'idle', pane: 'w3D:p1', dialog: undefined }, sessionId, 'touch').hint,
     "The ↑ button sends, Enter starts a new line. The text goes to the session's terminal (herdr pane w3D:p1).",
+  );
+  assert.equal(
+    composerState({ state: 'live', status: 'busy', pane: 'w3D:p1', dialog: undefined }, sessionId, 'touch').hint,
+    "The ↑ button queues it, ⏩ sends it now, Enter starts a new line. The text goes to the session's terminal (herdr pane w3D:p1).",
   );
 });
 

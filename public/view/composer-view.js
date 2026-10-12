@@ -39,6 +39,8 @@ export function createComposer(sessionId, { focusBox, placeOf, asides }) {
   input.value = readDraft(draftKey);
   const interrupt = h('button', { className: 'composer-stop', title: 'Stop — press Esc in the session terminal', attrs: { type: 'button', hidden: '', 'aria-label': 'Stop' } }, [icon('stop')]);
   const send = h('button', { className: 'composer-send', title: keyboard === 'touch' ? 'Send' : 'Send (Enter)', attrs: { type: 'submit', 'aria-label': 'Send' } }, [icon('send')]);
+  // while Claude works: what waits in Claude Code's queue goes at once, the box's text with it — its Ctrl+Enter
+  const sendNow = h('button', { className: 'composer-send-now', title: keyboard === 'touch' ? 'Send now, past the queue' : 'Send now, past the queue (Ctrl+Enter)', attrs: { type: 'button', hidden: '', 'aria-label': 'Send now' } }, [icon('forward')]);
   const hint = h('div', { className: 'composer-hint' });
   // a session that is not running is opened again in herdr — where it ran — and the box comes to life when it starts
   const reopen = h('button', { className: 'composer-reopen', text: 'Open in herdr', title: 'A tab of the workspace it ran in, named as before; Claude Code resumes the session there', attrs: { type: 'button' } });
@@ -58,7 +60,7 @@ export function createComposer(sessionId, { focusBox, placeOf, asides }) {
   // a box taller than a few lines folds to them: a long text pasted in need not cover the conversation
   const fold = h('button', { className: 'icon-button composer-fold', attrs: { type: 'button', hidden: '' } });
   let folded = false;
-  const form = h('form', { className: 'composer-box' }, [fold, attachments.list, attachments.button, input, h('div', { className: 'composer-actions' }, [interrupt, send])]);
+  const form = h('form', { className: 'composer-box' }, [fold, attachments.list, attachments.button, input, h('div', { className: 'composer-actions' }, [interrupt, sendNow, send])]);
   const aside = h('section', { className: 'side-answer', attrs: { hidden: '', 'aria-label': 'Side question', 'aria-live': 'polite' } });
   const closeAside = h('button', { className: 'icon-button side-answer-close', title: 'Close', attrs: { type: 'button', 'aria-label': 'Close' } }, [icon('cross')]);
   closeAside.addEventListener('click', () => asides.set(sessionId, undefined));
@@ -106,6 +108,7 @@ export function createComposer(sessionId, { focusBox, placeOf, asides }) {
     input.placeholder = view.placeholder;
     hint.textContent = view.hint;
     interrupt.hidden = !view.canInterrupt;
+    sendNow.hidden = !view.canInterrupt;
     resume.hidden = !view.canReopen;
     form.hidden = view.canReopen;
     if (view.canReopen) {
@@ -212,16 +215,21 @@ export function createComposer(sessionId, { focusBox, placeOf, asides }) {
       for (const delayMs of [2000, 5000, 9000]) setTimeout(() => void refreshLive(), delayMs);
     });
   });
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
-    if (send.disabled) return;
+  /**
+   * The box's prompt to the session: queued while Claude works, as Enter does in the terminal — or now, past the queue,
+   * as its Ctrl+Enter does, an empty box sending what waits there.
+   * @param {'queued' | 'now'} when
+   */
+  const submitPrompt = (when) => {
+    const now = when === 'now' && !sendNow.hidden;
+    if (now ? !enabled || sending || asking : send.disabled) return;
     const question = sideQuestionOf(input.value);
     if (question !== undefined) return askAside(question);
     sending = true;
     refreshButtons();
     const images = attachments.images();
     if (images.length > 0) say(`Sending ${images.length === 1 ? 'the image' : `${images.length} images`}…`, 'ok');
-    void post('/api/send', { text: input.value, images }).then((json) => {
+    void post('/api/send', { text: input.value, images, ...(now ? { now: true } : {}) }).then((json) => {
       const outcome = parseOutcome(json);
       sending = false;
       if (outcome?.ok === true) {
@@ -234,7 +242,12 @@ export function createComposer(sessionId, { focusBox, placeOf, asides }) {
       refreshButtons();
       void refreshLive();
     });
+  };
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    submitPrompt('queued');
   });
+  sendNow.addEventListener('click', () => submitPrompt('now'));
   input.addEventListener('keydown', (event) => {
     // Esc stops Claude, as it does in the terminal
     if (event.key === 'Escape' && stop()) {
@@ -245,7 +258,8 @@ export function createComposer(sessionId, { focusBox, placeOf, asides }) {
     // A phone keyboard has no Shift+Enter: there Enter always starts a new line and the button sends.
     if (keyboard === 'physical' && event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
-      form.requestSubmit();
+      // Ctrl+Enter sends now, past the queue, as in the terminal; with no queue it sends as Enter does
+      submitPrompt(event.ctrlKey || event.metaKey ? 'now' : 'queued');
     }
   });
   // A screenshot pasted from the clipboard or images dropped on the box are attached like picked ones.

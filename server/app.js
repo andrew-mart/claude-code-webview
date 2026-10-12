@@ -58,7 +58,7 @@ const agentIdPattern = /^[0-9a-z]{1,64}$/i;
 const paneIdPattern = /^[\w:-]{1,40}$/;
 
 /**
- * @typedef {{ liveState: (sessionId: string) => Promise<import('./composer.js').LiveState>, send: (sessionId: string, text: string) => Promise<import('./composer.js').SendOutcome>, interrupt: (sessionId: string) => Promise<import('./composer.js').StopReply>, rewind: (sessionId: string, request: import('./composer.js').RewindRequest) => Promise<import('./composer.js').RewindReply>, btw: (sessionId: string, question: string) => Promise<import('./composer.js').BtwReply>, answer: (sessionId: string, steps: readonly import('../public/model/dialog.js').DialogStep[]) => Promise<import('../public/model/dialog.js').DialogReply> }} Composer
+ * @typedef {{ liveState: (sessionId: string) => Promise<import('./composer.js').LiveState>, send: (sessionId: string, text: string) => Promise<import('./composer.js').SendOutcome>, sendNow: (sessionId: string, text: string) => Promise<import('./composer.js').SendOutcome>, interrupt: (sessionId: string) => Promise<import('./composer.js').StopReply>, rewind: (sessionId: string, request: import('./composer.js').RewindRequest) => Promise<import('./composer.js').RewindReply>, btw: (sessionId: string, question: string) => Promise<import('./composer.js').BtwReply>, answer: (sessionId: string, steps: readonly import('../public/model/dialog.js').DialogStep[]) => Promise<import('../public/model/dialog.js').DialogReply> }} Composer
  * @typedef {{ name: string, version: string }} About
  * @typedef {() => Promise<import('../public/model/usage.js').Usage | undefined>} ReadUsage — none until Claude Code has read it
  * @typedef {(sessionId: string) => Promise<boolean>} IsRunning
@@ -240,7 +240,9 @@ async function handleWrite(deps, url, request, response) {
       }
       // Claude Code opens attached images by path; the files stay only if the terminal took the prompt.
       const paths = await deps.uploads.save(attached.images);
-      const outcome = await deps.composer.send(sessionId, withAttachedImages(isRecord(body) && typeof body.text === 'string' ? body.text : '', paths));
+      const prompt = withAttachedImages(isRecord(body) && typeof body.text === 'string' ? body.text : '', paths);
+      // now: what waits in Claude Code's queue goes at once, the prompt with it — Ctrl+Enter on the page
+      const outcome = isRecord(body) && body.now === true ? await deps.composer.sendNow(sessionId, prompt) : await deps.composer.send(sessionId, prompt);
       if (!outcome.ok) await deps.uploads.remove(paths);
       return sendJson(response, outcome);
     }
