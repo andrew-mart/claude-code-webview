@@ -276,8 +276,8 @@ button {
 .usage-line {
   flex: 1;
   min-width: 32px;
-  height: 6px;
-  border-radius: 3px;
+  height: 10px;
+  border-radius: 5px;
   background: linear-gradient(90deg, var(--used-start) 0%, var(--used-end) var(--used-to), var(--gap-start) var(--gap-from), var(--gap-end) var(--gap-until), var(--border) var(--track-from));
   background: linear-gradient(in oklch 90deg, var(--used-start) 0%, var(--used-end) var(--used-to), var(--gap-start) var(--gap-from), var(--gap-end) var(--gap-until), var(--border) var(--track-from));
   box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.08);
