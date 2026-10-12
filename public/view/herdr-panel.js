@@ -120,7 +120,7 @@ export function createTabBar() {
         return;
       }
       const chips = place.workspace.tabs.map((tab) => {
-        const chip = link(tabTarget(tab), 'herdr-chip', [statusDot(tab.status), h('span', { text: `${tab.number} ${tab.label}` })]);
+        const chip = link(tabTarget(tab), 'herdr-chip', [statusDot(tab.status), h('span', { text: tabName(tab) })]);
         chip.title = tabContent(tab);
         chip.classList.toggle('selected', tab.id === place.tab.id);
         return chip;
