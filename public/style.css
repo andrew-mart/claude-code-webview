@@ -810,6 +810,13 @@ input.herdr-tab-name.failed {
   background: var(--danger);
 }
 
+/* a new tab's choices: a terminal, Claude Code — the accent, Enter picks it — or nothing */
+.herdr-tab-confirm .icon-button.herdr-tab-new-claude {
+  border-color: transparent;
+  background: var(--accent);
+  color: #fff;
+}
+
 /* A herdr pane's terminal: dark, as terminal programs draw for. Its top row — the sidebar's button — on a phone only. */
 .terminal-top {
   display: none;

@@ -273,3 +273,40 @@ test('herdrSidebar_Should_OpenNewWorkspace_FromItsNameAndFolder', async () => {
     { asked: [['billing', 'D:/nowhere', 'claude'], ['billing', 'D:/dev/billing', 'shell']], refused: 'There is no such folder.', kept: 'billing', opened: ['#/pane/w5:p1'], formGone: true },
   );
 });
+
+// Tabs that do not fit scroll sideways under the mouse wheel; tabs that fit leave the wheel to the page
+test('tabBar_Should_ScrollTabsSideways_WithMouseWheel_WhenTheyDoNotFit', () => {
+  /** @param {number} scrollWidth */
+  const wheelOver = (scrollWidth) => {
+    const { bar } = barAboveSession();
+    Object.defineProperty(bar.element, 'scrollWidth', { value: scrollWidth });
+    Object.defineProperty(bar.element, 'clientWidth', { value: 300 });
+    const wheel = new window.WheelEvent('wheel', { deltaY: 120, cancelable: true });
+    bar.element.dispatchEvent(wheel);
+    return { scrolled: bar.element.scrollLeft, pageKeepsWheel: !wheel.defaultPrevented };
+  };
+
+  assert.deepEqual([wheelOver(800), wheelOver(300)], [
+    { scrolled: 120, pageKeepsWheel: false },
+    { scrolled: 0, pageKeepsWheel: true },
+  ]);
+});
+
+// What a new tab starts with is chosen with icons — a terminal, Claude Code, cancel — each named on hover
+test('tabBar_Should_OfferNewTabChoices_AsIconsNamedOnHover', () => {
+  const { bar, click } = barAboveSession();
+
+  click('.herdr-tab-new');
+
+  assert.deepEqual(
+    ['.herdr-tab-new-shell', '.herdr-tab-new-claude', '.herdr-tab-new-cancel'].map((selector) => {
+      const button = bar.element.querySelector(selector);
+      return { text: button?.textContent, icon: button?.querySelector('svg') !== null, title: button?.getAttribute('title') };
+    }),
+    [
+      { text: '', icon: true, title: 'Terminal' },
+      { text: '', icon: true, title: 'Claude Code (Enter)' },
+      { text: '', icon: true, title: 'Cancel (Esc)' },
+    ],
+  );
+});

@@ -41,6 +41,17 @@ function tabName(tab) {
 }
 
 /**
+ * A button that is an icon, named on hover and to a screen reader.
+ * @param {string} className
+ * @param {string} iconName
+ * @param {string} name
+ * @returns {HTMLButtonElement}
+ */
+function iconButton(className, iconName, name) {
+  return h('button', { className: `icon-button ${className}`, title: name, attrs: { type: 'button', 'aria-label': name } }, [icon(iconName)]);
+}
+
+/**
  * @param {string | undefined} target — the page address, none for a tab with nothing to open
  * @param {string} className
  * @param {readonly (Node | string)[]} children
@@ -181,6 +192,16 @@ export function createHerdrSidebar(element, { createWorkspace, open }) {
  */
 export function createTabBar({ rename, close, open, create }) {
   const element = h('nav', { className: 'herdr-tab-bar', attrs: { 'aria-label': 'herdr tabs', hidden: '' } });
+  // tabs that do not fit scroll sideways under the mouse wheel; tabs that fit leave the wheel to the page
+  element.addEventListener(
+    'wheel',
+    (event) => {
+      if (element.scrollWidth <= element.clientWidth || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+      event.preventDefault();
+      element.scrollLeft += event.deltaY;
+    },
+    { passive: false },
+  );
   let shown = '';
   /** What the bar was given last: shown once naming or closing is over. */
   /** @type {{ layout: import('../model/herdr.js').HerdrLayout, opened: import('../model/herdr.js').Opened | undefined } | undefined} */
@@ -250,8 +271,8 @@ export function createTabBar({ rename, close, open, create }) {
     const neighbour = tabs[at + 1] ?? tabs[at - 1];
     busy = true;
     // two buttons say it all: ✓ closes — the title tells what that stops — ✕ keeps the tab
-    const yes = h('button', { className: 'icon-button herdr-tab-confirm-close', title: 'Close the tab: what runs in it stops', attrs: { type: 'button', 'aria-label': 'Close the tab: what runs in it stops' } }, [icon('check')]);
-    const no = h('button', { className: 'icon-button herdr-tab-confirm-cancel', title: 'Keep the tab', attrs: { type: 'button', 'aria-label': 'Keep the tab' } }, [icon('cross')]);
+    const yes = iconButton('herdr-tab-confirm-close', 'check', 'Close the tab: what runs in it stops');
+    const no = iconButton('herdr-tab-confirm-cancel', 'cross', 'Keep the tab');
     const question = h('span', { className: 'herdr-tab-confirm-failed', attrs: { hidden: '' } });
     no.addEventListener('click', finish);
     yes.addEventListener('click', () => {
@@ -298,7 +319,7 @@ export function createTabBar({ rename, close, open, create }) {
     };
     /** @param {import('../model/herdr.js').TabStart} start @param {string} text @param {string} className */
     const choice = (start, text, className) => {
-      const made = h('button', { className, text, attrs: { type: 'button' } });
+      const made = iconButton(className, start === 'shell' ? 'shell' : 'model', text);
       made.addEventListener('click', () => add(start));
       return made;
     };
@@ -311,9 +332,9 @@ export function createTabBar({ rename, close, open, create }) {
         add('claude');
       }
     });
-    const cancel = h('button', { className: 'herdr-tab-new-cancel', text: 'Cancel', attrs: { type: 'button' } });
+    const cancel = iconButton('herdr-tab-new-cancel', 'cross', 'Cancel (Esc)');
     cancel.addEventListener('click', finish);
-    const choices = h('span', { className: 'herdr-tab-confirm' }, [name, choice('shell', 'Terminal', 'herdr-tab-new-shell'), choice('claude', 'Claude Code', 'herdr-tab-new-claude'), cancel, message]);
+    const choices = h('span', { className: 'herdr-tab-confirm' }, [name, choice('shell', 'Terminal', 'herdr-tab-new-shell'), choice('claude', 'Claude Code (Enter)', 'herdr-tab-new-claude'), cancel, message]);
     adding.replaceWith(choices);
     name.focus();
   };
