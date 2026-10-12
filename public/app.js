@@ -198,6 +198,10 @@ function createPage() {
       location.hash = target;
     },
   });
+  // "+" for a new workspace beside the search: a row of its own under the workspaces took the list's height. It shows
+  // in the herdr mode only, and there is none before herdr is heard from
+  search.after(herdrSidebar.newButton);
+  herdrSidebar.newButton.hidden = true;
   const tabBar = createTabBar({
     rename: (tab, label) => changeTab('/api/tab/rename', { tab, label }),
     close: (tab) => changeTab('/api/tab/close', { tab }),
@@ -582,9 +586,10 @@ function createPage() {
       sidebarModes.hidden = !herdrLayout.herdr;
       for (const button of sidebarModes.querySelectorAll('button[data-mode]')) button.classList.toggle('selected', button.getAttribute('data-mode') === mode);
       herdrPanel.hidden = mode !== 'herdr';
+      herdrSidebar.newButton.hidden = mode !== 'herdr';
       list.hidden = mode === 'herdr';
       sessionOptions.hidden = mode === 'herdr';
-      if (mode === 'herdr') search.placeholder = 'Search workspaces and sessions';
+      if (mode === 'herdr') search.placeholder = 'Search workspaces, sessions';
       else search.placeholder = workspaces.herdr ? 'Search by title, folder or workspace' : 'Search by title or folder';
       const opened = openedAt(location.hash);
       if (mode === 'herdr') herdrSidebar.render(herdrLayout, opened, search.value);

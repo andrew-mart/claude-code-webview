@@ -225,7 +225,26 @@ test('herdrSidebar_Should_TintWorkspaceAndItsSessions_WithWorkspaceColour', () =
   assert.deepEqual({ apart: workspaces.get('web') !== workspaces.get('api') && workspaces.get('web') !== '', sessions }, { apart: true, sessions: [true, true, true, true] });
 });
 
-// "+" under the workspaces opens one: its name, its folder, a terminal or Claude Code in it — and the page goes there.
+// "+" beside the search is an icon, not a row of its own: it opens the form at the top of the panel, right under the
+// search, above the workspaces; a second press puts the form away
+test('herdrSidebar_Should_OpenNewWorkspaceForm_AboveWorkspaces_FromIconBesideSearch', () => {
+  const element = window.document.createElement('div');
+  const sidebar = createHerdrSidebar(element, noActions);
+  sidebar.render({ herdr: true, workspaces: [web] }, undefined, '');
+  const form = () => element.querySelector('.herdr-new-workspace');
+  const before = { panel: element.textContent?.includes('New workspace'), expanded: sidebar.newButton.getAttribute('aria-expanded') };
+
+  sidebar.newButton.click();
+  const open = { first: element.querySelector(':scope > :not([hidden])') === form()?.parentElement, expanded: sidebar.newButton.getAttribute('aria-expanded') };
+  sidebar.newButton.click();
+
+  assert.deepEqual(
+    { words: sidebar.newButton.textContent, label: sidebar.newButton.getAttribute('aria-label'), before, open, closed: { form: form(), expanded: sidebar.newButton.getAttribute('aria-expanded') } },
+    { words: '', label: 'New workspace', before: { panel: false, expanded: 'false' }, open: { first: true, expanded: 'true' }, closed: { form: null, expanded: 'false' } },
+  );
+});
+
+// "+" opens a workspace: its name, its folder, a terminal or Claude Code in it — and the page goes there.
 // A folder that is not there is said so and the form stays to be put right; a fresh look at herdr leaves it as it is
 test('herdrSidebar_Should_OpenNewWorkspace_FromItsNameAndFolder', async () => {
   const element = window.document.createElement('div');
@@ -256,7 +275,7 @@ test('herdrSidebar_Should_OpenNewWorkspace_FromItsNameAndFolder', async () => {
   };
   const settle = () => new Promise((done) => setTimeout(done, 0));
 
-  find('.herdr-workspace-new').click();
+  sidebar.newButton.click();
   fill('.herdr-new-name', 'billing');
   fill('.herdr-new-folder', 'D:/nowhere');
   find('.herdr-new-claude').click();
