@@ -890,6 +890,8 @@ function usageMeter(meter) {
     element.style.setProperty('--fill', String(meter.gap?.from ?? used));
     element.style.setProperty('--gap-to', String(meter.gap?.to ?? used));
   }
+  // how far the use lags behind the time — below 0, how far it runs ahead: the gap's colour follows it
+  if (meter.gap !== undefined) element.style.setProperty('--pace', String(meter.gap.kind === 'spare' ? meter.gap.to - meter.gap.from : meter.gap.from - meter.gap.to));
   return element;
 }
 
