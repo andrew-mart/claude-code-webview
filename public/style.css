@@ -2786,17 +2786,58 @@ table.diff tr.gap td {
 }
 
 /* A session not running, opened again in herdr where it ran. */
+/* A session that is not running, in the box's place: where it ran, and the button that opens it there again. */
+.composer-resume {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 10px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 18px;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+}
+
+.composer-resume-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.composer-resume-state {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.composer-resume-where {
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .composer-reopen {
   flex: none;
-  align-self: flex-start;
-  padding: 4px 10px;
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border-strong));
-  border-radius: 8px;
-  background: var(--bg-elev);
-  color: var(--accent);
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #fff;
   font: inherit;
-  font-size: 12px;
+  font-size: 13.5px;
+  font-weight: 600;
   cursor: pointer;
+}
+
+.composer-reopen:hover {
+  background: var(--accent-strong);
+}
+
+.composer-reopen:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .composer-hint {

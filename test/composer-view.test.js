@@ -48,7 +48,8 @@ test('composerState_Should_ExplainWhyInputIsUnavailable', () => {
       return [view.enabled, view.hint];
     }),
     [
-      [false, `The session is not running. Open it in herdr again — where it ran — or in a herdr pane: claude --resume ${sessionId}`],
+      // the card in the box's place opens it where it ran: the hint tells the other way
+      [false, `Or in a herdr pane: claude --resume ${sessionId}`],
       [false, 'The session is not running in herdr — its terminal cannot receive text.'],
       [false, 'Could not reach herdr. Start the viewer from a herdr pane.'],
     ],
