@@ -8,6 +8,7 @@ import { groupedSessions, listedSessions, mergeSessions } from './model/session-
 import { actionLabel, choices, nextChoice } from './model/view-settings.js';
 import { createBookmarkStore, moveLocalBookmarksToServer } from './view/bookmark-store.js';
 import { createComposer } from './view/composer-view.js';
+import { createAsideStore } from './view/aside-store.js';
 import { createDrawers } from './view/drawers.js';
 import { openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf } from './model/herdr.js';
 import { parseHistory } from './model/history.js';
@@ -202,6 +203,8 @@ function createPage() {
     },
     create: (tab, start, label) => newTab(tab, start, label),
   });
+  /** The side questions (/btw) of the sessions opened: an answer outlives the session's box. */
+  const asides = createAsideStore();
   /**
    * The herdr pane whose terminal the page shows (#/pane/<id>) instead of a session; sessionWhenOpened: the session in it
    * then — one Claude Code starts in it later takes the page to its feed.
@@ -424,6 +427,7 @@ function createPage() {
     scroller.append(view.element);
     const composer = createComposer(id, {
       focusBox: followedTo === id ? 'no' : 'when-ready',
+      asides,
       // a tab numbered by herdr says little: only a named one is told
       placeOf: () => {
         const place = history[id];

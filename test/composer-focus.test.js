@@ -5,6 +5,7 @@ import { JSDOM } from 'jsdom';
 const { window } = new JSDOM('<!doctype html><html><body><input id="search"></body></html>', { url: 'http://localhost/' });
 Object.assign(globalThis, { window, document: window.document, localStorage: window.localStorage, HTMLElement: window.HTMLElement, File: window.File });
 const { createComposer } = await import('../public/view/composer-view.js');
+const { createAsideStore } = await import('../public/view/aside-store.js');
 
 const sessionId = '3f2c9a50-1111-4222-8333-944455556666';
 
@@ -22,7 +23,7 @@ async function openedSession({ pointer, focusBox, typingInSearch }) {
   assert.ok(search instanceof window.HTMLInputElement);
   if (typingInSearch) search.focus();
   else search.blur();
-  const composer = createComposer(sessionId, { focusBox, placeOf: () => undefined });
+  const composer = createComposer(sessionId, { focusBox, placeOf: () => undefined, asides: createAsideStore() });
   window.document.body.append(composer.element);
   // the viewer's answer about the session arrives
   await new Promise((resolve) => setTimeout(resolve, 20));

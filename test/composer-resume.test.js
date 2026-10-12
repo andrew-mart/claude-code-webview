@@ -5,6 +5,7 @@ import { JSDOM } from 'jsdom';
 const { window } = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
 Object.assign(globalThis, { window, document: window.document, localStorage: window.localStorage, HTMLElement: window.HTMLElement, File: window.File });
 const { createComposer } = await import('../public/view/composer-view.js');
+const { createAsideStore } = await import('../public/view/aside-store.js');
 
 const sessionId = '3f2c9a50-1111-4222-8333-944455556666';
 
@@ -21,7 +22,7 @@ test('composer_Should_OfferToOpenSessionAgain_InPlaceOfBox_WhenItIsNotRunning', 
       return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
     },
   });
-  const composer = createComposer(sessionId, { focusBox: 'no', placeOf: () => ({ workspace: 'job_search', tab: 'resume adapter' }) });
+  const composer = createComposer(sessionId, { focusBox: 'no', placeOf: () => ({ workspace: 'job_search', tab: 'resume adapter' }), asides: createAsideStore() });
   window.document.body.append(composer.element);
   await new Promise((resolve) => setTimeout(resolve, 20));
   const box = composer.element.querySelector('.composer-box');
