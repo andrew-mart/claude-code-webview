@@ -9,10 +9,9 @@
   --bg-bubble: #f0eee6;
   --bg-hover: rgba(31, 30, 29, 0.05);
   --bg-selected: rgba(31, 30, 29, 0.085);
-  /* a herdr workspace's tint (.tinted): its hue, this light and strong, over the row */
-  --tint-lightness: 0.74;
-  --tint-chroma: 0.12;
-  --tint-alpha: 0.17;
+  /* a herdr workspace's mark (.tinted): its hue, this light and strong, on the row's left edge */
+  --mark-lightness: 0.66;
+  --mark-chroma: 0.19;
   --bg-code: #f7f6f2;
   --bg-code-bar: #efede6;
   --text: #141413;
@@ -57,9 +56,8 @@
     --bg-bubble: #1a1918;
     --bg-hover: rgba(250, 249, 245, 0.05);
     --bg-selected: rgba(250, 249, 245, 0.085);
-    --tint-lightness: 0.66;
-    --tint-chroma: 0.11;
-    --tint-alpha: 0.2;
+    --mark-lightness: 0.74;
+    --mark-chroma: 0.16;
     --bg-code: #1e1d1c;
     --bg-code-bar: #252422;
     --text: #f5f4ef;
@@ -94,9 +92,8 @@
   --bg-bubble: #1a1918;
   --bg-hover: rgba(250, 249, 245, 0.05);
   --bg-selected: rgba(250, 249, 245, 0.085);
-  --tint-lightness: 0.66;
-  --tint-chroma: 0.11;
-  --tint-alpha: 0.2;
+  --mark-lightness: 0.74;
+  --mark-chroma: 0.16;
   --bg-code: #1e1d1c;
   --bg-code-bar: #252422;
   --text: #f5f4ef;
@@ -444,11 +441,10 @@ button {
   background: var(--bg-selected);
 }
 
-/* a row of a herdr workspace, or of a session that runs or ran in one: the workspace's colour over it — its own hue
-   (workspace-color.js), soft in the theme's lightness; hover and selection still show under it */
+/* a row of a herdr workspace, or of a session that runs or ran in one: the workspace's colour on its left edge — its
+   own hue (workspace-color.js), as light as the theme wants */
 .tinted {
-  --tint: oklch(var(--tint-lightness) var(--tint-chroma) var(--workspace-hue) / var(--tint-alpha));
-  background-image: linear-gradient(var(--tint), var(--tint));
+  box-shadow: inset 3px 0 0 oklch(var(--mark-lightness) var(--mark-chroma) var(--workspace-hue));
 }
 
 .herdr-tab.empty {
@@ -581,6 +577,97 @@ button {
 .herdr-tab-actions .icon-button svg {
   width: 13px;
   height: 13px;
+}
+
+/* A new herdr workspace: "+" under the workspaces, then its name, folder and what starts in it. */
+.herdr-workspace-new {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 2px;
+  padding: 6px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 9px;
+  background: none;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.herdr-workspace-new:hover {
+  border-color: var(--border-strong);
+  color: var(--text-2);
+}
+
+.herdr-workspace-new svg {
+  width: 14px;
+  height: 14px;
+}
+
+.herdr-new-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elev);
+}
+
+.herdr-new-workspace input {
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.herdr-new-workspace input:focus {
+  border-color: var(--border-strong);
+}
+
+.herdr-new-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.herdr-new-actions button {
+  padding: 3px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.herdr-new-actions .herdr-new-claude {
+  border-color: transparent;
+  background: var(--accent);
+  color: #fff;
+}
+
+.herdr-new-workspace.sending button {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.herdr-new-error {
+  color: var(--danger);
+  font-size: 12.5px;
+}
+
+.herdr-new-error:empty {
+  display: none;
 }
 
 /* The open tab, being named: a box in the chip's place. */

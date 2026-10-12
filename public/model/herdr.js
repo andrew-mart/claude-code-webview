@@ -15,6 +15,8 @@ import { isRecord, text } from './narrow.js';
  * @typedef {{ herdr: boolean, workspaces: readonly HerdrWorkspace[] }} HerdrLayout — herdr: whether it answers
  * @typedef {{ ok: true, target: string } | { ok: false, error: 'failed' }} NewTab — a tab opened from the page; target: its page address
  * @typedef {'shell' | 'claude' } TabStart — what a new tab starts with: a shell, or Claude Code in it
+ * @typedef {{ ok: true, target: string } | { ok: false, error: 'empty' | 'no-folder' | 'failed' }} NewWorkspace — a
+ *   workspace opened from the page; target: its first pane's page address; no-folder: the folder is not there
  * @typedef {{ ok: true } | { ok: false, error: 'empty' | 'failed' }} TabChange — a tab renamed or closed from the page; empty: a name of
  *   nothing but spaces; failed: herdr did not do it
  * @typedef {{ kind: 'session', id: string } | { kind: 'pane', id: string }} Opened — what the page shows: a session's
@@ -163,4 +165,16 @@ export function parseTabChange(json) {
 export function parseNewTab(json) {
   const target = isRecord(json) && json.ok === true ? text(json.target) : undefined;
   return target === undefined ? { ok: false, error: 'failed' } : { ok: true, target };
+}
+
+/**
+ * The /api/workspace/new reply.
+ * @param {unknown} json
+ * @returns {NewWorkspace}
+ */
+export function parseNewWorkspace(json) {
+  const target = isRecord(json) && json.ok === true ? text(json.target) : undefined;
+  if (target !== undefined) return { ok: true, target };
+  const error = isRecord(json) ? json.error : undefined;
+  return { ok: false, error: error === 'empty' || error === 'no-folder' ? error : 'failed' };
 }

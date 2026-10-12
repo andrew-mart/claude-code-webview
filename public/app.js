@@ -9,7 +9,7 @@ import { actionLabel, choices, nextChoice } from './model/view-settings.js';
 import { createBookmarkStore, moveLocalBookmarksToServer } from './view/bookmark-store.js';
 import { createComposer } from './view/composer-view.js';
 import { createDrawers } from './view/drawers.js';
-import { openedAt, parseHerdrLayout, parseNewTab, parseTabChange, placeOf } from './model/herdr.js';
+import { openedAt, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf } from './model/herdr.js';
 import { parseHistory } from './model/history.js';
 import { parseUsage, usageText } from './model/usage.js';
 import { createHerdrSidebar, createTabBar } from './view/herdr-panel.js';
@@ -185,7 +185,12 @@ function createPage() {
   /** @type {import('./model/herdr.js').HerdrLayout} */
   let herdrLayout = { herdr: false, workspaces: [] };
   let herdrKnown = '';
-  const herdrSidebar = createHerdrSidebar(herdrPanel);
+  const herdrSidebar = createHerdrSidebar(herdrPanel, {
+    createWorkspace: (label, folder, start) => newWorkspace(label, folder, start),
+    open: (target) => {
+      location.hash = target;
+    },
+  });
   const tabBar = createTabBar({
     rename: (tab, label) => changeTab('/api/tab/rename', { tab, label }),
     close: (tab) => changeTab('/api/tab/close', { tab }),
@@ -998,6 +1003,24 @@ async function newTab(tab, start) {
     body: JSON.stringify({ tab, start }),
   }).catch(() => undefined);
   const outcome = parseNewTab(response?.ok ? await response.json().catch(() => undefined) : undefined);
+  if (outcome.ok) await page.refreshHerdr();
+  return outcome;
+}
+
+/**
+ * A herdr workspace opened from the sidebar; the page looks at herdr again before it goes there.
+ * @param {string} label
+ * @param {string} folder
+ * @param {import('./model/herdr.js').TabStart} start
+ * @returns {Promise<import('./model/herdr.js').NewWorkspace>}
+ */
+async function newWorkspace(label, folder, start) {
+  const response = await fetch('/api/workspace/new', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Viewer': '1' },
+    body: JSON.stringify({ label, folder, start }),
+  }).catch(() => undefined);
+  const outcome = parseNewWorkspace(response?.ok ? await response.json().catch(() => undefined) : undefined);
   if (outcome.ok) await page.refreshHerdr();
   return outcome;
 }

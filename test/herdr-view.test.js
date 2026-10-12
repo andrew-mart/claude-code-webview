@@ -382,3 +382,26 @@ test('reopen_Should_OpenWorkspaceAgain_When_ItIsGone', async () => {
     ],
   });
 });
+
+// A workspace opened from the page: its name on one line, in a folder that is there — with a shell, or Claude Code
+// started in it — and the page goes to its first pane; a name of nothing or a folder that is not there opens nothing
+test('createWorkspace_Should_OpenWorkspaceInFolder_And_StartClaudeOnRequest', async () => {
+  const herdr = tabsHerdr();
+  const view = await tabsView(herdr, 'claude-god');
+  const folder = await mkdtemp(join(tmpdir(), 'ccw-new-workspace-'));
+
+  const outcomes = [
+    await view.createWorkspace('  billing\n api ', folder, 'claude'),
+    await view.createWorkspace('notes', folder, 'shell'),
+    await view.createWorkspace('gone', join(folder, 'missing'), 'shell'),
+    await view.createWorkspace('  ', folder, 'shell'),
+  ];
+
+  assert.deepEqual(
+    { outcomes, changes: herdr.changes },
+    {
+      outcomes: [{ ok: true, target: '#/pane/w5:p1' }, { ok: true, target: '#/pane/w5:p1' }, { ok: false, error: 'no-folder' }, { ok: false, error: 'empty' }],
+      changes: [`workspace create --label billing api --cwd ${folder}`, 'pane send-text w5:p1 claude-god', 'pane send-keys w5:p1 enter', `workspace create --label notes --cwd ${folder}`],
+    },
+  );
+});

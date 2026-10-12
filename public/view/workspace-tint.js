@@ -1,5 +1,5 @@
 // @ts-check
-// A row tinted with the colour of the herdr workspace it belongs to (style.css: .tinted).
+// A row marked with the colour of the herdr workspace it belongs to, on its left edge (style.css: .tinted).
 import { workspaceHue } from '../model/workspace-color.js';
 
 /**

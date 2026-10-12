@@ -51,10 +51,75 @@ function link(target, className, children) {
 }
 
 /**
- * @param {HTMLElement} element — the sidebar's place for it
+ * @typedef {{ createWorkspace: (label: string, folder: string, start: import('../model/herdr.js').TabStart) => Promise<import('../model/herdr.js').NewWorkspace>, open: (target: string) => void }} SidebarActions
+ *   — createWorkspace resolves once the page shows the new workspace; open goes to a page address
  */
-export function createHerdrSidebar(element) {
+
+/** Why a workspace was not opened. */
+/** @type {Readonly<Record<'empty' | 'no-folder' | 'failed', string>>} */
+const newWorkspaceRefusals = {
+  empty: 'Name the workspace.',
+  'no-folder': 'There is no such folder.',
+  failed: 'herdr did not open the workspace.',
+};
+
+/**
+ * herdr's workspaces, and the sessions in them by their latest activity. "+" under the workspaces opens a new one —
+ * named, in a folder, with a terminal or Claude Code in it — and the page goes to it; the form stays put while herdr
+ * is looked at again.
+ * @param {HTMLElement} element — the sidebar's place for it
+ * @param {SidebarActions} actions
+ */
+export function createHerdrSidebar(element, { createWorkspace, open }) {
   let shown = '';
+  const workspacesList = h('div', { className: 'herdr-workspaces', attrs: { role: 'list' } });
+  const slot = h('div', { className: 'herdr-workspace-slot' });
+  const head = h('div', { className: 'herdr-tabs-head' });
+  const tabsList = h('div', { className: 'herdr-tabs', attrs: { role: 'list' } });
+  element.replaceChildren(workspacesList, slot, head, tabsList);
+  const newButton = h('button', { className: 'herdr-workspace-new', attrs: { type: 'button' } }, [icon('plus'), h('span', { text: 'New workspace' })]);
+  const showButton = () => slot.replaceChildren(newButton);
+  const startForm = () => {
+    const name = h('input', { className: 'herdr-new-name', attrs: { type: 'text', maxlength: '60', placeholder: 'Name', 'aria-label': 'Name of the new workspace' } });
+    const folder = h('input', { className: 'herdr-new-folder', attrs: { type: 'text', placeholder: 'Folder: D:/dev/app or ~/app', spellcheck: 'false', 'aria-label': 'Folder of the new workspace' } });
+    const error = h('div', { className: 'herdr-new-error', attrs: { role: 'alert' } });
+    let sending = false;
+    /** @param {import('../model/herdr.js').TabStart} start */
+    const submit = async (start) => {
+      if (sending) return;
+      sending = true;
+      form.classList.add('sending');
+      error.textContent = '';
+      const outcome = await createWorkspace(name.value, folder.value, start);
+      sending = false;
+      form.classList.remove('sending');
+      if (outcome.ok) {
+        showButton();
+        open(outcome.target);
+        return;
+      }
+      error.textContent = newWorkspaceRefusals[outcome.error];
+      (outcome.error === 'empty' ? name : folder).focus();
+    };
+    /** @param {string} className @param {string} label @param {import('../model/herdr.js').TabStart} start */
+    const choice = (className, label, start) => {
+      const button = h('button', { className, text: label, attrs: { type: 'button' } });
+      button.addEventListener('click', () => void submit(start));
+      return button;
+    };
+    const cancel = h('button', { className: 'herdr-new-cancel', text: 'Cancel', attrs: { type: 'button' } });
+    cancel.addEventListener('click', showButton);
+    const form = h('div', { className: 'herdr-new-workspace' }, [name, folder, h('div', { className: 'herdr-new-actions' }, [choice('herdr-new-shell', 'Terminal', 'shell'), choice('herdr-new-claude', 'Claude Code', 'claude'), cancel]), error]);
+    // Enter starts Claude Code there, Escape leaves the form
+    form.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') showButton();
+      else if (event.key === 'Enter' && event.target instanceof HTMLInputElement) void submit('claude');
+    });
+    slot.replaceChildren(form);
+    name.focus();
+  };
+  newButton.addEventListener('click', startForm);
+  showButton();
 
   return {
     /**
@@ -94,11 +159,9 @@ export function createHerdrSidebar(element) {
         tintByWorkspace(row, workspace.label);
         return row;
       });
-      element.replaceChildren(
-        h('div', { className: 'herdr-workspaces', attrs: { role: 'list' } }, list),
-        h('div', { className: 'herdr-tabs-head', text: `Sessions · ${sessions.length}` }),
-        h('div', { className: 'herdr-tabs', attrs: { role: 'list' } }, rows),
-      );
+      workspacesList.replaceChildren(...list);
+      head.textContent = `Sessions · ${sessions.length}`;
+      tabsList.replaceChildren(...rows);
     },
   };
 }
