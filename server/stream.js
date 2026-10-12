@@ -25,7 +25,10 @@ export async function streamTranscript({ locate, scope, imageUrl, rewoundAt, sen
   let sent = 0;
   /** @type {number | undefined} */
   let generation;
-  let announced = false;
+  // said once each: the transcript is missing — a session started just now has none before its first message — and,
+  // once it is there, that the feed is ready
+  let missingSaid = false;
+  let readySaid = false;
   /** Entries that already have a prompt sent from them: another prompt from there means the conversation was rewound. */
   /** @type {Set<string>} */
   let promptParents = new Set();
@@ -39,8 +42,8 @@ export async function streamTranscript({ locate, scope, imageUrl, rewoundAt, sen
     const path = await locate();
     const read = path === undefined ? undefined : await transcripts.read(path, { scope, imageUrl }).catch(() => undefined);
     if (read === undefined) {
-      if (!announced) send('missing', null);
-      announced = true;
+      if (!missingSaid) send('missing', null);
+      missingSaid = true;
     } else {
       const nextPoint = rewoundAt();
       // The file was rewritten, or the page rewound the session: the feed starts over.
@@ -61,8 +64,8 @@ export async function streamTranscript({ locate, scope, imageUrl, rewoundAt, sen
         sendBatches(part.entries, send);
         sent = read.entries.length;
       }
-      if (!announced) send('ready', null);
-      announced = true;
+      if (!readySaid) send('ready', null);
+      readySaid = true;
     }
     await delay(pollMs, undefined, { signal }).catch(() => undefined);
   }
