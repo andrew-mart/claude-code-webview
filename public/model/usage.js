@@ -9,10 +9,6 @@ import { isRecord } from './narrow.js';
  *   when Claude Code read it, ms: it reads it while it runs
  */
 
-/** From this share of a window used its meter is warm, then hot. */
-const warmPercent = 70;
-const hotPercent = 90;
-
 /**
  * The viewer's /api/usage reply; any other shape — or nothing read yet — is no usage.
  * @param {unknown} json
@@ -37,10 +33,11 @@ function windowOf(json) {
 }
 
 /**
- * @typedef {'calm' | 'warm' | 'hot'} UsageLevel
- * @typedef {{ name: '5h' | '7d', percent: number | undefined, level: UsageLevel, elapsed: number | undefined }} UsageMeter —
+ * @typedef {{ from: number, to: number, kind: 'spare' | 'over' }} UsageGap — the stretch between how much is used and how
+ *   much of the window has gone by, percent: spare while the use lags behind the time, overspent once it runs ahead
+ * @typedef {{ name: '5h' | '7d', percent: number | undefined, elapsed: number | undefined, gap: UsageGap | undefined }} UsageMeter —
  *   percent: how much is used, none if the window reset after the reading; elapsed: how much of the window has gone
- *   by, percent — ahead of it, the window is used faster than it passes
+ *   by, percent; gap: none while either is not known
  */
 
 /** The windows: their names, on the meter and on hover, and their length. */
@@ -61,12 +58,10 @@ export function usageView(usage, now) {
     return { ...known, window: window === undefined || (window.resetsAt !== undefined && window.resetsAt <= now) ? undefined : window };
   });
   return {
-    meters: shown.map(({ name, ms, window }) => ({
-      name,
-      percent: window?.percent,
-      level: levelOf(window?.percent ?? 0),
-      elapsed: window?.resetsAt === undefined ? undefined : Math.round(Math.min(100, Math.max(0, 100 - ((window.resetsAt - now) / ms) * 100))),
-    })),
+    meters: shown.map(({ name, ms, window }) => {
+      const elapsed = window?.resetsAt === undefined ? undefined : Math.round(Math.min(100, Math.max(0, 100 - ((window.resetsAt - now) / ms) * 100)));
+      return { name, percent: window?.percent, elapsed, gap: window === undefined || elapsed === undefined ? undefined : gapOf(Math.min(100, window.percent), elapsed) };
+    }),
     title: [
       ...shown.map(({ said, window }) =>
         window === undefined ? `${said}: reset since the reading` : `${said}: ${Math.round(window.percent)}% used${window.resetsAt === undefined ? '' : `, resets in ${span(window.resetsAt - now)}`}`,
@@ -77,11 +72,12 @@ export function usageView(usage, now) {
 }
 
 /**
- * @param {number} percent
- * @returns {UsageLevel}
+ * @param {number} used — percent
+ * @param {number} elapsed — percent
+ * @returns {UsageGap}
  */
-function levelOf(percent) {
-  return percent >= hotPercent ? 'hot' : percent >= warmPercent ? 'warm' : 'calm';
+function gapOf(used, elapsed) {
+  return used <= elapsed ? { from: used, to: elapsed, kind: 'spare' } : { from: elapsed, to: used, kind: 'over' };
 }
 
 /**
