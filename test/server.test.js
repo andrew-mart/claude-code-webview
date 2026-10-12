@@ -86,7 +86,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // tabs renamed and closed are recorded
   /** @type {string[][]} */
   const tabChanges = [];
-  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab'>} */
+  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'createTab'>} */
   const herdrView = {
     workspacesOf: async (listed) => ({ herdr: true, sessions: Object.fromEntries(listed.map(({ id }) => [id, 'web'])) }),
     layout: async () => ({ herdr: true, workspaces: [webWorkspace] }),
@@ -97,6 +97,10 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
     closeTab: async (tab) => {
       tabChanges.push(['close', tab]);
       return { ok: true };
+    },
+    createTab: async (beside, start) => {
+      tabChanges.push(['create', beside, start]);
+      return { ok: true, target: '#/pane/w1:p2' };
     },
   };
   // A pane's terminal shows one screen and closes; the keys typed into a pane are recorded
@@ -193,6 +197,19 @@ test('dialog_Should_PassAnswerFromViewerPage_And_RefuseOtherKeys', async (t) => 
   assert.deepEqual(
     { answered: [answered.status, JSON.parse(answered.body)], refused: refused.map((reply) => reply.status), calls },
     { answered: [200, { ok: true }], refused: [400, 400, 400], calls: [['answer', sessionId, JSON.stringify(answer)]] },
+  );
+});
+
+// A new tab is asked for beside the open one, with a shell or Claude Code in it; anything else is refused before herdr
+test('tabs_Should_OpenNewTabBesideOne_And_RefuseUnknownStart', async (t) => {
+  const { port, tabChanges } = await withServer(t);
+
+  const opened = await post(port, '/api/tab/new', pageHeaders(port), JSON.stringify({ tab: 'w1:t1', start: 'claude' }));
+  const strange = await post(port, '/api/tab/new', pageHeaders(port), JSON.stringify({ tab: 'w1:t1', start: 'rm -rf' }));
+
+  assert.deepEqual(
+    { opened: [opened.status, JSON.parse(opened.body)], strange: strange.status, tabChanges },
+    { opened: [200, { ok: true, target: '#/pane/w1:p2' }], strange: 400, tabChanges: [['create', 'w1:t1', 'claude']] },
   );
 });
 

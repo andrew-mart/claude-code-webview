@@ -5,8 +5,9 @@ import { paletteNamed, palettes } from '../public/model/palettes.js';
 
 /**
  * @typedef {'serve' | 'background' | 'stop' | 'restart' | 'install-shortcut' | 'help' | 'version'} Action
- * @typedef {{ action: Action, port: number, open: boolean, startMenu: boolean, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[], herdr: 'on' | 'off' }} Command — herdr: off —
- *   not used even when found, the page only reads sessions
+ * @typedef {{ action: Action, port: number, open: boolean, startMenu: boolean, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[], herdr: 'on' | 'off', claudeCommand: string }} Command — herdr: off —
+ *   not used even when found, the page only reads sessions; claudeCommand: what starts Claude Code in a tab opened from
+ *   the page
  */
 
 export const defaultPort = 7788;
@@ -39,7 +40,10 @@ export function parseCommand(argv) {
     if (address === undefined) return { ok: false, error: `Invalid --public-url value "${value}": expected the address the page is opened at from outside, such as https://viewer.example.com.` };
     publicAddresses.push(address);
   }
-  return { ok: true, command: { action: chosen[0] ?? 'serve', port, open: !values['no-open'], startMenu: values['start-menu'], palette, publicAddresses, herdr: values['no-herdr'] ? 'off' : 'on' } };
+  const claudeCommand = values['claude-command'].trim();
+  // typed into a terminal and run with Enter: one line
+  if (claudeCommand === '' || /[\r\n]/.test(claudeCommand)) return { ok: false, error: `Invalid --claude-command value "${values['claude-command']}": expected the command that starts Claude Code in a terminal, such as claude.` };
+  return { ok: true, command: { action: chosen[0] ?? 'serve', port, open: !values['no-open'], startMenu: values['start-menu'], palette, publicAddresses, herdr: values['no-herdr'] ? 'off' : 'on', claudeCommand } };
 }
 
 /**
@@ -65,6 +69,7 @@ function parseOptions(argv) {
       'public-url': { type: 'string', multiple: true, default: [] },
       'no-open': { type: 'boolean', default: false },
       'no-herdr': { type: 'boolean', default: false },
+      'claude-command': { type: 'string', default: 'claude' },
       background: { type: 'boolean', short: 'b', default: false },
       stop: { type: 'boolean', default: false },
       restart: { type: 'boolean', default: false },

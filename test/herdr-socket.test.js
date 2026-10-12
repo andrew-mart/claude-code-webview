@@ -87,6 +87,7 @@ test('socketRunner_Should_AskSocketForViewersCommands_AnsweringAsProgramPrints',
     await run(['pane', 'read', 'w2:p2', '--source', 'visible', '--format', 'ansi']),
     await run(['tab', 'rename', 'w2:t3', 'checkout fix']),
     await run(['tab', 'close', 'w2:t3']),
+    await run(['tab', 'create', '--workspace', 'w2', '--cwd', 'D:/dev/shop']),
   ];
 
   assert.deepEqual(herdr.requests, [
@@ -99,6 +100,7 @@ test('socketRunner_Should_AskSocketForViewersCommands_AnsweringAsProgramPrints',
     { method: 'pane.read', params: { pane_id: 'w2:p2', source: 'visible', format: 'ansi', strip_ansi: false } },
     { method: 'tab.rename', params: { tab_id: 'w2:t3', label: 'checkout fix' } },
     { method: 'tab.close', params: { tab_id: 'w2:t3' } },
+    { method: 'tab.create', params: { workspace_id: 'w2', cwd: 'D:/dev/shop', focus: false } },
   ]);
   assert.deepEqual(replies, [
     { ok: true, json: { result: { type: 'ok', asked: 'session.snapshot' } }, text: '' },
@@ -110,6 +112,7 @@ test('socketRunner_Should_AskSocketForViewersCommands_AnsweringAsProgramPrints',
     { ok: true, json: undefined, text: 'screen in ansi' },
     { ok: true, json: { result: { type: 'ok', asked: 'tab.rename' } }, text: '' },
     { ok: true, json: { result: { type: 'ok', asked: 'tab.close' } }, text: '' },
+    { ok: true, json: { result: { type: 'ok', asked: 'tab.create' } }, text: '' },
   ]);
 });
 
@@ -122,10 +125,10 @@ test('socketRunner_Should_LeaveOtherCommandsToProgram_AndTellRefusal', async (t)
     return { ok: true, json: { result: { type: 'ok' } }, text: '' };
   });
 
-  const other = await run(['tab', 'create', '--workspace', 'w2']);
+  const other = await run(['workspace', 'list']);
   const refused = await run(['pane', 'send-text', 'w9:p9', 'x']);
 
-  assert.deepEqual(started, [['tab', 'create', '--workspace', 'w2']]);
+  assert.deepEqual(started, [['workspace', 'list']]);
   assert.deepEqual([other.ok, refused], [true, { ok: false, error: 'pane_not_found: no pane w9:p9', missing: false }]);
 });
 

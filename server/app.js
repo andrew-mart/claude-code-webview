@@ -108,7 +108,7 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
 
 /**
  * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals }} Deps
- * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab'>} HerdrView
+ * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'createTab'>} HerdrView
  * @typedef {Pick<ReturnType<typeof import('./terminal.js').createTerminals>, 'stream' | 'type'>} Terminals
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
  * @typedef {{ origin: string, host: string }} PublicAddress — where the page is opened from outside, behind a tunnel:
@@ -204,6 +204,7 @@ async function handleWrite(deps, url, request, response) {
   if (url.pathname === '/api/pane/input') return typeIntoPane(deps, body, response);
   if (url.pathname === '/api/tab/rename') return renameTab(deps, body, response);
   if (url.pathname === '/api/tab/close') return closeTab(deps, body, response);
+  if (url.pathname === '/api/tab/new') return newTab(deps, body, response);
   const sessionId = isRecord(body) && typeof body.session === 'string' && sessionIdPattern.test(body.session) ? body.session : undefined;
   if (sessionId === undefined) {
     response.writeHead(400).end('Bad session id');
@@ -298,6 +299,22 @@ async function closeTab(deps, body, response) {
     return;
   }
   return sendJson(response, await deps.herdrView.closeTab(tab));
+}
+
+/**
+ * A herdr tab opened from the page's tab bar, beside the open one: a shell, or Claude Code started in it.
+ * @param {Deps} deps
+ * @param {unknown} body — { tab, start }
+ * @param {http.ServerResponse} response
+ */
+async function newTab(deps, body, response) {
+  const tab = tabOf(body);
+  const start = isRecord(body) && (body.start === 'shell' || body.start === 'claude') ? body.start : undefined;
+  if (tab === undefined || start === undefined) {
+    response.writeHead(400).end('Bad new tab');
+    return;
+  }
+  return sendJson(response, await deps.herdrView.createTab(tab, start));
 }
 
 /**

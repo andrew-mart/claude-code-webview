@@ -40,16 +40,16 @@ const herdrSources = {
 const herdrRefreshMs = 3_000;
 
 /**
- * @param {{ port: number, about: import('../server/app.js').About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[], herdr: 'on' | 'off' }} options
+ * @param {{ port: number, about: import('../server/app.js').About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[], herdr: 'on' | 'off', claudeCommand: string }} options
  * @returns {Promise<{ url: string, close: () => void }>}
  */
-export async function serve({ port, about, palette, publicAddresses, herdr }) {
+export async function serve({ port, about, palette, publicAddresses, herdr, claudeCommand }) {
   await mkdir(stateDir, { recursive: true });
   const { run, via, note } = await herdrToUse(herdr);
   const claude = claudeDir(process.env);
   const readRecords = () => readSessionRecords(join(claude, 'sessions'));
   const composer = createComposer({ readRecords, herdr: run });
-  const herdrView = createHerdrView({ herdr: run, readRecords, file: join(stateDir, 'workspaces.json'), refreshMs: herdrRefreshMs });
+  const herdrView = createHerdrView({ herdr: run, readRecords, file: join(stateDir, 'workspaces.json'), refreshMs: herdrRefreshMs, claudeCommand });
   // A terminal on the page: through herdr's socket a screen is read in a millisecond or two, so it is read every 40 ms
   // while typing; through the herdr program every call starts a process, a tenth of a second.
   const terminals = createTerminals({ io: paneIoOf(run), quickMs: via === 'socket' ? 40 : 200, slowMs: via === 'socket' ? 500 : 1000, quickForMs: 4000 });

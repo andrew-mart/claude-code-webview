@@ -9,7 +9,7 @@ import { actionLabel, choices, nextChoice } from './model/view-settings.js';
 import { createBookmarkStore, moveLocalBookmarksToServer } from './view/bookmark-store.js';
 import { createComposer } from './view/composer-view.js';
 import { createDrawers } from './view/drawers.js';
-import { openedAt, parseHerdrLayout, parseTabChange, placeOf } from './model/herdr.js';
+import { openedAt, parseHerdrLayout, parseNewTab, parseTabChange, placeOf } from './model/herdr.js';
 import { createHerdrSidebar, createTabBar } from './view/herdr-panel.js';
 import { mountTerminal } from './view/terminal-view.js';
 import { openOfflineStore } from './view/offline-store.js';
@@ -172,6 +172,7 @@ function createPage() {
     open: (target) => {
       location.hash = target;
     },
+    create: (tab, start) => newTab(tab, start),
   });
   /** The herdr pane whose terminal the page shows (#/pane/<id>) instead of a session. */
   /** @type {{ id: string, terminal: ReturnType<typeof mountTerminal>, title: HTMLElement } | undefined} */
@@ -915,6 +916,23 @@ async function changeTab(path, change) {
     body: JSON.stringify(change),
   }).catch(() => undefined);
   const outcome = parseTabChange(response?.ok ? await response.json().catch(() => undefined) : undefined);
+  if (outcome.ok) await page.refreshHerdr();
+  return outcome;
+}
+
+/**
+ * A herdr tab opened from the tab bar, beside the open one; once herdr has it the page looks at herdr again.
+ * @param {string} tab — the open tab
+ * @param {import('./model/herdr.js').TabStart} start
+ * @returns {Promise<import('./model/herdr.js').NewTab>}
+ */
+async function newTab(tab, start) {
+  const response = await fetch('/api/tab/new', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Viewer': '1' },
+    body: JSON.stringify({ tab, start }),
+  }).catch(() => undefined);
+  const outcome = parseNewTab(response?.ok ? await response.json().catch(() => undefined) : undefined);
   if (outcome.ok) await page.refreshHerdr();
   return outcome;
 }

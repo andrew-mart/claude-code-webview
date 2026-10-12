@@ -54,7 +54,7 @@ const runningRecord = { pid: 101, sessionId: running, kind: 'interactive', statu
  */
 async function workspacesOf(t, { herdr, records, dir }) {
   const folder = dir ?? (await mkdtemp(join(tmpdir(), 'ccw-workspaces-')));
-  return createHerdrView({ herdr, readRecords: async () => records, file: join(folder, 'workspaces.json'), refreshMs: 0 });
+  return createHerdrView({ herdr, readRecords: async () => records, file: join(folder, 'workspaces.json'), refreshMs: 0, claudeCommand: 'claude' });
 }
 
 test('workspaces_Should_PutRunningSessionIntoWorkspaceOfItsPane', async (t) => {
@@ -125,7 +125,7 @@ test('workspaces_Should_AskHerdrAtMostOncePerRefreshPeriod', async (t) => {
     return herdr(args);
   };
   const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
-  const workspaces = createHerdrView({ herdr: counting, readRecords: async () => [runningRecord], file: join(folder, 'workspaces.json'), refreshMs: 60_000 });
+  const workspaces = createHerdrView({ herdr: counting, readRecords: async () => [runningRecord], file: join(folder, 'workspaces.json'), refreshMs: 60_000, claudeCommand: 'claude' });
 
   await Promise.all([workspaces.workspacesOf([]), workspaces.workspacesOf([])]);
   await workspaces.workspacesOf([{ id: running, cwd: undefined }]);
@@ -198,7 +198,7 @@ test('herdrView_Should_LookForPaneOfProcessOnce_WhenItRunsOutsideHerdr', async (
   };
   const outside = { pid: 777, sessionId: '0b1c2d3e-4444-4555-8666-977788899900', kind: 'interactive', status: 'idle', updatedAt: 2 };
   const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
-  const view = createHerdrView({ herdr: counting, readRecords: async () => [runningRecord, outside], file: join(folder, 'workspaces.json'), refreshMs: 0 });
+  const view = createHerdrView({ herdr: counting, readRecords: async () => [runningRecord, outside], file: join(folder, 'workspaces.json'), refreshMs: 0, claudeCommand: 'claude' });
 
   await view.workspacesOf([]);
   await view.workspacesOf([]);
@@ -208,8 +208,9 @@ test('herdrView_Should_LookForPaneOfProcessOnce_WhenItRunsOutsideHerdr', async (
 });
 
 /**
- * herdr with one workspace, web, and its tabs; renaming and closing a tab change them, the commands are recorded.
- * @param {{ fails?: boolean }} [options] - fails: herdr refuses to rename or close
+ * herdr with one workspace, web, and its tabs, the first one's pane in D:/shop; renaming, closing and opening a tab
+ * change them, a new tab's pane shows its shell's prompt; the changes and what is typed are recorded.
+ * @param {{ fails?: boolean }} [options] - fails: herdr refuses to rename, close or open
  */
 function tabsHerdr({ fails = false } = {}) {
   /** @type {FakeTab[]} */
@@ -217,24 +218,39 @@ function tabsHerdr({ fails = false } = {}) {
     { tab_id: 'w2:t1', workspace_id: 'w2', number: 1, label: '1', agent_status: 'idle' },
     { tab_id: 'w2:t2', workspace_id: 'w2', number: 2, label: 'tests', agent_status: 'idle' },
   ];
+  /** @type {FakePane[]} */
+  const panes = [{ pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:/shop' }];
   /** @type {string[]} */
   const changes = [];
   /** @param {readonly string[]} args @returns {Promise<import('../server/composer.js').HerdrReply>} */
   const run = async (args) => {
     const [subject, command, tab, label] = args;
-    if (subject !== 'tab') return fakeHerdr({ workspaces: [{ workspace_id: 'w2', label: 'web' }], tabs })(args);
+    if (subject === 'pane' && command === 'read') return { ok: true, json: undefined, text: 'PS D:\\shop> ' };
+    if (subject === 'pane' && (command === 'send-text' || command === 'send-keys')) {
+      changes.push(args.join(' '));
+      return { ok: true, json: { result: { type: 'ok' } }, text: '' };
+    }
+    if (subject !== 'tab') return fakeHerdr({ workspaces: [{ workspace_id: 'w2', label: 'web' }], tabs, panes })(args);
     changes.push(args.join(' '));
     if (fails) return { ok: false, error: 'tab_not_found', missing: false };
+    if (command === 'create') {
+      const number = tabs.length + 1;
+      tabs = [...tabs, { tab_id: `w2:t${number}`, workspace_id: 'w2', number, label: String(number), agent_status: 'unknown' }];
+      return { ok: true, json: { result: { type: 'tab_created', tab: { tab_id: `w2:t${number}` }, root_pane: { pane_id: `w2:p${number}` } } }, text: '' };
+    }
     tabs = command === 'close' ? tabs.filter((known) => known.tab_id !== tab) : tabs.map((known) => (known.tab_id === tab && label !== undefined ? { ...known, label } : known));
     return { ok: true, json: { result: { type: 'ok' } }, text: '' };
   };
   return { run, changes };
 }
 
-/** @param {ReturnType<typeof tabsHerdr>} herdr — asked at most once a minute */
-async function tabsView(herdr) {
+/**
+ * @param {ReturnType<typeof tabsHerdr>} herdr — asked at most once a minute
+ * @param {string} [claudeCommand] - what starts Claude Code in a new tab
+ */
+async function tabsView(herdr, claudeCommand = 'claude') {
   const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
-  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], file: join(folder, 'workspaces.json'), refreshMs: 60_000 });
+  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], file: join(folder, 'workspaces.json'), refreshMs: 60_000, claudeCommand });
 }
 
 /** @param {import('../public/model/herdr.js').HerdrLayout} layout */
@@ -271,4 +287,26 @@ test('renameTab_And_closeTab_Should_TellWhatWasNotDone', async () => {
   const outcomes = [await (await tabsView(quiet)).renameTab('w2:t1', ' \n '), await refusingView.renameTab('w2:t1', 'checkout'), await refusingView.closeTab('w2:t2')];
 
   assert.deepEqual({ outcomes, unsent: quiet.changes }, { outcomes: [{ ok: false, error: 'empty' }, { ok: false, error: 'failed' }, { ok: false, error: 'failed' }], unsent: [] });
+});
+
+// A new tab opens beside the one it is asked from — its workspace, its folder — and the page goes to it; for Claude Code
+// the command the viewer was told to start it with is typed into it
+test('createTab_Should_OpenTabBesideOne_And_StartClaudeWithItsCommand', async () => {
+  const herdr = tabsHerdr();
+  const view = await tabsView(herdr, 'claude-god');
+  await view.layout();
+
+  const outcomes = [await view.createTab('w2:t1', 'shell'), await view.createTab('w2:t1', 'claude')];
+
+  assert.deepEqual(
+    { outcomes, changes: herdr.changes, tabs: tabNames(await view.layout()).length },
+    {
+      outcomes: [
+        { ok: true, target: '#/pane/w2:p3' },
+        { ok: true, target: '#/pane/w2:p4' },
+      ],
+      changes: ['tab create --workspace w2 --cwd D:/shop', 'tab create --workspace w2 --cwd D:/shop', 'pane send-text w2:p4 claude-god', 'pane send-keys w2:p4 enter'],
+      tabs: 4,
+    },
+  );
 });

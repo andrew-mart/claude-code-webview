@@ -13,6 +13,8 @@ import { isRecord, text } from './narrow.js';
  * @typedef {{ id: string, number: number, label: string, status: AgentStatus, panes: readonly HerdrPane[] }} HerdrTab
  * @typedef {{ id: string, number: number, label: string, status: AgentStatus, activeTab: string | undefined, tabs: readonly HerdrTab[] }} HerdrWorkspace
  * @typedef {{ herdr: boolean, workspaces: readonly HerdrWorkspace[] }} HerdrLayout — herdr: whether it answers
+ * @typedef {{ ok: true, target: string } | { ok: false, error: 'failed' }} NewTab — a tab opened from the page; target: its page address
+ * @typedef {'shell' | 'claude' } TabStart — what a new tab starts with: a shell, or Claude Code in it
  * @typedef {{ ok: true } | { ok: false, error: 'empty' | 'failed' }} TabChange — a tab renamed or closed from the page; empty: a name of
  *   nothing but spaces; failed: herdr did not do it
  * @typedef {{ kind: 'session', id: string } | { kind: 'pane', id: string }} Opened — what the page shows: a session's
@@ -151,4 +153,14 @@ export function sessionsByActivity(workspaces, search) {
 export function parseTabChange(json) {
   if (isRecord(json) && json.ok === true) return { ok: true };
   return { ok: false, error: isRecord(json) && json.error === 'empty' ? 'empty' : 'failed' };
+}
+
+/**
+ * Reply of /api/tab/new; any other — or none, the viewer out of reach — is a tab not opened.
+ * @param {unknown} json
+ * @returns {NewTab}
+ */
+export function parseNewTab(json) {
+  const target = isRecord(json) && json.ok === true ? text(json.target) : undefined;
+  return target === undefined ? { ok: false, error: 'failed' } : { ok: true, target };
 }

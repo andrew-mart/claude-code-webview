@@ -165,13 +165,26 @@ function socketCall(args) {
 
 /**
  * @param {string | undefined} command
- * @param {readonly string[]} rest — the tab, and the new name for rename
+ * @param {readonly string[]} rest — the tab, and the new name for rename; for create, its workspace and folder
  * @returns {{ method: string, params: Record<string, unknown> } | undefined}
  */
 function tabCall(command, rest) {
+  if (command === 'create') return tabCreateCall(rest);
   const [tab, label, ...more] = rest;
   if (tab === undefined || more.length > 0) return undefined;
   if (command === 'rename' && label !== undefined) return { method: 'tab.rename', params: { tab_id: tab, label } };
   if (command === 'close' && label === undefined) return { method: 'tab.close', params: { tab_id: tab } };
   return undefined;
+}
+
+/**
+ * A new tab in a workspace, in a folder if one is given; the tab it is opened from stays the focused one in herdr.
+ * @param {readonly string[]} rest — --workspace <id> [--cwd <folder>]
+ * @returns {{ method: string, params: Record<string, unknown> } | undefined}
+ */
+function tabCreateCall(rest) {
+  const [workspaceFlag, workspace, cwdFlag, cwd, ...more] = rest;
+  if (workspaceFlag !== '--workspace' || workspace === undefined || more.length > 0) return undefined;
+  if (cwdFlag === undefined) return { method: 'tab.create', params: { workspace_id: workspace, focus: false } };
+  return cwdFlag === '--cwd' && cwd !== undefined ? { method: 'tab.create', params: { workspace_id: workspace, cwd, focus: false } } : undefined;
 }
