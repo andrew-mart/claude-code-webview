@@ -112,8 +112,8 @@ terminal to its session as soon as Claude Code starts there. Tabs that do not fi
 mouse wheel.
 
 A workspace has a colour of its own — its hue follows from its name — on the left edge of its row and of the rows of
-the sessions that run or ran in it. **+ New workspace** under the workspaces opens one: its name, its folder, and a
-terminal or Claude Code in it.
+the sessions that run or ran in it. **+** beside the search opens one: its name, its folder, and a terminal or
+Claude Code in it.
 
 A terminal mirrors the one in herdr, at its size: the keys you type go to it as they are — Enter, arrows, Ctrl+C — and
 what herdr shows comes back within a few hundredths of a second (the viewer talks to herdr through its socket; where

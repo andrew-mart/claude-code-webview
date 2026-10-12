@@ -119,21 +119,25 @@ const newWorkspaceRefusals = {
 };
 
 /**
- * herdr's workspaces, and the sessions in them by their latest activity. "+" under the workspaces opens a new one —
- * named, in a folder, with a terminal or Claude Code in it — and the page goes to it; the form stays put while herdr
- * is looked at again.
+ * herdr's workspaces, and the sessions in them by their latest activity. "+" — newButton, for the page to put beside
+ * the search — opens a new one: named, in a folder, with a terminal or Claude Code in it; the page goes to it. The
+ * form shows at the top, above the workspaces, and stays put while herdr is looked at again; "+" again puts it away.
  * @param {HTMLElement} element — the sidebar's place for it
  * @param {SidebarActions} actions
  */
 export function createHerdrSidebar(element, { createWorkspace, open }) {
   let shown = '';
-  const workspacesList = h('div', { className: 'herdr-workspaces', attrs: { role: 'list' } });
   const slot = h('div', { className: 'herdr-workspace-slot' });
+  const workspacesList = h('div', { className: 'herdr-workspaces', attrs: { role: 'list' } });
   const head = h('div', { className: 'herdr-tabs-head' });
   const tabsList = h('div', { className: 'herdr-tabs', attrs: { role: 'list' } });
-  element.replaceChildren(workspacesList, slot, head, tabsList);
-  const newButton = h('button', { className: 'herdr-workspace-new', attrs: { type: 'button' } }, [icon('plus'), h('span', { text: 'New workspace' })]);
-  const showButton = () => slot.replaceChildren(newButton);
+  element.replaceChildren(slot, workspacesList, head, tabsList);
+  const newButton = h('button', { className: 'icon-button herdr-workspace-new', title: 'New herdr workspace', attrs: { type: 'button', 'aria-label': 'New workspace' } }, [icon('plus')]);
+  const showButton = () => {
+    slot.replaceChildren();
+    slot.hidden = true;
+    newButton.setAttribute('aria-expanded', 'false');
+  };
   const startForm = () => {
     const name = h('input', { className: 'herdr-new-name', attrs: { type: 'text', maxlength: '60', placeholder: 'Name', 'aria-label': 'Name of the new workspace' } });
     const folder = h('input', { className: 'herdr-new-folder', attrs: { type: 'text', placeholder: 'Folder: D:/dev/app or ~/app', spellcheck: 'false', 'aria-label': 'Folder of the new workspace' } });
@@ -171,12 +175,15 @@ export function createHerdrSidebar(element, { createWorkspace, open }) {
       else if (event.key === 'Enter' && event.target instanceof HTMLInputElement) void submit('claude');
     });
     slot.replaceChildren(form);
+    slot.hidden = false;
+    newButton.setAttribute('aria-expanded', 'true');
     name.focus();
   };
-  newButton.addEventListener('click', startForm);
+  newButton.addEventListener('click', () => (slot.hidden ? startForm() : showButton()));
   showButton();
 
   return {
+    newButton,
     /**
      * @param {import('../model/herdr.js').HerdrLayout} layout
      * @param {import('../model/herdr.js').Opened | undefined} opened

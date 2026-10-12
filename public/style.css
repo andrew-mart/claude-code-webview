@@ -293,7 +293,16 @@ button {
 }
 
 
+/* the search, and beside it in the herdr mode "+" for a new workspace */
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .search {
+  flex: 1;
+  min-width: 0;
   width: 100%;
   padding: 8px 11px;
   border: 1px solid var(--border);
@@ -657,38 +666,32 @@ button {
   height: 13px;
 }
 
-/* A new herdr workspace: "+" under the workspaces, then its name, folder and what starts in it. */
-.herdr-workspace-new {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  margin-top: 2px;
-  padding: 6px 10px;
-  border: 1px dashed var(--border);
-  border-radius: 9px;
-  background: none;
-  color: var(--text-3);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
+/* A new herdr workspace: "+" beside the search, then its name, folder and what starts in it at the top of the panel. */
+/* as tall as the search and framed as it is, square */
+.icon-button.herdr-workspace-new {
+  flex: none;
+  align-self: stretch;
+  width: auto;
+  height: auto;
+  aspect-ratio: 1;
+  border: 1px solid var(--border);
+  border-radius: 10px;
 }
 
-.herdr-workspace-new:hover {
-  border-color: var(--border-strong);
-  color: var(--text-2);
+.herdr-workspace-new[aria-expanded='true'] {
+  background: var(--bg-selected);
+  color: var(--text);
 }
 
 .herdr-workspace-new svg {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 
 .herdr-new-workspace {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-top: 2px;
   padding: 8px;
   border: 1px solid var(--border);
   border-radius: 10px;
