@@ -1,10 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { createHerdrSidebar } from '../public/view/herdr-panel.js';
+import { createHerdrSidebar, createTabBar } from '../public/view/herdr-panel.js';
 
 const { window } = new JSDOM('<!doctype html><html><body></body></html>');
 Object.assign(globalThis, { document: window.document });
+// jsdom lays nothing out, so it has no scrolling; the tab bar scrolls the open tab into view
+window.HTMLElement.prototype.scrollIntoView = () => undefined;
 
 /**
  * @param {Partial<import('../public/model/herdr.js').HerdrPane> & { id: string }} pane
@@ -39,5 +41,17 @@ test('herdrSidebar_Should_LeadSessionRowWithItsTitle_And_TellWorkspaceAndTabUnde
       ['Fix the flaky checkout test', 'web · 1'],
       ['3 notes', 'web'],
     ],
+  );
+});
+
+// Above the open session the tabs of its workspace: a tab nobody named says its number once, not "1 1"
+test('tabBar_Should_NameUnnamedTabByItsNumberOnce', () => {
+  const bar = createTabBar();
+
+  bar.render({ herdr: true, workspaces: [web] }, { kind: 'session', id: 's1' });
+
+  assert.deepEqual(
+    [...bar.element.querySelectorAll('.herdr-chip')].map((chip) => chip.textContent),
+    ['1', '2 node-24', '3 notes'],
   );
 });
