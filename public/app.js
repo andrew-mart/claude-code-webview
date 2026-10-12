@@ -10,6 +10,7 @@ import { createBookmarkStore, moveLocalBookmarksToServer } from './view/bookmark
 import { createComposer } from './view/composer-view.js';
 import { createDrawers } from './view/drawers.js';
 import { openedAt, parseHerdrLayout, parseNewTab, parseTabChange, placeOf } from './model/herdr.js';
+import { parseHistory } from './model/history.js';
 import { createHerdrSidebar, createTabBar } from './view/herdr-panel.js';
 import { mountTerminal } from './view/terminal-view.js';
 import { openOfflineStore } from './view/offline-store.js';
@@ -50,6 +51,8 @@ const follow = byId('follow', HTMLInputElement);
 const showSdk = byId('show-sdk', HTMLInputElement);
 const groupWorkspaces = byId('group-workspaces', HTMLInputElement);
 const groupWorkspacesOption = byId('group-workspaces-option', HTMLElement);
+const closedOnly = byId('closed-only', HTMLInputElement);
+const closedOnlyOption = byId('closed-only-option', HTMLElement);
 const sidebarModes = byId('sidebar-modes', HTMLElement);
 const sessionOptions = byId('session-options', HTMLElement);
 const herdrPanel = byId('herdr-panel', HTMLElement);
@@ -118,6 +121,11 @@ groupWorkspaces.addEventListener('change', () => {
   settings.set('workspaces', groupWorkspaces.checked ? 'grouped' : 'flat');
   page.renderList();
 });
+closedOnly.checked = settings.get('closed') === 'only';
+closedOnly.addEventListener('change', () => {
+  settings.set('closed', closedOnly.checked ? 'only' : 'all');
+  page.renderList();
+});
 window.addEventListener('hashchange', () => {
   drawers.arrive();
   page.openFromHash();
@@ -161,6 +169,10 @@ function createPage() {
   /** @type {Workspaces} */
   let workspaces = { herdr: false, of: new Map() };
   let workspacesKnown = '';
+  /** Where sessions ran in herdr, closed ones included: the list tells their tab and finds them by it. */
+  /** @type {import('./model/history.js').History} */
+  let history = {};
+  let historyKnown = '';
   /** What herdr shows (server/herdr-view.js): the sidebar's herdr mode and the tabs above the open session. */
   /** @type {import('./model/herdr.js').HerdrLayout} */
   let herdrLayout = { herdr: false, workspaces: [] };
@@ -198,7 +210,7 @@ function createPage() {
   };
 
   /** @param {string} text — the search box text; following ignores it */
-  const listed = (text) => listedSessions(sessions, { sdk: showSdk.checked ? 'shown' : 'hidden', search: text, workspaces: workspaces.of });
+  const listed = (text) => listedSessions(sessions, { sdk: showSdk.checked ? 'shown' : 'hidden', search: text, workspaces: workspaces.of, history, closed: closedOnly.checked && workspaces.herdr ? 'only' : 'all' });
 
   // The list is drawn again every time a session changes — every few seconds while Claude works. A session that shows
   // the same as before keeps its element, and the list is touched only when something in it changed.
@@ -221,14 +233,19 @@ function createPage() {
     const selected = session.id === current?.id;
     // A workspace named as the folder is not repeated.
     const named = workspace !== undefined && workspace.toLowerCase() !== folder.toLowerCase() ? workspace : '';
-    const look = [title, folder, named, ago, active, selected, unavailable].join('\u0000');
+    // the tab it ran in, when it had a name — a number says little — and whether it is closed now
+    const place = history[session.id];
+    const tab = place?.tab !== undefined && !/^\d+$/.test(place.tab) ? place.tab : '';
+    const closed = place?.tab !== undefined && !place.open;
+    const look = [title, folder, named, tab, closed, ago, active, selected, unavailable].join('\u0000');
     const known = items.get(session.id);
     if (known !== undefined && known.look === look) return known.element;
-    const place = h('span', { className: 'session-place' }, [h('span', { className: 'session-folder', text: folder })]);
-    if (named !== '') place.prepend(h('span', { className: 'session-workspace', text: named }));
+    const where = h('span', { className: 'session-place' }, [h('span', { className: 'session-folder', text: folder })]);
+    if (tab !== '') where.prepend(h('span', { className: 'session-tab', text: tab }));
+    if (named !== '') where.prepend(h('span', { className: 'session-workspace', text: named }));
     const link = h('a', { className: 'session-item', attrs: { href: `#/${session.id}` } }, [
       h('span', { className: 'session-title', text: title }),
-      h('span', { className: 'session-sub' }, [place, h('span', { text: ago })]),
+      h('span', { className: 'session-sub' }, [where, h('span', { text: closed ? `closed · ${ago}` : ago })]),
     ]);
     link.classList.toggle('active', active);
     link.classList.toggle('selected', selected);
@@ -461,6 +478,7 @@ function createPage() {
     },
     /** The herdr workspaces of the sessions: they group the list and are searched by. */
     async refreshWorkspaces() {
+      void this.refreshHistory();
       const response = await fetch('/api/workspaces').catch(() => undefined);
       const reply = response?.ok ? await response.json().catch(() => undefined) : undefined;
       // Out of the viewer's reach the page keeps what it knew.
@@ -471,9 +489,21 @@ function createPage() {
       workspacesKnown = known;
       workspaces = next;
       groupWorkspacesOption.hidden = !next.herdr;
+      closedOnlyOption.hidden = !next.herdr;
       renderList();
       // the search box's hint depends on the sidebar's mode as well
       this.renderHerdr();
+    },
+    /** Where sessions ran in herdr: it changes as tabs open and close. */
+    async refreshHistory() {
+      const response = await fetch('/api/history').catch(() => undefined);
+      const reply = response?.ok ? await response.json().catch(() => undefined) : undefined;
+      if (reply === undefined) return;
+      const known = JSON.stringify(reply);
+      if (known === historyKnown) return;
+      historyKnown = known;
+      history = parseHistory(reply);
+      renderList();
     },
     followLatest() {
       const [latest] = listed('');

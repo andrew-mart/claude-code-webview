@@ -108,7 +108,7 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
 
 /**
  * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals }} Deps
- * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'createTab'>} HerdrView
+ * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'createTab' | 'history'>} HerdrView
  * @typedef {Pick<ReturnType<typeof import('./terminal.js').createTerminals>, 'stream' | 'type'>} Terminals
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
  * @typedef {{ origin: string, host: string }} PublicAddress — where the page is opened from outside, behind a tunnel:
@@ -158,6 +158,9 @@ async function handle(deps, request, response) {
       return sendRevalidated(response, await deps.herdrView.workspacesOf(await deps.index.list()));
     case '/api/herdr':
       return sendRevalidated(response, await deps.herdrView.layout());
+    // Where sessions ran in herdr, closed ones included: the session list finds them by workspace and tab.
+    case '/api/history':
+      return sendRevalidated(response, await deps.herdrView.history());
     case '/api/pane/stream':
       return streamPane(deps, url, request, response);
     case '/api/subagents':

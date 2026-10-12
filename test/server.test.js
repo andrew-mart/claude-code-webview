@@ -60,6 +60,9 @@ function fakeComposer(takenBack) {
   };
 }
 
+/** Where the session ran in herdr: the viewer tab of web, closed since. @type {import('../public/model/history.js').Place} */
+const closedPlace = { workspace: 'web', tab: 'viewer', earlierTabs: [], folder: 'D:/dev/x', firstSeen: 1, lastSeen: 2, open: false, note: undefined };
+
 /** @type {import('../public/model/herdr.js').HerdrWorkspace} */
 const webWorkspace = {
   id: 'w1',
@@ -86,10 +89,11 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // tabs renamed and closed are recorded
   /** @type {string[][]} */
   const tabChanges = [];
-  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'createTab'>} */
+  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'createTab' | 'history'>} */
   const herdrView = {
     workspacesOf: async (listed) => ({ herdr: true, sessions: Object.fromEntries(listed.map(({ id }) => [id, 'web'])) }),
     layout: async () => ({ herdr: true, workspaces: [webWorkspace] }),
+    history: async () => ({ [sessionId]: closedPlace }),
     renameTab: async (tab, label) => {
       tabChanges.push(['rename', tab, label]);
       return { ok: true };
@@ -211,6 +215,15 @@ test('tabs_Should_OpenNewTabBesideOne_And_RefuseUnknownStart', async (t) => {
     { opened: [opened.status, JSON.parse(opened.body)], strange: strange.status, tabChanges },
     { opened: [200, { ok: true, target: '#/pane/w1:p2' }], strange: 400, tabChanges: [['create', 'w1:t1', 'claude']] },
   );
+});
+
+// The page learns where sessions ran in herdr, closed ones included, to find them and open them again
+test('history_Should_TellWhereSessionsRanInHerdr', async (t) => {
+  const { base } = await withServer(t);
+
+  const response = await fetch(`${base}/api/history`);
+
+  assert.deepEqual({ status: response.status, history: await response.json() }, { status: 200, history: { [sessionId]: { workspace: 'web', tab: 'viewer', earlierTabs: [], folder: 'D:/dev/x', firstSeen: 1, lastSeen: 2, open: false } } });
 });
 
 test('send_Should_RejectRequestsThatOtherSitesCouldForge', async (t) => {

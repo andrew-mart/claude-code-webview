@@ -15,6 +15,7 @@ export const choices = /** @type {const} */ ({
   width: ['column', 'full'],
   workspaces: ['flat', 'grouped'],
   sidebar: ['herdr', 'sessions'],
+  closed: ['all', 'only'],
 });
 
 /**
@@ -36,6 +37,7 @@ const resultNames = {
   width: { column: 'Show the conversation in a column', full: 'Show the conversation at full width' },
   workspaces: { flat: 'List sessions by time', grouped: 'Group sessions by herdr workspace' },
   sidebar: { herdr: "Show herdr's workspaces and tabs", sessions: 'Show every session' },
+  closed: { all: 'List every session', only: 'List only the sessions closed in herdr' },
 };
 
 /**

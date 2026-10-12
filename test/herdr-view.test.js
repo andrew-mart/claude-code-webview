@@ -310,3 +310,24 @@ test('createTab_Should_OpenTabBesideOne_And_StartClaudeWithItsCommand', async ()
     },
   );
 });
+
+// Every session seen in a herdr pane is kept with its tab; once its pane is gone — the viewer restarted meanwhile — it
+// is closed, and still there to be found
+test('history_Should_KeepSessionWithItsTab_AndCloseItOnceItsPaneIsGone', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
+  const inTab = fakeHerdr({
+    workspaces: tripPlans.workspaces,
+    tabs: [{ tab_id: 'w2:t1', workspace_id: 'w2', number: 1, label: 'hotels', agent_status: 'idle' }],
+    panes: [{ pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:\trip_plans', agent: 'claude', pid: 101 }],
+  });
+  /** @param {import('../public/model/history.js').Place | undefined} place */
+  const where = (place) => (place === undefined ? undefined : { workspace: place.workspace, tab: place.tab, folder: place.folder, open: place.open });
+
+  const whileOpen = where((await (await workspacesOf(t, { herdr: inTab, records: [runningRecord], dir })).history())[running]);
+  const afterClose = where((await (await workspacesOf(t, { herdr: fakeHerdr({ workspaces: tripPlans.workspaces }), records: [], dir })).history())[running]);
+
+  assert.deepEqual([whileOpen, afterClose], [
+    { workspace: 'trip_plans', tab: 'hotels', folder: 'D:\trip_plans', open: true },
+    { workspace: 'trip_plans', tab: 'hotels', folder: 'D:\trip_plans', open: false },
+  ]);
+});
