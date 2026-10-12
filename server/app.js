@@ -24,6 +24,7 @@ import { slimEntry } from './slim.js';
 import { openingPart, streamTranscript } from './stream.js';
 import { readLineAt } from './tail.js';
 import { createTranscriptCache } from './transcript-cache.js';
+import { readTaskOutput, seenTasks } from './tasks.js';
 import { parseImages } from './uploads.js';
 
 const publicDir = fileURLToPath(new URL('../public', import.meta.url));
@@ -60,16 +61,18 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  * @typedef {{ liveState: (sessionId: string) => Promise<import('./composer.js').LiveState>, send: (sessionId: string, text: string) => Promise<import('./composer.js').SendOutcome>, interrupt: (sessionId: string) => Promise<import('./composer.js').StopReply>, rewind: (sessionId: string, request: import('./composer.js').RewindRequest) => Promise<import('./composer.js').RewindReply>, btw: (sessionId: string, question: string) => Promise<import('./composer.js').BtwReply>, answer: (sessionId: string, steps: readonly import('../public/model/dialog.js').DialogStep[]) => Promise<import('../public/model/dialog.js').DialogReply> }} Composer
  * @typedef {{ name: string, version: string }} About
  * @typedef {() => Promise<import('../public/model/usage.js').Usage | undefined>} ReadUsage — none until Claude Code has read it
+ * @typedef {(sessionId: string) => Promise<boolean>} IsRunning
  */
 
 /**
- * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage }} options
+ * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning }} options
  *   about — package name and version for /api/health; palette — the page's colours (public/model/palettes.js);
  *   publicAddresses — where else the page is opened at, answered as the local address is; herdrView — what herdr
- *   shows (herdr-view.js); terminals — herdr panes' terminals (terminal.js); usage — the account's usage (usage.js)
+ *   shows (herdr-view.js); terminals — herdr panes' terminals (terminal.js); usage — the account's usage (usage.js);
+ *   isRunning — whether Claude Code has a session open
  * @returns {Promise<{ port: number, close: () => void }>}
  */
-export async function startServer({ root, host, port, pollMs, composer, bookmarks, uploads, about, palette, publicAddresses, herdrView, terminals, usage }) {
+export async function startServer({ root, host, port, pollMs, composer, bookmarks, uploads, about, palette, publicAddresses, herdrView, terminals, usage, isRunning }) {
   const index = createSessionIndex(root, { summaryBudgetMs: 1500 });
   const build = await pageBuild();
   /** Sessions this page rewound: session id → the prompt rewound to; its branch is hidden before the next prompt shows the fork. */
@@ -81,7 +84,7 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
   /** @type {Set<string>} */
   const allowedOrigins = new Set();
   const server = http.createServer((request, response) => {
-    handle({ index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, uploads, about, build, rewinds, transcripts, palette, herdrView, terminals, usage }, request, response).catch((error) => {
+    handle({ index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, uploads, about, build, rewinds, transcripts, palette, herdrView, terminals, usage, isRunning }, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
       if (!response.headersSent) response.writeHead(500).end();
       else response.end();
@@ -108,7 +111,7 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
 }
 
 /**
- * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage }} Deps
+ * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning }} Deps
  * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'createTab' | 'history' | 'reopen'>} HerdrView
  * @typedef {Pick<ReturnType<typeof import('./terminal.js').createTerminals>, 'stream' | 'type'>} Terminals
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
@@ -160,6 +163,10 @@ async function handle(deps, request, response) {
     case '/api/herdr':
       return sendRevalidated(response, await deps.herdrView.layout());
     // Where sessions ran in herdr, closed ones included: the session list finds them by workspace and tab.
+    case '/api/tasks':
+      return withSession(url, response, async (id) => sendTasks(deps, id, response));
+    case '/api/tasks/output':
+      return withSession(url, response, async (id) => sendTaskOutput(deps, url, id, response));
     case '/api/usage':
       return sendJson(response, (await deps.usage()) ?? {});
     case '/api/history':
@@ -641,6 +648,40 @@ async function sendSnapshot(deps, url, id, response) {
   }
   const read = await deps.transcripts.read(path, { scope: 'main', imageUrl: (lineStart, n) => imageLink(id, null, lineStart, n) });
   return sendJson(response, openingPart(read.entries, deps.rewinds.get(id), tailOf(url)));
+}
+
+/**
+ * The work the session started in the background: subagents and commands.
+ * @param {Deps} deps
+ * @param {string} id
+ * @param {http.ServerResponse} response
+ */
+async function sendTasks(deps, id, response) {
+  const path = await deps.index.find(id);
+  if (path === undefined) return sendJson(response, []);
+  const read = await deps.transcripts.read(path, { scope: 'main', imageUrl: (lineStart, n) => imageLink(id, null, lineStart, n) });
+  return sendJson(response, await seenTasks(read.tasks.list(), await deps.isRunning(id)));
+}
+
+/**
+ * The output of a command the session runs in the background: ?task=<the call's id>, &from=<byte> to read on.
+ * Only a command of this session is read, from the file Claude Code named for it.
+ * @param {Deps} deps
+ * @param {URL} url
+ * @param {string} id
+ * @param {http.ServerResponse} response
+ */
+async function sendTaskOutput(deps, url, id, response) {
+  const path = await deps.index.find(id);
+  const read = path === undefined ? undefined : await deps.transcripts.read(path, { scope: 'main', imageUrl: (lineStart, n) => imageLink(id, null, lineStart, n) });
+  const task = read?.tasks.list().find((one) => one.id === url.searchParams.get('task'));
+  if (task?.output === undefined) {
+    response.writeHead(404).end('Not found');
+    return;
+  }
+  const from = Number(url.searchParams.get('from') ?? Number.NaN);
+  const output = await readTaskOutput(task.output, Number.isInteger(from) && from >= 0 ? from : undefined);
+  return sendJson(response, output ?? { missing: true });
 }
 
 /**
