@@ -23,11 +23,12 @@ const serverSilent = { shown: true, enabled: false, canInterrupt: false, canReop
 
 /**
  * @param {string} sessionId
- * @param {{ focusBox: 'when-ready' | 'no' }} options — when-ready: the user opened the session, so the box takes the
- *   focus once the session can be written to; no: following the active session switched to it
+ * @param {{ focusBox: 'when-ready' | 'no', placeOf: () => { workspace: string, tab: string | undefined } | undefined }} options —
+ *   focusBox when-ready: the user opened the session, so the box takes the focus once the session can be written to; no:
+ *   following the active session switched to it. placeOf: the herdr workspace and tab the session ran in, if known
  * @returns {{ element: HTMLElement, say: (message: string, tone: 'ok' | 'error') => void, fill: (text: string) => void, stop: () => boolean, dispose: () => void }} — stop: Claude stopped if it was working
  */
-export function createComposer(sessionId, { focusBox }) {
+export function createComposer(sessionId, { focusBox, placeOf }) {
   /** @type {import('../model/composer.js').Keyboard} */
   const keyboard = matchMedia('(pointer: coarse)').matches ? 'touch' : 'physical';
   const draftKey = `viewer.draft.${sessionId}`;
@@ -37,7 +38,10 @@ export function createComposer(sessionId, { focusBox }) {
   const send = h('button', { className: 'composer-send', title: keyboard === 'touch' ? 'Send' : 'Send (Enter)', attrs: { type: 'submit', 'aria-label': 'Send' } }, [icon('send')]);
   const hint = h('div', { className: 'composer-hint' });
   // a session that is not running is opened again in herdr — where it ran — and the box comes to life when it starts
-  const reopen = h('button', { className: 'composer-reopen', text: 'Open in herdr', attrs: { type: 'button', hidden: '' } });
+  const reopen = h('button', { className: 'composer-reopen', text: 'Open in herdr', title: 'A tab of the workspace it ran in, named as before; Claude Code resumes the session there', attrs: { type: 'button' } });
+  const resumeWhere = h('span', { className: 'composer-resume-where' });
+  // in the box's place while the session is not running: where it ran, and the button that opens it there again
+  const resume = h('div', { className: 'composer-resume', attrs: { hidden: '' } }, [h('div', { className: 'composer-resume-text' }, [h('span', { className: 'composer-resume-state', text: 'Not running' }), resumeWhere]), reopen]);
   const status = h('div', { className: 'composer-status', attrs: { role: 'status' } });
   let enabled = false;
   let sending = false;
@@ -57,7 +61,7 @@ export function createComposer(sessionId, { focusBox }) {
       return reply;
     },
   });
-  const element = h('div', { className: 'composer' }, [dialogCard.element, aside, form, h('div', { className: 'composer-footer' }, [hint, reopen, status]), attachments.input]);
+  const element = h('div', { className: 'composer' }, [dialogCard.element, aside, resume, form, h('div', { className: 'composer-footer' }, [hint, status]), attachments.input]);
 
   const fit = () => {
     input.style.height = 'auto';
@@ -83,7 +87,12 @@ export function createComposer(sessionId, { focusBox }) {
     input.placeholder = view.placeholder;
     hint.textContent = view.hint;
     interrupt.hidden = !view.canInterrupt;
-    reopen.hidden = !view.canReopen;
+    resume.hidden = !view.canReopen;
+    form.hidden = view.canReopen;
+    if (view.canReopen) {
+      const place = placeOf();
+      resumeWhere.textContent = place === undefined ? 'Opens in herdr in a new workspace named after its folder' : [place.workspace, place.tab].filter((part) => part !== undefined).join(' · ');
+    }
     dialogCard.show(live?.state === 'live' ? live.dialog : undefined);
     refreshButtons();
     if (focusPending) {

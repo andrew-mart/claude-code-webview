@@ -25,7 +25,7 @@ async function escapeWhile(status) {
       return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
     },
   });
-  const composer = createComposer(sessionId, { focusBox: 'no' });
+  const composer = createComposer(sessionId, { focusBox: 'no', placeOf: () => undefined });
   window.document.body.append(composer.element);
   await new Promise((resolve) => setTimeout(resolve, 20));
   const box = composer.element.querySelector('.composer-input');

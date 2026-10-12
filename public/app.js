@@ -419,7 +419,14 @@ function createPage() {
       },
     });
     scroller.append(view.element);
-    const composer = createComposer(id, { focusBox: followedTo === id ? 'no' : 'when-ready' });
+    const composer = createComposer(id, {
+      focusBox: followedTo === id ? 'no' : 'when-ready',
+      // a tab numbered by herdr says little: only a named one is told
+      placeOf: () => {
+        const place = history[id];
+        return place === undefined ? undefined : { workspace: place.workspace, tab: place.tab !== undefined && !/^\d+$/.test(place.tab) ? place.tab : undefined };
+      },
+    });
     const tasks = createTasksView({
       sessionId: id,
       load: async (path) => {

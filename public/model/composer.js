@@ -53,7 +53,8 @@ export function composerState(live, sessionId, keyboard) {
       // Without herdr the session cannot be written to at all — the box is hidden so as not to promise what is unavailable.
       return { ...unavailable('herdr is not installed — write prompts in the terminal.'), shown: false };
     case 'offline':
-      return { ...unavailable(`The session is not running. Open it in herdr again — where it ran — or in a herdr pane: claude --resume ${sessionId}`), canReopen: true };
+      // the page offers to open it where it ran in the box's place; the hint tells the other way
+      return { ...unavailable(`Or in a herdr pane: claude --resume ${sessionId}`), canReopen: true };
     case 'outside-herdr':
       return unavailable('The session is not running in herdr — its terminal cannot receive text.');
     case 'no-herdr':
