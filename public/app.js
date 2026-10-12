@@ -198,7 +198,7 @@ function createPage() {
     open: (target) => {
       location.hash = target;
     },
-    create: (tab, start) => newTab(tab, start),
+    create: (tab, start, label) => newTab(tab, start, label),
   });
   /** The herdr pane whose terminal the page shows (#/pane/<id>) instead of a session. */
   /** @type {{ id: string, terminal: ReturnType<typeof mountTerminal>, title: HTMLElement } | undefined} */
@@ -1023,13 +1023,14 @@ async function changeTab(path, change) {
  * A herdr tab opened from the tab bar, beside the open one; once herdr has it the page looks at herdr again.
  * @param {string} tab — the open tab
  * @param {import('./model/herdr.js').TabStart} start
+ * @param {string | undefined} label — the new tab's name; none: herdr numbers it
  * @returns {Promise<import('./model/herdr.js').NewTab>}
  */
-async function newTab(tab, start) {
+async function newTab(tab, start, label) {
   const response = await fetch('/api/tab/new', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Viewer': '1' },
-    body: JSON.stringify({ tab, start }),
+    body: JSON.stringify({ tab, start, label }),
   }).catch(() => undefined);
   const outcome = parseNewTab(response?.ok ? await response.json().catch(() => undefined) : undefined);
   if (outcome.ok) await page.refreshHerdr();

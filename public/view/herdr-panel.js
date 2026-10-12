@@ -168,7 +168,7 @@ export function createHerdrSidebar(element, { createWorkspace, open }) {
 }
 
 /**
- * @typedef {{ rename: (tabId: string, label: string) => Promise<import('../model/herdr.js').TabChange>, close: (tabId: string) => Promise<import('../model/herdr.js').TabChange>, open: (target: string) => void, create: (besideTab: string, start: import('../model/herdr.js').TabStart) => Promise<import('../model/herdr.js').NewTab> }} TabActions
+ * @typedef {{ rename: (tabId: string, label: string) => Promise<import('../model/herdr.js').TabChange>, close: (tabId: string) => Promise<import('../model/herdr.js').TabChange>, open: (target: string) => void, create: (besideTab: string, start: import('../model/herdr.js').TabStart, label: string | undefined) => Promise<import('../model/herdr.js').NewTab> }} TabActions
  *   — rename, close and create resolve once the page shows the change; open goes to a page address
  */
 
@@ -249,9 +249,10 @@ export function createTabBar({ rename, close, open, create }) {
     const at = tabs.findIndex((known) => known.id === tab.id);
     const neighbour = tabs[at + 1] ?? tabs[at - 1];
     busy = true;
-    const yes = h('button', { className: 'herdr-tab-confirm-close', text: 'Close', attrs: { type: 'button' } });
-    const no = h('button', { className: 'herdr-tab-confirm-cancel', text: 'Cancel', attrs: { type: 'button' } });
-    const question = h('span', { text: 'Close the tab? What runs in it stops.' });
+    // two buttons say it all: ✓ closes — the title tells what that stops — ✕ keeps the tab
+    const yes = h('button', { className: 'icon-button herdr-tab-confirm-close', title: 'Close the tab: what runs in it stops', attrs: { type: 'button', 'aria-label': 'Close the tab: what runs in it stops' } }, [icon('check')]);
+    const no = h('button', { className: 'icon-button herdr-tab-confirm-cancel', title: 'Keep the tab', attrs: { type: 'button', 'aria-label': 'Keep the tab' } }, [icon('cross')]);
+    const question = h('span', { className: 'herdr-tab-confirm-failed', attrs: { hidden: '' } });
     no.addEventListener('click', finish);
     yes.addEventListener('click', () => {
       yes.disabled = true;
@@ -263,42 +264,58 @@ export function createTabBar({ rename, close, open, create }) {
           return;
         }
         yes.disabled = false;
+        question.hidden = false;
         question.textContent = 'herdr did not close the tab.';
       });
     });
-    actions.replaceWith(h('span', { className: 'herdr-tab-confirm', attrs: { role: 'alertdialog', 'aria-label': 'Close the tab' } }, [question, yes, no]));
+    actions.replaceWith(h('span', { className: 'herdr-tab-confirm', attrs: { role: 'alertdialog', 'aria-label': 'Close the tab' } }, [yes, no, question]));
     yes.focus();
   };
 
   /**
-   * "+" gives way to the choice of what the new tab runs.
+   * "+" gives way to the new tab's name and the choice of what it runs; Enter starts Claude Code, Escape leaves it.
    * @param {HTMLElement} adding
    * @param {import('../model/herdr.js').HerdrTab} beside — the open tab
    */
   const startAdding = (adding, beside) => {
     busy = true;
-    const message = h('span', { text: 'New tab:' });
+    const message = h('span', { className: 'herdr-tab-new-failed', attrs: { hidden: '' } });
+    const name = h('input', { className: 'herdr-tab-name herdr-tab-new-name', attrs: { type: 'text', maxlength: '60', placeholder: 'New tab name', 'aria-label': 'Name of the new tab' } });
+    /** @param {import('../model/herdr.js').TabStart} start */
+    const add = (start) => {
+      for (const button of choices.querySelectorAll('button')) button.disabled = true;
+      const label = name.value.replace(/\s+/g, ' ').trim();
+      void create(beside.id, start, label === '' ? undefined : label).then((outcome) => {
+        if (outcome.ok) {
+          finish();
+          open(outcome.target);
+          return;
+        }
+        for (const button of choices.querySelectorAll('button')) button.disabled = false;
+        message.hidden = false;
+        message.textContent = 'herdr did not open a tab.';
+      });
+    };
     /** @param {import('../model/herdr.js').TabStart} start @param {string} text @param {string} className */
     const choice = (start, text, className) => {
       const made = h('button', { className, text, attrs: { type: 'button' } });
-      made.addEventListener('click', () => {
-        for (const button of choices.querySelectorAll('button')) button.disabled = true;
-        void create(beside.id, start).then((outcome) => {
-          if (outcome.ok) {
-            finish();
-            open(outcome.target);
-            return;
-          }
-          for (const button of choices.querySelectorAll('button')) button.disabled = false;
-          message.textContent = 'herdr did not open a tab.';
-        });
-      });
+      made.addEventListener('click', () => add(start));
       return made;
     };
+    name.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        finish();
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        add('claude');
+      }
+    });
     const cancel = h('button', { className: 'herdr-tab-new-cancel', text: 'Cancel', attrs: { type: 'button' } });
     cancel.addEventListener('click', finish);
-    const choices = h('span', { className: 'herdr-tab-confirm' }, [message, choice('shell', 'Terminal', 'herdr-tab-new-shell'), choice('claude', 'Claude Code', 'herdr-tab-new-claude'), cancel]);
+    const choices = h('span', { className: 'herdr-tab-confirm' }, [name, choice('shell', 'Terminal', 'herdr-tab-new-shell'), choice('claude', 'Claude Code', 'herdr-tab-new-claude'), cancel, message]);
     adding.replaceWith(choices);
+    name.focus();
   };
 
   const bar = {

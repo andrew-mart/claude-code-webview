@@ -159,12 +159,14 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
       return { herdr: true, sessions: Object.fromEntries(found) };
     },
     /**
-     * A new tab beside one — in its workspace, in the folder of its pane — with a shell, or Claude Code started in it.
+     * A new tab beside one — in its workspace, in the folder of its pane — named, or numbered by herdr, with a shell, or
+     * Claude Code started in it.
      * @param {string} besideTab
      * @param {import('../public/model/herdr.js').TabStart} start
+     * @param {string | undefined} label
      * @returns {Promise<import('../public/model/herdr.js').NewTab>}
      */
-    async createTab(besideTab, start) {
+    async createTab(besideTab, start, label) {
       const view = await currentView();
       const beside = view?.snapshot.panes.find((pane) => pane.tabId === besideTab);
       if (beside === undefined) return { ok: false, error: 'failed' };
@@ -172,6 +174,9 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
       const pane = succeeded(reply) ? rootPaneOf(reply.json) : undefined;
       if (pane === undefined) return { ok: false, error: 'failed' };
       latest = undefined;
+      const tab = succeeded(reply) ? tabOf(reply.json) : undefined;
+      const name = label?.replace(/\s+/g, ' ').trim();
+      if (tab !== undefined && name !== undefined && name !== '') await herdr(['tab', 'rename', tab, name]);
       if (start === 'claude' && !(await startClaude(pane, []))) return { ok: false, error: 'failed' };
       return { ok: true, target: `#/pane/${pane}` };
     },

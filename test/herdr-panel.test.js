@@ -66,14 +66,14 @@ test('tabBar_Should_NameUnnamedTabByItsNumberOnce', () => {
  * @param {string} [session]
  */
 function barAboveSession(session = 's1') {
-  /** @type {string[][]} */
+  /** @type {(string | undefined)[][]} */
   const asked = [];
   const bar = createTabBar({
     open: (target) => {
       asked.push(['open', target]);
     },
-    create: async (beside, start) => {
-      asked.push(['create', beside, start]);
+    create: async (beside, start, label) => {
+      asked.push(['create', beside, start, label]);
       return { ok: true, target: '#/pane/w2:p9' };
     },
     rename: async (tab, label) => {
@@ -185,17 +185,29 @@ test('tabBar_Should_ShowOpenTabsButtons_OnlyWhenItIsClickedAgain', () => {
   assert.deepEqual([before, afterSecondClick, shown()], [false, true, false]);
 });
 
-// "+" opens a tab beside the open one — a terminal, or Claude Code — and the page goes to it; Cancel opens nothing
-test('tabBar_Should_OpenNewTabWithTerminalOrClaude_And_GoToIt', async () => {
-  const { asked, click } = barAboveSession();
+// "+" opens a tab beside the open one, under the name typed for it — a terminal, or Claude Code — and the page goes to
+// it; with no name herdr numbers it; Cancel opens nothing
+test('tabBar_Should_OpenNewNamedTabWithTerminalOrClaude_And_GoToIt', async () => {
+  const { bar, asked, click } = barAboveSession();
+  /** @param {string} value */
+  const name = (value) => {
+    const box = bar.element.querySelector('input.herdr-tab-new-name');
+    assert.ok(box instanceof window.HTMLInputElement);
+    box.value = value;
+  };
 
   click('.herdr-tab-new');
   click('.herdr-tab-new-cancel');
   click('.herdr-tab-new');
+  name('  slow  tests ');
   click('.herdr-tab-new-claude');
   await settled();
+  click('.herdr-tab-new');
+  name('');
+  click('.herdr-tab-new-shell');
+  await settled();
 
-  assert.deepEqual(asked, [['create', 'w2:t1', 'claude'], ['open', '#/pane/w2:p9']]);
+  assert.deepEqual(asked, [['create', 'w2:t1', 'claude', 'slow tests'], ['open', '#/pane/w2:p9'], ['create', 'w2:t1', 'shell', undefined], ['open', '#/pane/w2:p9']]);
 });
 
 // A workspace's rows take its colour — its own row and the rows of the sessions running in it — set apart from another
