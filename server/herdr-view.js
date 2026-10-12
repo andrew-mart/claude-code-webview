@@ -124,15 +124,16 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
    * Claude Code in a new tab's shell: its command typed once the shell shows its prompt — what is typed before it may
    * be lost.
    * @param {string} pane
+   * @param {readonly string[]} options — after the command: --resume <session>
    * @returns {Promise<boolean>} — whether herdr took the keys
    */
-  const startClaude = async (pane) => {
+  const startClaude = async (pane, options) => {
     for (let look = 0; look < shellLooks; look++) {
       const screen = await herdr(['pane', 'read', pane, '--source', 'visible', '--format', 'text']);
       if (screen.ok && screen.text.trim() !== '') break;
       await delay(shellStepMs);
     }
-    return succeeded(await herdr(['pane', 'send-text', pane, claudeCommand])) && succeeded(await herdr(['pane', 'send-keys', pane, 'enter']));
+    return succeeded(await herdr(['pane', 'send-text', pane, [claudeCommand, ...options].join(' ')])) && succeeded(await herdr(['pane', 'send-keys', pane, 'enter']));
   };
 
   /** Pages that ask at once, or within refreshMs, share one look at herdr. */
@@ -170,7 +171,7 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
       const pane = succeeded(reply) ? rootPaneOf(reply.json) : undefined;
       if (pane === undefined) return { ok: false, error: 'failed' };
       latest = undefined;
-      if (start === 'claude' && !(await startClaude(pane))) return { ok: false, error: 'failed' };
+      if (start === 'claude' && !(await startClaude(pane, []))) return { ok: false, error: 'failed' };
       return { ok: true, target: `#/pane/${pane}` };
     },
     /**
@@ -192,6 +193,31 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
      */
     async closeTab(tabId) {
       return changed(await herdr(['tab', 'close', tabId]));
+    },
+    /**
+     * A closed session opened again where it ran: a new tab of its workspace — the workspace opened again if it is gone,
+     * or named after the folder for a session never seen in herdr — named as the tab was, in its folder, Claude Code
+     * resuming it there. The page stays on the session's feed.
+     * @param {string} sessionId
+     * @param {string | undefined} cwd — the session's folder, as its transcript tells it
+     * @returns {Promise<import('../public/model/herdr.js').NewTab>}
+     */
+    async reopen(sessionId, cwd) {
+      const view = await currentView();
+      const place = (await keptHistory()).history[sessionId];
+      const folder = place?.folder ?? cwd;
+      const label = place?.workspace ?? (folder === undefined ? undefined : folderName(folder));
+      if (view === undefined || folder === undefined || label === undefined) return { ok: false, error: 'failed' };
+      const workspace = view.snapshot.workspaces.find((known) => known.label === label);
+      const reply = await herdr(workspace === undefined ? ['workspace', 'create', '--label', label, '--cwd', folder] : ['tab', 'create', '--workspace', workspace.id, '--cwd', folder]);
+      const pane = succeeded(reply) ? rootPaneOf(reply.json) : undefined;
+      if (pane === undefined) return { ok: false, error: 'failed' };
+      latest = undefined;
+      const tab = succeeded(reply) ? tabOf(reply.json) : undefined;
+      // a tab nobody named went by its number, which the new tab has a new one of
+      if (tab !== undefined && place?.tab !== undefined && !/^\d+$/.test(place.tab)) await herdr(['tab', 'rename', tab, place.tab]);
+      if (!(await startClaude(pane, ['--resume', sessionId]))) return { ok: false, error: 'failed' };
+      return { ok: true, target: `#/${sessionId}` };
     },
     /**
      * Where the sessions ran in herdr, the ones closed since included.
@@ -312,4 +338,23 @@ const shellLooks = 30;
 function rootPaneOf(json) {
   const result = isRecord(json) && isRecord(json.result) ? json.result : undefined;
   return result !== undefined && isRecord(result.root_pane) ? text(result.root_pane.pane_id) : undefined;
+}
+
+/**
+ * The tab a new tab or workspace opened with, as herdr tells it.
+ * @param {unknown} json
+ * @returns {string | undefined}
+ */
+function tabOf(json) {
+  const result = isRecord(json) && isRecord(json.result) ? json.result : undefined;
+  return result !== undefined && isRecord(result.tab) ? text(result.tab.tab_id) : undefined;
+}
+
+/**
+ * The last part of a folder's path: what a workspace opened for it is named.
+ * @param {string} folder
+ * @returns {string | undefined}
+ */
+function folderName(folder) {
+  return folder.split(/[\\/]/).filter((part) => part !== '').at(-1);
 }

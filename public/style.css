@@ -2401,6 +2401,20 @@ table.diff tr.gap td {
   font-size: 11.5px;
 }
 
+/* A session not running, opened again in herdr where it ran. */
+.composer-reopen {
+  flex: none;
+  align-self: flex-start;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border-strong));
+  border-radius: 8px;
+  background: var(--bg-elev);
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .composer-hint {
   min-width: 0;
   color: var(--text-4);

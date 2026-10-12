@@ -108,7 +108,7 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
 
 /**
  * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals }} Deps
- * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'createTab' | 'history'>} HerdrView
+ * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'createTab' | 'history' | 'reopen'>} HerdrView
  * @typedef {Pick<ReturnType<typeof import('./terminal.js').createTerminals>, 'stream' | 'type'>} Terminals
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
  * @typedef {{ origin: string, host: string }} PublicAddress — where the page is opened from outside, behind a tunnel:
@@ -237,6 +237,11 @@ async function handleWrite(deps, url, request, response) {
         return;
       }
       return sendJson(response, await deps.composer.answer(sessionId, steps));
+    }
+    // A session closed in herdr, opened there again: in its folder, which the transcript names.
+    case '/api/history/reopen': {
+      const cwd = (await deps.index.list()).find((session) => session.id === sessionId)?.cwd;
+      return sendJson(response, await deps.herdrView.reopen(sessionId, cwd));
     }
     case '/api/btw':
       return askAside(deps, sessionId, isRecord(body) && typeof body.question === 'string' ? body.question : '', response);

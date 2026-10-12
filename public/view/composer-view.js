@@ -4,6 +4,7 @@
 // Claude Code waits for — its AskUserQuestion dialog — shows above the box too, and is answered from there (/api/dialog).
 import { btwMessage, composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, sideQuestionOf, stopMessage } from '../model/composer.js';
 import { parseDialogReply } from '../model/dialog.js';
+import { parseNewTab } from '../model/herdr.js';
 import { answerBlocks } from '../model/side-answer.js';
 import { createAttachmentPicker } from './attachment-picker.js';
 import { createDialogCard } from './dialog-card.js';
@@ -18,7 +19,7 @@ const redrawMs = 400;
 const noticeMs = 4000;
 
 /** @type {import('../model/composer.js').ComposerView} */
-const serverSilent = { shown: true, enabled: false, canInterrupt: false, placeholder: 'Sending is unavailable', hint: 'The viewer server did not report whether the session is running.' };
+const serverSilent = { shown: true, enabled: false, canInterrupt: false, canReopen: false, placeholder: 'Sending is unavailable', hint: 'The viewer server did not report whether the session is running.' };
 
 /**
  * @param {string} sessionId
@@ -35,6 +36,8 @@ export function createComposer(sessionId, { focusBox }) {
   const interrupt = h('button', { className: 'composer-stop', title: 'Stop — press Esc in the session terminal', attrs: { type: 'button', hidden: '', 'aria-label': 'Stop' } }, [icon('stop')]);
   const send = h('button', { className: 'composer-send', title: keyboard === 'touch' ? 'Send' : 'Send (Enter)', attrs: { type: 'submit', 'aria-label': 'Send' } }, [icon('send')]);
   const hint = h('div', { className: 'composer-hint' });
+  // a session that is not running is opened again in herdr — where it ran — and the box comes to life when it starts
+  const reopen = h('button', { className: 'composer-reopen', text: 'Open in herdr', attrs: { type: 'button', hidden: '' } });
   const status = h('div', { className: 'composer-status', attrs: { role: 'status' } });
   let enabled = false;
   let sending = false;
@@ -54,7 +57,7 @@ export function createComposer(sessionId, { focusBox }) {
       return reply;
     },
   });
-  const element = h('div', { className: 'composer' }, [dialogCard.element, aside, form, h('div', { className: 'composer-footer' }, [hint, status]), attachments.input]);
+  const element = h('div', { className: 'composer' }, [dialogCard.element, aside, form, h('div', { className: 'composer-footer' }, [hint, reopen, status]), attachments.input]);
 
   const fit = () => {
     input.style.height = 'auto';
@@ -80,6 +83,7 @@ export function createComposer(sessionId, { focusBox }) {
     input.placeholder = view.placeholder;
     hint.textContent = view.hint;
     interrupt.hidden = !view.canInterrupt;
+    reopen.hidden = !view.canReopen;
     dialogCard.show(live?.state === 'live' ? live.dialog : undefined);
     refreshButtons();
     if (focusPending) {
@@ -91,7 +95,7 @@ export function createComposer(sessionId, { focusBox }) {
     }
   };
   /**
-   * @param {'/api/send' | '/api/interrupt' | '/api/btw' | '/api/dialog'} path
+   * @param {'/api/send' | '/api/interrupt' | '/api/btw' | '/api/dialog' | '/api/history/reopen'} path
    * @param {{ text?: string, images?: readonly import('./attachment-picker.js').AttachedImage[], question?: string, steps?: readonly import('../model/dialog.js').DialogStep[] }} payload
    * @returns {Promise<unknown>} — the reply's JSON; undefined if the server did not answer
    */
@@ -174,6 +178,17 @@ export function createComposer(sessionId, { focusBox }) {
     });
   };
 
+  reopen.addEventListener('click', () => {
+    reopen.disabled = true;
+    say('Opening in herdr…', 'ok');
+    void post('/api/history/reopen', {}).then((json) => {
+      const opened = parseNewTab(json);
+      reopen.disabled = false;
+      say(opened.ok ? 'Opened in herdr — Claude Code is resuming the session.' : 'herdr did not open the session.', opened.ok ? 'ok' : 'error');
+      // Claude Code takes a few seconds to start: the box follows it
+      for (const delayMs of [2000, 5000, 9000]) setTimeout(() => void refreshLive(), delayMs);
+    });
+  });
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     if (send.disabled) return;
