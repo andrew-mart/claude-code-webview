@@ -16,7 +16,7 @@
      page shows through */
   --usage-room-lightness: 1;
   --usage-room-chroma: 1;
-  --usage-room-alpha: 0.45;
+  --usage-room-alpha: 0.35;
   --bg-code: #f7f6f2;
   --bg-code-bar: #efede6;
   --text: #141413;
@@ -63,9 +63,9 @@
     --bg-selected: rgba(250, 249, 245, 0.085);
     --mark-lightness: 0.74;
     --mark-chroma: 0.16;
-    --usage-room-lightness: 0.9;
-    --usage-room-chroma: 0.75;
-    --usage-room-alpha: 0.5;
+    --usage-room-lightness: 0.75;
+    --usage-room-chroma: 0.7;
+    --usage-room-alpha: 0.45;
     --bg-code: #1e1d1c;
     --bg-code-bar: #252422;
     --text: #f5f4ef;
@@ -102,9 +102,9 @@
   --bg-selected: rgba(250, 249, 245, 0.085);
   --mark-lightness: 0.74;
   --mark-chroma: 0.16;
-  --usage-room-lightness: 0.9;
-  --usage-room-chroma: 0.75;
-  --usage-room-alpha: 0.5;
+  --usage-room-lightness: 0.75;
+  --usage-room-chroma: 0.7;
+  --usage-room-alpha: 0.45;
   --bg-code: #1e1d1c;
   --bg-code-bar: #252422;
   --text: #f5f4ef;
