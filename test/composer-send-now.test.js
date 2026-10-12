@@ -13,7 +13,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 /**
  * The box of a session in a herdr pane, Claude busy in it or not; what the page asked the viewer to send.
  * @param {'busy' | 'idle'} status
- * @param {(box: HTMLTextAreaElement, element: HTMLElement) => void} act
+ * @param {(box: HTMLTextAreaElement, composer: ReturnType<typeof createComposer>) => void} act
  * @returns {Promise<{ sent: unknown[], button: boolean }>} — button: the send-now button is there
  */
 async function sendWhile(status, act) {
@@ -33,7 +33,7 @@ async function sendWhile(status, act) {
   const box = composer.element.querySelector('.composer-input');
   assert.ok(box instanceof window.HTMLTextAreaElement);
   const button = composer.element.querySelector('.composer-send-now');
-  act(box, composer.element);
+  act(box, composer);
   await settle();
   composer.dispose();
   composer.element.remove();
@@ -49,16 +49,17 @@ const ctrlEnter = (text) => (box) => {
   box.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
 };
 
-// While Claude works a message waits in Claude Code's queue; Ctrl+Enter — or ⏩ — sends it at once, an empty box sending
-// what waits there. While Claude is idle there is no queue: Ctrl+Enter sends as Enter does
+// While Claude works a message waits in Claude Code's queue; Ctrl+Enter sends it at once, and ⏩ on a message waiting
+// there sends the queue alone. While Claude is idle there is no queue: Ctrl+Enter sends as Enter does. The box itself
+// has no button of its own for it
 test('composer_Should_SendNowPastQueue_WhileClaudeWorks', async () => {
   const busyKeys = await sendWhile('busy', ctrlEnter('Stop and check the logs'));
-  const busyButton = await sendWhile('busy', (box, element) => element.querySelector('.composer-send-now')?.dispatchEvent(new window.Event('click')));
+  const busyQueue = await sendWhile('busy', (box, composer) => composer.sendQueue());
   const idleKeys = await sendWhile('idle', ctrlEnter('Go on'));
 
-  assert.deepEqual([busyKeys, busyButton, idleKeys], [
-    { sent: [{ text: 'Stop and check the logs', now: true }], button: true },
-    { sent: [{ text: '', now: true }], button: true },
+  assert.deepEqual([busyKeys, busyQueue, idleKeys], [
+    { sent: [{ text: 'Stop and check the logs', now: true }], button: false },
+    { sent: [{ text: '', now: true }], button: false },
     { sent: [{ text: 'Go on' }], button: false },
   ]);
 });

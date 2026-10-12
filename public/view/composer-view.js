@@ -29,7 +29,7 @@ const serverSilent = { shown: true, enabled: false, canInterrupt: false, canReop
  *   focusBox when-ready: the user opened the session, so the box takes the focus once the session can be written to; no:
  *   following the active session switched to it. placeOf: the herdr workspace and tab the session ran in, if known. asides:
  *   the side questions and answers of the page's sessions — one outlives the box it was asked in
- * @returns {{ element: HTMLElement, say: (message: string, tone: 'ok' | 'error') => void, fill: (text: string) => void, stop: () => boolean, dispose: () => void }} — stop: Claude stopped if it was working
+ * @returns {{ element: HTMLElement, say: (message: string, tone: 'ok' | 'error') => void, fill: (text: string) => void, stop: () => boolean, sendQueue: () => void, dispose: () => void }} — stop: Claude stopped if it was working
  */
 export function createComposer(sessionId, { focusBox, placeOf, asides }) {
   /** @type {import('../model/composer.js').Keyboard} */
@@ -39,8 +39,6 @@ export function createComposer(sessionId, { focusBox, placeOf, asides }) {
   input.value = readDraft(draftKey);
   const interrupt = h('button', { className: 'composer-stop', title: 'Stop — press Esc in the session terminal', attrs: { type: 'button', hidden: '', 'aria-label': 'Stop' } }, [icon('stop')]);
   const send = h('button', { className: 'composer-send', title: keyboard === 'touch' ? 'Send' : 'Send (Enter)', attrs: { type: 'submit', 'aria-label': 'Send' } }, [icon('send')]);
-  // while Claude works: what waits in Claude Code's queue goes at once, the box's text with it — its Ctrl+Enter
-  const sendNow = h('button', { className: 'composer-send-now', title: keyboard === 'touch' ? 'Send now, past the queue' : 'Send now, past the queue (Ctrl+Enter)', attrs: { type: 'button', hidden: '', 'aria-label': 'Send now' } }, [icon('forward')]);
   const hint = h('div', { className: 'composer-hint' });
   // a session that is not running is opened again in herdr — where it ran — and the box comes to life when it starts
   const reopen = h('button', { className: 'composer-reopen', text: 'Open in herdr', title: 'A tab of the workspace it ran in, named as before; Claude Code resumes the session there', attrs: { type: 'button' } });
@@ -52,6 +50,8 @@ export function createComposer(sessionId, { focusBox, placeOf, asides }) {
   let sending = false;
   /** The session's side question is being answered: the box waits. */
   let asking = false;
+  /** Claude works: a prompt waits in Claude Code's queue, unless sent now. */
+  let busy = false;
   // A phone's keyboard would cover the feed: there the box waits for a tap.
   let focusPending = focusBox === 'when-ready' && keyboard === 'physical';
   /** @type {ReturnType<typeof setTimeout> | undefined} */
@@ -60,7 +60,7 @@ export function createComposer(sessionId, { focusBox, placeOf, asides }) {
   // a box taller than a few lines folds to them: a long text pasted in need not cover the conversation
   const fold = h('button', { className: 'icon-button composer-fold', attrs: { type: 'button', hidden: '' } });
   let folded = false;
-  const form = h('form', { className: 'composer-box' }, [fold, attachments.list, attachments.button, input, h('div', { className: 'composer-actions' }, [interrupt, sendNow, send])]);
+  const form = h('form', { className: 'composer-box' }, [fold, attachments.list, attachments.button, input, h('div', { className: 'composer-actions' }, [interrupt, send])]);
   const aside = h('section', { className: 'side-answer', attrs: { hidden: '', 'aria-label': 'Side question', 'aria-live': 'polite' } });
   const closeAside = h('button', { className: 'icon-button side-answer-close', title: 'Close', attrs: { type: 'button', 'aria-label': 'Close' } }, [icon('cross')]);
   closeAside.addEventListener('click', () => asides.set(sessionId, undefined));
@@ -108,7 +108,7 @@ export function createComposer(sessionId, { focusBox, placeOf, asides }) {
     input.placeholder = view.placeholder;
     hint.textContent = view.hint;
     interrupt.hidden = !view.canInterrupt;
-    sendNow.hidden = !view.canInterrupt;
+    busy = view.canInterrupt;
     resume.hidden = !view.canReopen;
     form.hidden = view.canReopen;
     if (view.canReopen) {
@@ -127,7 +127,7 @@ export function createComposer(sessionId, { focusBox, placeOf, asides }) {
   };
   /**
    * @param {'/api/send' | '/api/interrupt' | '/api/btw' | '/api/dialog' | '/api/history/reopen'} path
-   * @param {{ text?: string, images?: readonly import('./attachment-picker.js').AttachedImage[], question?: string, steps?: readonly import('../model/dialog.js').DialogStep[] }} payload
+   * @param {{ text?: string, images?: readonly import('./attachment-picker.js').AttachedImage[], now?: true, question?: string, steps?: readonly import('../model/dialog.js').DialogStep[] }} payload — now: past Claude Code's queue
    * @returns {Promise<unknown>} — the reply's JSON; undefined if the server did not answer
    */
   const post = async (path, payload) => {
@@ -221,7 +221,7 @@ export function createComposer(sessionId, { focusBox, placeOf, asides }) {
    * @param {'queued' | 'now'} when
    */
   const submitPrompt = (when) => {
-    const now = when === 'now' && !sendNow.hidden;
+    const now = when === 'now' && busy;
     if (now ? !enabled || sending || asking : send.disabled) return;
     const question = sideQuestionOf(input.value);
     if (question !== undefined) return askAside(question);
@@ -247,7 +247,6 @@ export function createComposer(sessionId, { focusBox, placeOf, asides }) {
     event.preventDefault();
     submitPrompt('queued');
   });
-  sendNow.addEventListener('click', () => submitPrompt('now'));
   input.addEventListener('keydown', (event) => {
     // Esc stops Claude, as it does in the terminal
     if (event.key === 'Escape' && stop()) {
@@ -344,6 +343,15 @@ export function createComposer(sessionId, { focusBox, placeOf, asides }) {
     say,
     fill,
     stop,
+    /** What waits in Claude Code's queue, sent now — ⏩ on a waiting message, as Ctrl+Enter in the terminal. */
+    sendQueue: () => {
+      say('Sending the queue now…', 'ok');
+      void post('/api/send', { text: '', images: [], now: true }).then((json) => {
+        const outcome = parseOutcome(json);
+        say(outcome === undefined ? 'The viewer server did not answer.' : outcomeMessage(outcome), outcome?.ok === true ? 'ok' : 'error');
+        void refreshLive();
+      });
+    },
     dispose() {
       clearInterval(timer);
       clearTimeout(noticeTimer);
