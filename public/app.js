@@ -9,7 +9,7 @@ import { actionLabel, choices, nextChoice } from './model/view-settings.js';
 import { createBookmarkStore, moveLocalBookmarksToServer } from './view/bookmark-store.js';
 import { createComposer } from './view/composer-view.js';
 import { createDrawers } from './view/drawers.js';
-import { openedAt, parseHerdrLayout, placeOf } from './model/herdr.js';
+import { openedAt, parseHerdrLayout, parseTabChange, placeOf } from './model/herdr.js';
 import { createHerdrSidebar, createTabBar } from './view/herdr-panel.js';
 import { mountTerminal } from './view/terminal-view.js';
 import { openOfflineStore } from './view/offline-store.js';
@@ -166,7 +166,10 @@ function createPage() {
   let herdrLayout = { herdr: false, workspaces: [] };
   let herdrKnown = '';
   const herdrSidebar = createHerdrSidebar(herdrPanel);
-  const tabBar = createTabBar();
+  const tabBar = createTabBar({
+    rename: (tab, label) => changeTab('/api/tab/rename', { tab, label }),
+    close: (tab) => changeTab('/api/tab/close', { tab }),
+  });
   /** The herdr pane whose terminal the page shows (#/pane/<id>) instead of a session. */
   /** @type {{ id: string, terminal: ReturnType<typeof mountTerminal>, title: HTMLElement } | undefined} */
   let currentPane;
@@ -889,4 +892,22 @@ function writeStorage(key, value) {
   } catch {
     // storage is unavailable — the setting lasts until the page reloads
   }
+}
+
+/**
+ * A herdr tab named or closed from the tab bar; once herdr has done it the page looks at herdr again, so the change
+ * shows at once.
+ * @param {'/api/tab/rename' | '/api/tab/close'} path
+ * @param {{ tab: string, label?: string }} change
+ * @returns {Promise<import('./model/herdr.js').TabChange>}
+ */
+async function changeTab(path, change) {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Viewer': '1' },
+    body: JSON.stringify(change),
+  }).catch(() => undefined);
+  const outcome = parseTabChange(response?.ok ? await response.json().catch(() => undefined) : undefined);
+  if (outcome.ok) await page.refreshHerdr();
+  return outcome;
 }

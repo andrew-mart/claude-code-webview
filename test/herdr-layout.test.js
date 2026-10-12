@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openedAt, parseHerdrLayout, placeOf, searchLayout, sessionsByActivity, tabTarget } from '../public/model/herdr.js';
+import { openedAt, parseHerdrLayout, parseTabChange, placeOf, searchLayout, sessionsByActivity, tabTarget } from '../public/model/herdr.js';
 
 const session = '7d4e1b20-2222-4333-8444-955566667777';
 
@@ -100,4 +100,12 @@ test('sessionsByActivity_Should_ListEverySessionOfEveryWorkspace_LatestActivityF
   assert.deepEqual(found(''), ['trip_plans/search/w2:p3', 'notebook/1/w3:p1', 'trip_plans/hotels/w2:p1']);
   assert.deepEqual(found('NOTEBOOK'), ['notebook/1/w3:p1']);
   assert.deepEqual(found(' eu '), ['trip_plans/search/w2:p3']);
+});
+
+// What the viewer says about a tab named or closed; a reply it does not know — or none — is a change not made
+test('parseTabChange_Should_TakeKnownReplies_And_CountAnyOtherAsFailed', () => {
+  assert.deepEqual(
+    [{ ok: true }, { ok: false, error: 'empty' }, { ok: false, error: 'exploded' }, undefined].map(parseTabChange),
+    [{ ok: true }, { ok: false, error: 'empty' }, { ok: false, error: 'failed' }, { ok: false, error: 'failed' }],
+  );
 });

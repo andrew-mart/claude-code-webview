@@ -107,7 +107,7 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
 
 /**
  * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals }} Deps
- * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout'>} HerdrView
+ * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab'>} HerdrView
  * @typedef {Pick<ReturnType<typeof import('./terminal.js').createTerminals>, 'stream' | 'type'>} Terminals
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
  * @typedef {{ origin: string, host: string }} PublicAddress — where the page is opened from outside, behind a tunnel:
@@ -201,6 +201,8 @@ async function handleWrite(deps, url, request, response) {
   }
   const body = await readJsonBody(request, url.pathname === '/api/send' ? maxSendBytes : maxBodyBytes);
   if (url.pathname === '/api/pane/input') return typeIntoPane(deps, body, response);
+  if (url.pathname === '/api/tab/rename') return renameTab(deps, body, response);
+  if (url.pathname === '/api/tab/close') return closeTab(deps, body, response);
   const sessionId = isRecord(body) && typeof body.session === 'string' && sessionIdPattern.test(body.session) ? body.session : undefined;
   if (sessionId === undefined) {
     response.writeHead(400).end('Bad session id');
@@ -258,6 +260,44 @@ async function askAside(deps, sessionId, question, response) {
 }
 
 const keepAliveMs = 15_000;
+
+/**
+ * A herdr tab named from the page's tab bar.
+ * @param {Deps} deps
+ * @param {unknown} body — { tab, label }
+ * @param {http.ServerResponse} response
+ */
+async function renameTab(deps, body, response) {
+  const tab = tabOf(body);
+  if (tab === undefined || !isRecord(body) || typeof body.label !== 'string') {
+    response.writeHead(400).end('Bad tab name');
+    return;
+  }
+  return sendJson(response, await deps.herdrView.renameTab(tab, body.label));
+}
+
+/**
+ * A herdr tab closed from the page's tab bar.
+ * @param {Deps} deps
+ * @param {unknown} body — { tab }
+ * @param {http.ServerResponse} response
+ */
+async function closeTab(deps, body, response) {
+  const tab = tabOf(body);
+  if (tab === undefined) {
+    response.writeHead(400).end('Bad tab');
+    return;
+  }
+  return sendJson(response, await deps.herdrView.closeTab(tab));
+}
+
+/**
+ * @param {unknown} body
+ * @returns {string | undefined} — the tab id, when it looks like one: herdr's tab ids are like its pane ids
+ */
+function tabOf(body) {
+  return isRecord(body) && typeof body.tab === 'string' && paneIdPattern.test(body.tab) ? body.tab : undefined;
+}
 
 /**
  * Keys from the page's terminal, typed into a herdr pane.

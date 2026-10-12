@@ -101,6 +101,17 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs }) {
     return { snapshot, sessionByPane, byFolder: workspaceByFolder(snapshot.panes, workspaceLabels(snapshot)) };
   };
 
+  /**
+   * After a tab is renamed or closed the next look at herdr is a fresh one: the page shows the change at once.
+   * @param {import('./composer.js').HerdrReply} reply
+   * @returns {import('../public/model/herdr.js').TabChange}
+   */
+  const changed = (reply) => {
+    if (!succeeded(reply)) return { ok: false, error: 'failed' };
+    latest = undefined;
+    return { ok: true };
+  };
+
   /** Pages that ask at once, or within refreshMs, share one look at herdr. */
   const currentView = () => {
     if (latest === undefined || Date.now() - latest.at >= refreshMs) latest = { at: Date.now(), view: lookAtHerdr() };
@@ -121,6 +132,26 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs }) {
         return label === undefined ? [] : [[id, label]];
       });
       return { herdr: true, sessions: Object.fromEntries(found) };
+    },
+    /**
+     * Names a tab, as herdr's own rename does.
+     * @param {string} tabId
+     * @param {string} label
+     * @returns {Promise<import('../public/model/herdr.js').TabChange>}
+     */
+    async renameTab(tabId, label) {
+      // a tab's name is one line
+      const name = label.replace(/\s+/g, ' ').trim();
+      if (name === '') return { ok: false, error: 'empty' };
+      return changed(await herdr(['tab', 'rename', tabId, name]));
+    },
+    /**
+     * Closes a tab: what runs in it stops — a Claude Code session can be resumed, its transcript stays.
+     * @param {string} tabId
+     * @returns {Promise<import('../public/model/herdr.js').TabChange>}
+     */
+    async closeTab(tabId) {
+      return changed(await herdr(['tab', 'close', tabId]));
     },
     /** @returns {Promise<import('../public/model/herdr.js').HerdrLayout>} */
     async layout() {
