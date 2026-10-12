@@ -226,8 +226,8 @@ button {
   display: flex;
   align-items: center;
   gap: 6px;
-  --used-start: #67e8f9;
-  --used-end: #3b82f6;
+  --used-start: #1d9bf0;
+  --used-end: #3b5bdb;
   --gap-start: transparent;
   --gap-end: transparent;
   /* the colours flow into each other across the boundary — over a stretch no longer than half of either side, so a
