@@ -4,6 +4,7 @@
 /** Options of each setting; the first is the default, the button cycles through them. */
 export const choices = /** @type {const} */ ({
   activity: ['compact', 'detailed'],
+  edits: ['folded', 'shown'],
   outline: ['shown', 'hidden'],
   theme: ['auto', 'light', 'dark'],
   font: ['sans', 'serif'],
@@ -23,6 +24,7 @@ export const choices = /** @type {const} */ ({
 /** @type {Readonly<Record<SettingKey, Readonly<Record<string, string>>>>} */
 const resultNames = {
   activity: { compact: 'Show briefly', detailed: 'Show in detail' },
+  edits: { folded: 'Fold edits into the brief summary', shown: 'Show edits even when brief' },
   outline: { shown: 'Show outline', hidden: 'Hide outline' },
   theme: { auto: 'System theme', light: 'Light theme', dark: 'Dark theme' },
   font: { serif: 'Serif answers', sans: 'Sans-serif answers' },

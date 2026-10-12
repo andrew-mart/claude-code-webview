@@ -31,11 +31,12 @@ const familyNouns = [
 
 /**
  * @param {readonly ActivityItem[]} items
- * @param {{ mode: string, expanded: boolean }} view
+ * @param {{ mode: string, expanded: boolean, edits: 'folded' | 'shown' }} view — edits: shown — the files Claude wrote stay
+ *   in sight under a brief summary
  * @returns {ActivityLayout}
  */
 export function layoutActivity(items, view) {
-  return view.mode === 'detailed' ? detailedLayout(items, view.expanded) : compactLayout(items, view.expanded);
+  return view.mode === 'detailed' ? detailedLayout(items, view.expanded) : compactLayout(items, view);
 }
 
 /**
@@ -54,14 +55,19 @@ function detailedLayout(items, expanded) {
 /**
  * Compact: a series of calls is one summary row, as in Claude Code.
  * @param {readonly ActivityItem[]} items
- * @param {boolean} expanded
+ * @param {{ expanded: boolean, edits: 'folded' | 'shown' }} view
  * @returns {ActivityLayout}
  */
-function compactLayout(items, expanded) {
+function compactLayout(items, { expanded, edits }) {
   const toolCount = items.filter((item) => item.kind === 'tool').length;
   // A single call already takes one row — a summary would not shorten anything; thoughts without calls are not shown.
   if (toolCount <= 1) return { header: { kind: 'none' }, visible: items.map((item) => item.kind === 'tool') };
-  return { header: summaryHeader(items, expanded), visible: items.map((item) => expanded || isRunning(item)) };
+  return { header: summaryHeader(items, expanded), visible: items.map((item) => expanded || isRunning(item) || (edits === 'shown' && isEdit(item))) };
+}
+
+/** @param {ActivityItem} item */
+function isEdit(item) {
+  return item.kind === 'tool' && item.family === 'edit';
 }
 
 /**

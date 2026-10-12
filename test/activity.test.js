@@ -9,7 +9,7 @@ const thinking = { kind: 'thinking' };
 /** @param {import('../public/model/tool.js').ToolFamily} family @param {'pending' | 'done' | 'error'} state @returns {ActivityItem} */
 const tool = (family, state = 'done') => ({ kind: 'tool', family, state });
 
-const collapsed = { mode: 'compact', expanded: false };
+const collapsed = { mode: 'compact', expanded: false, edits: /** @type {const} */ ('folded') };
 
 test('layoutActivity_Should_CollapseSeriesIntoCountsByKindWithErrors', () => {
   const items = [thinking, tool('shell'), tool('read'), tool('read', 'error'), thinking];
@@ -29,16 +29,16 @@ test('layoutActivity_Should_ShowEveryRowInDetailedModeFoldingLongSeriesToLastFou
   const short = [thinking, tool('shell'), tool('read')];
   const long = Array.from({ length: 10 }, () => tool('shell'));
 
-  assert.deepEqual(layoutActivity(short, { mode: 'detailed', expanded: false }), { header: { kind: 'none' }, visible: [true, true, true] });
-  assert.deepEqual(layoutActivity(long, { mode: 'detailed', expanded: false }), {
+  assert.deepEqual(layoutActivity(short, { mode: 'detailed', expanded: false, edits: 'folded' }), { header: { kind: 'none' }, visible: [true, true, true] });
+  assert.deepEqual(layoutActivity(long, { mode: 'detailed', expanded: false, edits: 'folded' }), {
     header: { kind: 'fold', hidden: '6 earlier actions' },
     visible: [false, false, false, false, false, false, true, true, true, true],
   });
-  assert.deepEqual(layoutActivity(long, { mode: 'detailed', expanded: true }), { header: { kind: 'unfold' }, visible: long.map(() => true) });
+  assert.deepEqual(layoutActivity(long, { mode: 'detailed', expanded: true, edits: 'folded' }), { header: { kind: 'unfold' }, visible: long.map(() => true) });
 });
 
 test('layoutActivity_Should_ShowEveryRowUnderOpenedSummary', () => {
-  const layout = layoutActivity([thinking, tool('shell'), tool('read')], { mode: 'compact', expanded: true });
+  const layout = layoutActivity([thinking, tool('shell'), tool('read')], { mode: 'compact', expanded: true, edits: 'folded' });
 
   assert.deepEqual(layout.visible, [true, true, true]);
   assert.equal(layout.header.kind === 'summary' && layout.header.expanded, true);
@@ -48,4 +48,13 @@ test('layoutActivity_Should_KeepRunningCallVisibleUnderSummary', () => {
   const layout = layoutActivity([tool('shell'), thinking, tool('shell', 'pending')], collapsed);
 
   assert.deepEqual(layout.visible, [false, false, true]);
+});
+
+// "Show edits" keeps the files Claude wrote in sight under a brief summary; everything else stays folded into it
+test('layoutActivity_Should_KeepEditsVisibleInCollapsedSeries_When_EditsAreShown', () => {
+  const items = [tool('read'), tool('edit'), thinking, tool('shell'), tool('edit', 'error')];
+
+  const layout = layoutActivity(items, { ...collapsed, edits: 'shown' });
+
+  assert.deepEqual({ folded: layout.header.kind === 'summary' && !layout.header.expanded, visible: layout.visible }, { folded: true, visible: [false, true, false, false, true] });
 });
