@@ -239,8 +239,8 @@ button {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  --used-start: #1d9bf0;
-  --used-end: #3b5bdb;
+  --used-start: #5cf0ff;
+  --used-end: #00b4ff;
   --gap-start: transparent;
   --gap-end: transparent;
   /* the colours flow into each other across the boundary over the same stretch whatever the gap — a short gap tells by
