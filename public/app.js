@@ -171,6 +171,12 @@ function createPage() {
   /** @type {{ id: string, terminal: ReturnType<typeof mountTerminal>, title: HTMLElement } | undefined} */
   let currentPane;
   /**
+   * The session following the active one switched to: its box does not take the focus — what the user was typing
+   * was meant for the session before it.
+   * @type {string | undefined}
+   */
+  let followedTo;
+  /**
    * The size of a pane's terminal, as herdr lays it out.
    * @param {string} paneId
    */
@@ -366,7 +372,8 @@ function createPage() {
       },
     });
     scroller.append(view.element);
-    const composer = createComposer(id);
+    const composer = createComposer(id, { focusBox: followedTo === id ? 'no' : 'when-ready' });
+    followedTo = undefined;
     const outlineResizer = createResizer({
       layout,
       width: outlineWidth,
@@ -463,7 +470,9 @@ function createPage() {
     },
     followLatest() {
       const [latest] = listed('');
-      if (follow.checked && latest !== undefined && latest.id !== current?.id) location.hash = `#/${latest.id}`;
+      if (!follow.checked || latest === undefined || latest.id === current?.id) return;
+      followedTo = latest.id;
+      location.hash = `#/${latest.id}`;
     },
     openFromHash() {
       const opened = openedAt(location.hash);

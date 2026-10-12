@@ -16,9 +16,11 @@ const serverSilent = { shown: true, enabled: false, canInterrupt: false, placeho
 
 /**
  * @param {string} sessionId
+ * @param {{ focusBox: 'when-ready' | 'no' }} options — when-ready: the user opened the session, so the box takes the
+ *   focus once the session can be written to; no: following the active session switched to it
  * @returns {{ element: HTMLElement, say: (message: string, tone: 'ok' | 'error') => void, fill: (text: string) => void, dispose: () => void }}
  */
-export function createComposer(sessionId) {
+export function createComposer(sessionId, { focusBox }) {
   /** @type {import('../model/composer.js').Keyboard} */
   const keyboard = matchMedia('(pointer: coarse)').matches ? 'touch' : 'physical';
   const draftKey = `viewer.draft.${sessionId}`;
@@ -30,6 +32,8 @@ export function createComposer(sessionId) {
   const status = h('div', { className: 'composer-status', attrs: { role: 'status' } });
   let enabled = false;
   let sending = false;
+  // A phone's keyboard would cover the feed: there the box waits for a tap.
+  let focusPending = focusBox === 'when-ready' && keyboard === 'physical';
   /** @type {ReturnType<typeof setTimeout> | undefined} */
   let noticeTimer;
   const attachments = createAttachmentPicker({ onChange: () => refreshButtons(), onError: (message) => say(message, 'error') });
@@ -64,6 +68,13 @@ export function createComposer(sessionId) {
     hint.textContent = view.hint;
     interrupt.hidden = !view.canInterrupt;
     refreshButtons();
+    if (focusPending) {
+      focusPending = false;
+      if (enabled && !isOtherField(document.activeElement, input)) {
+        input.focus({ preventScroll: true });
+        input.setSelectionRange(input.value.length, input.value.length);
+      }
+    }
   };
   /**
    * @param {'/api/send' | '/api/interrupt' | '/api/btw'} path
@@ -186,8 +197,7 @@ export function createComposer(sessionId) {
   /** @param {ClipboardEvent} event */
   const onPaste = (event) => {
     const target = event.target;
-    const otherField = target instanceof HTMLElement && target !== input && (target.isContentEditable || target.matches('input, textarea, select'));
-    if (otherField || !enabled || element.hidden) return;
+    if ((target instanceof Element && isOtherField(target, input)) || !enabled || element.hidden) return;
     const files = [...(event.clipboardData?.files ?? [])].filter((file) => file.type.startsWith('image/'));
     if (files.length === 0) return;
     event.preventDefault();
@@ -256,4 +266,13 @@ function writeDraft(key, value) {
   } catch {
     // storage is unavailable — the draft will not survive a reload
   }
+}
+
+/**
+ * A field the user may be typing in, other than the box: the session search, for one.
+ * @param {Element | null} element
+ * @param {HTMLTextAreaElement} box
+ */
+function isOtherField(element, box) {
+  return element instanceof HTMLElement && element !== box && (element.isContentEditable || element.matches('input, textarea, select'));
 }
