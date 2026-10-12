@@ -21,15 +21,3 @@ export function h(tag, props = {}, children = []) {
   element.append(...children);
   return element;
 }
-
-/**
- * An image from the transcript; a link to the viewer's server loads only when it scrolls into view.
- * @param {import('../model/entry.js').Image} image
- * @returns {HTMLImageElement}
- */
-export function inlineImage(image) {
-  const element = h('img', { className: 'inline-image', attrs: { alt: '', loading: 'lazy', decoding: 'async' } });
-  element.src = image.url;
-  element.addEventListener('click', () => element.classList.toggle('zoomed'));
-  return element;
-}

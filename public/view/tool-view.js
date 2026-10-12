@@ -3,7 +3,8 @@
 import { diffRows, firstChangedLine, summarizeCall, summarizeResult } from '../model/tool.js';
 import { interpretEntry } from '../model/entry.js';
 import { isRecord, text } from '../model/narrow.js';
-import { h, inlineImage } from './dom.js';
+import { h } from './dom.js';
+import { inlineImage } from './picture.js';
 import { fileLink } from './file-links.js';
 import { icon } from './icons.js';
 import { codeFrame, highlightInto, languageOfPath, renderMarkdown } from './markdown.js';
