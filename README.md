@@ -73,6 +73,12 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   "Offline · reading saved copies" shows meanwhile; once the viewer answers, the page reconnects and catches up, keeping
   your place. On an iPhone, add the page to the Home Screen: Safari may clear a website's saved data after a week
   without visits.
+- **Background work.** Over the input box, what the session runs in the background — subagents and commands — and
+  how many have ended; opened, every task with how it stands: a command with its output as it grows, a subagent with
+  its own transcript as it works. A subagent quiet for long is shown as such, not as running for days.
+- **Copying.** A part of an answer selected and copied comes as markdown, as the answer was written — headings,
+  emphasis, code, links, lists, quotes, code blocks with their language and tables — with the formatting along with it
+  for a paste that takes it.
 - **Tables.** A table fits the answer's width, narrowing its columns down to whole words. When that is too cramped —
   on a phone especially — "Wide" under the table gives each column a comfortable width and lets the table scroll
   sideways. The same choice can be made for all tables of a session (in the header's details) or of the whole viewer
@@ -98,9 +104,17 @@ open session — or terminal — the tabs of its workspace sit in a row, as in h
 tab with Claude Code opens its feed; any other tab — a shell, nvim, another agent — opens its terminal. The search finds
 workspaces and sessions by name and by what runs in them.
 
-A second click on the open tab shows its buttons: ✎ names it, × closes it (after asking — what runs in it stops), and the
-page moves to the tab next to it. **+** at the end of the row opens a tab beside the open one, in its folder: a terminal,
-or Claude Code started in it with `claude` — or with the command given by `--claude-command`, a wrapper of your own.
+A second click on the open tab shows its buttons: ✎ names it, × closes it (after asking with ✓ and ✕ — what runs in it
+stops), and the page moves to the tab next to it. A tab can have an emoji icon: picked from a row beside its name as it
+is named, it is kept ahead of the name in herdr's label, so herdr shows it too. **+** at the end of the row opens a tab
+beside the open one, in its folder and under the name (and icon) you give it: a terminal, or Claude Code started in it
+with `claude` — or with the command given by `--claude-command`, a wrapper of your own; the page goes from the new tab's
+terminal to its session as soon as Claude Code starts there. Tabs that do not fit the row scroll sideways under the
+mouse wheel.
+
+A workspace has a colour of its own — its hue follows from its name — on the left edge of its row and of the rows of
+the sessions that run or ran in it. **+ New workspace** under the workspaces opens one: its name, its folder, and a
+terminal or Claude Code in it.
 
 A terminal mirrors the one in herdr, at its size: the keys you type go to it as they are — Enter, arrows, Ctrl+C — and
 what herdr shows comes back within a few hundredths of a second (the viewer talks to herdr through its socket; where
@@ -114,7 +128,8 @@ sideways past that. A tab split into several panes shows the one running Claude 
 
 An input box appears under the feed: the text is typed into
 the session's terminal and submitted with Enter, exactly as if you typed it there. While Claude is busy, Claude Code
-queues it. "Stop" sends Esc. As in the terminal, a prompt Claude had not started on comes back for editing: the viewer
+queues it. "Stop" — or Esc in the box, or anywhere on the page with nothing else to close — sends Esc. A long text pasted in
+need not cover the conversation: a box taller than a few lines folds to them with the button in its corner. As in the terminal, a prompt Claude had not started on comes back for editing: the viewer
 takes it out of the terminal's input box and puts it into the page's box, exactly as it was sent, before anything
 already typed there. Drafts are kept per session.
 
@@ -126,7 +141,9 @@ Read tool. In the feed the list shows as pictures again.
 `/btw <question>` in the box asks a side question, as in the terminal: Claude answers from what the conversation
 already holds, with no tools, even while it is busy, and nothing is added to the conversation. Claude Code shows the
 answer only in a panel over its prompt box, so the viewer reads it off the terminal — scrolling to its end — closes
-the panel and shows the answer above the page's box. Prompts sent meanwhile wait until the panel is closed.
+the panel and shows the answer above the page's box. Prompts sent meanwhile wait until the panel is closed. The answer
+belongs to its session: opening another session and coming back — even before it came — shows it again, until you close
+it.
 
 Rewind works as Esc Esc does in the terminal: the ↶ next to one of your messages offers the same choices — restore
 code and conversation, the conversation, or the code, summarize from or up to that message. The viewer drives
