@@ -911,11 +911,13 @@ input.herdr-tab-name.failed {
 
 /* ---------- Feed ---------- */
 
+/* An answer's bookmark flag stands 38px right of it: the sides leave it room, or the feed would scroll sideways once
+   it is no wider than the column. The text stays 752px wide, as the box under it. */
 .session {
   position: relative;
-  max-width: 800px;
+  max-width: 832px;
   margin: 0 auto;
-  padding: 28px 24px 140px;
+  padding: 28px 40px 140px;
 }
 
 /* The conversation at full width: the feed and the box under it take the whole column, as wide as the window allows. */
