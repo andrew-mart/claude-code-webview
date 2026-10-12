@@ -53,6 +53,45 @@ test('choiceDialog_Should_ReadQuestionAndItsChoices_AsClaudeCodeDrawsThem', () =
   ]);
 });
 
+// Answers with a preview are drawn beside it: the question set off by a bar, each answer's line running on into the
+// preview's frame, the frame and a note on notes under them, and "Chat about this" alone under a rule, unnumbered. The
+// page gets the question and the answers — not the frame
+test('choiceDialog_Should_ReadQuestionAndChoices_DrawnBesidePreviews', () => {
+  const pad = ' '.repeat(34);
+  const withPreviews = [
+    ...above,
+    rule,
+    ' ☐ Storage',
+    '',
+    '│ Where should the cache live? Redis needs a server; files need',
+    '│ a folder the app can write to.',
+    '',
+    '❯ 1. Redis (Recommended)          ┌──────────────────────┐',
+    '  2. Files on disk                │ cache:               │',
+    '  3. No cache                     │   driver: redis      │',
+    `${pad}│   ttl: 300           │`,
+    `${pad}└──────────────────────┘`,
+    '',
+    `${pad}Notes: press n to add notes`,
+    '',
+    rule,
+    '  Chat about this',
+    '',
+    'Enter to select · ↑/↓ to navigate · n to add notes · Esc to cancel',
+    '',
+  ].join('\n');
+
+  assert.deepEqual(choiceDialog(withPreviews), {
+    lines: ['☐ Storage', 'Where should the cache live? Redis needs a server; files need', 'a folder the app can write to.'],
+    options: [
+      { key: '1', label: 'Redis (Recommended)', detail: undefined, checked: undefined, current: true },
+      { key: '2', label: 'Files on disk', detail: undefined, checked: undefined, current: false },
+      { key: '3', label: 'No cache', detail: undefined, checked: undefined, current: false },
+    ],
+    tabs: false,
+  });
+});
+
 // While the prompt box is there nothing waits for a choice, numbered lists in the conversation included
 test('choiceDialog_Should_FindNothing_When_PromptBoxIsShown', () => {
   const waiting = [...above, rule, '● Here is the plan:', '  1. Read the config', '  2. Fix the test', 'Press Esc to cancel it.', rule, '❯ ', rule, '  ⏵⏵ auto mode on'].join('\n');

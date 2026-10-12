@@ -7,6 +7,8 @@ import { inputBox } from './claude-screen.js';
 
 const rule = /^\s*─{4,}\s*$/;
 const footerLine = /Enter to select|Esc to cancel/;
+/** Where a preview's frame starts on an answer's line, after a gap. */
+const previewFrame = /(?<=\s{3})[┌│└]/;
 const optionLine = /^\s*(❯)?\s*(\d+)\.\s+(?:\[([ ✔])\]\s+)?(.*\S)\s*$/;
 
 /**
@@ -23,15 +25,23 @@ export function choiceDialog(screen) {
   const head = [];
   /** @type {import('../public/model/dialog.js').DialogOption[]} */
   const options = [];
+  /** A rule under the answers: what comes after it unnumbered ("Chat about this" beside previews) is no answer. */
+  let ruled = false;
+  // answers drawn beside previews: the column the previews' frame starts in, which no description reaches
+  const frames = lines.slice(top + 1, footer).flatMap((line) => (optionLine.test(line) && previewFrame.test(line) ? [line.search(previewFrame)] : []));
+  const previewColumn = Math.min(Number.POSITIVE_INFINITY, ...frames);
   for (const line of lines.slice(top + 1, footer)) {
     const text = line.trim();
     const option = optionLine.exec(line);
     const last = options.at(-1);
+    if (rule.test(line)) ruled = last !== undefined;
     if (text === '' || rule.test(line)) continue;
     if (option !== null) options.push(optionOf(option));
-    // a question with several answers lists a Submit of its own under them: → goes on as well
-    else if (last === undefined) head.push(text);
-    else if (text !== 'Submit') options[options.length - 1] = { ...last, detail: last.detail === undefined ? text : `${last.detail} ${text}` };
+    // the question beside previews is set off by a bar
+    else if (last === undefined) head.push(text.replace(/^│\s?/, ''));
+    // a question with several answers lists a Submit of its own under them: → goes on as well. A line far in is the
+    // previews' column — their frame, the note on notes — not a description
+    else if (text !== 'Submit' && !ruled && indentOf(line) < previewColumn) options[options.length - 1] = { ...last, detail: last.detail === undefined ? text : `${last.detail} ${text}` };
   }
   return options.length === 0 ? undefined : { lines: head, options, tabs: head.some((text) => text.startsWith('←')) };
 }
@@ -58,9 +68,14 @@ function topOf(lines, footer) {
   for (let at = footer - 1; at >= 0; at--) {
     if (!rule.test(lines[at] ?? '')) continue;
     const below = lines.slice(at + 1, footer).filter((line) => line.trim() !== '' && !rule.test(line));
-    if (below.some((line) => !optionLine.test(line))) return at;
+    if (below.some((line) => optionLine.test(line)) && below.some((line) => !optionLine.test(line))) return at;
   }
   return -1;
+}
+
+/** @param {string} line */
+function indentOf(line) {
+  return line.length - line.trimStart().length;
 }
 
 /**
@@ -68,6 +83,8 @@ function topOf(lines, footer) {
  * @returns {import('../public/model/dialog.js').DialogOption}
  */
 function optionOf(match) {
-  const [, cursor, key = '', tick, label = ''] = match;
+  const [, cursor, key = '', tick, line = ''] = match;
+  // beside previews the answer's line runs on into the preview's frame
+  const label = line.replace(/\s{3,}[┌│└].*$/, '');
   return { key, label, detail: undefined, checked: tick === undefined ? undefined : tick === '✔', current: cursor !== undefined };
 }
