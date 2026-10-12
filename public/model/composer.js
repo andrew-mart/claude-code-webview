@@ -28,7 +28,7 @@ import { isRecord, text } from './narrow.js';
  */
 const keysHint = { physical: 'Enter to send, Shift+Enter for a new line.', touch: 'The ↑ button sends, Enter starts a new line.' };
 /** While Claude works a message waits in Claude Code's queue — or goes at once, past it. */
-const busyKeysHint = { physical: 'Enter queues it, Ctrl+Enter sends it now, Shift+Enter for a new line.', touch: 'The ↑ button queues it, ⏩ sends it now, Enter starts a new line.' };
+const busyKeysHint = { physical: 'Enter queues it, Ctrl+Enter sends it now, Shift+Enter for a new line.', touch: 'The ↑ button queues it, Enter starts a new line; ⏩ on a waiting message sends the queue now.' };
 
 /**
  * @param {LiveState} live

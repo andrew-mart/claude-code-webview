@@ -32,7 +32,7 @@ test('composerState_Should_ExplainSendingByButtonOnTouchKeyboard', () => {
   );
   assert.equal(
     composerState({ state: 'live', status: 'busy', pane: 'w3D:p1', dialog: undefined }, sessionId, 'touch').hint,
-    "The ↑ button queues it, ⏩ sends it now, Enter starts a new line. The text goes to the session's terminal (herdr pane w3D:p1).",
+    "The ↑ button queues it, Enter starts a new line; ⏩ on a waiting message sends the queue now. The text goes to the session's terminal (herdr pane w3D:p1).",
   );
 });
 

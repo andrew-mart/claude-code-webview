@@ -1246,6 +1246,39 @@ input.herdr-tab-name.failed {
   font-size: 11.5px;
 }
 
+/* on a waiting prompt: send the queue now, past it — Claude Code's Ctrl+Enter */
+.waiting .queued {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.waiting-send-now {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px 1px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.waiting-send-now:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.waiting-send-now svg {
+  width: 11px;
+  height: 11px;
+  fill: currentColor;
+}
+
 /* Prompts waiting in Claude Code's queue, under the feed: not in the conversation yet. */
 .waiting-prompts {
   display: flex;
@@ -2854,31 +2887,6 @@ table.diff tr.gap td {
 .composer-stop .icon {
   width: 12px;
   height: 12px;
-}
-
-/* while Claude works: send now, past Claude Code's queue (its Ctrl+Enter) */
-.composer-send-now {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  background: var(--bg-elev);
-  color: var(--text-2);
-  cursor: pointer;
-}
-
-.composer-send-now:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.composer-send-now svg {
-  width: 14px;
-  height: 14px;
-  fill: currentColor;
 }
 
 .composer-stop svg {

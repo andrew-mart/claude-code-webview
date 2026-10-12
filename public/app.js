@@ -403,6 +403,8 @@ function createPage() {
       agentId: undefined,
       bookmarks,
       onRewind: (prompt) => rewindDialog.open(id, prompt),
+      // ⏩ on a message waiting in Claude Code's queue: the box below sends the queue now
+      sendQueueNow: () => composer.sendQueue(),
       startAt: places.get(id),
       keeping: {
         load: () => offline.readFeed(id),

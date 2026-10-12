@@ -11,6 +11,7 @@ import { icon } from './icons.js';
 import { renderMarkdown } from './markdown.js';
 import { feedToKeep, keptEntries } from '../model/offline.js';
 import { queueAfter, waitingPrompts } from '../model/queue.js';
+import { waitingBubble } from './waiting-bubble.js';
 import { createToolRow } from './tool-view.js';
 
 /**
@@ -19,7 +20,8 @@ import { createToolRow } from './tool-view.js';
  * @typedef {'connecting' | 'missing' | 'idle' | 'working'} SessionStatus
  * @typedef {import('../model/bookmarks.js').Bookmark} Anchor — a message one can come back to: a prompt, an answer, a subagent report
  * @typedef {{ onMeta: (meta: SessionMeta) => void, onStatus: (status: SessionStatus) => void, onPrompt: (prompt: Anchor) => void, onReset: () => void }} SessionListener
- * @typedef {{ anchor: (anchor: Anchor, content: HTMLElement) => HTMLElement, onPrompt: (prompt: Anchor) => void, loadEntry: import('./tool-view.js').LoadEntry }} FeedHooks
+ * @typedef {{ anchor: (anchor: Anchor, content: HTMLElement) => HTMLElement, onPrompt: (prompt: Anchor) => void, loadEntry: import('./tool-view.js').LoadEntry, sendQueueNow: (() => void) | undefined }} FeedHooks — sendQueueNow:
+ *   what waits in Claude Code's queue, sent now; none where nothing can be sent
  * @typedef {{ element: HTMLElement, dispose: () => void, scrollToAnchor: (id: string) => boolean, promptElements: () => readonly HTMLElement[], place: () => ReadingPlace, hasEarlier: () => boolean, loadEarlier: () => Promise<void>, keepPlace: (change: () => void) => void }} MountedSession
  * hasEarlier — the session opened with its latest part, the rest is not loaded; loadEarlier loads it;
  * keepPlace — runs a change that resizes the feed (a font, wide tables) keeping the reader at the same message
@@ -48,13 +50,13 @@ const keepDelayMs = 15_000;
 const retryMs = 20_000;
 
 /**
- * @param {{ scroller: HTMLElement, sessionId: string, agentId: string | undefined, bookmarks: import('./bookmark-store.js').BookmarkStore | undefined, onRewind: ((prompt: Anchor) => void) | undefined, listener: SessionListener, startAt: ReadingPlace | undefined, keeping: Keeping | undefined }} options
+ * @param {{ scroller: HTMLElement, sessionId: string, agentId: string | undefined, bookmarks: import('./bookmark-store.js').BookmarkStore | undefined, onRewind: ((prompt: Anchor) => void) | undefined, listener: SessionListener, startAt: ReadingPlace | undefined, keeping: Keeping | undefined, sendQueueNow: (() => void) | undefined }} options
  * — bookmarks: undefined for a nested subagent feed, which has no bookmarks; onRewind: likewise, a subagent cannot be rewound;
  * startAt — where the reader left the session last time; undefined — at the bottom; keeping — the copy kept to read
  * offline, undefined for a nested subagent feed
  * @returns {MountedSession}
  */
-export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind, listener, startAt, keeping }) {
+export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind, listener, startAt, keeping, sendQueueNow }) {
   // The history arrives in batches of a thousand entries: laid out after each, a long session would be laid out again
   // and again as it grows. It stays hidden until the whole history is in, then is shown once, at the bottom.
   const thread = h('div', { className: 'thread', attrs: { hidden: '' } });
@@ -85,6 +87,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   };
   const feed = createFeed({ thread, waitingBox }, sessionId, {
     loadEntry,
+    sendQueueNow,
     anchor: anchors.decorate,
     onPrompt(prompt) {
       const promptElement = anchors.find(prompt.id);
@@ -452,7 +455,7 @@ function createFeed({ thread, waitingBox }, sessionId, hooks) {
     const key = JSON.stringify(waiting);
     if (key === shownWaiting) return;
     shownWaiting = key;
-    waitingBox.replaceChildren(...waiting.map(waitingBubble));
+    waitingBox.replaceChildren(...waiting.map((prompt) => waitingBubble(prompt, hooks.sendQueueNow)));
     waitingBox.hidden = waiting.length === 0;
   };
   /** A call row and the group it sits in: the result arrives later and changes the group layout. */
@@ -778,20 +781,6 @@ function promptBubble(event) {
 }
 
 /**
- * A prompt waiting in Claude Code's queue: not in the conversation yet.
- * @param {string} waiting — its text; '' — a prompt of images only
- * @returns {HTMLElement}
- */
-function waitingBubble(waiting) {
-  return h('div', { className: 'msg user waiting' }, [
-    h('div', { className: 'bubble' }, [
-      h('div', { className: 'bubble-text', text: waiting === '' ? 'Images' : waiting }),
-      h('div', { className: 'queued', text: 'Queued — Claude reads it after the current step' }),
-    ]),
-  ]);
-}
-
-/**
  * @param {import('../model/entry.js').ThinkingEvent} event
  * @returns {HTMLElement}
  */
@@ -866,6 +855,7 @@ export async function openSubagentTranscript(sessionId, toolUseId, holder) {
     keeping: undefined,
     bookmarks: undefined,
     onRewind: undefined,
+    sendQueueNow: undefined,
     listener: { onMeta: () => {}, onStatus: () => {}, onPrompt: () => {}, onReset: () => {} },
   });
   scroller.append(view.element);
