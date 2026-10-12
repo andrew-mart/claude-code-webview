@@ -58,12 +58,17 @@ test('tabBar_Should_NameUnnamedTabByItsNumberOnce', () => {
 });
 
 /**
- * The tab bar above session s1 — the unnamed tab 1 of web is open — with naming and closing recorded; both succeed.
+ * The tab bar above a session of web — s1, the unnamed tab 1, unless told — with naming, closing and the addresses it
+ * opens recorded; naming and closing succeed.
+ * @param {string} [session]
  */
-function barAboveSession() {
+function barAboveSession(session = 's1') {
   /** @type {string[][]} */
   const asked = [];
   const bar = createTabBar({
+    open: (target) => {
+      asked.push(['open', target]);
+    },
     rename: async (tab, label) => {
       asked.push(['rename', tab, label]);
       return { ok: true };
@@ -73,7 +78,7 @@ function barAboveSession() {
       return { ok: true };
     },
   });
-  bar.render({ herdr: true, workspaces: [web] }, { kind: 'session', id: 's1' });
+  bar.render({ herdr: true, workspaces: [web] }, { kind: 'session', id: session });
   /** @param {string} selector */
   const click = (selector) => {
     const button = bar.element.querySelector(selector);
@@ -91,6 +96,7 @@ const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
 test('tabBar_Should_NameOpenTab_WithEnter_And_LeaveItWithEscape', async () => {
   const { bar, asked, click } = barAboveSession();
 
+  click('.herdr-chip.selected');
   click('.herdr-tab-rename');
   const box = bar.element.querySelector('input.herdr-tab-name');
   assert.ok(box instanceof window.HTMLInputElement);
@@ -98,6 +104,7 @@ test('tabBar_Should_NameOpenTab_WithEnter_And_LeaveItWithEscape', async () => {
   box.value = 'checkout';
   box.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter' }));
   await settled();
+  click('.herdr-chip.selected');
   click('.herdr-tab-rename');
   bar.element.querySelector('input.herdr-tab-name')?.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
   await settled();
@@ -109,19 +116,23 @@ test('tabBar_Should_NameOpenTab_WithEnter_And_LeaveItWithEscape', async () => {
 test('tabBar_Should_CloseOpenTab_OnlyAfterItIsConfirmed', async () => {
   const { asked, click } = barAboveSession();
 
+  click('.herdr-chip.selected');
   click('.herdr-tab-close');
   click('.herdr-tab-confirm-cancel');
-  const afterCancel = [...asked];
+  const closes = () => asked.filter(([kind]) => kind === 'close');
+  const afterCancel = closes();
+  click('.herdr-chip.selected');
   click('.herdr-tab-close');
   click('.herdr-tab-confirm-close');
   await settled();
 
-  assert.deepEqual({ afterCancel, asked }, { afterCancel: [], asked: [['close', 'w2:t1']] });
+  assert.deepEqual({ afterCancel, closes: closes() }, { afterCancel: [], closes: [['close', 'w2:t1']] });
 });
 
 // herdr is looked at every few seconds: a name half typed stays in its box when the tabs come again, changed
 test('tabBar_Should_KeepNameBeingTyped_When_TabsComeAgain', async () => {
   const { bar, asked, click } = barAboveSession();
+  click('.herdr-chip.selected');
   click('.herdr-tab-rename');
   const box = bar.element.querySelector('input.herdr-tab-name');
   assert.ok(box instanceof window.HTMLInputElement);
@@ -134,4 +145,35 @@ test('tabBar_Should_KeepNameBeingTyped_When_TabsComeAgain', async () => {
   await settled();
 
   assert.deepEqual({ stillShown, asked }, { stillShown: true, asked: [['rename', 'w2:t1', 'checkout']] });
+});
+
+// A closed tab leaves the page in its workspace: on the tab after it, or before it when it was the last
+test('tabBar_Should_OpenNeighbourTab_When_OpenTabIsClosed', async () => {
+  const first = barAboveSession('s1');
+  const last = barAboveSession('s3');
+
+  for (const { click } of [first, last]) {
+    click('.herdr-chip.selected');
+  click('.herdr-tab-close');
+    click('.herdr-tab-confirm-close');
+  }
+  await settled();
+
+  assert.deepEqual([first.asked, last.asked], [
+    [['close', 'w2:t1'], ['open', '#/pane/w2:p2']],
+    [['close', 'w2:t3'], ['open', '#/pane/w2:p2']],
+  ]);
+});
+
+// The open tab's buttons stay out of the way: a second click on the open tab shows them, the next one hides them
+test('tabBar_Should_ShowOpenTabsButtons_OnlyWhenItIsClickedAgain', () => {
+  const { bar, click } = barAboveSession();
+  const shown = () => [...bar.element.querySelectorAll('.herdr-tab-actions')].some((actions) => actions instanceof window.HTMLElement && !actions.hidden);
+
+  const before = shown();
+  click('.herdr-chip.selected');
+  const afterSecondClick = shown();
+  click('.herdr-chip.selected');
+
+  assert.deepEqual([before, afterSecondClick, shown()], [false, true, false]);
 });

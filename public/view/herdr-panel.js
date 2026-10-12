@@ -101,16 +101,17 @@ export function createHerdrSidebar(element) {
 }
 
 /**
- * @typedef {{ rename: (tabId: string, label: string) => Promise<import('../model/herdr.js').TabChange>, close: (tabId: string) => Promise<import('../model/herdr.js').TabChange> }} TabActions
- *   — each resolves once the page shows the change
+ * @typedef {{ rename: (tabId: string, label: string) => Promise<import('../model/herdr.js').TabChange>, close: (tabId: string) => Promise<import('../model/herdr.js').TabChange>, open: (target: string) => void }} TabActions
+ *   — rename and close resolve once the page shows the change; open goes to a page address
  */
 
 /**
- * The tabs of the open session's or terminal's herdr workspace, above it. The open tab can be named — a tab nobody
- * named goes by its number — and closed, which stops what runs in it, so closing asks first.
+ * The tabs of the open session's or terminal's herdr workspace, above it. A second click on the open tab shows its
+ * buttons: it can be named — a tab nobody named goes by its number — and closed, which stops what runs in it, so closing asks first; the page then stays in the
+ * workspace, on the tab after the closed one, or before it when it was the last.
  * @param {TabActions} actions
  */
-export function createTabBar({ rename, close }) {
+export function createTabBar({ rename, close, open }) {
   const element = h('nav', { className: 'herdr-tab-bar', attrs: { 'aria-label': 'herdr tabs', hidden: '' } });
   let shown = '';
   /** What the bar was given last: shown once naming or closing is over. */
@@ -118,9 +119,13 @@ export function createTabBar({ rename, close }) {
   let given;
   /** While the open tab is being named or closed the bar stays as it is: a look at herdr every few seconds would undo the typing. */
   let busy = false;
+  /** The open tab whose buttons are shown: they are out of the way until it is clicked again. */
+  /** @type {string | undefined} */
+  let buttonsOf;
 
   const finish = () => {
     busy = false;
+    buttonsOf = undefined;
     shown = '';
     if (given !== undefined) bar.render(given.layout, given.opened);
   };
@@ -170,8 +175,11 @@ export function createTabBar({ rename, close }) {
    * The tab's buttons give way to the question whether to close it.
    * @param {HTMLElement} actions
    * @param {import('../model/herdr.js').HerdrTab} tab
+   * @param {readonly import('../model/herdr.js').HerdrTab[]} tabs — the tabs of its workspace
    */
-  const startClosing = (actions, tab) => {
+  const startClosing = (actions, tab, tabs) => {
+    const at = tabs.findIndex((known) => known.id === tab.id);
+    const neighbour = tabs[at + 1] ?? tabs[at - 1];
     busy = true;
     const yes = h('button', { className: 'herdr-tab-confirm-close', text: 'Close', attrs: { type: 'button' } });
     const no = h('button', { className: 'herdr-tab-confirm-cancel', text: 'Cancel', attrs: { type: 'button' } });
@@ -180,7 +188,12 @@ export function createTabBar({ rename, close }) {
     yes.addEventListener('click', () => {
       yes.disabled = true;
       void close(tab.id).then((outcome) => {
-        if (outcome.ok) return finish();
+        if (outcome.ok) {
+          const target = neighbour === undefined ? undefined : tabTarget(neighbour);
+          finish();
+          if (target !== undefined) open(target);
+          return;
+        }
         yes.disabled = false;
         question.textContent = 'herdr did not close the tab.';
       });
@@ -207,6 +220,7 @@ export function createTabBar({ rename, close }) {
         element.replaceChildren();
         return;
       }
+      if (buttonsOf !== place.tab.id) buttonsOf = undefined;
       const chips = place.workspace.tabs.flatMap((tab) => {
         const chip = link(tabTarget(tab), 'herdr-chip', [statusDot(tab.status), h('span', { text: tabName(tab) })]);
         chip.title = tabContent(tab);
@@ -215,8 +229,15 @@ export function createTabBar({ rename, close }) {
         const naming = h('button', { className: 'icon-button herdr-tab-rename', title: 'Name this tab', attrs: { type: 'button', 'aria-label': 'Name this tab' } }, [icon('edit')]);
         const closing = h('button', { className: 'icon-button herdr-tab-close', title: 'Close this tab', attrs: { type: 'button', 'aria-label': 'Close this tab' } }, [icon('cross')]);
         const actions = h('span', { className: 'herdr-tab-actions' }, [naming, closing]);
+        actions.hidden = buttonsOf !== tab.id;
+        // the open tab is open already: a click on it shows or hides its buttons
+        chip.addEventListener('click', (event) => {
+          event.preventDefault();
+          buttonsOf = buttonsOf === tab.id ? undefined : tab.id;
+          actions.hidden = buttonsOf !== tab.id;
+        });
         naming.addEventListener('click', () => startNaming(chip, actions, tab));
-        closing.addEventListener('click', () => startClosing(actions, tab));
+        closing.addEventListener('click', () => startClosing(actions, tab, place.workspace.tabs));
         return [chip, actions];
       });
       element.replaceChildren(h('span', { className: 'herdr-chip-workspace', text: place.workspace.label }), ...chips);
