@@ -14,13 +14,13 @@
   ],
   "license": "MIT",
   "author": "Andrei Martyshchenko",
-  "homepage": "https://github.com/ryletko/claude-code-webview#readme",
+  "homepage": "https://github.com/andrew-mart/claude-code-webview#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ryletko/claude-code-webview.git"
+    "url": "git+https://github.com/andrew-mart/claude-code-webview.git"
   },
   "bugs": {
-    "url": "https://github.com/ryletko/claude-code-webview/issues"
+    "url": "https://github.com/andrew-mart/claude-code-webview/issues"
   },
   "type": "module",
   "bin": {

@@ -11,7 +11,7 @@ Every line Claude Code writes to the session transcript shows up on the page wit
 The viewer runs from its source. Requires Node.js 22 or newer.
 
 ```bash
-git clone https://github.com/ryletko/claude-code-webview.git
+git clone https://github.com/andrew-mart/claude-code-webview.git
 cd claude-code-webview
 npm install --omit=dev
 node bin/claude-code-webview.js
