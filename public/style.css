@@ -232,24 +232,28 @@ button {
   --used-end: #3b5bdb;
   --gap-start: transparent;
   --gap-end: transparent;
-  /* the colours flow into each other across the boundary, over a stretch no longer than half of the gap, so a short gap
-     keeps its colour. A short blue does not shrink its flow: it starts at the edge and fades out past its share — no
-     blue at all for none used — and the end fades into the empty track */
-  --blend: min(7, calc((var(--gap-to, 0) - var(--fill, 0)) / 2));
+  /* the colours flow into each other across the boundary over the same stretch whatever the gap — a short gap tells by
+     its colour, not by a squeezed flow. A short blue starts at the edge and fades out past its share — no blue at all for
+     none used — and the end fades into the empty track */
+  --blend: 7;
   --used-to: calc(max(0, var(--fill, 0) - var(--blend)) * 1%);
   --gap-from: calc((var(--fill, 0) + min(var(--blend), var(--fill, 0))) * 1%);
   --gap-until: calc((var(--gap-to, 0) - 2) * 1%);
   --track-from: calc((var(--gap-to, 0) + 2) * 1%);
 }
 
+/* the gap's colour follows the pace (app.js: --pace, percent points the use lags behind the time, below 0 ahead of it):
+   green with room to spare, yellow as the use catches the time up, red once it is well ahead */
 .usage-meter[data-gap='spare'] {
-  --gap-start: #6ee7b7;
-  --gap-end: #10b981;
+  --greenness: clamp(0, calc(var(--pace, 0) / 20), 1);
+  --gap-start: color-mix(in oklch, #6ee7b7 calc(var(--greenness) * 100%), #fde047);
+  --gap-end: color-mix(in oklch, #10b981 calc(var(--greenness) * 100%), #eab308);
 }
 
 .usage-meter[data-gap='over'] {
-  --gap-start: #fb7185;
-  --gap-end: #dc2626;
+  --redness: clamp(0, calc(var(--pace, 0) / -15), 1);
+  --gap-start: color-mix(in oklch, #fb7185 calc(var(--redness) * 100%), #fde047);
+  --gap-end: color-mix(in oklch, #dc2626 calc(var(--redness) * 100%), #eab308);
 }
 
 /* blended in OKLCH, blue turns green through a bright teal and red through a purple, with no grey between; a browser
@@ -270,7 +274,7 @@ button {
 }
 
 .usage-meter[data-gap='over'] .usage-percent {
-  color: var(--danger);
+  color: var(--gap-end);
 }
 
 
