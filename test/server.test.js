@@ -767,6 +767,26 @@ test('stream_Should_ShowOnlyActiveBranchOfRewoundConversation', async (t) => {
   assert.deepEqual(uuids(await next()), ['u1', 'a1', 'p3']);
 });
 
+// A session started just now has no transcript until its first message: the page hears it is missing, then — once
+// Claude Code writes it — its entries, and that the feed is ready to be shown
+test('stream_Should_ShowTranscriptThatAppearsAfterItWasMissing', async (t) => {
+  const { root, base } = await withServer(t);
+  const fresh = '9b1d2c30-5555-4666-8777-988899990000';
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const response = await fetch(`${base}/api/stream?session=${fresh}`, { signal: controller.signal });
+  assert.ok(response.body);
+  const next = sseEvents(response.body);
+
+  const before = (await next()).event;
+  await writeFile(join(root, 'D--dev-x', `${fresh}.jsonl`), promptLine('f1', 'Hello'));
+  const entries = await next();
+  // a ready that never comes is waited for two seconds, not forever
+  const after = (await Promise.race([next(), new Promise((done) => setTimeout(() => done({ event: 'nothing' }), 2000))])).event;
+
+  assert.deepEqual([before, entries.event, uuids(entries), after], ['missing', 'entries', ['f1'], 'ready']);
+});
+
 test('stream_Should_RebuildFeedWhenSessionIsRewoundWhileOpen', async (t) => {
   const { file, base } = await withServer(t);
   await appendFile(file, answerLine('a1', 'u1') + childPrompt('p2', 'a1', 'Now test it') + answerLine('a2', 'p2'));
