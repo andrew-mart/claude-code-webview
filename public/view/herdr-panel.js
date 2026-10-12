@@ -148,12 +148,13 @@ export function createHerdrSidebar(element, { createWorkspace, open }) {
       const rows = sessions.map(({ workspace, tab, pane }) => {
         const what = pane.agent === 'claude' ? undefined : pane.agent;
         const title = pane.title === '' ? undefined : pane.title;
+        // the status on the right, as the workspaces have it
         const row = link(pane.session === undefined ? `#/pane/${pane.id}` : `#/${pane.session}`, 'herdr-tab', [
-          statusDot(pane.status),
           h('span', { className: 'herdr-tab-text' }, [
             h('span', { className: 'herdr-tab-title', text: title === undefined ? tabName(tab) : title }),
             h('span', { className: 'herdr-tab-where', text: [workspace.label, title === undefined ? undefined : tabName(tab), what].filter((part) => part !== undefined).join(' · ') }),
           ]),
+          statusDot(pane.status),
         ]);
         row.classList.toggle('selected', opened !== undefined && (opened.kind === 'session' ? pane.session === opened.id : pane.id === opened.id));
         tintByWorkspace(row, workspace.label);

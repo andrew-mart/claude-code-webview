@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseUsage, usageText } from '../public/model/usage.js';
+import { parseUsage, usageView } from '../public/model/usage.js';
 import { readUsage, usageOf } from '../server/usage.js';
 
 const now = Date.UTC(2026, 9, 12, 9, 32);
@@ -48,12 +48,19 @@ test('readUsage_Should_TakeFresherReading_OfClaudeCodeAndStatusline', async () =
   ]);
 });
 
-// As the statusline shows it: how much of each window is used; on hover, when each resets and how old the reading is.
-// A window that reset after the reading has no number to show
-test('usageText_Should_TellUsedShareOfEachWindow_AndWhenItResets', () => {
-  assert.deepEqual([usageText(usage, now), usageText(usage, now + 2 * 3_600_000).label], [
-    { label: '5h 22% · 7d 91%', level: 'hot', title: '5-hour window: 22% used, resets in 1h 38m\nWeek: 91% used, resets in 2d 15h\nRead 3m ago' },
-    '5h — · 7d 91%',
+// As the statusline shows it: a meter for each window — how much is used, coloured by how full it is, and a mark for
+// how much of the window has gone by; on hover, when each resets and how old the reading is. A window that reset after
+// the reading has nothing to show
+test('usageView_Should_MeterEachWindow_AndTellWhenItResets', () => {
+  assert.deepEqual([usageView(usage, now), usageView(usage, now + 2 * 3_600_000).meters[0]], [
+    {
+      meters: [
+        { name: '5h', percent: 22, level: 'calm', elapsed: 67 },
+        { name: '7d', percent: 91, level: 'hot', elapsed: 62 },
+      ],
+      title: '5-hour window: 22% used, resets in 1h 38m\nWeek: 91% used, resets in 2d 15h\nRead 3m ago',
+    },
+    { name: '5h', percent: undefined, level: 'calm', elapsed: undefined },
   ]);
 });
 
