@@ -14,6 +14,9 @@ import { isRecord, text } from './narrow.js';
  * @typedef {{ ok: true, pane: string, prompt: string | undefined } | { ok: false, error: SendRefusal | 'box-not-cleared' }} StopOutcome
  * @typedef {{ shown: boolean, enabled: boolean, canInterrupt: boolean, placeholder: string, hint: string }} ComposerView
  * @typedef {'physical' | 'touch'} Keyboard
+ * @typedef {Exclude<SendRefusal, 'send-failed'> | 'screen-unreadable' | 'box-not-empty' | 'not-asked' | 'no-answer' | 'answer-unreadable'} BtwRefusal
+ *   — why a side question got no answer
+ * @typedef {{ ok: true, answer: string } | { ok: false, error: BtwRefusal }} BtwReply — the /api/btw contract
  */
 
 /**
@@ -86,6 +89,30 @@ export function outcomeMessage(outcome) {
       return 'herdr did not accept the text — the pane may have closed. The text stays in the box.';
     default:
       return exhaustive(outcome.error);
+  }
+}
+
+/**
+ * Why a side question got no answer; the question stays in the box.
+ * @param {BtwRefusal} error
+ * @returns {string}
+ */
+export function btwMessage(error) {
+  switch (error) {
+    case 'empty':
+      return 'Write the question after /btw.';
+    case 'screen-unreadable':
+      return 'Claude Code shows a menu or a question in the terminal — answer it there first. The question stays in the box.';
+    case 'box-not-empty':
+      return 'The terminal’s input box holds text — send or clear it there first. The question stays in the box.';
+    case 'not-asked':
+      return 'Claude Code did not open the side question: it was left in the terminal’s input box.';
+    case 'no-answer':
+      return 'No answer came within three minutes — the side panel in the terminal was closed.';
+    case 'answer-unreadable':
+      return 'The answer could not be read off the terminal.';
+    default:
+      return outcomeMessage({ ok: false, error });
   }
 }
 
@@ -179,4 +206,37 @@ export function promptForBox(prompt, draft) {
   const whole = images.length === attached.paths.length;
   const words = whole ? attached.text : prompt;
   return { text: draft.trim() === '' ? words : `${words}\n\n${draft}`, images: whole ? images : [] };
+}
+
+/**
+ * The side question in the box: what follows "/btw" at its start, as the terminal takes it; empty for a bare "/btw".
+ * @param {string} text — the box
+ * @returns {string | undefined} — none when the box holds an ordinary prompt
+ */
+export function sideQuestionOf(text) {
+  const match = /^\s*\/btw(?:\s+([\s\S]*))?$/.exec(text);
+  return match === null ? undefined : (match[1] ?? '').trim();
+}
+
+/** @type {ReadonlySet<string>} */
+const btwRefusals = new Set(['empty', 'herdr-missing', 'offline', 'no-herdr', 'outside-herdr', 'screen-unreadable', 'box-not-empty', 'not-asked', 'no-answer', 'answer-unreadable']);
+
+/**
+ * Reply of /api/btw.
+ * @param {unknown} json
+ * @returns {BtwReply | undefined}
+ */
+export function parseBtwReply(json) {
+  if (!isRecord(json)) return undefined;
+  const answer = text(json.answer);
+  if (json.ok === true) return answer === undefined ? undefined : { ok: true, answer };
+  return json.ok === false && isBtwRefusal(json.error) ? { ok: false, error: json.error } : undefined;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is BtwRefusal}
+ */
+function isBtwRefusal(value) {
+  return typeof value === 'string' && btwRefusals.has(value);
 }
