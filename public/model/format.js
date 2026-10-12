@@ -42,8 +42,10 @@ export function countOf(n, noun) {
 export function formatDuration(ms) {
   const seconds = Math.round(ms / 1000);
   if (seconds < 1) return '<1s';
-  const hours = Math.floor(seconds / 3600);
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor((seconds % 86_400) / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
   if (hours > 0) return `${hours}h ${minutes}m`;
   if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
   return `${seconds}s`;

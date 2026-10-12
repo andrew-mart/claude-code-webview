@@ -9,8 +9,8 @@ const agent = { id: 'toolu_routes', kind: 'agent', title: 'Find the routes', det
 // The viewer's /api/tasks reply as the page takes it: an entry it cannot read is left out
 test('parseTasks_Should_TakeTasksOfReply_LeavingOutWhatItCannotRead', () => {
   assert.deepEqual(parseTasks([shell, agent, { id: 'x', kind: 'printer' }, 'junk']), [
-    { ...shell, endedAt: undefined, note: undefined },
-    { ...agent },
+    { ...shell, endedAt: undefined, note: undefined, lastActiveAt: undefined },
+    { ...agent, lastActiveAt: undefined },
   ]);
   assert.deepEqual(parseTasks({ error: 'down' }), []);
 });
@@ -26,6 +26,17 @@ test('taskState_Should_TellHowTaskStands_AndForHowLong', () => {
   ]);
 
   assert.deepEqual(tasks.map((task) => taskState(task, now)), ['running · 3m 0s', 'done · 2m 10s', 'failed · after 40s', 'stopped · after 2m 0s', 'cut short: the session closed']);
+});
+
+// A subagent that has not written for a while is still running as far as Claude Code knows — but likely stopped without
+// a word: the line says how long it has been quiet instead
+test('taskState_Should_TellHowLongRunningSubagentHasBeenQuiet', () => {
+  const tasks = parseTasks([
+    { ...agent, state: 'running', endedAt: undefined, lastActiveAt: '2026-10-12T10:09:30.000Z' },
+    { ...agent, state: 'running', endedAt: undefined, lastActiveAt: '2026-09-26T11:08:00.000Z' },
+  ]);
+
+  assert.deepEqual(tasks.map((task) => taskState(task, now)), ['running · 10m 0s', 'quiet for 15d 23h · no word that it ended']);
 });
 
 // The line over the input box: how many run and how many have ended; nothing for a session that started none

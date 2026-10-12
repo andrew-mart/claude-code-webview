@@ -25,6 +25,7 @@ const durations = [
   [4200, '4s'],
   [350844, '5m 51s'],
   [3780000, '1h 3m'],
+  [1382_460_000, '16d 0h'],
 ];
 
 for (const [ms, expected] of durations) {
