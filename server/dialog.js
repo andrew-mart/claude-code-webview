@@ -43,7 +43,7 @@ export function choiceDialog(screen) {
     // previews' column — their frame, the note on notes — not a description
     else if (text !== 'Submit' && !ruled && indentOf(line) < previewColumn) options[options.length - 1] = { ...last, detail: last.detail === undefined ? text : `${last.detail} ${text}` };
   }
-  return options.length === 0 ? undefined : { lines: head, options, tabs: head.some((text) => text.startsWith('←')) };
+  return options.length === 0 ? undefined : { lines: head, options, tabs: head.some((text) => text.startsWith('←')), previews: frames.length > 0 };
 }
 
 /**

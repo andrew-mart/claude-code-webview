@@ -121,6 +121,7 @@ const asking = {
     { key: '2', label: 'Green', detail: undefined, checked: false, current: false },
   ],
   tabs: false,
+  previews: false,
 };
 
 // The page learns of a choice Claude Code waits for; a dialog it cannot read is no reason to lose the rest of the state

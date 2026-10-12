@@ -36,15 +36,18 @@ export function createDialogCard({ answer }) {
     return made;
   };
 
-  /** @param {import('../model/dialog.js').DialogOption} option */
-  const choice = (option) => {
+  /**
+   * @param {import('../model/dialog.js').DialogOption} option
+   * @param {import('../model/dialog.js').Dialog} dialog
+   */
+  const choice = (option, dialog) => {
     const mark = option.checked === undefined ? '' : option.checked ? '☑ ' : '☐ ';
     const made = h('button', { className: 'dialog-option', attrs: { type: 'button', 'aria-pressed': String(option.checked === true) } }, [
       h('span', { className: 'dialog-option-key', text: option.key }),
       h('span', { className: 'dialog-option-text' }, [h('span', { className: 'dialog-option-label', text: `${mark}${option.label}` }), ...(option.detail === undefined ? [] : [h('span', { className: 'dialog-option-detail', text: option.detail })])]),
     ]);
     made.classList.toggle('current', option.current);
-    made.addEventListener('click', () => send([{ key: digitOf(option.key) }]));
+    made.addEventListener('click', () => send(dialog.previews ? walkTo(dialog, option) : [{ key: digitOf(option.key) }]));
     return made;
   };
 
@@ -83,7 +86,7 @@ export function createDialogCard({ answer }) {
       element.replaceChildren(
         h('header', { className: 'dialog-card-head', text: 'Claude Code asks' }),
         ...dialog.lines.map((line) => h('p', { className: 'dialog-line', text: line })),
-        h('div', { className: 'dialog-options' }, choices.map(choice)),
+        h('div', { className: 'dialog-options' }, choices.map((option) => choice(option, dialog))),
         ...(own === undefined ? [] : [ownAnswer(own)]),
         h('div', { className: 'dialog-nav' }, [
           ...(dialog.tabs ? [button('← Previous', [{ key: 'left' }], 'dialog-nav-button'), button('Next →', [{ key: 'right' }], 'dialog-nav-button')] : []),
@@ -114,4 +117,18 @@ function digitOf(key) {
     default:
       return 'esc';
   }
+}
+
+/**
+ * Beside previews a digit picks nothing: the arrows go from the answer under the cursor to the one wanted, Enter picks it.
+ * @param {import('../model/dialog.js').Dialog} dialog
+ * @param {import('../model/dialog.js').DialogOption} option
+ * @returns {import('../model/dialog.js').DialogStep[]}
+ */
+function walkTo(dialog, option) {
+  const from = Math.max(0, dialog.options.findIndex((known) => known.current));
+  const moves = dialog.options.indexOf(option) - from;
+  /** @type {import('../model/dialog.js').DialogStep} */
+  const step = { key: moves > 0 ? 'down' : 'up' };
+  return [...Array.from({ length: Math.abs(moves) }, () => step), { key: 'enter' }];
 }

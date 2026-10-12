@@ -191,6 +191,7 @@ test('liveState_Should_TellChoiceClaudeCodeWaitsFor', async () => {
         { key: '2', label: 'Green', detail: undefined, checked: undefined, current: false },
       ],
       tabs: false,
+      previews: false,
     },
   });
 });
