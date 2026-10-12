@@ -9,7 +9,7 @@ import { actionLabel, choices, nextChoice } from './model/view-settings.js';
 import { createBookmarkStore, moveLocalBookmarksToServer } from './view/bookmark-store.js';
 import { createComposer } from './view/composer-view.js';
 import { createDrawers } from './view/drawers.js';
-import { openedAt, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf } from './model/herdr.js';
+import { openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf } from './model/herdr.js';
 import { parseHistory } from './model/history.js';
 import { parseUsage, usageView } from './model/usage.js';
 import { createHerdrSidebar, createTabBar } from './view/herdr-panel.js';
@@ -202,8 +202,11 @@ function createPage() {
     },
     create: (tab, start, label) => newTab(tab, start, label),
   });
-  /** The herdr pane whose terminal the page shows (#/pane/<id>) instead of a session. */
-  /** @type {{ id: string, terminal: ReturnType<typeof mountTerminal>, title: HTMLElement } | undefined} */
+  /**
+   * The herdr pane whose terminal the page shows (#/pane/<id>) instead of a session; sessionWhenOpened: the session in it
+   * then — one Claude Code starts in it later takes the page to its feed.
+   */
+  /** @type {{ id: string, terminal: ReturnType<typeof mountTerminal>, title: HTMLElement, sessionWhenOpened: string | undefined } | undefined} */
   let currentPane;
   /**
    * The session following the active one switched to: its box does not take the focus — what the user was typing
@@ -352,7 +355,7 @@ function createPage() {
     const title = h('span', { className: 'terminal-title', text: paneName(paneId) });
     const top = h('div', { className: 'terminal-top' }, [drawerButton('sessions', 'menu', 'Sessions'), title]);
     main.replaceChildren(top, tabBar.element, terminal.element);
-    currentPane = { id: paneId, terminal, title };
+    currentPane = { id: paneId, terminal, title, sessionWhenOpened: paneSession(herdrLayout, paneId, undefined) };
     renderList();
   };
 
@@ -593,6 +596,9 @@ function createPage() {
       if (known === herdrKnown) return;
       herdrKnown = known;
       herdrLayout = parseHerdrLayout(reply);
+      // Claude Code started in the terminal shown — a tab opened with Claude, or claude typed there: its feed instead
+      const started = currentPane === undefined ? undefined : paneSession(herdrLayout, currentPane.id, currentPane.sessionWhenOpened);
+      if (started !== undefined) location.hash = `#/${started}`;
       this.renderHerdr();
     },
   };

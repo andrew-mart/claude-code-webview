@@ -37,6 +37,18 @@ export function tabTarget(tab) {
 }
 
 /**
+ * The session Claude Code started in a pane since the page opened its terminal: the page goes to it.
+ * @param {HerdrLayout} layout
+ * @param {string} paneId
+ * @param {string | undefined} sessionWhenOpened — the pane's session when the page opened its terminal
+ * @returns {string | undefined}
+ */
+export function paneSession(layout, paneId, sessionWhenOpened) {
+  const pane = layout.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes)).find((known) => known.id === paneId);
+  return pane?.session === sessionWhenOpened ? undefined : pane?.session;
+}
+
+/**
  * The workspace and tab of what the page shows, if herdr has it in a pane.
  * @param {HerdrLayout} layout
  * @param {Opened} opened
