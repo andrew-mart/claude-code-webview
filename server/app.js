@@ -56,7 +56,7 @@ const agentIdPattern = /^[0-9a-z]{1,64}$/i;
 const paneIdPattern = /^[\w:-]{1,40}$/;
 
 /**
- * @typedef {{ liveState: (sessionId: string) => Promise<import('./composer.js').LiveState>, send: (sessionId: string, text: string) => Promise<import('./composer.js').SendOutcome>, interrupt: (sessionId: string) => Promise<import('./composer.js').StopReply>, rewind: (sessionId: string, request: import('./composer.js').RewindRequest) => Promise<import('./composer.js').RewindReply> }} Composer
+ * @typedef {{ liveState: (sessionId: string) => Promise<import('./composer.js').LiveState>, send: (sessionId: string, text: string) => Promise<import('./composer.js').SendOutcome>, interrupt: (sessionId: string) => Promise<import('./composer.js').StopReply>, rewind: (sessionId: string, request: import('./composer.js').RewindRequest) => Promise<import('./composer.js').RewindReply>, btw: (sessionId: string, question: string) => Promise<import('./composer.js').BtwReply> }} Composer
  * @typedef {{ name: string, version: string }} About
  */
 
@@ -223,6 +223,8 @@ async function handleWrite(deps, url, request, response) {
       return stop(deps, sessionId, response);
     case '/api/rewind':
       return rewind(deps, sessionId, isRecord(body) ? body : {}, response);
+    case '/api/btw':
+      return askAside(deps, sessionId, isRecord(body) && typeof body.question === 'string' ? body.question : '', response);
     case '/api/bookmarks': {
       const change = parseBookmarkChange(isRecord(body) ? body.change : undefined);
       if (change === undefined) {
@@ -235,6 +237,27 @@ async function handleWrite(deps, url, request, response) {
       response.writeHead(404).end('Not found');
   }
 }
+
+/**
+ * A side question, as /btw in the session's terminal. Claude may think for minutes — longer than a proxy in front of
+ * the viewer waits for a reply that has not started (Cloudflare gives up after 100 s) — so the reply starts at once
+ * and gets a space every few seconds until the answer comes: JSON allows spaces before the value.
+ * @param {Deps} deps
+ * @param {string} sessionId
+ * @param {string} question
+ * @param {http.ServerResponse} response
+ */
+async function askAside(deps, sessionId, question, response) {
+  response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+  const keepAlive = setInterval(() => response.write(' '), keepAliveMs);
+  try {
+    response.end(JSON.stringify(await deps.composer.btw(sessionId, question)));
+  } finally {
+    clearInterval(keepAlive);
+  }
+}
+
+const keepAliveMs = 15_000;
 
 /**
  * Keys from the page's terminal, typed into a herdr pane.

@@ -5,6 +5,7 @@
 //   herdr pane list + process-info → the pane where that process is in the foreground
 //   herdr pane send-text / send-keys → the text and Enter, as if the user typed them
 import { setTimeout as delay } from 'node:timers/promises';
+import { driveBtw } from './btw.js';
 import { claudePaneIds, foregroundPids, succeeded, toTerminalInput } from './herdr.js';
 import { latestRecords } from './registry.js';
 import { driveRewind } from './rewind.js';
@@ -19,6 +20,7 @@ import { driveStop } from './stop.js';
  * @typedef {{ stepsUp: number, prompt: string, action: import('./rewind.js').RewindAction }} RewindRequest
  * @typedef {import('./rewind.js').RewindOutcome | { ok: false, error: 'herdr-missing' | 'offline' | 'no-herdr' | 'outside-herdr' | 'busy' }} RewindReply
  * @typedef {import('../public/model/composer.js').StopOutcome} StopReply
+ * @typedef {import('../public/model/composer.js').BtwReply} BtwReply
  */
 
 const presenceTtlMs = 30_000;
@@ -36,6 +38,29 @@ export function createComposer({ readRecords, herdr }) {
   /** Prompts the page typed into each session, newest last. */
   /** @type {Map<string, readonly string[]>} */
   const sentPrompts = new Map();
+  /**
+   * What the page does in a session's terminal goes one thing at a time: the keys of a prompt typed while a side
+   * panel or the /rewind menu is open would be the panel's or the menu's.
+   * @type {Map<string, Promise<unknown>>}
+   */
+  const turns = new Map();
+
+  /**
+   * The action once the session's terminal is done with the ones before it.
+   * @template T
+   * @param {string} sessionId
+   * @param {() => Promise<T>} action
+   * @returns {Promise<T>}
+   */
+  function inTurn(sessionId, action) {
+    const done = (turns.get(sessionId) ?? Promise.resolve()).then(action);
+    const settled = done.catch(() => undefined);
+    turns.set(sessionId, settled);
+    void settled.then(() => {
+      if (turns.get(sessionId) === settled) turns.delete(sessionId);
+    });
+    return done;
+  }
 
   /**
    * @param {number} pid
@@ -151,14 +176,30 @@ export function createComposer({ readRecords, herdr }) {
     async send(sessionId, text) {
       const input = toTerminalInput(text);
       if (input === '') return { ok: false, error: 'empty' };
-      const place = await target(sessionId);
-      if (!place.ok) return place;
-      const outcome = await press(place, [
-        ['send-text', input],
-        ['send-keys', 'enter'],
-      ]);
-      if (outcome.ok) sentPrompts.set(sessionId, [...(sentPrompts.get(sessionId) ?? []), input].slice(-keptPrompts));
-      return outcome;
+      return inTurn(sessionId, async () => {
+        const place = await target(sessionId);
+        if (!place.ok) return place;
+        const outcome = await press(place, [
+          ['send-text', input],
+          ['send-keys', 'enter'],
+        ]);
+        if (outcome.ok) sentPrompts.set(sessionId, [...(sentPrompts.get(sessionId) ?? []), input].slice(-keptPrompts));
+        return outcome;
+      });
+    },
+    /**
+     * A side question, as /btw in the session's terminal: Claude answers from the conversation without adding to it.
+     * @param {string} sessionId
+     * @param {string} question
+     * @returns {Promise<BtwReply>}
+     */
+    async btw(sessionId, question) {
+      if (question.trim() === '') return { ok: false, error: 'empty' };
+      return inTurn(sessionId, async () => {
+        const place = await target(sessionId);
+        if (!place.ok) return place;
+        return driveBtw(terminalOf(place.pane), { question, wait: (ms) => delay(ms) });
+      });
     },
     /**
      * Interrupt the current turn — Esc in the session's terminal. A prompt Claude had not started on comes back, as
@@ -167,13 +208,15 @@ export function createComposer({ readRecords, herdr }) {
      * @returns {Promise<StopReply>}
      */
     async interrupt(sessionId) {
-      const place = await target(sessionId);
-      if (!place.ok) return place;
-      const outcome = await driveStop(terminalOf(place.pane), { sent: sentPrompts.get(sessionId) ?? [], wait: (ms) => delay(ms) });
-      if (outcome.ok) return { ok: true, pane: place.pane, prompt: outcome.prompt };
-      if (outcome.error === 'box-not-cleared') return { ok: false, error: 'box-not-cleared' };
-      paneByPid.delete(place.pid);
-      return { ok: false, error: 'send-failed' };
+      return inTurn(sessionId, async () => {
+        const place = await target(sessionId);
+        if (!place.ok) return place;
+        const outcome = await driveStop(terminalOf(place.pane), { sent: sentPrompts.get(sessionId) ?? [], wait: (ms) => delay(ms) });
+        if (outcome.ok) return { ok: true, pane: place.pane, prompt: outcome.prompt };
+        if (outcome.error === 'box-not-cleared') return { ok: false, error: 'box-not-cleared' };
+        paneByPid.delete(place.pid);
+        return { ok: false, error: 'send-failed' };
+      });
     },
     /**
      * Rewind the session to before a message, through Claude Code's /rewind menu in its terminal. Only while Claude
@@ -183,10 +226,12 @@ export function createComposer({ readRecords, herdr }) {
      * @returns {Promise<RewindReply>}
      */
     async rewind(sessionId, request) {
-      const place = await locate(sessionId);
-      if (place.kind !== 'live') return { ok: false, error: place.kind };
-      if (place.record.status === 'busy') return { ok: false, error: 'busy' };
-      return driveRewind(terminalOf(place.pane), { ...request, wait: (ms) => delay(ms) });
+      return inTurn(sessionId, async () => {
+        const place = await locate(sessionId);
+        if (place.kind !== 'live') return { ok: false, error: place.kind };
+        if (place.record.status === 'busy') return { ok: false, error: 'busy' };
+        return driveRewind(terminalOf(place.pane), { ...request, wait: (ms) => delay(ms) });
+      });
     },
   };
 }

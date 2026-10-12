@@ -108,6 +108,11 @@ screenshot anywhere on the page (Ctrl+V), or drop files on the box. The page sca
 `~/.claude-code-webview/uploads/` and lists their paths at the end of the prompt, and Claude Code opens them with its
 Read tool. In the feed the list shows as pictures again.
 
+`/btw <question>` in the box asks a side question, as in the terminal: Claude answers from what the conversation
+already holds, with no tools, even while it is busy, and nothing is added to the conversation. Claude Code shows the
+answer only in a panel over its prompt box, so the viewer reads it off the terminal — scrolling to its end — closes
+the panel and shows the answer above the page's box. Prompts sent meanwhile wait until the panel is closed.
+
 Rewind works as Esc Esc does in the terminal: the ↶ next to one of your messages offers the same choices — restore
 code and conversation, the conversation, or the code, summarize from or up to that message. The viewer drives
 Claude Code's `/rewind` menu with keys, checks every step on the screen (the message by its full text on the

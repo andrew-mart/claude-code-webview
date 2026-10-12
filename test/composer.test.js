@@ -118,3 +118,57 @@ test('rewind_Should_TouchTerminalOnlyWhileClaudeWaitsForInput', async () => {
   assert.deepEqual(await composerOf([], offline).rewind(sessionId, request), { ok: false, error: 'offline' });
   assert.deepEqual([...busy.calls, ...offline.calls].filter(([, command]) => command === 'send-keys' || command === 'send-text'), []);
 });
+
+/**
+ * herdr in front of Claude Code with /btw: the session's pane shows the prompt box, or after Enter on "/btw …" the side
+ * panel with its answer, until Esc closes it. Records every call.
+ * @param {string} answer
+ */
+function sidePanelHerdr(answer) {
+  const herdr = fakeHerdr();
+  let box = '';
+  /** @type {string | undefined} */
+  let asked;
+  const screen = () =>
+    asked === undefined
+      ? ['● Done.', '────────', `❯ ${box}`, '────────'].join('\n')
+      : ['● Done.', '▔'.repeat(20), `    /btw ${asked}`, `      ${answer}`, '    ↑/↓ to scroll · c to copy · f to fork · Esc to close'].join('\n');
+  /** @param {readonly string[]} args @returns {Promise<import('../server/composer.js').HerdrReply>} */
+  const run = async (args) => {
+    const [, command, , ...rest] = args;
+    if (command === 'read') {
+      herdr.calls.push([...args]);
+      return { ok: true, json: undefined, text: screen() };
+    }
+    if (command === 'send-text') box += rest.join('');
+    for (const key of command === 'send-keys' ? rest : []) {
+      if (key === 'enter' && box.startsWith('/btw ')) asked = box.slice('/btw '.length);
+      if (key === 'enter') box = '';
+      if (key === 'esc') asked = undefined;
+    }
+    return herdr.run(args);
+  };
+  return { run, calls: herdr.calls };
+}
+
+/** What was typed into the pane: text and keys, in order. @param {readonly string[][]} calls */
+const typedInto = (calls) => calls.filter(([, command]) => command === 'send-text' || command === 'send-keys').flatMap(([, , , ...typed]) => typed);
+
+// A side question goes to the session's own terminal as /btw, and its answer comes back from the side panel
+test('btw_Should_AskInSessionPane_And_GiveAnswerFromSidePanel', async () => {
+  const herdr = sidePanelHerdr('The limit is in src/config.ts.');
+
+  const outcome = await composerOf([record], herdr).btw(sessionId, 'where is the retry limit?');
+
+  assert.deepEqual({ outcome, typed: typedInto(herdr.calls) }, { outcome: { ok: true, answer: 'The limit is in src/config.ts.' }, typed: ['/btw where is the retry limit?', 'enter', 'down', 'esc'] });
+});
+
+// The keys of a prompt typed into an open side panel would be the panel's own (f forks, c copies): the prompt waits
+test('send_Should_WaitUntilSidePanelIsClosed', async () => {
+  const herdr = sidePanelHerdr('The limit is in src/config.ts.');
+  const composer = composerOf([record], herdr);
+
+  await Promise.all([composer.btw(sessionId, 'where is the retry limit?'), composer.send(sessionId, 'fix the flaky test')]);
+
+  assert.deepEqual(typedInto(herdr.calls), ['/btw where is the retry limit?', 'enter', 'down', 'esc', 'fix the flaky test', 'enter']);
+});

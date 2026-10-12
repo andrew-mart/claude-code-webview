@@ -1908,6 +1908,53 @@ table.diff tr.gap td {
   padding: 0 24px 14px;
 }
 
+/* The answer to "/btw …", above the box: like the terminal's side panel, it is not part of the conversation. */
+.side-answer {
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-elev);
+  overflow: hidden;
+}
+
+.side-answer-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+}
+
+.side-answer-label {
+  flex: none;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.side-answer-question {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.side-answer-text {
+  max-height: 40vh;
+  overflow: auto;
+  padding: 10px 14px 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.side-answer.answering .side-answer-text {
+  color: var(--text-4);
+}
+
 .composer-box {
   display: flex;
   align-items: flex-end;

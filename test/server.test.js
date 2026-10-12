@@ -41,6 +41,11 @@ function fakeComposer(takenBack) {
         calls.push(['interrupt', id]);
         return { ok: true, pane: 'w3D:p1', prompt: takenBack };
       },
+      /** @param {string} id @param {string} question @returns {Promise<import('../server/composer.js').BtwReply>} */
+      btw: async (id, question) => {
+        calls.push(['btw', id, question]);
+        return { ok: true, answer: 'In src/config.ts.' };
+      },
       /** @param {string} id @param {import('../server/composer.js').RewindRequest} request @returns {Promise<import('../server/composer.js').RewindReply>} */
       rewind: async (id, request) => {
         calls.push(['rewind', id, JSON.stringify(request)]);
@@ -131,6 +136,16 @@ test('send_Should_PassTextFromViewerPageToSessionTerminal', async (t) => {
   assert.equal(response.status, 200);
   assert.deepEqual(JSON.parse(response.body), { ok: true, pane: 'w3D:p1' });
   assert.deepEqual(calls, [['send', sessionId, 'Go on']]);
+});
+
+// A side question from the page goes to the session's terminal, and its answer comes back to the page
+test('btw_Should_PassSideQuestionFromViewerPage_And_GiveAnswerBack', async (t) => {
+  const { port, calls } = await withServer(t);
+
+  const response = await post(port, '/api/btw', pageHeaders(port), JSON.stringify({ session: sessionId, question: 'Where is the retry limit?' }));
+
+  assert.deepEqual({ status: response.status, body: JSON.parse(response.body) }, { status: 200, body: { ok: true, answer: 'In src/config.ts.' } });
+  assert.deepEqual(calls, [['btw', sessionId, 'Where is the retry limit?']]);
 });
 
 test('send_Should_RejectRequestsThatOtherSitesCouldForge', async (t) => {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { composerState, outcomeMessage, parseLiveState, parseOutcome, parseStopOutcome, promptForBox } from '../public/model/composer.js';
+import { composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, sideQuestionOf } from '../public/model/composer.js';
 
 const sessionId = '3f2c9a50-1111-4222-8333-944455556666';
 
@@ -92,4 +92,20 @@ test('promptForBox_Should_LeaveImageListAsTextWhenViewerDidNotSaveEveryImage', (
   const prompt = 'Compare them\n\nAttached images:\nC:\\Users\\ann\\.claude-code-webview\\uploads\\a1b2-c3.png\nD:\\shots\\b.png';
 
   assert.deepEqual(promptForBox(prompt, ''), { text: prompt, images: [] });
+});
+
+// "/btw" in the box asks aside, as in the terminal; bare "/btw" is a side question with nothing asked yet — sent to the
+// terminal it would reopen the last answer there and leave the panel open
+test('sideQuestionOf_Should_TakeQuestionAfterBtw_OnlyAtStartOfBox', () => {
+  assert.deepEqual(
+    ['/btw where is the retry limit?', '  /btw  which file\nand which line? ', '/btw', '/btwx go on', 'Fix it, /btw keep the tests'].map(sideQuestionOf),
+    ['where is the retry limit?', 'which file\nand which line?', '', undefined, undefined],
+  );
+});
+
+test('parseBtwReply_Should_TakeAnswerOrKnownRefusal_And_NothingElse', () => {
+  assert.deepEqual(
+    [{ ok: true, answer: 'In src/config.ts.' }, { ok: false, error: 'box-not-empty' }, { ok: true }, { ok: false, error: 'exploded' }].map(parseBtwReply),
+    [{ ok: true, answer: 'In src/config.ts.' }, { ok: false, error: 'box-not-empty' }, undefined, undefined],
+  );
 });

@@ -1,6 +1,7 @@
 // @ts-check
 // Prompt box under the feed: the prompt goes to the session terminal via herdr (server: /api/send, /api/interrupt).
-import { composerState, outcomeMessage, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, stopMessage } from '../model/composer.js';
+// "/btw …" asks aside, as in the terminal (/api/btw): the answer shows above the box and never joins the feed.
+import { btwMessage, composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, sideQuestionOf, stopMessage } from '../model/composer.js';
 import { createAttachmentPicker } from './attachment-picker.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
@@ -33,7 +34,10 @@ export function createComposer(sessionId) {
   let noticeTimer;
   const attachments = createAttachmentPicker({ onChange: () => refreshButtons(), onError: (message) => say(message, 'error') });
   const form = h('form', { className: 'composer-box' }, [attachments.list, attachments.button, input, h('div', { className: 'composer-actions' }, [interrupt, send])]);
-  const element = h('div', { className: 'composer' }, [form, h('div', { className: 'composer-footer' }, [hint, status]), attachments.input]);
+  const aside = h('section', { className: 'side-answer', attrs: { hidden: '', 'aria-label': 'Side question', 'aria-live': 'polite' } });
+  const closeAside = h('button', { className: 'icon-button side-answer-close', title: 'Close', attrs: { type: 'button', 'aria-label': 'Close' } }, [icon('cross')]);
+  closeAside.addEventListener('click', () => (aside.hidden = true));
+  const element = h('div', { className: 'composer' }, [aside, form, h('div', { className: 'composer-footer' }, [hint, status]), attachments.input]);
 
   const fit = () => {
     input.style.height = 'auto';
@@ -62,8 +66,8 @@ export function createComposer(sessionId) {
     refreshButtons();
   };
   /**
-   * @param {'/api/send' | '/api/interrupt'} path
-   * @param {{ text?: string, images?: readonly import('./attachment-picker.js').AttachedImage[] }} payload
+   * @param {'/api/send' | '/api/interrupt' | '/api/btw'} path
+   * @param {{ text?: string, images?: readonly import('./attachment-picker.js').AttachedImage[], question?: string }} payload
    * @returns {Promise<unknown>} — the reply's JSON; undefined if the server did not answer
    */
   const post = async (path, payload) => {
@@ -105,9 +109,51 @@ export function createComposer(sessionId) {
     void reattach(restored.images);
   };
 
+  /**
+   * The side question and, once Claude has answered it, the answer, as the terminal's side panel shows it.
+   * @param {string} question
+   * @param {string | undefined} answer
+   */
+  const showAside = (question, answer) => {
+    aside.replaceChildren(
+      h('header', { className: 'side-answer-head' }, [h('span', { className: 'side-answer-label', text: 'By the way' }), h('span', { className: 'side-answer-question', text: question }), closeAside]),
+      h('div', { className: 'side-answer-text', text: answer === undefined ? 'Answering…' : answer }),
+    );
+    aside.classList.toggle('answering', answer === undefined);
+    aside.hidden = false;
+  };
+  /**
+   * The box waits while Claude answers: the terminal's side panel would take the keys of the next prompt.
+   * @param {string} question
+   */
+  const askAside = (question) => {
+    if (question === '') return say(btwMessage('empty'), 'error');
+    if (attachments.images().length > 0) return say('A side question takes no images.', 'error');
+    sending = true;
+    refreshButtons();
+    showAside(question, undefined);
+    say('', 'ok');
+    void post('/api/btw', { question }).then((json) => {
+      const reply = parseBtwReply(json);
+      sending = false;
+      if (reply?.ok === true) {
+        input.value = '';
+        writeDraft(draftKey, '');
+        fit();
+        showAside(question, reply.answer);
+      } else {
+        aside.hidden = true;
+        say(reply === undefined ? 'The viewer server did not answer. The question stays in the box.' : btwMessage(reply.error), 'error');
+      }
+      refreshButtons();
+    });
+  };
+
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     if (send.disabled) return;
+    const question = sideQuestionOf(input.value);
+    if (question !== undefined) return askAside(question);
     sending = true;
     refreshButtons();
     const images = attachments.images();
