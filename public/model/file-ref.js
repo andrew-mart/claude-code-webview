@@ -68,3 +68,26 @@ function safeDecode(value) {
     return value; // broken %-sequence — show the path as is
   }
 }
+
+/**
+ * The pictures the file panel shows as pictures, by extension. Only raster ones: an SVG from the viewer's own address
+ * could run a script in its page, so it is shown as text.
+ * A Map, not an object: an extension such as .constructor must not find the object's own properties.
+ * @type {ReadonlyMap<string, string>}
+ */
+const imageTypes = new Map([
+  ['png', 'image/png'],
+  ['jpg', 'image/jpeg'],
+  ['jpeg', 'image/jpeg'],
+  ['gif', 'image/gif'],
+  ['webp', 'image/webp'],
+]);
+
+/**
+ * @param {string} path
+ * @returns {string | undefined} — the media type of the picture at path; none when it is not one
+ */
+export function imageTypeOfPath(path) {
+  const extension = /\.(\w+)$/.exec(path)?.[1]?.toLowerCase();
+  return extension === undefined ? undefined : imageTypes.get(extension);
+}

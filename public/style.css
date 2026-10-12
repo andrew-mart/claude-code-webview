@@ -2600,6 +2600,21 @@ a.file-link:hover {
   font-size: 13.5px;
 }
 
+.file-image {
+  display: block;
+  max-width: calc(100% - 32px);
+  margin: 16px auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: zoom-in;
+}
+
+.file-image.zoomed {
+  max-width: none;
+  margin: 16px;
+  cursor: zoom-out;
+}
+
 .file-view {
   position: relative;
   min-width: max-content;
