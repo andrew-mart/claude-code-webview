@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { layoutActivity } from '../public/model/activity.js';
+import { expandedRows, layoutActivity } from '../public/model/activity.js';
 
 /** @typedef {import('../public/model/activity.js').ActivityItem} ActivityItem */
 
@@ -57,4 +57,11 @@ test('layoutActivity_Should_KeepEditsVisibleInCollapsedSeries_When_EditsAreShown
   const layout = layoutActivity(items, { ...collapsed, edits: 'shown' });
 
   assert.deepEqual({ folded: layout.header.kind === 'summary' && !layout.header.expanded, visible: layout.visible }, { folded: true, visible: [false, true, false, false, true] });
+});
+
+// With edits shown they are open too — their diffs in sight — brief or in detail; nothing else opens by itself
+test('expandedRows_Should_OpenEdits_OnlyWhenEditsAreShown', () => {
+  const items = [tool('read'), tool('edit'), thinking, tool('edit', 'error')];
+
+  assert.deepEqual([expandedRows(items, 'shown'), expandedRows(items, 'folded')], [[false, true, false, true], [false, false, false, false]]);
 });

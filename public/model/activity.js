@@ -98,3 +98,13 @@ function summaryHeader(items, expanded) {
     expanded,
   };
 }
+
+/**
+ * The rows open by themselves: with edits shown, the edits — their diffs in sight, brief or in detail.
+ * @param {readonly ActivityItem[]} items
+ * @param {'folded' | 'shown'} edits
+ * @returns {boolean[]}
+ */
+export function expandedRows(items, edits) {
+  return items.map((item) => edits === 'shown' && isEdit(item));
+}
