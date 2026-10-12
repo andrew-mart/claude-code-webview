@@ -6,6 +6,7 @@ import { placeOf, searchLayout, sessionsByActivity, tabTarget } from '../model/h
 import { h } from './dom.js';
 import { icon } from './icons.js';
 import { tintByWorkspace } from './workspace-tint.js';
+import { labelWithIcon, splitTabIcon, tabIcons } from '../model/tab-icon.js';
 
 /** @type {Readonly<Record<import('../model/herdr.js').AgentStatus, string>>} */
 const statusNames = { working: 'Working', blocked: 'Waiting for you', done: 'Done', idle: 'Idle', unknown: 'No agent' };
@@ -38,6 +39,49 @@ function tabContent(tab) {
  */
 function tabName(tab) {
   return tab.label === String(tab.number) ? tab.label : `${tab.number} ${tab.label}`;
+}
+
+/**
+ * The button that picks a tab's icon — an emoji kept ahead of its name — and the row of emoji it opens beside it; ✕ there
+ * leaves the tab without one. The name's box keeps the focus meanwhile: pressing here is no click elsewhere, which ends
+ * the naming.
+ * @param {string | undefined} initial
+ * @param {HTMLElement} nameBox
+ */
+function createIconPicker(initial, nameBox) {
+  let icon = initial;
+  const button = h('button', { className: 'herdr-tab-icon', title: 'Icon of the tab', attrs: { type: 'button', 'aria-label': 'Icon of the tab' } });
+  const palette = h('span', { className: 'herdr-icon-palette', attrs: { hidden: '' } });
+  const show = () => {
+    button.textContent = icon ?? '☺';
+    button.classList.toggle('empty', icon === undefined);
+  };
+  /** @param {string | undefined} next */
+  const choose = (next) => {
+    icon = next;
+    show();
+    palette.hidden = true;
+    nameBox.focus();
+  };
+  palette.append(
+    ...tabIcons.map((emoji) => {
+      const made = h('button', { text: emoji, attrs: { type: 'button' } });
+      made.addEventListener('click', () => choose(emoji));
+      return made;
+    }),
+    (() => {
+      const none = iconButton('herdr-icon-none', 'cross', 'No icon');
+      none.addEventListener('click', () => choose(undefined));
+      return none;
+    })(),
+  );
+  button.addEventListener('click', () => {
+    palette.hidden = !palette.hidden;
+    nameBox.focus();
+  });
+  for (const part of [button, palette]) part.addEventListener('mousedown', (event) => event.preventDefault());
+  show();
+  return { element: h('span', { className: 'herdr-icon-picker' }, [button, palette]), icon: () => icon };
 }
 
 /**
@@ -228,7 +272,9 @@ export function createTabBar({ rename, close, open, create }) {
   const startNaming = (chip, actions, tab) => {
     busy = true;
     const box = h('input', { className: 'herdr-tab-name', attrs: { type: 'text', maxlength: '60', placeholder: 'Tab name', 'aria-label': `Name of tab ${tab.number}` } });
-    box.value = tab.label === String(tab.number) ? '' : tab.label;
+    const named = splitTabIcon(tab.label === String(tab.number) ? '' : tab.label);
+    box.value = named.name;
+    const picker = createIconPicker(named.icon, box);
     let sending = false;
     box.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
@@ -238,10 +284,11 @@ export function createTabBar({ rename, close, open, create }) {
       }
       if (event.key !== 'Enter' || sending) return;
       event.preventDefault();
-      if (box.value.trim() === '') return finish();
+      const label = labelWithIcon(picker.icon(), box.value);
+      if (label === '') return finish();
       sending = true;
       box.disabled = true;
-      void rename(tab.id, box.value).then((outcome) => {
+      void rename(tab.id, label).then((outcome) => {
         sending = false;
         if (outcome.ok) return finish();
         box.disabled = false;
@@ -254,7 +301,7 @@ export function createTabBar({ rename, close, open, create }) {
     box.addEventListener('blur', () => {
       if (busy && !sending && box.isConnected) finish();
     });
-    chip.replaceWith(box);
+    chip.replaceWith(picker.element, box);
     actions.hidden = true;
     box.focus();
     box.select();
@@ -302,10 +349,11 @@ export function createTabBar({ rename, close, open, create }) {
     busy = true;
     const message = h('span', { className: 'herdr-tab-new-failed', attrs: { hidden: '' } });
     const name = h('input', { className: 'herdr-tab-name herdr-tab-new-name', attrs: { type: 'text', maxlength: '60', placeholder: 'New tab name', 'aria-label': 'Name of the new tab' } });
+    const picker = createIconPicker(undefined, name);
     /** @param {import('../model/herdr.js').TabStart} start */
     const add = (start) => {
       for (const button of choices.querySelectorAll('button')) button.disabled = true;
-      const label = name.value.replace(/\s+/g, ' ').trim();
+      const label = labelWithIcon(picker.icon(), name.value.replace(/\s+/g, ' '));
       void create(beside.id, start, label === '' ? undefined : label).then((outcome) => {
         if (outcome.ok) {
           finish();
@@ -334,7 +382,7 @@ export function createTabBar({ rename, close, open, create }) {
     });
     const cancel = iconButton('herdr-tab-new-cancel', 'cross', 'Cancel (Esc)');
     cancel.addEventListener('click', finish);
-    const choices = h('span', { className: 'herdr-tab-confirm' }, [name, choice('shell', 'Terminal', 'herdr-tab-new-shell'), choice('claude', 'Claude Code (Enter)', 'herdr-tab-new-claude'), cancel, message]);
+    const choices = h('span', { className: 'herdr-tab-confirm' }, [picker.element, name, choice('shell', 'Terminal', 'herdr-tab-new-shell'), choice('claude', 'Claude Code (Enter)', 'herdr-tab-new-claude'), cancel, message]);
     adding.replaceWith(choices);
     name.focus();
   };
