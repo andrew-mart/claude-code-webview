@@ -853,23 +853,30 @@ async function refreshUsage() {
 }
 
 /**
- * A window's meter: its name, how full it is, a mark for how much of it has gone by, the share used.
+ * A window's meter: its name and the share used. On a computer, two lines — a thick one for the share used, a thin one
+ * under it for how much of the window has gone by; on a phone the same as two rings, the share inside (style.css).
  * @param {import('./model/usage.js').UsageMeter} meter
  */
 function usageMeter(meter) {
-  const fill = h('span', { className: 'usage-fill' });
-  fill.style.width = `${Math.min(100, meter.percent ?? 0)}%`;
-  const bar = h('span', { className: 'usage-bar' }, [fill]);
-  if (meter.elapsed !== undefined) {
-    const pace = h('span', { className: 'usage-pace' });
-    pace.style.left = `${meter.elapsed}%`;
-    bar.append(pace);
-  }
+  const said = meter.percent === undefined ? '—' : `${Math.round(meter.percent)}%`;
+  const used = meter.percent === undefined ? undefined : Math.min(100, meter.percent);
   return h('span', { className: 'usage-meter', attrs: { 'data-level': meter.level } }, [
     h('span', { className: 'usage-name', text: meter.name }),
-    bar,
-    h('span', { className: 'usage-percent', text: meter.percent === undefined ? '—' : `${Math.round(meter.percent)}%` }),
+    h('span', { className: 'usage-lines' }, [meterPart('usage-line usage-used', used), meterPart('usage-line usage-time', meter.elapsed)]),
+    h('span', { className: 'usage-rings' }, [meterPart('usage-ring usage-used', used), meterPart('usage-ring usage-time', meter.elapsed), h('span', { className: 'usage-in', text: said })]),
+    h('span', { className: 'usage-percent', text: said }),
   ]);
+}
+
+/**
+ * A line or a ring of a meter, filled to a share; empty when the share is not known.
+ * @param {string} className
+ * @param {number | undefined} share — percent
+ */
+function meterPart(className, share) {
+  const part = h('span', { className });
+  if (share !== undefined) part.style.setProperty('--share', String(share));
+  return part;
 }
 
 /** A strip at the top of the page while the viewer is out of reach. */

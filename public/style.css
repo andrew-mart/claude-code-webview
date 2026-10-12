@@ -205,8 +205,9 @@ button {
   font-size: 18px;
 }
 
-/* the account's usage under the viewer's name: a meter for the 5-hour window and one for the week — how full each is,
-   green to red, and a mark where the window's time has got to; when each resets — on hover */
+/* the account's usage under the viewer's name: a meter for the 5-hour window and one for the week — a thick line for
+   the share used, green to red, and a thin one under it for how much of the window has gone by; when each resets — on
+   hover. On a phone the lines are rings (below). */
 .brand .usage {
   display: flex;
   flex-basis: 100%;
@@ -235,34 +236,61 @@ button {
   --meter: var(--danger);
 }
 
-.usage-bar {
-  position: relative;
+.usage-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   width: 46px;
+}
+
+.usage-line {
   height: 5px;
   border-radius: 3px;
-  background: var(--border);
+  background: linear-gradient(90deg, var(--line-colour) calc(var(--share, 0) * 1%), var(--border) 0);
+  --line-colour: var(--meter);
 }
 
-.usage-fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  border-radius: 3px;
-  background: var(--meter);
-}
-
-.usage-pace {
-  position: absolute;
-  top: -2px;
-  bottom: -2px;
-  width: 2px;
-  margin-left: -1px;
-  border-radius: 1px;
-  background: var(--text-2);
+.usage-line.usage-time {
+  height: 2px;
+  --line-colour: var(--text-3);
 }
 
 .usage-percent {
   min-width: 3ch;
   color: var(--meter);
+}
+
+.usage-rings {
+  display: none;
+}
+
+.usage-ring {
+  position: absolute;
+  border-radius: 50%;
+  background: conic-gradient(var(--ring-colour) calc(var(--share, 0) * 1%), var(--border) 0);
+  --ring-colour: var(--meter);
+}
+
+.usage-ring.usage-used {
+  inset: 0;
+  -webkit-mask: radial-gradient(circle, transparent 14.5px, #000 15px);
+  mask: radial-gradient(circle, transparent 14.5px, #000 15px);
+}
+
+.usage-ring.usage-time {
+  inset: 6px;
+  -webkit-mask: radial-gradient(circle, transparent 11px, #000 11.5px);
+  mask: radial-gradient(circle, transparent 11px, #000 11.5px);
+  --ring-colour: var(--text-3);
+}
+
+.usage-in {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--meter);
+  font-size: 9.5px;
 }
 
 .search {
@@ -3376,6 +3404,33 @@ a.file-link:hover {
 }
 
 @media (max-width: 820px) {
+  /* usage on a phone: two rings, the share used outside, the window's time gone by inside, the share in the middle */
+  .brand .usage {
+    gap: 18px;
+    margin-top: 6px;
+  }
+
+  .usage-meter {
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .usage-lines,
+  .usage-percent {
+    display: none;
+  }
+
+  .usage-rings {
+    position: relative;
+    display: block;
+    width: 38px;
+    height: 38px;
+  }
+
+  .usage-name {
+    order: 1;
+  }
+
   .layout,
   .layout.with-panel {
     grid-template-columns: minmax(0, 1fr);
