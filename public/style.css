@@ -205,9 +205,10 @@ button {
   font-size: 18px;
 }
 
-/* the account's usage under the viewer's name: a meter for the 5-hour window and one for the week — a thick line for
-   the share used, green to red, and a thin one under it for how much of the window has gone by; when each resets — on
-   hover. On a phone the lines are rings (below). */
+/* the account's usage under the viewer's name: a meter for the 5-hour window and one for the week. Blue runs to the
+   nearer of how much is used and how much of the window has gone by; from there to the farther the stretch is green —
+   spare — while the use lags behind the time, red — overspent — once it runs ahead. When each resets — on hover. On a
+   phone the line is a ring (below). */
 .brand .usage {
   display: flex;
   flex-basis: 100%;
@@ -224,40 +225,47 @@ button {
 .usage-meter {
   display: flex;
   align-items: center;
-  gap: 5px;
-  --meter: var(--ok);
+  gap: 6px;
+  --used-start: #67e8f9;
+  --used-end: #3b82f6;
+  --gap-start: transparent;
+  --gap-end: transparent;
+  --meter-paint: linear-gradient(
+    90deg,
+    var(--used-start) 0%,
+    var(--used-end) calc(var(--fill, 0) * 1%),
+    var(--gap-start) calc(var(--fill, 0) * 1%),
+    var(--gap-end) calc(var(--gap-to, 0) * 1%),
+    var(--border) calc(var(--gap-to, 0) * 1%)
+  );
 }
 
-.usage-meter[data-level='warm'] {
-  --meter: var(--warning);
+.usage-meter[data-gap='spare'] {
+  --gap-start: #6ee7b7;
+  --gap-end: #10b981;
 }
 
-.usage-meter[data-level='hot'] {
-  --meter: var(--danger);
-}
-
-.usage-lines {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  width: 46px;
+.usage-meter[data-gap='over'] {
+  --gap-start: #fb7185;
+  --gap-end: #dc2626;
 }
 
 .usage-line {
-  height: 5px;
+  width: 64px;
+  height: 6px;
   border-radius: 3px;
-  background: linear-gradient(90deg, var(--line-colour) calc(var(--share, 0) * 1%), var(--border) 0);
-  --line-colour: var(--meter);
-}
-
-.usage-line.usage-time {
-  height: 2px;
-  --line-colour: var(--text-3);
+  background: var(--meter-paint);
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.08);
 }
 
 .usage-percent {
   min-width: 3ch;
-  color: var(--meter);
+  color: var(--text-2);
+}
+
+.usage-meter[data-gap='over'] .usage-percent,
+.usage-meter[data-gap='over'] .usage-in {
+  color: var(--danger);
 }
 
 .usage-rings {
@@ -266,22 +274,17 @@ button {
 
 .usage-ring {
   position: absolute;
-  border-radius: 50%;
-  background: conic-gradient(var(--ring-colour) calc(var(--share, 0) * 1%), var(--border) 0);
-  --ring-colour: var(--meter);
-}
-
-.usage-ring.usage-used {
   inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--used-start) 0%,
+    var(--used-end) calc(var(--fill, 0) * 1%),
+    var(--gap-start) calc(var(--fill, 0) * 1%),
+    var(--gap-end) calc(var(--gap-to, 0) * 1%),
+    var(--border) calc(var(--gap-to, 0) * 1%)
+  );
   -webkit-mask: radial-gradient(circle, transparent 14.5px, #000 15px);
   mask: radial-gradient(circle, transparent 14.5px, #000 15px);
-}
-
-.usage-ring.usage-time {
-  inset: 6px;
-  -webkit-mask: radial-gradient(circle, transparent 11px, #000 11.5px);
-  mask: radial-gradient(circle, transparent 11px, #000 11.5px);
-  --ring-colour: var(--text-3);
 }
 
 .usage-in {
@@ -289,7 +292,7 @@ button {
   inset: 0;
   display: grid;
   place-items: center;
-  color: var(--meter);
+  color: var(--text-2);
   font-size: 9.5px;
 }
 
@@ -3452,7 +3455,7 @@ a.file-link:hover {
 }
 
 @media (max-width: 820px) {
-  /* usage on a phone: two rings, the share used outside, the window's time gone by inside, the share in the middle */
+  /* usage on a phone: a ring for each window — blue, then the spare or overspent stretch — the share in the middle */
   .brand .usage {
     gap: 18px;
     margin-top: 6px;
@@ -3463,7 +3466,7 @@ a.file-link:hover {
     gap: 3px;
   }
 
-  .usage-lines,
+  .usage-line,
   .usage-percent {
     display: none;
   }

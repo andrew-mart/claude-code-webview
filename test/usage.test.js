@@ -48,19 +48,19 @@ test('readUsage_Should_TakeFresherReading_OfClaudeCodeAndStatusline', async () =
   ]);
 });
 
-// As the statusline shows it: a meter for each window — how much is used, coloured by how full it is, and a mark for
-// how much of the window has gone by; on hover, when each resets and how old the reading is. A window that reset after
-// the reading has nothing to show
+// A meter for each window: how much is used, and how that stands against how much of the window has gone by — the
+// stretch between the two is spare while the use lags behind the time, overspent once it runs ahead; on hover, when each
+// resets and how old the reading is. A window that reset after the reading has nothing to show
 test('usageView_Should_MeterEachWindow_AndTellWhenItResets', () => {
   assert.deepEqual([usageView(usage, now), usageView(usage, now + 2 * 3_600_000).meters[0]], [
     {
       meters: [
-        { name: '5h', percent: 22, level: 'calm', elapsed: 67 },
-        { name: '7d', percent: 91, level: 'hot', elapsed: 62 },
+        { name: '5h', percent: 22, elapsed: 67, gap: { from: 22, to: 67, kind: 'spare' } },
+        { name: '7d', percent: 91, elapsed: 62, gap: { from: 62, to: 91, kind: 'over' } },
       ],
       title: '5-hour window: 22% used, resets in 1h 38m\nWeek: 91% used, resets in 2d 15h\nRead 3m ago',
     },
-    { name: '5h', percent: undefined, level: 'calm', elapsed: undefined },
+    { name: '5h', percent: undefined, elapsed: undefined, gap: undefined },
   ]);
 });
 

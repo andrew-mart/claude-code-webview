@@ -866,30 +866,25 @@ async function refreshUsage() {
 }
 
 /**
- * A window's meter: its name and the share used. On a computer, two lines — a thick one for the share used, a thin one
- * under it for how much of the window has gone by; on a phone the same as two rings, the share inside (style.css).
+ * A window's meter: its name, one line — on a phone a ring — and the share used. Blue runs to the nearer of how much is
+ * used and how much of the window has gone by; from there to the farther the stretch is green while the use lags behind
+ * the time, red once it runs ahead (style.css).
  * @param {import('./model/usage.js').UsageMeter} meter
  */
 function usageMeter(meter) {
   const said = meter.percent === undefined ? '—' : `${Math.round(meter.percent)}%`;
-  const used = meter.percent === undefined ? undefined : Math.min(100, meter.percent);
-  return h('span', { className: 'usage-meter', attrs: { 'data-level': meter.level } }, [
+  const element = h('span', { className: 'usage-meter', attrs: { 'data-gap': meter.gap?.kind ?? 'none' } }, [
     h('span', { className: 'usage-name', text: meter.name }),
-    h('span', { className: 'usage-lines' }, [meterPart('usage-line usage-used', used), meterPart('usage-line usage-time', meter.elapsed)]),
-    h('span', { className: 'usage-rings' }, [meterPart('usage-ring usage-used', used), meterPart('usage-ring usage-time', meter.elapsed), h('span', { className: 'usage-in', text: said })]),
+    h('span', { className: 'usage-line' }),
+    h('span', { className: 'usage-rings' }, [h('span', { className: 'usage-ring' }), h('span', { className: 'usage-in', text: said })]),
     h('span', { className: 'usage-percent', text: said }),
   ]);
-}
-
-/**
- * A line or a ring of a meter, filled to a share; empty when the share is not known.
- * @param {string} className
- * @param {number | undefined} share — percent
- */
-function meterPart(className, share) {
-  const part = h('span', { className });
-  if (share !== undefined) part.style.setProperty('--share', String(share));
-  return part;
+  if (meter.percent !== undefined) {
+    const used = Math.min(100, meter.percent);
+    element.style.setProperty('--fill', String(meter.gap?.from ?? used));
+    element.style.setProperty('--gap-to', String(meter.gap?.to ?? used));
+  }
+  return element;
 }
 
 /** A strip at the top of the page while the viewer is out of reach. */
