@@ -11,7 +11,8 @@ import { isRecord, text } from '../public/model/narrow.js';
  *   id: the call that started it; detail: a command's text; taskId: Claude Code's id of the background work; output:
  *   the file its output goes to
  * @typedef {{ title: string, detail: string | undefined, startedAt: string }} ShellCall
- * @typedef {{ toolUseId: string, status: string, summary: string | undefined, output: string | undefined }} Notification
+ * @typedef {{ taskId: string | undefined, toolUseId: string | undefined, status: string, summary: string | undefined, output: string | undefined }} Notification —
+ *   toolUseId: the call that set the work going last — a message to a subagent resumes it
  */
 
 /** Tools that run a command: one runs in the background when its result names a background task. */
@@ -28,6 +29,7 @@ const endings = new Map([
   ['completed', 'completed'],
   ['failed', 'failed'],
   ['killed', 'killed'],
+  ['stopped', 'killed'],
 ]);
 
 export function createTaskTracker() {
@@ -89,7 +91,7 @@ export function createTaskTracker() {
   };
   /** @param {Notification} told @param {string} at */
   const noteEnd = (told, at) => {
-    const task = tasks.get(told.toolUseId);
+    const task = byTaskId(told.taskId) ?? (told.toolUseId === undefined ? undefined : tasks.get(told.toolUseId));
     const state = endings.get(told.status);
     if (task === undefined || state === undefined) return;
     tasks.set(task.id, { ...task, state, endedAt: at, note: told.summary, output: task.output ?? told.output });
@@ -137,8 +139,7 @@ function notificationOf(raw) {
         ? (text(attachment.prompt) ?? '')
         : '';
   if (!body.trimStart().startsWith('<task-notification>')) return undefined;
-  const toolUseId = tag(body, 'tool-use-id');
-  return toolUseId === undefined ? undefined : { toolUseId, status: tag(body, 'status') ?? '', summary: tag(body, 'summary'), output: tag(body, 'output-file') };
+  return { taskId: tag(body, 'task-id'), toolUseId: tag(body, 'tool-use-id'), status: tag(body, 'status') ?? '', summary: tag(body, 'summary'), output: tag(body, 'output-file') };
 }
 
 /**
