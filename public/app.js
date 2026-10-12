@@ -169,6 +169,9 @@ function createPage() {
   const tabBar = createTabBar({
     rename: (tab, label) => changeTab('/api/tab/rename', { tab, label }),
     close: (tab) => changeTab('/api/tab/close', { tab }),
+    open: (target) => {
+      location.hash = target;
+    },
   });
   /** The herdr pane whose terminal the page shows (#/pane/<id>) instead of a session. */
   /** @type {{ id: string, terminal: ReturnType<typeof mountTerminal>, title: HTMLElement } | undefined} */
