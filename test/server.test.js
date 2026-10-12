@@ -63,6 +63,18 @@ function fakeComposer(takenBack) {
 /** Where the session ran in herdr: the viewer tab of web, closed since. @type {import('../public/model/history.js').Place} */
 const closedPlace = { workspace: 'web', tab: 'viewer', earlierTabs: [], folder: 'D:/dev/x', firstSeen: 1, lastSeen: 2, open: false, note: undefined };
 
+/**
+ * A command Claude ran in the background, as the transcript has it: the call, and the result naming its output file.
+ * @param {string} output
+ */
+const backgroundCommand = (output) =>
+  [
+    { type: 'assistant', uuid: 'a2', timestamp: '2026-10-09T07:03:00.000Z', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_dev', name: 'Bash', input: { command: 'npm run dev', description: 'Start the dev server', run_in_background: true } }] } },
+    { type: 'user', uuid: 'u3', timestamp: '2026-10-09T07:03:01.000Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_dev', content: `Command running in background with ID: bdev. Output is being written to: ${output}` }] }, toolUseResult: { stdout: '', backgroundTaskId: 'bdev' } },
+  ]
+    .map((entry) => `${JSON.stringify(entry)}\n`)
+    .join('');
+
 /** The account's usage as the viewer reads it: the 5-hour window and the week. */
 const accountUsage = { fiveHour: { percent: 22, resetsAt: 1_000_000 }, sevenDay: { percent: 91, resetsAt: 2_000_000 }, readAt: 500 };
 
@@ -78,10 +90,11 @@ const webWorkspace = {
 
 /**
  * @param {import('node:test').TestContext} t
- * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[] }} [options] - takenBack: see
- *   fakeComposer; palette, publicAddresses: what the viewer is started with
+ * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[], sessionRunning?: boolean }} [options] - takenBack: see
+ *   fakeComposer; palette, publicAddresses: what the viewer is started with; sessionRunning: whether Claude Code has the
+ *   session open
  */
-async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [] } = {}) {
+async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'csv-'));
   const project = join(root, 'D--dev-x');
   await mkdir(project);
@@ -128,7 +141,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
       return { ok: true };
     },
   };
-  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage });
+  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId });
   t.after(() => server.close());
   return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls, typed, tabChanges };
 }
@@ -231,6 +244,38 @@ test('history_Should_TellWhereSessionsRanInHerdr', async (t) => {
   const response = await fetch(`${base}/api/history`);
 
   assert.deepEqual({ status: response.status, history: await response.json() }, { status: 200, history: { [sessionId]: { workspace: 'web', tab: 'viewer', earlierTabs: [], folder: 'D:/dev/x', firstSeen: 1, lastSeen: 2, open: false } } });
+});
+
+// The page learns what a session runs in the background; what still ran when Claude Code closed the session was cut
+// short with it
+test('tasks_Should_TellWhatSessionRunsInBackground', async (t) => {
+  const open = await withServer(t);
+  const output = join(open.root, 'bdev.output');
+  await writeFile(output, 'ready on :3000\n');
+  await appendFile(open.file, backgroundCommand(output));
+  const closed = await withServer(t, { sessionRunning: false });
+  await appendFile(closed.file, backgroundCommand(join(closed.root, 'gone.output')));
+
+  const replies = await Promise.all([open, closed].map(async ({ base }) => (await fetch(`${base}/api/tasks?session=${sessionId}`)).json()));
+
+  const started = { id: 'toolu_dev', kind: 'shell', title: 'Start the dev server', detail: 'npm run dev', startedAt: '2026-10-09T07:03:00.000Z', taskId: 'bdev' };
+  assert.deepEqual(replies, [[{ ...started, state: 'running', hasOutput: true }], [{ ...started, state: 'interrupted', hasOutput: false }]]);
+});
+
+// A command's output in the background, as it grows: the page reads on from where it stopped; only the session's own
+// background commands are read
+test('taskOutput_Should_ReadCommandOutputOnFromWherePageStopped', async (t) => {
+  const { root, file, base } = await withServer(t);
+  const output = join(root, 'bdev.output');
+  await writeFile(output, 'compiling\n');
+  await appendFile(file, backgroundCommand(output));
+
+  const first = await (await fetch(`${base}/api/tasks/output?session=${sessionId}&task=toolu_dev`)).json();
+  await appendFile(output, 'ready on :3000\n');
+  const next = await (await fetch(`${base}/api/tasks/output?session=${sessionId}&task=toolu_dev&from=10`)).json();
+  const other = await fetch(`${base}/api/tasks/output?session=${sessionId}&task=toolu_other`);
+
+  assert.deepEqual([first, next, other.status], [{ text: 'compiling\n', from: 0, size: 10 }, { text: 'ready on :3000\n', from: 10, size: 25 }, 404]);
 });
 
 // The page shows the account's usage the viewer reads: the 5-hour window and the week

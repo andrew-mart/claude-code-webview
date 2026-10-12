@@ -7,6 +7,7 @@ import { linkOf } from './branch.js';
 import { liteEntry } from './lite.js';
 import { slimEntry } from './slim.js';
 import { splitLines } from './tail.js';
+import { createTaskTracker } from './tasks.js';
 
 const chunkBytes = 4 * 1024 * 1024;
 
@@ -15,7 +16,9 @@ const chunkBytes = 4 * 1024 * 1024;
  *   page gets up front (lite.js), undefined for records it does not show; link: the entry's place in the conversation,
  *   for every record
  * @typedef {{ scope: 'main' | 'subagent', imageUrl: (lineStart: number, n: number) => string }} Reading
- * @typedef {{ generation: number, offset: number, carry: Buffer, entries: CachedEntry[], calls: Map<string, import('./lite.js').Call>, queue: Promise<unknown> }} FileState — calls: tool calls read whose results have not come yet
+ * @typedef {ReturnType<typeof createTaskTracker>} TaskTracker
+ * @typedef {{ generation: number, offset: number, carry: Buffer, entries: CachedEntry[], calls: Map<string, import('./lite.js').Call>, tasks: TaskTracker, queue: Promise<unknown> }} FileState — calls: tool calls read whose results have not come yet;
+ *   tasks: the work the session started in the background, followed as its entries are read
  */
 
 /**
@@ -33,7 +36,7 @@ export function createTranscriptCache({ maxFiles }) {
    */
   const stateOf = (key) => {
     const known = files.get(key);
-    const state = known ?? { generation: ++generations, offset: 0, carry: Buffer.alloc(0), entries: [], calls: new Map(), queue: Promise.resolve() };
+    const state = known ?? { generation: ++generations, offset: 0, carry: Buffer.alloc(0), entries: [], calls: new Map(), tasks: createTaskTracker(), queue: Promise.resolve() };
     files.delete(key);
     files.set(key, state);
     for (const oldest of files.keys()) {
@@ -49,7 +52,7 @@ export function createTranscriptCache({ maxFiles }) {
      * that shrank was rewritten, and is read again under a new generation.
      * @param {string} path
      * @param {Reading} reading
-     * @returns {Promise<{ entries: readonly CachedEntry[], generation: number }>}
+     * @returns {Promise<{ entries: readonly CachedEntry[], generation: number, tasks: TaskTracker }>}
      */
     read(path, reading) {
       const state = stateOf(`${reading.scope}:${path}`);
@@ -66,7 +69,7 @@ export function createTranscriptCache({ maxFiles }) {
  * @param {FileState} state
  * @param {Reading} reading
  * @param {() => number} renew — a generation no file had before
- * @returns {Promise<{ entries: readonly CachedEntry[], generation: number }>}
+ * @returns {Promise<{ entries: readonly CachedEntry[], generation: number, tasks: TaskTracker }>}
  */
 async function catchUp(path, state, reading, renew) {
   const size = (await stat(path)).size;
@@ -76,14 +79,15 @@ async function catchUp(path, state, reading, renew) {
     state.carry = Buffer.alloc(0);
     state.entries = [];
     state.calls = new Map();
+    state.tasks = createTaskTracker();
   }
   if (size > state.offset) {
-    const read = await readEntries(path, state.offset, size, state.carry, { ...reading, calls: state.calls });
+    const read = await readEntries(path, state.offset, size, state.carry, { ...reading, calls: state.calls, tasks: state.tasks });
     state.offset = read.offset;
     state.carry = read.carry;
     state.entries.push(...read.entries);
   }
-  return { entries: state.entries, generation: state.generation };
+  return { entries: state.entries, generation: state.generation, tasks: state.tasks };
 }
 
 /**
@@ -91,10 +95,10 @@ async function catchUp(path, state, reading, renew) {
  * @param {number} from
  * @param {number} to
  * @param {Buffer} carry — the start of a line read before, still without its end
- * @param {Reading & { calls: Map<string, import('./lite.js').Call> }} reading
+ * @param {Reading & { calls: Map<string, import('./lite.js').Call>, tasks: TaskTracker }} reading
  * @returns {Promise<{ offset: number, carry: Buffer, entries: CachedEntry[] }>}
  */
-async function readEntries(path, from, to, carry, { scope, imageUrl, calls }) {
+async function readEntries(path, from, to, carry, { scope, imageUrl, calls, tasks }) {
   const handle = await open(path, 'r');
   let offset = from;
   let rest = carry;
@@ -113,6 +117,7 @@ async function readEntries(path, from, to, carry, { scope, imageUrl, calls }) {
       for (const line of split.lines) {
         const raw = parseLine(line.text);
         const at = linesStart + line.start;
+        tasks.note(raw);
         const slim = slimEntry(raw, scope, (n) => imageUrl(at, n));
         entries.push({ slim: slim === undefined ? undefined : liteEntry(slim, { at, calls }), link: linkOf(raw) });
       }
