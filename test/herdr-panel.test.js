@@ -58,8 +58,8 @@ test('tabBar_Should_NameUnnamedTabByItsNumberOnce', () => {
 });
 
 /**
- * The tab bar above a session of web — s1, the unnamed tab 1, unless told — with naming, closing and the addresses it
- * opens recorded; naming and closing succeed.
+ * The tab bar above a session of web — s1, the unnamed tab 1, unless told — with naming, closing, opening tabs and the
+ * addresses it goes to recorded; each succeeds, a new tab opens as w2:p9.
  * @param {string} [session]
  */
 function barAboveSession(session = 's1') {
@@ -68,6 +68,10 @@ function barAboveSession(session = 's1') {
   const bar = createTabBar({
     open: (target) => {
       asked.push(['open', target]);
+    },
+    create: async (beside, start) => {
+      asked.push(['create', beside, start]);
+      return { ok: true, target: '#/pane/w2:p9' };
     },
     rename: async (tab, label) => {
       asked.push(['rename', tab, label]);
@@ -176,4 +180,17 @@ test('tabBar_Should_ShowOpenTabsButtons_OnlyWhenItIsClickedAgain', () => {
   click('.herdr-chip.selected');
 
   assert.deepEqual([before, afterSecondClick, shown()], [false, true, false]);
+});
+
+// "+" opens a tab beside the open one — a terminal, or Claude Code — and the page goes to it; Cancel opens nothing
+test('tabBar_Should_OpenNewTabWithTerminalOrClaude_And_GoToIt', async () => {
+  const { asked, click } = barAboveSession();
+
+  click('.herdr-tab-new');
+  click('.herdr-tab-new-cancel');
+  click('.herdr-tab-new');
+  click('.herdr-tab-new-claude');
+  await settled();
+
+  assert.deepEqual(asked, [['create', 'w2:t1', 'claude'], ['open', '#/pane/w2:p9']]);
 });

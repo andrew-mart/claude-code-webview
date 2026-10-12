@@ -8,7 +8,8 @@
 // whose panes are open in its folder, if just one workspace has panes there.
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { isRecord } from '../public/model/narrow.js';
+import { setTimeout as delay } from 'node:timers/promises';
+import { isRecord, text } from '../public/model/narrow.js';
 import { foregroundPids, snapshotOf, succeeded } from './herdr.js';
 import { latestRecords } from './registry.js';
 
@@ -21,11 +22,11 @@ import { latestRecords } from './registry.js';
  */
 
 /**
- * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, file: string, refreshMs: number }} deps
+ * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, file: string, refreshMs: number, claudeCommand: string }} deps
  *   readRecords — contents of ~/.claude/sessions/*.json; file — where the workspaces of sessions seen running are kept;
- *   refreshMs — herdr is asked at most this often
+ *   refreshMs — herdr is asked at most this often; claudeCommand — what starts Claude Code in a new tab
  */
-export function createHerdrView({ herdr, readRecords, file, refreshMs }) {
+export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCommand }) {
   /** A process's pane does not change while it runs: process-info is asked once for each Claude process. */
   /** @type {Map<number, string>} */
   const paneByPid = new Map();
@@ -112,6 +113,21 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs }) {
     return { ok: true };
   };
 
+  /**
+   * Claude Code in a new tab's shell: its command typed once the shell shows its prompt — what is typed before it may
+   * be lost.
+   * @param {string} pane
+   * @returns {Promise<boolean>} — whether herdr took the keys
+   */
+  const startClaude = async (pane) => {
+    for (let look = 0; look < shellLooks; look++) {
+      const screen = await herdr(['pane', 'read', pane, '--source', 'visible', '--format', 'text']);
+      if (screen.ok && screen.text.trim() !== '') break;
+      await delay(shellStepMs);
+    }
+    return succeeded(await herdr(['pane', 'send-text', pane, claudeCommand])) && succeeded(await herdr(['pane', 'send-keys', pane, 'enter']));
+  };
+
   /** Pages that ask at once, or within refreshMs, share one look at herdr. */
   const currentView = () => {
     if (latest === undefined || Date.now() - latest.at >= refreshMs) latest = { at: Date.now(), view: lookAtHerdr() };
@@ -132,6 +148,23 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs }) {
         return label === undefined ? [] : [[id, label]];
       });
       return { herdr: true, sessions: Object.fromEntries(found) };
+    },
+    /**
+     * A new tab beside one — in its workspace, in the folder of its pane — with a shell, or Claude Code started in it.
+     * @param {string} besideTab
+     * @param {import('../public/model/herdr.js').TabStart} start
+     * @returns {Promise<import('../public/model/herdr.js').NewTab>}
+     */
+    async createTab(besideTab, start) {
+      const view = await currentView();
+      const beside = view?.snapshot.panes.find((pane) => pane.tabId === besideTab);
+      if (beside === undefined) return { ok: false, error: 'failed' };
+      const reply = await herdr(['tab', 'create', '--workspace', beside.workspaceId, ...(beside.cwd === undefined ? [] : ['--cwd', beside.cwd])]);
+      const pane = succeeded(reply) ? rootPaneOf(reply.json) : undefined;
+      if (pane === undefined) return { ok: false, error: 'failed' };
+      latest = undefined;
+      if (start === 'claude' && !(await startClaude(pane))) return { ok: false, error: 'failed' };
+      return { ok: true, target: `#/pane/${pane}` };
     },
     /**
      * Names a tab, as herdr's own rename does.
@@ -246,4 +279,18 @@ async function readRemembered(file) {
 async function writeRemembered(file, seen) {
   await mkdir(dirname(file), { recursive: true });
   await writeFile(file, `${JSON.stringify(Object.fromEntries(seen), undefined, 1)}\n`);
+}
+
+/** A new tab's shell shows its prompt within a few seconds. */
+const shellStepMs = 150;
+const shellLooks = 30;
+
+/**
+ * The pane a new tab opened with, as herdr's tab.create tells it.
+ * @param {unknown} json
+ * @returns {string | undefined}
+ */
+function rootPaneOf(json) {
+  const result = isRecord(json) && isRecord(json.result) ? json.result : undefined;
+  return result !== undefined && isRecord(result.root_pane) ? text(result.root_pane.pane_id) : undefined;
 }

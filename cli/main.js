@@ -34,6 +34,8 @@ Usage: claude-code-webview [options]
                         Cloudflare Tunnel: https://viewer.example.com (repeat for more);
                         keep it behind a login such as Cloudflare Access
       --no-herdr        do not use herdr even if it is found: the page only reads sessions
+      --claude-command <command>
+                        what starts Claude Code in a herdr tab opened from the page (default: claude)
       --install-shortcut  create a desktop shortcut that starts the viewer (Windows);
                         add --start-menu to put it into the Start menu instead
   -h, --help            show this help
@@ -96,7 +98,7 @@ async function serveHere(command, about) {
     return 0;
   }
   if (found.kind === 'other') return portTaken(command.port);
-  const server = await serve({ port: command.port, about, palette: command.palette, publicAddresses: command.publicAddresses, herdr: command.herdr });
+  const server = await serve({ port: command.port, about, palette: command.palette, publicAddresses: command.publicAddresses, herdr: command.herdr, claudeCommand: command.claudeCommand });
   if (command.open) openBrowser(server.url);
   console.log('Press Ctrl+C to stop.');
   const shutdown = () => {
@@ -121,7 +123,7 @@ async function startInBackground(command) {
     await mkdir(stateDir, { recursive: true });
     const log = await open(logFile, 'a');
     const publicUrls = command.publicAddresses.flatMap((publicAddress) => ['--public-url', publicAddress.origin]);
-    const child = spawn(process.execPath, [binPath, '--port', String(command.port), '--palette', command.palette, ...publicUrls, ...(command.herdr === 'off' ? ['--no-herdr'] : []), '--no-open'], {
+    const child = spawn(process.execPath, [binPath, '--port', String(command.port), '--palette', command.palette, ...publicUrls, ...(command.herdr === 'off' ? ['--no-herdr'] : []), '--claude-command', command.claudeCommand, '--no-open'], {
       cwd: homedir(),
       detached: true,
       windowsHide: true,

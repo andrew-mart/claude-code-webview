@@ -87,6 +87,10 @@ open session — or terminal — the tabs of its workspace sit in a row, as in h
 tab with Claude Code opens its feed; any other tab — a shell, nvim, another agent — opens its terminal. The search finds
 workspaces and sessions by name and by what runs in them.
 
+A second click on the open tab shows its buttons: ✎ names it, × closes it (after asking — what runs in it stops), and the
+page moves to the tab next to it. **+** at the end of the row opens a tab beside the open one, in its folder: a terminal,
+or Claude Code started in it with `claude` — or with the command given by `--claude-command`, a wrapper of your own.
+
 A terminal mirrors the one in herdr, at its size: the keys you type go to it as they are — Enter, arrows, Ctrl+C — and
 what herdr shows comes back within a few hundredths of a second (the viewer talks to herdr through its socket; where
 the socket is not known, through the herdr program, a fifth of a second). herdr does not tell where the cursor is, so no
@@ -199,6 +203,7 @@ Several computers? Give each its own tunnel, hostname and `--palette`, and the p
 | `node bin/claude-code-webview.js --public-url https://viewer.example.com` | also answer at this address, behind a tunnel (see **On your phone**); repeat for more |
 | `node bin/claude-code-webview.js --no-open` | do not open the browser |
 | `node bin/claude-code-webview.js --no-herdr` | do not use herdr even if it is found: the page only reads sessions |
+| `node bin/claude-code-webview.js --claude-command my-claude` | start Claude Code with this command in a tab opened from the page (default: `claude`) |
 | `node bin/claude-code-webview.js --install-shortcut` | Windows: desktop shortcut that starts the viewer in the background (`--start-menu` for the Start menu) |
 
 `npm start -- <options>` does the same as `node bin/claude-code-webview.js <options>`.

@@ -101,17 +101,18 @@ export function createHerdrSidebar(element) {
 }
 
 /**
- * @typedef {{ rename: (tabId: string, label: string) => Promise<import('../model/herdr.js').TabChange>, close: (tabId: string) => Promise<import('../model/herdr.js').TabChange>, open: (target: string) => void }} TabActions
- *   — rename and close resolve once the page shows the change; open goes to a page address
+ * @typedef {{ rename: (tabId: string, label: string) => Promise<import('../model/herdr.js').TabChange>, close: (tabId: string) => Promise<import('../model/herdr.js').TabChange>, open: (target: string) => void, create: (besideTab: string, start: import('../model/herdr.js').TabStart) => Promise<import('../model/herdr.js').NewTab> }} TabActions
+ *   — rename, close and create resolve once the page shows the change; open goes to a page address
  */
 
 /**
  * The tabs of the open session's or terminal's herdr workspace, above it. A second click on the open tab shows its
  * buttons: it can be named — a tab nobody named goes by its number — and closed, which stops what runs in it, so closing asks first; the page then stays in the
- * workspace, on the tab after the closed one, or before it when it was the last.
+ * workspace, on the tab after the closed one, or before it when it was the last. "+" opens a tab beside the open one —
+ * a terminal, or Claude Code — and the page goes to it.
  * @param {TabActions} actions
  */
-export function createTabBar({ rename, close, open }) {
+export function createTabBar({ rename, close, open, create }) {
   const element = h('nav', { className: 'herdr-tab-bar', attrs: { 'aria-label': 'herdr tabs', hidden: '' } });
   let shown = '';
   /** What the bar was given last: shown once naming or closing is over. */
@@ -202,6 +203,37 @@ export function createTabBar({ rename, close, open }) {
     yes.focus();
   };
 
+  /**
+   * "+" gives way to the choice of what the new tab runs.
+   * @param {HTMLElement} adding
+   * @param {import('../model/herdr.js').HerdrTab} beside — the open tab
+   */
+  const startAdding = (adding, beside) => {
+    busy = true;
+    const message = h('span', { text: 'New tab:' });
+    /** @param {import('../model/herdr.js').TabStart} start @param {string} text @param {string} className */
+    const choice = (start, text, className) => {
+      const made = h('button', { className, text, attrs: { type: 'button' } });
+      made.addEventListener('click', () => {
+        for (const button of choices.querySelectorAll('button')) button.disabled = true;
+        void create(beside.id, start).then((outcome) => {
+          if (outcome.ok) {
+            finish();
+            open(outcome.target);
+            return;
+          }
+          for (const button of choices.querySelectorAll('button')) button.disabled = false;
+          message.textContent = 'herdr did not open a tab.';
+        });
+      });
+      return made;
+    };
+    const cancel = h('button', { className: 'herdr-tab-new-cancel', text: 'Cancel', attrs: { type: 'button' } });
+    cancel.addEventListener('click', finish);
+    const choices = h('span', { className: 'herdr-tab-confirm' }, [message, choice('shell', 'Terminal', 'herdr-tab-new-shell'), choice('claude', 'Claude Code', 'herdr-tab-new-claude'), cancel]);
+    adding.replaceWith(choices);
+  };
+
   const bar = {
     element,
     /**
@@ -240,7 +272,9 @@ export function createTabBar({ rename, close, open }) {
         closing.addEventListener('click', () => startClosing(actions, tab, place.workspace.tabs));
         return [chip, actions];
       });
-      element.replaceChildren(h('span', { className: 'herdr-chip-workspace', text: place.workspace.label }), ...chips);
+      const adding = h('button', { className: 'icon-button herdr-tab-new', title: 'New tab', attrs: { type: 'button', 'aria-label': 'New tab' } }, [icon('plus')]);
+      adding.addEventListener('click', () => startAdding(adding, place.tab));
+      element.replaceChildren(h('span', { className: 'herdr-chip-workspace', text: place.workspace.label }), ...chips, adding);
       element.querySelector('.herdr-chip.selected')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     },
   };

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openedAt, parseHerdrLayout, parseTabChange, placeOf, searchLayout, sessionsByActivity, tabTarget } from '../public/model/herdr.js';
+import { openedAt, parseHerdrLayout, parseNewTab, parseTabChange, placeOf, searchLayout, sessionsByActivity, tabTarget } from '../public/model/herdr.js';
 
 const session = '7d4e1b20-2222-4333-8444-955566667777';
 
@@ -107,5 +107,13 @@ test('parseTabChange_Should_TakeKnownReplies_And_CountAnyOtherAsFailed', () => {
   assert.deepEqual(
     [{ ok: true }, { ok: false, error: 'empty' }, { ok: false, error: 'exploded' }, undefined].map(parseTabChange),
     [{ ok: true }, { ok: false, error: 'empty' }, { ok: false, error: 'failed' }, { ok: false, error: 'failed' }],
+  );
+});
+
+// A tab opened from the page comes back with its page address; a reply without one — or none — is a tab not opened
+test('parseNewTab_Should_TakeAddressOfNewTab_And_CountAnyOtherAsFailed', () => {
+  assert.deepEqual(
+    [{ ok: true, target: '#/pane/w2:p9' }, { ok: true }, { ok: false, error: 'failed' }, undefined].map(parseNewTab),
+    [{ ok: true, target: '#/pane/w2:p9' }, { ok: false, error: 'failed' }, { ok: false, error: 'failed' }, { ok: false, error: 'failed' }],
   );
 });
