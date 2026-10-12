@@ -30,6 +30,15 @@ function tabContent(tab) {
 }
 
 /**
+ * A tab by its number and name; a tab nobody named is named by herdr with its number, which is said once.
+ * @param {import('../model/herdr.js').HerdrTab} tab
+ * @returns {string}
+ */
+function tabName(tab) {
+  return tab.label === String(tab.number) ? tab.label : `${tab.number} ${tab.label}`;
+}
+
+/**
  * @param {string | undefined} target — the page address, none for a tab with nothing to open
  * @param {string} className
  * @param {readonly (Node | string)[]} children
@@ -70,11 +79,12 @@ export function createHerdrSidebar(element) {
       });
       const rows = sessions.map(({ workspace, tab, pane }) => {
         const what = pane.agent === 'claude' ? undefined : pane.agent;
+        const title = pane.title === '' ? undefined : pane.title;
         const row = link(pane.session === undefined ? `#/pane/${pane.id}` : `#/${pane.session}`, 'herdr-tab', [
           statusDot(pane.status),
           h('span', { className: 'herdr-tab-text' }, [
-            h('span', { className: 'herdr-tab-name', text: `${tab.number} ${tab.label}` }),
-            h('span', { className: 'herdr-tab-content', text: [workspace.label, what, pane.title].filter((part) => part !== undefined && part !== '').join(' · ') }),
+            h('span', { className: 'herdr-tab-title', text: title === undefined ? tabName(tab) : title }),
+            h('span', { className: 'herdr-tab-where', text: [workspace.label, title === undefined ? undefined : tabName(tab), what].filter((part) => part !== undefined).join(' · ') }),
           ]),
         ]);
         row.classList.toggle('selected', opened !== undefined && (opened.kind === 'session' ? pane.session === opened.id : pane.id === opened.id));
