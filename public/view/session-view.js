@@ -1,6 +1,6 @@
 // @ts-check
 // Session feed: subscribes to the entry stream and renders entries as they arrive.
-import { layoutActivity } from '../model/activity.js';
+import { expandedRows, layoutActivity } from '../model/activity.js';
 import { anchorLabel } from '../model/bookmarks.js';
 import { interpretEntry } from '../model/entry.js';
 import { formatDuration, formatTokens } from '../model/format.js';
@@ -663,17 +663,17 @@ export const activityModeEvent = 'viewer:activity-mode';
  * @returns {ActivityGroup}
  */
 function createActivityGroup() {
-  /** @type {{ build: () => HTMLElement, element: HTMLElement | undefined, item: () => import('../model/activity.js').ActivityItem }[]} */
+  /** @type {{ build: () => HTMLElement, element: HTMLElement | undefined, item: () => import('../model/activity.js').ActivityItem, opened: boolean | undefined }[]} */
   const rows = [];
   let expanded = false;
   const header = h('button', { className: 'activity-header', attrs: { type: 'button' } });
   const element = h('div', { className: 'activity' }, [header]);
 
   const refresh = () => {
-    const layout = layoutActivity(
-      rows.map((row) => row.item()),
-      { mode: activityMode(), expanded, edits: document.documentElement.dataset.edits === 'shown' ? 'shown' : 'folded' },
-    );
+    const items = rows.map((row) => row.item());
+    const edits = document.documentElement.dataset.edits === 'shown' ? 'shown' : 'folded';
+    const layout = layoutActivity(items, { mode: activityMode(), expanded, edits });
+    const opened = expandedRows(items, edits);
     renderActivityHeader(header, layout.header);
     // Without a header the first visible row is the top of the frame, so it needs no separator line above it.
     const flush = header.hidden ? layout.visible.indexOf(true) : -1;
@@ -683,6 +683,13 @@ function createActivityGroup() {
       const shown = row.element ?? place(index, row.build());
       shown.hidden = !visible;
       shown.classList.toggle('flush', index === flush);
+      // The setting opens its rows and closes them again; a row it never opened is left as it is — a question opens
+      // by itself, a row opened by hand stays open.
+      const open = opened[index] === true;
+      if (open !== (row.opened ?? false) && shown instanceof HTMLDetailsElement) {
+        shown.open = open;
+        row.opened = open;
+      }
     });
     element.hidden = layout.header.kind === 'none' && !layout.visible.includes(true);
   };
@@ -708,7 +715,7 @@ function createActivityGroup() {
    * @param {() => import('../model/activity.js').ActivityItem} item
    */
   const add = (build, item) => {
-    rows.push({ build, element: undefined, item });
+    rows.push({ build, element: undefined, item, opened: undefined });
   };
 
   return {
