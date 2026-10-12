@@ -1246,36 +1246,26 @@ input.herdr-tab-name.failed {
   font-size: 11.5px;
 }
 
-/* on a waiting prompt: send the queue now, past it — Claude Code's Ctrl+Enter */
-.waiting .queued {
-  display: flex;
-  flex-wrap: wrap;
+/* on the left of a waiting prompt: the icon that sends the queue now, past it — Claude Code's Ctrl+Enter */
+.msg.waiting {
   align-items: center;
-  gap: 4px 10px;
+  gap: 6px;
 }
 
 .waiting-send-now {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 8px 1px 6px;
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  background: var(--bg-elev);
-  color: var(--text-2);
-  font: inherit;
-  font-size: 11.5px;
-  cursor: pointer;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  color: var(--text-3);
 }
 
 .waiting-send-now:hover {
-  border-color: var(--accent);
   color: var(--accent);
 }
 
 .waiting-send-now svg {
-  width: 11px;
-  height: 11px;
+  width: 14px;
+  height: 14px;
   fill: currentColor;
 }
 

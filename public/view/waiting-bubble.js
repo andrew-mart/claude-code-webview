@@ -1,5 +1,5 @@
 // @ts-check
-// A prompt waiting in Claude Code's queue, under the feed: not in the conversation yet. A small button on it sends the
+// A prompt waiting in Claude Code's queue, under the feed: not in the conversation yet. An icon on its left sends the
 // queue now, as Ctrl+Enter does in the terminal.
 import { h } from './dom.js';
 import { icon } from './icons.js';
@@ -10,11 +10,12 @@ import { icon } from './icons.js';
  * @returns {HTMLElement}
  */
 export function waitingBubble(waiting, sendNow) {
-  const note = h('div', { className: 'queued' }, [h('span', { text: 'Queued — Claude reads it after the current step' })]);
-  if (sendNow !== undefined) {
-    const button = h('button', { className: 'waiting-send-now', title: 'Send now, past the queue (Ctrl+Enter)', attrs: { type: 'button' } }, [icon('forward'), h('span', { text: 'Send now' })]);
-    button.addEventListener('click', sendNow);
-    note.append(button);
-  }
-  return h('div', { className: 'msg user waiting' }, [h('div', { className: 'bubble' }, [h('div', { className: 'bubble-text', text: waiting === '' ? 'Images' : waiting }), note])]);
+  const bubble = h('div', { className: 'bubble' }, [
+    h('div', { className: 'bubble-text', text: waiting === '' ? 'Images' : waiting }),
+    h('div', { className: 'queued', text: 'Queued — Claude reads it after the current step' }),
+  ]);
+  if (sendNow === undefined) return h('div', { className: 'msg user waiting' }, [bubble]);
+  const button = h('button', { className: 'icon-button waiting-send-now', title: 'Send now, past the queue (Ctrl+Enter)', attrs: { type: 'button', 'aria-label': 'Send now' } }, [icon('forward')]);
+  button.addEventListener('click', sendNow);
+  return h('div', { className: 'msg user waiting' }, [button, bubble]);
 }
