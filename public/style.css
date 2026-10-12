@@ -207,8 +207,7 @@ button {
 
 /* the account's usage under the viewer's name: a meter for the 5-hour window and one for the week. Blue runs to the
    nearer of how much is used and how much of the window has gone by; from there to the farther the stretch is green —
-   spare — while the use lags behind the time, red — overspent — once it runs ahead. When each resets — on hover. On a
-   phone the line is a ring (below). */
+   spare — while the use lags behind the time, red — overspent — once it runs ahead. When each resets — on hover. */
 .brand .usage {
   display: flex;
   flex-basis: 100%;
@@ -270,33 +269,10 @@ button {
   color: var(--text-2);
 }
 
-.usage-meter[data-gap='over'] .usage-percent,
-.usage-meter[data-gap='over'] .usage-in {
+.usage-meter[data-gap='over'] .usage-percent {
   color: var(--danger);
 }
 
-.usage-rings {
-  display: none;
-}
-
-.usage-ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: conic-gradient(var(--used-start) 0%, var(--used-end) var(--used-to), var(--gap-start) var(--gap-from), var(--gap-end) var(--gap-until), var(--border) var(--track-from));
-  background: conic-gradient(in oklch, var(--used-start) 0%, var(--used-end) var(--used-to), var(--gap-start) var(--gap-from), var(--gap-end) var(--gap-until), var(--border) var(--track-from));
-  -webkit-mask: radial-gradient(circle, transparent 14.5px, #000 15px);
-  mask: radial-gradient(circle, transparent 14.5px, #000 15px);
-}
-
-.usage-in {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  color: var(--text-2);
-  font-size: 9.5px;
-}
 
 .search {
   width: 100%;
@@ -3545,34 +3521,6 @@ a.file-link:hover {
 }
 
 @media (max-width: 820px) {
-  /* usage on a phone: a ring for each window — blue, then the spare or overspent stretch — the share in the middle */
-  .brand .usage {
-    gap: 18px;
-    margin-top: 6px;
-  }
-
-  .usage-meter {
-    flex: none;
-    flex-direction: column;
-    gap: 3px;
-  }
-
-  .usage-line,
-  .usage-percent {
-    display: none;
-  }
-
-  .usage-rings {
-    position: relative;
-    display: block;
-    width: 38px;
-    height: 38px;
-  }
-
-  .usage-name {
-    order: 1;
-  }
-
   .layout,
   .layout.with-panel {
     grid-template-columns: minmax(0, 1fr);
