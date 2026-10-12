@@ -6,11 +6,11 @@ import { driveBtw, sidePanel } from '../server/btw.js';
  * A stand-in for Claude Code's terminal with /btw. Enter on "/btw …" in the box opens the side answer over the box:
  * "Answering…" for a few looks, then the answer `height` lines at a time, indented and with a blank line above and
  * below, as Claude Code draws it; ↓ scrolls it by three lines, Esc closes it.
- * @param {{ answer: readonly string[], height?: number, answeringLooks?: number, box?: string, asks?: boolean }} side —
+ * @param {{ answer: readonly string[], height?: number, answeringLooks?: number, box?: string, asks?: boolean, columns?: number }} side —
  *   box: text in the prompt box before the question; asks: false — Enter leaves the question in the box, as with a
- *   conversation that has nothing in it yet
+ *   conversation that has nothing in it yet; columns: the terminal's width, the panel's top edge spans it
  */
-function fakeClaude({ answer, height = 5, answeringLooks = 2, box = '', asks = true }) {
+function fakeClaude({ answer, height = 5, answeringLooks = 2, box = '', asks = true, columns = 80 }) {
   /** @type {{ box: string, typed: string[], keys: string[], overlay: { question: string, looksLeft: number, scroll: number } | undefined }} */
   const state = { box, typed: [], keys: [], overlay: undefined };
   const screen = () => {
@@ -19,10 +19,10 @@ function fakeClaude({ answer, height = 5, answeringLooks = 2, box = '', asks = t
     if (overlay === undefined) return [...above, '─'.repeat(30), `❯ ${state.box}`, '─'.repeat(30), '  ⏵⏵ auto mode on'].join('\n');
     if (overlay.looksLeft > 0) {
       overlay.looksLeft--;
-      return [...above, '▔'.repeat(30), `    /btw ${overlay.question}`, '      ✽ Answering…', '    Esc to close'].join('\n');
+      return [...above, '▔'.repeat(columns), '', `    /btw ${overlay.question}`, '      ✽ Answering…', '    Esc to close'].join('\n');
     }
     const shown = answer.slice(overlay.scroll, overlay.scroll + height).map((line) => (line === '' ? '' : `      ${line}`));
-    return [...above, '▔'.repeat(30), `    /btw ${overlay.question}`, '', ...shown, '', '    ↑/↓ to scroll · c to copy · f to fork · Esc to close'].join('\n');
+    return [...above, '▔'.repeat(columns), '', `    /btw ${overlay.question}`, '', ...shown, '', '    ↑/↓ to scroll · c to copy · f to fork · Esc to close'].join('\n');
   };
   /** @type {import('../server/claude-screen.js').Terminal} */
   const terminal = {
@@ -101,18 +101,32 @@ test('driveBtw_Should_ClosePanel_When_AnswerDoesNotCome', async () => {
   assert.deepEqual({ outcome, keys: claude.state.keys, open: claude.state.overlay !== undefined }, { outcome: { ok: false, error: 'no-answer' }, keys: ['enter', 'esc'], open: false });
 });
 
-// The panel as Claude Code 2.1 draws it at 80 columns: its top edge under the effort label, the question wrapped, the
-// answer indented by six between blank lines
+// The panel as Claude Code 2.1 draws it at 80 columns: its top edge under the effort label, a long question cut to one
+// line with an ellipsis, the answer indented by six between blank lines and wrapped at the 74 columns left
 test('sidePanel_Should_ReadAnswerOfThisQuestion_FromPanelAsClaudeCodeDrawsIt', () => {
   const long = 'which word did you reply with, and how many letters does it have, counting every one of them?';
   const top = [' ▐▛███▛█   Claude Code v2.1.296', '❯ Reply with just the word: ready', '● ready', '✻ Churned for 4s'];
-  const edge = `${'▔'.repeat(58)} ◉ xhigh · /effort ▔`;
-  const asked = ['    /btw which word did you reply with, and how many letters does it have, counting', '    every one of them?'];
-  const answering = [...top, edge, ...asked, '      ✢ Answering…', '    Esc to close'].join('\n');
-  const answered = [...top, edge, ...asked, '', '      The word is ready — five letters:   ', '', '        r-e-a-d-y', '', '    ↑/↓ to scroll · c to copy · f to fork · Esc to close'].join('\n');
+  const edge = `${'▔'.repeat(60)} ◉ xhigh · /effort ▔`;
+  const asked = ['    /btw which word did you reply with, and how many letters does it have, cou…'];
+  const answering = [...top, edge, '', ...asked, '      ✢ Answering…', '    Esc to close'].join('\n');
+  const answered = [...top, edge, '', ...asked, '', '      The word is ready — five letters:   ', '', '        r-e-a-d-y', '', '    ↑/↓ to scroll · c to copy · f to fork · Esc to close'].join('\n');
 
   assert.deepEqual(
     [sidePanel(answering, long), sidePanel(answered, long), sidePanel(answered, 'another question')],
-    [{ state: 'answering' }, { state: 'answered', lines: ['The word is ready — five letters:', '', '  r-e-a-d-y'] }, undefined],
+    [{ state: 'answering' }, { state: 'answered', lines: ['The word is ready — five letters:', '', '  r-e-a-d-y'], width: 74 }, undefined],
   );
+});
+
+// The panel wraps the answer at its width (here 30 − 6 = 24 columns): the wrapped lines are joined again, so the page
+// wraps them at its own width; a table's rows stay as they are, and a line that was not full stays a line of its own
+test('driveBtw_Should_JoinLinesThePanelWrapped_ButNotTableRowsOrShortLines', async () => {
+  const wrapped = ['The queue reads the', 'limit on start, so a', 'restart is needed.', 'Two lines:', '┌──────┬──────┐', '│ Part │ MR   │', '└──────┴──────┘', '- one item that runs', '  over the edge'];
+  const claude = fakeClaude({ answer: wrapped, height: 20, columns: 30 });
+
+  const outcome = await driveBtw(claude.terminal, { question, wait: noWait });
+
+  assert.deepEqual(outcome, {
+    ok: true,
+    answer: ['The queue reads the limit on start, so a restart is needed.', 'Two lines:', '┌──────┬──────┐', '│ Part │ MR   │', '└──────┴──────┘', '- one item that runs over the edge'].join('\n'),
+  });
 });

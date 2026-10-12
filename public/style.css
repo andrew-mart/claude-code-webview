@@ -1942,13 +1942,38 @@ table.diff tr.gap td {
 }
 
 .side-answer-text {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   max-height: 40vh;
   overflow: auto;
   padding: 10px 14px 12px;
   font-size: 14px;
   line-height: 1.5;
+}
+
+/* The answer's own line breaks stay: the viewer has joined only the lines the terminal wrapped. */
+.side-answer-paragraph {
+  margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.side-answer-table table {
+  font-size: 13px;
+}
+
+/* .md breaks words anywhere; a column is narrowed down to whole words, as in the feed's tables. */
+.side-answer-table :is(th, td) {
+  overflow-wrap: break-word;
+}
+
+/* Box lines that make no table: as drawn, scrolling sideways. */
+.side-answer-box {
+  margin: 0;
+  overflow-x: auto;
+  font: 12px/1.35 var(--font-mono);
+  white-space: pre;
 }
 
 .side-answer.answering .side-answer-text {
