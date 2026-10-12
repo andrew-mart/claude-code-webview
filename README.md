@@ -53,9 +53,8 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   their `[1m]` variant); for a model Claude Code does not know only the size is shown.
 - **Usage.** Under the viewer's name, a meter for your plan's 5-hour window and one for the week. Blue runs to the
   nearer of how much is used and how much of the window has gone by; from there to the farther the stretch is green —
-  spare — while the use lags behind the time, red — overspent — once it runs ahead. On a phone the meters are rings.
-  Hover for when each resets and how old the reading is. Claude Code reads the usage only
-  now and then and keeps the reading in `~/.claude.json`, so it may be hours old. A statusline command is given a fresh
+  spare — while the use lags behind the time, red — overspent — once it runs ahead. Hover for
+  when each resets and how old the reading is. Claude Code reads the usage only now and then and keeps the reading in `~/.claude.json`, so it may be hours old. A statusline command is given a fresh
   one with every reply (`rate_limits` in its input); have yours drop it into `~/.claude-code-webview/rate-limits.json`
   and the viewer shows whichever reading is fresher. In a bash statusline:
   `input=$(cat); echo "$input" | jq -c '.rate_limits // empty' > ~/.claude-code-webview/rate-limits.json`.

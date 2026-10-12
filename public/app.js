@@ -873,7 +873,7 @@ async function refreshUsage() {
 }
 
 /**
- * A window's meter: its name, one line — on a phone a ring — and the share used. Blue runs to the nearer of how much is
+ * A window's meter: its name, one line and the share used. Blue runs to the nearer of how much is
  * used and how much of the window has gone by; from there to the farther the stretch is green while the use lags behind
  * the time, red once it runs ahead (style.css).
  * @param {import('./model/usage.js').UsageMeter} meter
@@ -883,7 +883,6 @@ function usageMeter(meter) {
   const element = h('span', { className: 'usage-meter', attrs: { 'data-gap': meter.gap?.kind ?? 'none' } }, [
     h('span', { className: 'usage-name', text: meter.name }),
     h('span', { className: 'usage-line' }),
-    h('span', { className: 'usage-rings' }, [h('span', { className: 'usage-ring' }), h('span', { className: 'usage-in', text: said })]),
     h('span', { className: 'usage-percent', text: said }),
   ]);
   if (meter.percent !== undefined) {
