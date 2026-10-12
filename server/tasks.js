@@ -164,23 +164,30 @@ const shownOutputBytes = 64 * 1024;
 
 /**
  * @typedef {TaskState | 'interrupted'} SeenState — interrupted: it still ran when Claude Code closed the session
- * @typedef {Omit<Task, 'output' | 'state'> & { state: SeenState, hasOutput: boolean }} SeenTask — hasOutput: the
- *   command's output is still kept (Claude Code clears its temporary folder after a while)
+ * @typedef {Omit<Task, 'output' | 'state'> & { state: SeenState, hasOutput: boolean, lastActiveAt: string | undefined }} SeenTask —
+ *   hasOutput: the command's output is still kept (Claude Code clears its temporary folder after a while);
+ *   lastActiveAt: when a subagent last wrote to its transcript
  */
 
 /**
  * The session's tasks as the page sees them.
  * @param {readonly Task[]} tasks
  * @param {boolean} sessionRunning — Claude Code has the session open: what it started can still run
+ * @param {(agentId: string) => Promise<string | undefined>} transcriptOf — a subagent's transcript, if there is one
  * @returns {Promise<SeenTask[]>}
  */
-export async function seenTasks(tasks, sessionRunning) {
+export async function seenTasks(tasks, sessionRunning, transcriptOf) {
   return Promise.all(
-    tasks.map(async ({ output, state, ...task }) => ({
-      ...task,
-      state: state === 'running' && !sessionRunning ? 'interrupted' : state,
-      hasOutput: task.kind === 'shell' && output !== undefined && (await stat(output).then((file) => file.isFile(), () => false)),
-    })),
+    tasks.map(async ({ output, state, ...task }) => {
+      const transcript = task.kind === 'agent' && task.taskId !== undefined ? await transcriptOf(task.taskId) : undefined;
+      const written = transcript === undefined ? undefined : await stat(transcript).then((file) => file.mtime, () => undefined);
+      return {
+        ...task,
+        state: state === 'running' && !sessionRunning ? 'interrupted' : state,
+        hasOutput: task.kind === 'shell' && output !== undefined && (await stat(output).then((file) => file.isFile(), () => false)),
+        lastActiveAt: written?.toISOString(),
+      };
+    }),
   );
 }
 

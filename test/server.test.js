@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { appendFile, mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readdir, readFile, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
@@ -288,6 +288,23 @@ test('tasks_Should_TellWhatSessionRunsInBackground', async (t) => {
 
   const started = { id: 'toolu_dev', kind: 'shell', title: 'Start the dev server', detail: 'npm run dev', startedAt: '2026-10-09T07:03:00.000Z', taskId: 'bdev' };
   assert.deepEqual(replies, [[{ ...started, state: 'running', hasOutput: true }], [{ ...started, state: 'interrupted', hasOutput: false }]]);
+});
+
+// A subagent at work tells when it last wrote to its transcript: one silent for long has likely stopped without a word
+test('tasks_Should_TellWhenSubagentLastWrote', async (t) => {
+  const { file, base } = await withServer(t);
+  const subagents = join(file.replace(/[.]jsonl$/, ''), 'subagents');
+  await mkdir(subagents, { recursive: true });
+  const transcript = join(subagents, 'agent-aroutes.jsonl');
+  await writeFile(transcript, '{}');
+  await utimes(transcript, new Date('2026-10-09T07:10:00.000Z'), new Date('2026-10-09T07:10:00.000Z'));
+  const call = { type: 'assistant', uuid: 'a3', timestamp: '2026-10-09T07:04:00.000Z', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_routes', name: 'Agent', input: { description: 'Find the routes', subagent_type: 'Explore', prompt: 'Find them' } }] } };
+  const launched = { type: 'user', uuid: 'u4', timestamp: '2026-10-09T07:04:01.000Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_routes', content: 'Async agent launched successfully.' }] }, toolUseResult: { status: 'async_launched', isAsync: true, agentId: 'aroutes' } };
+  await appendFile(file, [call, launched].map((entry) => JSON.stringify(entry)).join(String.fromCharCode(10)) + String.fromCharCode(10));
+
+  const tasks = await (await fetch(`${base}/api/tasks?session=${sessionId}`)).json();
+
+  assert.deepEqual(tasks, [{ id: 'toolu_routes', kind: 'agent', title: 'Find the routes', detail: 'Explore', startedAt: '2026-10-09T07:04:00.000Z', state: 'running', taskId: 'aroutes', hasOutput: false, lastActiveAt: '2026-10-09T07:10:00.000Z' }]);
 });
 
 // A command's output in the background, as it grows: the page reads on from where it stopped; only the session's own

@@ -6,9 +6,13 @@ import { isRecord, text } from './narrow.js';
 /**
  * @typedef {'running' | 'completed' | 'failed' | 'killed' | 'interrupted'} TaskState — interrupted: it still ran when
  *   Claude Code closed the session
- * @typedef {{ id: string, kind: 'shell' | 'agent', title: string, detail: string | undefined, startedAt: string, endedAt: string | undefined, state: TaskState, note: string | undefined, taskId: string | undefined, hasOutput: boolean }} Task
- *   id: the call that started it; detail: a command's text, a subagent's type; hasOutput: a command's output is kept
+ * @typedef {{ id: string, kind: 'shell' | 'agent', title: string, detail: string | undefined, startedAt: string, endedAt: string | undefined, state: TaskState, note: string | undefined, taskId: string | undefined, hasOutput: boolean, lastActiveAt: string | undefined }} Task
+ *   id: the call that started it; detail: a command's text, a subagent's type; hasOutput: a command's output is kept;
+ *   lastActiveAt: when a subagent last wrote to its transcript
  */
+
+/** A running subagent that has not written for this long has likely stopped without a word. */
+const quietMs = 20 * 60_000;
 
 /** @type {readonly TaskState[]} */
 const states = ['running', 'completed', 'failed', 'killed', 'interrupted'];
@@ -41,7 +45,7 @@ function taskOf(json) {
   const kind = json.kind === 'shell' || json.kind === 'agent' ? json.kind : undefined;
   const state = states.find((known) => known === json.state);
   if (id === undefined || title === undefined || startedAt === undefined || kind === undefined || state === undefined) return undefined;
-  return { id, kind, title, detail: text(json.detail), startedAt, endedAt: text(json.endedAt), state, note: text(json.note), taskId: text(json.taskId), hasOutput: json.hasOutput === true };
+  return { id, kind, title, detail: text(json.detail), startedAt, endedAt: text(json.endedAt), state, note: text(json.note), taskId: text(json.taskId), hasOutput: json.hasOutput === true, lastActiveAt: text(json.lastActiveAt) };
 }
 
 /**
@@ -52,8 +56,10 @@ function taskOf(json) {
 export function taskState(task, now) {
   const started = Date.parse(task.startedAt);
   switch (task.state) {
-    case 'running':
-      return `running · ${formatDuration(now - started)}`;
+    case 'running': {
+      const quiet = task.lastActiveAt === undefined ? 0 : now - Date.parse(task.lastActiveAt);
+      return quiet >= quietMs ? `quiet for ${formatDuration(quiet)} · no word that it ended` : `running · ${formatDuration(now - started)}`;
+    }
     case 'interrupted':
       return 'cut short: the session closed';
     default: {

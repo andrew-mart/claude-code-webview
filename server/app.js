@@ -718,7 +718,7 @@ async function sendTasks(deps, id, response) {
   const path = await deps.index.find(id);
   if (path === undefined) return sendJson(response, []);
   const read = await deps.transcripts.read(path, { scope: 'main', imageUrl: (lineStart, n) => imageLink(id, null, lineStart, n) });
-  return sendJson(response, await seenTasks(read.tasks.list(), await deps.isRunning(id)));
+  return sendJson(response, await seenTasks(read.tasks.list(), await deps.isRunning(id), (agentId) => deps.index.findSubagent(id, agentId)));
 }
 
 /**
