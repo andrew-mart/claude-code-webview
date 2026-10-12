@@ -233,11 +233,12 @@ button {
   --used-end: #3b5bdb;
   --gap-start: transparent;
   --gap-end: transparent;
-  /* the colours flow into each other across the boundary — over a stretch no longer than half of either side, so a
-     short one keeps its colour — and the end fades into the empty track */
-  --blend: min(7, calc(var(--fill, 0) / 2), calc((var(--gap-to, 0) - var(--fill, 0)) / 2));
-  --used-to: calc((var(--fill, 0) - var(--blend)) * 1%);
-  --gap-from: calc((var(--fill, 0) + var(--blend)) * 1%);
+  /* the colours flow into each other across the boundary, over a stretch no longer than half of the gap, so a short gap
+     keeps its colour. A short blue does not shrink its flow: it starts at the edge and fades out past its share — no
+     blue at all for none used — and the end fades into the empty track */
+  --blend: min(7, calc((var(--gap-to, 0) - var(--fill, 0)) / 2));
+  --used-to: calc(max(0, var(--fill, 0) - var(--blend)) * 1%);
+  --gap-from: calc((var(--fill, 0) + min(var(--blend), var(--fill, 0))) * 1%);
   --gap-until: calc((var(--gap-to, 0) - 2) * 1%);
   --track-from: calc((var(--gap-to, 0) + 2) * 1%);
 }
