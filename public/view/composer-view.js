@@ -25,12 +25,13 @@ const serverSilent = { shown: true, enabled: false, canInterrupt: false, canReop
 
 /**
  * @param {string} sessionId
- * @param {{ focusBox: 'when-ready' | 'no', placeOf: () => { workspace: string, tab: string | undefined } | undefined }} options —
+ * @param {{ focusBox: 'when-ready' | 'no', placeOf: () => { workspace: string, tab: string | undefined } | undefined, asides: import('./aside-store.js').AsideStore }} options —
  *   focusBox when-ready: the user opened the session, so the box takes the focus once the session can be written to; no:
- *   following the active session switched to it. placeOf: the herdr workspace and tab the session ran in, if known
+ *   following the active session switched to it. placeOf: the herdr workspace and tab the session ran in, if known. asides:
+ *   the side questions and answers of the page's sessions — one outlives the box it was asked in
  * @returns {{ element: HTMLElement, say: (message: string, tone: 'ok' | 'error') => void, fill: (text: string) => void, stop: () => boolean, dispose: () => void }} — stop: Claude stopped if it was working
  */
-export function createComposer(sessionId, { focusBox, placeOf }) {
+export function createComposer(sessionId, { focusBox, placeOf, asides }) {
   /** @type {import('../model/composer.js').Keyboard} */
   const keyboard = matchMedia('(pointer: coarse)').matches ? 'touch' : 'physical';
   const draftKey = `viewer.draft.${sessionId}`;
@@ -47,6 +48,8 @@ export function createComposer(sessionId, { focusBox, placeOf }) {
   const status = h('div', { className: 'composer-status', attrs: { role: 'status' } });
   let enabled = false;
   let sending = false;
+  /** The session's side question is being answered: the box waits. */
+  let asking = false;
   // A phone's keyboard would cover the feed: there the box waits for a tap.
   let focusPending = focusBox === 'when-ready' && keyboard === 'physical';
   /** @type {ReturnType<typeof setTimeout> | undefined} */
@@ -58,7 +61,7 @@ export function createComposer(sessionId, { focusBox, placeOf }) {
   const form = h('form', { className: 'composer-box' }, [fold, attachments.list, attachments.button, input, h('div', { className: 'composer-actions' }, [interrupt, send])]);
   const aside = h('section', { className: 'side-answer', attrs: { hidden: '', 'aria-label': 'Side question', 'aria-live': 'polite' } });
   const closeAside = h('button', { className: 'icon-button side-answer-close', title: 'Close', attrs: { type: 'button', 'aria-label': 'Close' } }, [icon('cross')]);
-  closeAside.addEventListener('click', () => (aside.hidden = true));
+  closeAside.addEventListener('click', () => asides.set(sessionId, undefined));
   const dialogCard = createDialogCard({
     answer: async (steps) => {
       const reply = parseDialogReply(await post('/api/dialog', { steps }));
@@ -84,7 +87,7 @@ export function createComposer(sessionId, { focusBox, placeOf }) {
     fold.replaceChildren(icon(folded ? 'unfold' : 'fold'));
   };
   const refreshButtons = () => {
-    send.disabled = !enabled || sending || (input.value.trim() === '' && attachments.images().length === 0);
+    send.disabled = !enabled || sending || asking || (input.value.trim() === '' && attachments.images().length === 0);
     input.disabled = !enabled;
     attachments.button.disabled = !enabled;
   };
@@ -183,23 +186,18 @@ export function createComposer(sessionId, { focusBox, placeOf }) {
   const askAside = (question) => {
     if (question === '') return say(btwMessage('empty'), 'error');
     if (attachments.images().length > 0) return say('A side question takes no images.', 'error');
-    sending = true;
-    refreshButtons();
-    showAside(question, undefined);
+    // the session keeps the question and its answer, whichever box shows it when the answer comes
+    asides.set(sessionId, { question, answer: undefined });
     say('', 'ok');
     void post('/api/btw', { question }).then((json) => {
       const reply = parseBtwReply(json);
-      sending = false;
       if (reply?.ok === true) {
-        input.value = '';
         writeDraft(draftKey, '');
-        fit();
-        showAside(question, reply.answer);
+        asides.set(sessionId, { question, answer: reply.answer });
       } else {
-        aside.hidden = true;
+        asides.set(sessionId, undefined);
         say(reply === undefined ? 'The viewer server did not answer. The question stays in the box.' : btwMessage(reply.error), 'error');
       }
-      refreshButtons();
     });
   };
 
@@ -305,6 +303,24 @@ export function createComposer(sessionId, { focusBox, placeOf }) {
     });
   });
 
+  /**
+   * The session's side question as it stands: answering — the box waits, the terminal's side panel would take the keys of
+   * the next prompt — answered, its question out of the box, or closed.
+   * @param {import('./aside-store.js').Aside | undefined} asked
+   */
+  const showAsked = (asked) => {
+    asking = asked !== undefined && asked.answer === undefined;
+    if (asked === undefined) aside.hidden = true;
+    else showAside(asked.question, asked.answer);
+    if (asked?.answer !== undefined && sideQuestionOf(input.value) === asked.question) {
+      input.value = '';
+      fit();
+    }
+    refreshButtons();
+  };
+  showAsked(asides.get(sessionId));
+  const unwatchAsides = asides.watch(sessionId, showAsked);
+
   void refreshLive();
   const timer = setInterval(() => void refreshLive(), liveRefreshMs);
   // An empty box already has the height of one line; measuring it would make the browser lay out the whole page.
@@ -317,6 +333,7 @@ export function createComposer(sessionId, { focusBox, placeOf }) {
     dispose() {
       clearInterval(timer);
       clearTimeout(noticeTimer);
+      unwatchAsides();
       document.removeEventListener('paste', onPaste);
     },
   };
