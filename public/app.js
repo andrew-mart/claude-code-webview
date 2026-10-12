@@ -566,6 +566,7 @@ function createScrollSpy(scroller, prompts, onCurrent) {
  */
 const headerSettings = [
   ['activity', 'unfold'],
+  ['edits', 'edit'],
   ['outline', 'list'],
   ['service', 'eye'],
   ['font', 'type'],
@@ -602,8 +603,10 @@ function createSettings(keepPlace) {
     root.dataset.tables = get('tables');
     relabelTables(document);
     const activity = get('activity');
-    if (root.dataset.activity !== activity) {
+    const edits = get('edits');
+    if (root.dataset.activity !== activity || root.dataset.edits !== edits) {
       root.dataset.activity = activity;
+      root.dataset.edits = edits;
       document.dispatchEvent(new Event(activityModeEvent));
     }
     // A button's text and tooltip name what the click will do, so they change after each toggle.
@@ -644,6 +647,7 @@ function createSettings(keepPlace) {
 function settingKeyOf(value) {
   switch (value) {
     case 'activity':
+    case 'edits':
     case 'outline':
     case 'theme':
     case 'font':

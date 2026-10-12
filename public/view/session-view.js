@@ -646,7 +646,7 @@ function createFeed({ thread, waitingBox }, sessionId, hooks) {
  */
 
 /**
- * The action display mode is set by the header toggle (app.js) through the data-activity attribute on <html>
+ * The action display mode is set by the header toggles (app.js) through the data-activity and data-edits attributes on <html>
  * and the activityModeEvent event; this way it also applies to nested subagent feeds.
  * @returns {'compact' | 'detailed'}
  */
@@ -671,7 +671,7 @@ function createActivityGroup() {
   const refresh = () => {
     const layout = layoutActivity(
       rows.map((row) => row.item()),
-      { mode: activityMode(), expanded },
+      { mode: activityMode(), expanded, edits: document.documentElement.dataset.edits === 'shown' ? 'shown' : 'folded' },
     );
     renderActivityHeader(header, layout.header);
     // Without a header the first visible row is the top of the frame, so it needs no separator line above it.
