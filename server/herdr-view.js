@@ -6,8 +6,9 @@
 //   herdr api snapshot             → workspaces, their tabs and panes
 // A session seen running keeps its workspace in a file after it ends; one never seen running is put into the workspace
 // whose panes are open in its folder, if just one workspace has panes there.
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { dirname, isAbsolute } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isRecord, text } from '../public/model/narrow.js';
 import { foregroundPids, snapshotOf, succeeded } from './herdr.js';
@@ -168,6 +169,26 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
       const beside = view?.snapshot.panes.find((pane) => pane.tabId === besideTab);
       if (beside === undefined) return { ok: false, error: 'failed' };
       const reply = await herdr(['tab', 'create', '--workspace', beside.workspaceId, ...(beside.cwd === undefined ? [] : ['--cwd', beside.cwd])]);
+      const pane = succeeded(reply) ? rootPaneOf(reply.json) : undefined;
+      if (pane === undefined) return { ok: false, error: 'failed' };
+      latest = undefined;
+      if (start === 'claude' && !(await startClaude(pane, []))) return { ok: false, error: 'failed' };
+      return { ok: true, target: `#/pane/${pane}` };
+    },
+    /**
+     * A new workspace, named on one line, in a folder — ~ for the home folder — with a shell, or Claude Code started in it.
+     * @param {string} label
+     * @param {string} folder
+     * @param {import('../public/model/herdr.js').TabStart} start
+     * @returns {Promise<import('../public/model/herdr.js').NewWorkspace>}
+     */
+    async createWorkspace(label, folder, start) {
+      const name = label.replace(/\s+/g, ' ').trim();
+      if (name === '') return { ok: false, error: 'empty' };
+      const cwd = folder.trim().replace(/^~(?=$|[\\/])/, homedir());
+      const isFolder = isAbsolute(cwd) && (await stat(cwd).then((found) => found.isDirectory(), () => false));
+      if (!isFolder) return { ok: false, error: 'no-folder' };
+      const reply = await herdr(['workspace', 'create', '--label', name, '--cwd', cwd]);
       const pane = succeeded(reply) ? rootPaneOf(reply.json) : undefined;
       if (pane === undefined) return { ok: false, error: 'failed' };
       latest = undefined;

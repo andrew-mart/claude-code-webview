@@ -29,11 +29,14 @@ const web = {
   ],
 };
 
+/** A sidebar nobody opens a workspace from. @type {import('../public/view/herdr-panel.js').SidebarActions} */
+const noActions = { createWorkspace: async () => ({ ok: false, error: 'failed' }), open: () => undefined };
+
 // Many tabs are never named, so a session is told by its title: it is the row's first line, where it runs comes under it
 test('herdrSidebar_Should_LeadSessionRowWithItsTitle_And_TellWorkspaceAndTabUnderIt', () => {
   const element = window.document.createElement('div');
 
-  createHerdrSidebar(element).render({ herdr: true, workspaces: [web] }, undefined, '');
+  createHerdrSidebar(element, noActions).render({ herdr: true, workspaces: [web] }, undefined, '');
 
   assert.deepEqual(
     [...element.querySelectorAll('.herdr-tabs .herdr-tab-text')].map((text) => [...text.children].map((line) => line.textContent)),
@@ -201,11 +204,60 @@ test('herdrSidebar_Should_TintWorkspaceAndItsSessions_WithWorkspaceColour', () =
   const element = window.document.createElement('div');
   const api = { ...web, id: 'w3', number: 3, label: 'api', activeTab: 'w3:t1', tabs: [{ id: 'w3:t1', number: 1, label: '1', status: /** @type {const} */ ('idle'), panes: [paneOf({ id: 'w3:p1', title: 'Add the endpoint', session: 's9', activity: 3 })] }] };
 
-  createHerdrSidebar(element).render({ herdr: true, workspaces: [web, api] }, undefined, '');
+  createHerdrSidebar(element, noActions).render({ herdr: true, workspaces: [web, api] }, undefined, '');
 
   /** @param {Element} row */
   const hueOf = (row) => (row instanceof window.HTMLElement ? row.style.getPropertyValue('--workspace-hue') : '');
   const workspaces = new Map([...element.querySelectorAll('.herdr-workspace')].map((row) => [row.querySelector('.herdr-name')?.textContent, hueOf(row)]));
   const sessions = [...element.querySelectorAll('.herdr-tab')].map((row) => hueOf(row) === workspaces.get(row.querySelector('.herdr-tab-where')?.textContent?.split(' · ')[0]));
   assert.deepEqual({ apart: workspaces.get('web') !== workspaces.get('api') && workspaces.get('web') !== '', sessions }, { apart: true, sessions: [true, true, true, true] });
+});
+
+// "+" under the workspaces opens one: its name, its folder, a terminal or Claude Code in it — and the page goes there.
+// A folder that is not there is said so and the form stays to be put right; a fresh look at herdr leaves it as it is
+test('herdrSidebar_Should_OpenNewWorkspace_FromItsNameAndFolder', async () => {
+  const element = window.document.createElement('div');
+  /** @type {string[][]} */
+  const asked = [];
+  /** @type {string[]} */
+  const opened = [];
+  const sidebar = createHerdrSidebar(element, {
+    createWorkspace: async (label, folder, start) => {
+      asked.push([label, folder, start]);
+      return folder === 'D:/nowhere' ? { ok: false, error: 'no-folder' } : { ok: true, target: '#/pane/w5:p1' };
+    },
+    open: (target) => opened.push(target),
+  });
+  const layout = { herdr: true, workspaces: [web] };
+  sidebar.render(layout, undefined, '');
+  /** @param {string} selector */
+  const find = (selector) => {
+    const found = element.querySelector(selector);
+    assert.ok(found instanceof window.HTMLElement, selector);
+    return found;
+  };
+  /** @param {string} selector @param {string} value */
+  const fill = (selector, value) => {
+    const box = find(selector);
+    assert.ok(box instanceof window.HTMLInputElement);
+    box.value = value;
+  };
+  const settle = () => new Promise((done) => setTimeout(done, 0));
+
+  find('.herdr-workspace-new').click();
+  fill('.herdr-new-name', 'billing');
+  fill('.herdr-new-folder', 'D:/nowhere');
+  find('.herdr-new-claude').click();
+  await settle();
+  const refused = find('.herdr-new-error').textContent;
+  sidebar.render({ herdr: true, workspaces: [{ ...web, status: 'working' }] }, undefined, '');
+  const kept = find('.herdr-new-name');
+  fill('.herdr-new-folder', 'D:/dev/billing');
+  find('.herdr-new-shell').click();
+  await settle();
+
+  assert.deepEqual(
+    { asked, refused, kept: kept instanceof window.HTMLInputElement ? kept.value : undefined, opened, formGone: element.querySelector('.herdr-new-workspace') === null },
+    { asked: [['billing', 'D:/nowhere', 'claude'], ['billing', 'D:/dev/billing', 'shell']], refused: 'There is no such folder.', kept: 'billing', opened: ['#/pane/w5:p1'], formGone: true },
+  );
 });

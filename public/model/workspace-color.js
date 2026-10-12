@@ -1,6 +1,7 @@
 // @ts-check
 // The colour of a herdr workspace: its rows in the sidebar, and the rows of the sessions that run or ran in it, are
-// tinted with it. Only the hue is the workspace's own; how light and strong the tint is, the theme decides (style.css).
+// marked with it on their left edge. Only the hue is the workspace's own; how light and strong, the theme decides
+// (style.css).
 
 /**
  * The name's FNV-1a hash, its bits mixed through (MurmurHash3's finish), spread over the colour wheel: names that

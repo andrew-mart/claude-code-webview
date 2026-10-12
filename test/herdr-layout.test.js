@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openedAt, parseHerdrLayout, parseNewTab, parseTabChange, placeOf, searchLayout, sessionsByActivity, tabTarget } from '../public/model/herdr.js';
+import { openedAt, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf, searchLayout, sessionsByActivity, tabTarget } from '../public/model/herdr.js';
 
 const session = '7d4e1b20-2222-4333-8444-955566667777';
 
@@ -115,5 +115,14 @@ test('parseNewTab_Should_TakeAddressOfNewTab_And_CountAnyOtherAsFailed', () => {
   assert.deepEqual(
     [{ ok: true, target: '#/pane/w2:p9' }, { ok: true }, { ok: false, error: 'failed' }, undefined].map(parseNewTab),
     [{ ok: true, target: '#/pane/w2:p9' }, { ok: false, error: 'failed' }, { ok: false, error: 'failed' }, { ok: false, error: 'failed' }],
+  );
+});
+
+// A workspace opened from the page comes back with its page address, or why it was not opened; anything else — or no
+// reply — is a workspace not opened
+test('parseNewWorkspace_Should_TakeAddressOrReason_And_CountAnyOtherAsFailed', () => {
+  assert.deepEqual(
+    [{ ok: true, target: '#/pane/w5:p1' }, { ok: false, error: 'no-folder' }, { ok: false, error: 'empty' }, { ok: false, error: 'boom' }, undefined].map(parseNewWorkspace),
+    [{ ok: true, target: '#/pane/w5:p1' }, { ok: false, error: 'no-folder' }, { ok: false, error: 'empty' }, { ok: false, error: 'failed' }, { ok: false, error: 'failed' }],
   );
 });

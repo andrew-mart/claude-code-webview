@@ -105,7 +105,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // tabs renamed and closed are recorded
   /** @type {string[][]} */
   const tabChanges = [];
-  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'createTab' | 'history' | 'reopen'>} */
+  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'createTab' | 'createWorkspace' | 'history' | 'reopen'>} */
   const herdrView = {
     workspacesOf: async (listed) => ({ herdr: true, sessions: Object.fromEntries(listed.map(({ id }) => [id, 'web'])) }),
     layout: async () => ({ herdr: true, workspaces: [webWorkspace] }),
@@ -125,6 +125,10 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
     createTab: async (beside, start) => {
       tabChanges.push(['create', beside, start]);
       return { ok: true, target: '#/pane/w1:p2' };
+    },
+    createWorkspace: async (label, folder, start) => {
+      tabChanges.push(['workspace', label, folder, start]);
+      return { ok: true, target: '#/pane/w5:p1' };
     },
   };
   // A pane's terminal shows one screen and closes; the keys typed into a pane are recorded
@@ -230,6 +234,21 @@ test('dialog_Should_PassAnswerFromViewerPage_And_RefuseOtherKeys', async (t) => 
   assert.deepEqual(
     { answered: [answered.status, JSON.parse(answered.body)], refused: refused.map((reply) => reply.status), calls },
     { answered: [200, { ok: true }], refused: [400, 400, 400], calls: [['answer', sessionId, JSON.stringify(answer)]] },
+  );
+});
+
+// A new workspace is asked for with its name and folder, and a shell or Claude Code in it; anything else is refused
+// before herdr
+test('workspaces_Should_OpenNewWorkspace_And_RefuseUnknownStart', async (t) => {
+  const { port, tabChanges } = await withServer(t);
+  const ask = (/** @type {unknown} */ body) => post(port, '/api/workspace/new', pageHeaders(port), JSON.stringify(body));
+
+  const opened = await ask({ label: 'billing', folder: 'D:/dev/billing', start: 'shell' });
+  const strange = await Promise.all([ask({ label: 'billing', folder: 'D:/dev/billing', start: 'rm -rf' }), ask({ label: 'billing', start: 'shell' })]);
+
+  assert.deepEqual(
+    { opened: [opened.status, JSON.parse(opened.body)], strange: strange.map(({ status }) => status), tabChanges },
+    { opened: [200, { ok: true, target: '#/pane/w5:p1' }], strange: [400, 400], tabChanges: [['workspace', 'billing', 'D:/dev/billing', 'shell']] },
   );
 });
 
