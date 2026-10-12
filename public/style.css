@@ -212,8 +212,9 @@ button {
 .brand .usage {
   display: flex;
   flex-basis: 100%;
-  gap: 14px;
-  margin: 1px 0 0 24px;
+  gap: 16px;
+  /* from the brand's left edge to its right: the meters share the width, the same space on both sides */
+  margin: 2px 0 0;
   font-size: 11px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
@@ -224,8 +225,10 @@ button {
 
 .usage-meter {
   display: flex;
+  flex: 1;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   --used-start: #1d9bf0;
   --used-end: #3b5bdb;
   --gap-start: transparent;
@@ -252,7 +255,8 @@ button {
 /* blended in OKLCH, blue turns green through a bright teal and red through a purple, with no grey between; a browser
    that cannot blend so takes the first */
 .usage-line {
-  width: 64px;
+  flex: 1;
+  min-width: 32px;
   height: 6px;
   border-radius: 3px;
   background: linear-gradient(90deg, var(--used-start) 0%, var(--used-end) var(--used-to), var(--gap-start) var(--gap-from), var(--gap-end) var(--gap-until), var(--border) var(--track-from));
@@ -3491,6 +3495,7 @@ a.file-link:hover {
   }
 
   .usage-meter {
+    flex: none;
     flex-direction: column;
     gap: 3px;
   }
