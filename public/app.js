@@ -576,6 +576,7 @@ const headerSettings = [
   ['font', 'type'],
   ['theme', 'moon'],
   ['tables', 'table'],
+  ['width', 'widen'],
 ];
 
 /**
@@ -605,6 +606,7 @@ function createSettings(keepPlace) {
     root.dataset.service = get('service');
     root.dataset.outline = get('outline');
     root.dataset.tables = get('tables');
+    root.dataset.width = get('width');
     relabelTables(document);
     const activity = get('activity');
     const edits = get('edits');
@@ -623,8 +625,9 @@ function createSettings(keepPlace) {
     const label = actionLabel(key, get(key));
     button.title = label;
     button.setAttribute('aria-label', label);
-    // The actions button shows what a click does: unfold the folded actions, or fold them back.
-    const glyph = key === 'activity' ? (nextChoice(key, get(key)) === 'detailed' ? 'unfold' : 'fold') : headerSettings.find(([setting]) => setting === key)?.[1];
+    // The actions and width buttons show what a click does: unfold the folded actions or fold them back, widen the
+    // conversation or narrow it back to a column.
+    const glyph = key === 'activity' ? (nextChoice(key, get(key)) === 'detailed' ? 'unfold' : 'fold') : key === 'width' ? (nextChoice(key, get(key)) === 'full' ? 'widen' : 'narrow') : headerSettings.find(([setting]) => setting === key)?.[1];
     // the label is hidden beside the title and shown in the menu the buttons fold into on a narrow screen
     if (glyph !== undefined) button.replaceChildren(icon(glyph), h('span', { className: 'head-tool-label', text: label }));
   };
@@ -659,6 +662,7 @@ function settingKeyOf(value) {
     case 'follow':
     case 'sdk':
     case 'tables':
+    case 'width':
       return value;
     default:
       return undefined;
