@@ -9,6 +9,10 @@
   --bg-bubble: #f0eee6;
   --bg-hover: rgba(31, 30, 29, 0.05);
   --bg-selected: rgba(31, 30, 29, 0.085);
+  /* a herdr workspace's tint (.tinted): its hue, this light and strong, over the row */
+  --tint-lightness: 0.74;
+  --tint-chroma: 0.12;
+  --tint-alpha: 0.17;
   --bg-code: #f7f6f2;
   --bg-code-bar: #efede6;
   --text: #141413;
@@ -53,6 +57,9 @@
     --bg-bubble: #1a1918;
     --bg-hover: rgba(250, 249, 245, 0.05);
     --bg-selected: rgba(250, 249, 245, 0.085);
+    --tint-lightness: 0.66;
+    --tint-chroma: 0.11;
+    --tint-alpha: 0.2;
     --bg-code: #1e1d1c;
     --bg-code-bar: #252422;
     --text: #f5f4ef;
@@ -87,6 +94,9 @@
   --bg-bubble: #1a1918;
   --bg-hover: rgba(250, 249, 245, 0.05);
   --bg-selected: rgba(250, 249, 245, 0.085);
+  --tint-lightness: 0.66;
+  --tint-chroma: 0.11;
+  --tint-alpha: 0.2;
   --bg-code: #1e1d1c;
   --bg-code-bar: #252422;
   --text: #f5f4ef;
@@ -432,6 +442,13 @@ button {
 .herdr-workspace.selected,
 .herdr-tab.selected {
   background: var(--bg-selected);
+}
+
+/* a row of a herdr workspace, or of a session that runs or ran in one: the workspace's colour over it — its own hue
+   (workspace-color.js), soft in the theme's lightness; hover and selection still show under it */
+.tinted {
+  --tint: oklch(var(--tint-lightness) var(--tint-chroma) var(--workspace-hue) / var(--tint-alpha));
+  background-image: linear-gradient(var(--tint), var(--tint));
 }
 
 .herdr-tab.empty {

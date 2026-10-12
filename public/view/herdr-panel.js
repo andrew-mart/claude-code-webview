@@ -5,6 +5,7 @@
 import { placeOf, searchLayout, sessionsByActivity, tabTarget } from '../model/herdr.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
+import { tintByWorkspace } from './workspace-tint.js';
 
 /** @type {Readonly<Record<import('../model/herdr.js').AgentStatus, string>>} */
 const statusNames = { working: 'Working', blocked: 'Waiting for you', done: 'Done', idle: 'Idle', unknown: 'No agent' };
@@ -76,6 +77,7 @@ export function createHerdrSidebar(element) {
           statusDot(workspace.status),
         ]);
         row.classList.toggle('selected', workspace.id === place?.workspace.id);
+        tintByWorkspace(row, workspace.label);
         return row;
       });
       const rows = sessions.map(({ workspace, tab, pane }) => {
@@ -89,6 +91,7 @@ export function createHerdrSidebar(element) {
           ]),
         ]);
         row.classList.toggle('selected', opened !== undefined && (opened.kind === 'session' ? pane.session === opened.id : pane.id === opened.id));
+        tintByWorkspace(row, workspace.label);
         return row;
       });
       element.replaceChildren(
