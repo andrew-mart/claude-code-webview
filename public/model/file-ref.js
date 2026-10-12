@@ -26,15 +26,42 @@ const posixPath = String.raw`(?:~|/(?:${posixRoots.join('|')}))/${pathChar}*${pa
 const fileRefPattern = new RegExp(String.raw`(?<![\w/\\.:~])(${windowsPath}|${posixPath})(?::(\d+)(?:-(\d+)|:\d+)?)?`, 'g');
 
 /**
+ * The rest of a file name with spaces, after a path that ends in a word with no extension: a few more words, the last
+ * with an extension, then the line — and the name ends there, before a space, punctuation or the text's end.
+ */
+const nameWord = String.raw`[^\s"'\`<>|*?()[\]{},;:/\\«»“”‘’„]+`;
+const spacedName = new RegExp(String.raw`^((?: ${nameWord}){0,5}? ${nameWord}\.[A-Za-z0-9]{1,10})(?::(\d+)(?:-(\d+)|:\d+)?)?(?=$|[\s,;!?)\]»”’"'\`]|\.(?:\s|$))`);
+
+/**
  * @param {string} source
  * @returns {readonly FileRef[]}
  */
 export function findFileRefs(source) {
-  return [...source.matchAll(fileRefPattern)].flatMap((match) => {
+  const pattern = new RegExp(fileRefPattern.source, 'g');
+  /** @type {FileRef[]} */
+  const refs = [];
+  for (let match = pattern.exec(source); match !== null; match = pattern.exec(source)) {
     const [text, path, line, endLine] = match;
-    if (path === undefined) return [];
-    return [{ index: match.index, text, path, line: lineNumber(line), endLine: lineNumber(endLine) }];
-  });
+    if (path === undefined) continue;
+    const ref = withSpacedName(source, { index: match.index, text, path, line: lineNumber(line), endLine: lineNumber(endLine) });
+    refs.push(ref);
+    pattern.lastIndex = ref.index + ref.text.length;
+  }
+  return refs;
+}
+
+/**
+ * A path cut at a space where the file's name goes on: "D:/docs/Notes from the team.md" is found as "D:/docs/Notes".
+ * @param {string} source
+ * @param {FileRef} ref
+ * @returns {FileRef}
+ */
+function withSpacedName(source, ref) {
+  const lastName = ref.path.split(/[\\/]/).pop() ?? '';
+  if (ref.line !== undefined || /\.[A-Za-z0-9]+$/.test(lastName)) return ref;
+  const [tail, name, line, endLine] = spacedName.exec(source.slice(ref.index + ref.text.length)) ?? [];
+  if (tail === undefined || name === undefined) return ref;
+  return { index: ref.index, text: ref.text + tail, path: ref.path + name, line: lineNumber(line), endLine: lineNumber(endLine) };
 }
 
 /**
