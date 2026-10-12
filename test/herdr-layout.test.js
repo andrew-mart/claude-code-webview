@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openedAt, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf, searchLayout, sessionsByActivity, tabTarget } from '../public/model/herdr.js';
+import { openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf, searchLayout, sessionsByActivity, tabTarget } from '../public/model/herdr.js';
 
 const session = '7d4e1b20-2222-4333-8444-955566667777';
 
@@ -124,5 +124,17 @@ test('parseNewWorkspace_Should_TakeAddressOrReason_And_CountAnyOtherAsFailed', (
   assert.deepEqual(
     [{ ok: true, target: '#/pane/w5:p1' }, { ok: false, error: 'no-folder' }, { ok: false, error: 'empty' }, { ok: false, error: 'boom' }, undefined].map(parseNewWorkspace),
     [{ ok: true, target: '#/pane/w5:p1' }, { ok: false, error: 'no-folder' }, { ok: false, error: 'empty' }, { ok: false, error: 'failed' }, { ok: false, error: 'failed' }],
+  );
+});
+
+// A terminal the page shows turns into the session Claude Code starts in it — a tab opened with Claude, or claude typed
+// there; a pane that had the session when the page opened it stays a terminal, and so does one where none started
+test('paneSession_Should_TellSessionStartedInPane_SincePageOpenedIt', () => {
+  /** @type {import('../public/model/herdr.js').HerdrLayout} */
+  const started = { herdr: true, workspaces: [{ ...expenses, tabs: [{ id: 'w3:t1', number: 1, label: '1', status: 'idle', panes: [{ id: 'w3:p1', agent: 'claude', status: 'idle', title: '', session, size: undefined, activity: 60 }] }] }] };
+
+  assert.deepEqual(
+    [paneSession(started, 'w3:p1', undefined), paneSession(started, 'w3:p1', session), paneSession(layout, 'w3:p1', undefined), paneSession(layout, 'w9:p9', undefined)],
+    [session, undefined, undefined, undefined],
   );
 });
