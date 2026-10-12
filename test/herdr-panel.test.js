@@ -310,3 +310,39 @@ test('tabBar_Should_OfferNewTabChoices_AsIconsNamedOnHover', () => {
     ],
   );
 });
+
+// A tab gets an emoji icon ahead of its name — picked as it is named or opened — kept in its herdr label, so herdr
+// shows it too
+test('tabBar_Should_PutPickedIconAheadOfTabName_WhenNamingOrOpeningIt', async () => {
+  const { bar, asked, click } = barAboveSession();
+  /** @param {string} value */
+  const type = (value) => {
+    const box = bar.element.querySelector('input.herdr-tab-name');
+    assert.ok(box instanceof window.HTMLInputElement);
+    box.value = value;
+    return box;
+  };
+  /** @param {string} icon */
+  const pick = (icon) => {
+    click('.herdr-tab-icon');
+    const choice = [...bar.element.querySelectorAll('.herdr-icon-palette button')].find((button) => button.textContent === icon);
+    assert.ok(choice instanceof window.HTMLElement, `no ${icon} to pick`);
+    choice.click();
+  };
+
+  click('.herdr-chip.selected');
+  click('.herdr-tab-rename');
+  pick('🐞');
+  type('checkout bug').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter' }));
+  await settled();
+  click('.herdr-tab-new');
+  pick('🧪');
+  type('tests');
+  click('.herdr-tab-new-shell');
+  await settled();
+
+  assert.deepEqual(asked.filter(([what]) => what !== 'open'), [
+    ['rename', 'w2:t1', '🐞 checkout bug'],
+    ['create', 'w2:t1', 'shell', '🧪 tests'],
+  ]);
+});

@@ -2,12 +2,13 @@
 // A herdr tab's icon: an emoji ahead of its name, kept in the tab's label — so herdr shows it too.
 
 /** The emoji a tab's icon is picked from. */
-export const tabIcons = /** @type {const} */ (['🚀', '🐞', '🧪', '🔧', '📝', '📚', '💡', '🔥', '⭐', '✅', '🎨', '📦', '🔒', '🌐', '🤖', '📊', '🗂️', '⚙️', '🧹', '💬']);
+export const tabIcons = /** @type {const} */ (['🚀', '🐞', '🧪', '🔧', '📝', '📚', '💡', '🔥', '⭐', '✅', '🎨', '📦', '🔒', '🌐', '🤖', '📊', '🗂\uFE0F', '⚙\uFE0F', '🧹', '💬']);
 
 /**
- * An emoji leading a label: a picture, its variation and skin tone, and the pictures joined to it (👩‍💻).
+ * An emoji leading a label: a picture, its variation and skin tone, and the pictures joined to it — a person at a
+ * laptop is a person, a joiner and a laptop.
  */
-const leadingIcon = /^(\p{Extended_Pictographic}(?:️|\p{Emoji_Modifier})*(?:‍\p{Extended_Pictographic}(?:️|\p{Emoji_Modifier})*)*)\s*/u;
+const leadingIcon = /^(\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})*(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})*)*)\s*/u;
 
 /**
  * @param {string} label — a tab's label in herdr
