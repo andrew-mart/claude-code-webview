@@ -1,12 +1,14 @@
 // @ts-check
 // Prompt input box: the contract with the server (/api/live, /api/send, /api/interrupt) and what to show the user.
 import { splitAttachedImages, uploadUrl } from './attachments.js';
+import { parseDialog } from './dialog.js';
 import { isRecord, text } from './narrow.js';
 
 /**
  * Whether the session can be written to: live — it runs in a herdr pane; herdr-missing — herdr is not installed,
  * sending prompts is unavailable at all; the rest — why it is not possible right now.
- * @typedef {{ state: 'herdr-missing' | 'offline' } | { state: 'no-herdr' | 'outside-herdr', status: string } | { state: 'live', status: string, pane: string }} LiveState
+ * @typedef {{ state: 'herdr-missing' | 'offline' } | { state: 'no-herdr' | 'outside-herdr', status: string } | { state: 'live', status: string, pane: string, dialog: import('./dialog.js').Dialog | undefined }} LiveState
+ *   dialog: the choice Claude Code waits for in its terminal
  * @typedef {'empty' | 'herdr-missing' | 'offline' | 'no-herdr' | 'outside-herdr' | 'send-failed'} SendRefusal
  * @typedef {{ ok: true, pane: string } | { ok: false, error: SendRefusal }} SendOutcome
  * The /api/interrupt reply. prompt — a prompt Claude had not started on, taken out of the terminal's box for the page's
@@ -34,6 +36,8 @@ const keysHint = { physical: 'Enter to send, Shift+Enter for a new line.', touch
 export function composerState(live, sessionId, keyboard) {
   switch (live.state) {
     case 'live': {
+      // typed now, a prompt would land in Claude Code's dialog — its digits picking answers
+      if (live.dialog !== undefined) return { shown: true, enabled: false, canInterrupt: false, placeholder: 'Claude Code is asking — answer above', hint: `Pick an answer above, or answer in the session's terminal (herdr pane ${live.pane}).` };
       const busy = live.status === 'busy';
       return {
         shown: true,
@@ -149,7 +153,7 @@ export function parseLiveState(json) {
     case 'outside-herdr':
       return status === undefined ? undefined : { state: json.state, status };
     case 'live':
-      return status === undefined || pane === undefined ? undefined : { state: 'live', status, pane };
+      return status === undefined || pane === undefined ? undefined : { state: 'live', status, pane, dialog: parseDialog(json.dialog) };
     default:
       return undefined;
   }

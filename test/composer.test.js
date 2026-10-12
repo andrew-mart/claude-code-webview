@@ -35,7 +35,7 @@ const composerOf = (records, herdr) => createComposer({ readRecords: async () =>
 test('liveState_Should_FindPaneWhereSessionRuns', async () => {
   const herdr = fakeHerdr();
 
-  assert.deepEqual(await composerOf([record], herdr).liveState(sessionId), { state: 'live', status: 'busy', pane: 'w3D:p1' });
+  assert.deepEqual(await composerOf([record], herdr).liveState(sessionId), { state: 'live', status: 'busy', pane: 'w3D:p1', dialog: undefined });
 });
 
 test('liveState_Should_ReportHerdrNotInstalledWhetherSessionRunsOrNot', async () => {
@@ -171,4 +171,48 @@ test('send_Should_WaitUntilSidePanelIsClosed', async () => {
   await Promise.all([composer.btw(sessionId, 'where is the retry limit?'), composer.send(sessionId, 'fix the flaky test')]);
 
   assert.deepEqual(typedInto(herdr.calls), ['/btw where is the retry limit?', 'enter', 'down', 'esc', 'fix the flaky test', 'enter']);
+});
+
+// Claude Code asking — its AskUserQuestion dialog in the session's pane — is part of what the page learns about it
+test('liveState_Should_TellChoiceClaudeCodeWaitsFor', async () => {
+  const asking = ['● Let me ask.', '─'.repeat(40), 'Which colour do you prefer?', '❯ 1. Red', '  2. Green', '', 'Enter to select · ↑/↓ to navigate · Esc to cancel'].join('\n');
+  const herdr = fakeHerdr({ screens: [asking] });
+
+  const live = await composerOf([record], herdr).liveState(sessionId);
+
+  assert.deepEqual(live, {
+    state: 'live',
+    status: 'busy',
+    pane: 'w3D:p1',
+    dialog: {
+      lines: ['Which colour do you prefer?'],
+      options: [
+        { key: '1', label: 'Red', detail: undefined, checked: undefined, current: true },
+        { key: '2', label: 'Green', detail: undefined, checked: undefined, current: false },
+      ],
+      tabs: false,
+    },
+  });
+});
+
+/** Claude Code's AskUserQuestion dialog in the session's pane. */
+const askingScreen = ['● Let me ask.', '─'.repeat(40), 'Which colour do you prefer?', '❯ 1. Red', '  2. Green', '  3. Type something.', '', 'Enter to select · ↑/↓ to navigate · Esc to cancel'].join('\n');
+
+// An answer from the page is the keys and text the terminal would get: the digit of a choice, or "Type something",
+// the words, Enter
+test('answer_Should_TypeAnswerIntoDialog_StepByStep', async () => {
+  const herdr = fakeHerdr({ screens: [askingScreen] });
+
+  const outcome = await composerOf([record], herdr).answer(sessionId, [{ key: '3' }, { text: 'Purple' }, { key: 'enter' }]);
+
+  assert.deepEqual({ outcome, typed: typedInto(herdr.calls) }, { outcome: { ok: true }, typed: ['3', 'Purple', 'enter'] });
+});
+
+// The dialog may be gone — answered in the terminal: then the digits would be typed into the prompt box as text
+test('answer_Should_TypeNothing_When_NoDialogIsShown', async () => {
+  const herdr = fakeHerdr({ screens: [['● Done.', '────────', '❯ ', '────────'].join('\n')] });
+
+  const outcome = await composerOf([record], herdr).answer(sessionId, [{ key: '2' }]);
+
+  assert.deepEqual({ outcome, typed: typedInto(herdr.calls) }, { outcome: { ok: false, error: 'no-dialog' }, typed: [] });
 });
