@@ -237,7 +237,8 @@ function createPage() {
     const place = history[session.id];
     const tab = place?.tab !== undefined && !/^\d+$/.test(place.tab) ? place.tab : '';
     const closed = place?.tab !== undefined && !place.open;
-    const look = [title, folder, named, tab, closed, ago, active, selected, unavailable].join('\u0000');
+    const note = place?.note ?? '';
+    const look = [title, folder, named, tab, closed, note, ago, active, selected, unavailable].join('\u0000');
     const known = items.get(session.id);
     if (known !== undefined && known.look === look) return known.element;
     const where = h('span', { className: 'session-place' }, [h('span', { className: 'session-folder', text: folder })]);
@@ -247,6 +248,8 @@ function createPage() {
       h('span', { className: 'session-title', text: title }),
       h('span', { className: 'session-sub' }, [where, h('span', { text: closed ? `closed · ${ago}` : ago })]),
     ]);
+    // what the session is for, in the user's words: on hover — the search finds it too
+    if (note !== '') link.title = `${title}\n${note}`;
     link.classList.toggle('active', active);
     link.classList.toggle('selected', selected);
     link.classList.toggle('unavailable', unavailable);
