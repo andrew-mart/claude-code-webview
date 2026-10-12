@@ -28,6 +28,16 @@ test('renderMarkdown_Should_WrapCodeBlockIntoFrameWithLanguage', () => {
   );
 });
 
+// The terminal shows a line break in an answer as a line break: lines one under the other stay so, not run into one
+test('renderMarkdown_Should_KeepSingleLineBreaksInParagraph', () => {
+  const holder = html(renderMarkdown('👉 One city first, or all of them?\n👉 Authorise `gh`: `! gh auth login`.'));
+
+  assert.deepEqual(
+    [...holder.querySelectorAll('p')].map((paragraph) => paragraph.innerHTML),
+    ['👉 One city first, or all of them?<br>👉 Authorise <code>gh</code>: <code>! gh auth login</code>.'],
+  );
+});
+
 test('renderMarkdown_Should_StripScriptsAndEventHandlersFromTranscriptText', () => {
   const holder = html(renderMarkdown('<img src="x" onerror="alert(1)"><script>alert(2)</script>[link](javascript:alert(3))'));
 
