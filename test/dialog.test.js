@@ -30,6 +30,7 @@ test('choiceDialog_Should_ReadQuestionAndItsChoices_AsClaudeCodeDrawsThem', () =
         { key: '4', label: 'Chat about this', detail: undefined, checked: undefined, current: false },
       ],
       tabs: true,
+      previews: false,
     },
     {
       lines: ['←  ☒ Colour  ☒ Sizes  ✔ Submit  →', 'Which sizes do you need?'],
@@ -41,6 +42,7 @@ test('choiceDialog_Should_ReadQuestionAndItsChoices_AsClaudeCodeDrawsThem', () =
         { key: '5', label: 'Chat about this', detail: undefined, checked: undefined, current: false },
       ],
       tabs: true,
+      previews: false,
     },
     {
       lines: ['←  ☒ Colour  ☒ Sizes  ✔ Submit  →', 'Review your answers', '● Which colour do you prefer?', '→ Green', 'Ready to submit your answers?'],
@@ -49,6 +51,7 @@ test('choiceDialog_Should_ReadQuestionAndItsChoices_AsClaudeCodeDrawsThem', () =
         { key: '2', label: 'Cancel', detail: undefined, checked: undefined, current: false },
       ],
       tabs: true,
+      previews: false,
     },
   ]);
 });
@@ -89,6 +92,7 @@ test('choiceDialog_Should_ReadQuestionAndChoices_DrawnBesidePreviews', () => {
       { key: '3', label: 'No cache', detail: undefined, checked: undefined, current: false },
     ],
     tabs: false,
+    previews: true,
   });
 });
 

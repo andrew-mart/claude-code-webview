@@ -225,15 +225,18 @@ test('tabs_Should_PassRenameAndCloseFromViewerPage_And_RefuseWhatIsNoTab', async
 test('dialog_Should_PassAnswerFromViewerPage_And_RefuseOtherKeys', async (t) => {
   const { port, calls } = await withServer(t);
   const answer = [{ key: '3' }, { text: 'Purple' }, { key: 'enter' }];
+  // beside previews an answer is gone to with the arrows
+  const arrowed = [{ key: 'down' }, { key: 'up' }, { key: 'down' }, { key: 'enter' }];
 
   const answered = await post(port, '/api/dialog', pageHeaders(port), JSON.stringify({ session: sessionId, steps: answer }));
+  const walked = await post(port, '/api/dialog', pageHeaders(port), JSON.stringify({ session: sessionId, steps: arrowed }));
   const refused = await Promise.all(
     [[{ key: 'ctrl+c' }], [{ text: 'two\nlines' }], []].map((steps) => post(port, '/api/dialog', pageHeaders(port), JSON.stringify({ session: sessionId, steps }))),
   );
 
   assert.deepEqual(
-    { answered: [answered.status, JSON.parse(answered.body)], refused: refused.map((reply) => reply.status), calls },
-    { answered: [200, { ok: true }], refused: [400, 400, 400], calls: [['answer', sessionId, JSON.stringify(answer)]] },
+    { answered: [answered.status, JSON.parse(answered.body)], walked: walked.status, refused: refused.map((reply) => reply.status), calls },
+    { answered: [200, { ok: true }], walked: 200, refused: [400, 400, 400], calls: [['answer', sessionId, JSON.stringify(answer)], ['answer', sessionId, JSON.stringify(arrowed)]] },
   );
 });
 

@@ -6,11 +6,13 @@
  * @typedef {{ key: string, label: string, detail: string | undefined, checked: boolean | undefined, current: boolean }} DialogOption
  *   key: the digit that picks it; detail: the line under it; checked: in a question with several answers, whether it
  *   is ticked; current: the terminal's cursor is on it
- * @typedef {{ lines: readonly string[], options: readonly DialogOption[], tabs: boolean }} Dialog — lines: what the
- *   dialog says above its options: the tabs of its questions, the question, a review of the answers; tabs: it has
- *   several questions, ← and → go between them
- * @typedef {'1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | 'left' | 'right' | 'enter' | 'esc'} DialogKey — the keys a dialog
- *   is answered with: a choice's digit, the next or the previous question, Enter, Esc to cancel it
+ * @typedef {{ lines: readonly string[], options: readonly DialogOption[], tabs: boolean, previews: boolean }} Dialog — lines:
+ *   what the dialog says above its options: the tabs of its questions, the question, a review of the answers; tabs: it
+ *   has several questions, ← and → go between them; previews: its answers are drawn beside previews — there a digit picks
+ *   nothing, the arrows go to an answer and Enter picks it
+ * @typedef {'1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | 'left' | 'right' | 'up' | 'down' | 'enter' | 'esc'} DialogKey — the keys a
+ *   dialog is answered with: a choice's digit, the next or the previous question, the answer above or below, Enter, Esc
+ *   to cancel it
  * @typedef {{ key: DialogKey } | { text: string }} DialogStep — a key, or words typed for "Type something"
  * @typedef {{ ok: true } | { ok: false, error: 'no-dialog' | 'send-failed' | 'herdr-missing' | 'offline' | 'no-herdr' | 'outside-herdr' }} DialogReply
  *   no-dialog: the terminal shows no dialog any more — answered there, or gone
@@ -24,17 +26,17 @@ import { isRecord, text } from './narrow.js';
  * @returns {Dialog | undefined}
  */
 export function parseDialog(json) {
-  if (!isRecord(json) || !Array.isArray(json.lines) || !Array.isArray(json.options) || typeof json.tabs !== 'boolean') return undefined;
+  if (!isRecord(json) || !Array.isArray(json.lines) || !Array.isArray(json.options) || typeof json.tabs !== 'boolean' || typeof json.previews !== 'boolean') return undefined;
   const lines = json.lines.flatMap((line) => (typeof line === 'string' ? [line] : []));
   const options = json.options.flatMap((option) => {
     const parsed = optionOf(option);
     return parsed === undefined ? [] : [parsed];
   });
-  return lines.length === json.lines.length && options.length === json.options.length && options.length > 0 ? { lines, options, tabs: json.tabs } : undefined;
+  return lines.length === json.lines.length && options.length === json.options.length && options.length > 0 ? { lines, options, tabs: json.tabs, previews: json.previews } : undefined;
 }
 
 /** @type {ReadonlySet<string>} */
-const dialogKeys = new Set(['1', '2', '3', '4', '5', '6', '7', '8', '9', 'left', 'right', 'enter', 'esc']);
+const dialogKeys = new Set(['1', '2', '3', '4', '5', '6', '7', '8', '9', 'left', 'right', 'up', 'down', 'enter', 'esc']);
 /** An answer takes a few keys: a digit, the words, Enter. */
 const maxSteps = 10;
 

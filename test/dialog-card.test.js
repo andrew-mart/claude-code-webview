@@ -18,6 +18,7 @@ const colour = {
   lines: ['←  ☐ Colour  ☐ Sizes  ✔ Submit  →', 'Which colour do you prefer?'],
   options: [optionOf({ key: '1', label: 'Red', detail: 'Warm', current: true }), optionOf({ key: '2', label: 'Green' }), optionOf({ key: '3', label: 'Type something.' }), optionOf({ key: '4', label: 'Chat about this' })],
   tabs: true,
+  previews: false,
 };
 
 /** A card above the box, answers recorded; every answer is taken. */
@@ -71,4 +72,25 @@ test('dialogCard_Should_GoBetweenQuestions_CancelThem_And_HideWhenNothingIsAsked
   card.show(undefined);
 
   assert.deepEqual({ answers, hidden: card.element.hidden }, { answers: [[{ key: 'right' }], [{ key: 'left' }], [{ key: 'esc' }]], hidden: true });
+});
+
+// Beside previews a digit picks nothing: the answer is gone to with the arrows from the one under the cursor, then Enter
+test('dialogCard_Should_AnswerWithArrowsAndEnter_BesidePreviews', async () => {
+  const { card, answers, press } = cardAboveBox();
+  card.show({
+    lines: ['☐ Cache', 'Which cache?'],
+    options: [optionOf({ key: '1', label: 'Redis' }), optionOf({ key: '2', label: 'Files', current: true }), optionOf({ key: '3', label: 'None' })],
+    tabs: false,
+    previews: true,
+  });
+
+  press('None');
+  await settled();
+  press('Redis');
+  await settled();
+
+  assert.deepEqual(answers, [
+    [{ key: 'down' }, { key: 'enter' }],
+    [{ key: 'up' }, { key: 'enter' }],
+  ]);
 });
