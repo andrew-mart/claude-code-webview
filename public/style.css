@@ -237,9 +237,12 @@ button {
      none used — and the end fades into the empty track */
   --blend: 7;
   --used-to: calc(max(0, var(--fill, 0) - var(--blend)) * 1%);
-  --gap-from: calc((var(--fill, 0) + min(var(--blend), var(--fill, 0))) * 1%);
-  --gap-until: calc((var(--gap-to, 0) - 2) * 1%);
-  --track-from: calc((var(--gap-to, 0) + 2) * 1%);
+  --gap-from-at: calc(var(--fill, 0) + min(var(--blend), var(--fill, 0)));
+  --gap-from: calc(var(--gap-from-at) * 1%);
+  /* a gap shorter than the flow into it still fades into the track after the flow, never cut off at it */
+  --gap-until-at: max(var(--gap-from-at), calc(var(--gap-to, 0) - 2));
+  --gap-until: calc(var(--gap-until-at) * 1%);
+  --track-from: calc(max(calc(var(--gap-until-at) + 4), calc(var(--gap-to, 0) + 2)) * 1%);
 }
 
 /* the gap's colour follows the pace (app.js: --pace, percent points the use lags behind the time, below 0 ahead of it):
