@@ -13,6 +13,8 @@ import { isRecord, text } from './narrow.js';
  * @typedef {{ id: string, number: number, label: string, status: AgentStatus, panes: readonly HerdrPane[] }} HerdrTab
  * @typedef {{ id: string, number: number, label: string, status: AgentStatus, activeTab: string | undefined, tabs: readonly HerdrTab[] }} HerdrWorkspace
  * @typedef {{ herdr: boolean, workspaces: readonly HerdrWorkspace[] }} HerdrLayout — herdr: whether it answers
+ * @typedef {{ ok: true } | { ok: false, error: 'empty' | 'failed' }} TabChange — a tab renamed or closed from the page; empty: a name of
+ *   nothing but spaces; failed: herdr did not do it
  * @typedef {{ kind: 'session', id: string } | { kind: 'pane', id: string }} Opened — what the page shows: a session's
  *   feed, or a pane's terminal
  */
@@ -139,4 +141,14 @@ export function sessionsByActivity(workspaces, search) {
     wanted === '' ? sessions : sessions.filter(({ workspace, tab, pane }) => [workspace.label, tab.label, pane.title].some((value) => value !== undefined && value.toLowerCase().includes(wanted)));
   // the panes herdr has not seen an agent change in last, in herdr's own order
   return found.sort((a, b) => (b.pane.activity ?? -1) - (a.pane.activity ?? -1));
+}
+
+/**
+ * Reply of /api/tab/rename and /api/tab/close; any other — or none, the viewer out of reach — is a change not made.
+ * @param {unknown} json
+ * @returns {TabChange}
+ */
+export function parseTabChange(json) {
+  if (isRecord(json) && json.ok === true) return { ok: true };
+  return { ok: false, error: isRecord(json) && json.error === 'empty' ? 'empty' : 'failed' };
 }

@@ -78,10 +78,21 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   await writeFile(file, promptLine('u1', 'First question'));
   const { composer, calls } = fakeComposer(takenBack);
   // herdr puts every listed session into the workspace "web", whose one tab runs the session
-  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout'>} */
+  // tabs renamed and closed are recorded
+  /** @type {string[][]} */
+  const tabChanges = [];
+  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab'>} */
   const herdrView = {
     workspacesOf: async (listed) => ({ herdr: true, sessions: Object.fromEntries(listed.map(({ id }) => [id, 'web'])) }),
     layout: async () => ({ herdr: true, workspaces: [webWorkspace] }),
+    renameTab: async (tab, label) => {
+      tabChanges.push(['rename', tab, label]);
+      return { ok: true };
+    },
+    closeTab: async (tab) => {
+      tabChanges.push(['close', tab]);
+      return { ok: true };
+    },
   };
   // A pane's terminal shows one screen and closes; the keys typed into a pane are recorded
   /** @type {string[][]} */
@@ -99,7 +110,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   };
   const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals });
   t.after(() => server.close());
-  return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls, typed };
+  return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls, typed, tabChanges };
 }
 
 /**
@@ -146,6 +157,21 @@ test('btw_Should_PassSideQuestionFromViewerPage_And_GiveAnswerBack', async (t) =
 
   assert.deepEqual({ status: response.status, body: JSON.parse(response.body) }, { status: 200, body: { ok: true, answer: 'In src/config.ts.' } });
   assert.deepEqual(calls, [['btw', sessionId, 'Where is the retry limit?']]);
+});
+
+// A herdr tab named or closed from the page is named or closed in herdr; what is no tab id is refused before herdr
+test('tabs_Should_PassRenameAndCloseFromViewerPage_And_RefuseWhatIsNoTab', async (t) => {
+  const { port, tabChanges } = await withServer(t);
+
+  const renamed = await post(port, '/api/tab/rename', pageHeaders(port), JSON.stringify({ tab: 'w1:t1', label: 'viewer' }));
+  const closed = await post(port, '/api/tab/close', pageHeaders(port), JSON.stringify({ tab: 'w1:t1' }));
+  const strange = await post(port, '/api/tab/close', pageHeaders(port), JSON.stringify({ tab: '../w1 t1' }));
+  const nameless = await post(port, '/api/tab/rename', pageHeaders(port), JSON.stringify({ tab: 'w1:t1' }));
+
+  assert.deepEqual(
+    { replies: [renamed, closed].map((reply) => [reply.status, JSON.parse(reply.body)]), refused: [strange.status, nameless.status], tabChanges },
+    { replies: [[200, { ok: true }], [200, { ok: true }]], refused: [400, 400], tabChanges: [['rename', 'w1:t1', 'viewer'], ['close', 'w1:t1']] },
+  );
 });
 
 test('send_Should_RejectRequestsThatOtherSitesCouldForge', async (t) => {

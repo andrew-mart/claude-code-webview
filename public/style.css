@@ -518,6 +518,66 @@ button {
   color: var(--text);
 }
 
+/* The open tab's ✎ and ×, right after it: small, not to crowd the other tabs. */
+.herdr-tab-actions {
+  display: flex;
+  flex: none;
+  margin-right: 4px;
+}
+
+.herdr-tab-actions .icon-button {
+  width: 24px;
+  height: 24px;
+}
+
+.herdr-tab-actions .icon-button svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* The open tab, being named: a box in the chip's place. */
+input.herdr-tab-name {
+  flex: none;
+  width: 16ch;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border-strong));
+  border-radius: 8px;
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+input.herdr-tab-name.failed {
+  border-color: var(--danger);
+}
+
+.herdr-tab-confirm {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.herdr-tab-confirm button {
+  padding: 3px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.herdr-tab-confirm .herdr-tab-confirm-close {
+  border-color: transparent;
+  background: var(--accent);
+  color: #fff;
+}
+
 /* A herdr pane's terminal: dark, as terminal programs draw for. Its top row — the sidebar's button — on a phone only. */
 .terminal-top {
   display: none;

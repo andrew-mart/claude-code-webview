@@ -85,6 +85,8 @@ test('socketRunner_Should_AskSocketForViewersCommands_AnsweringAsProgramPrints',
     await run(['pane', 'send-keys', 'w2:p1', 'esc', 'enter']),
     await run(['pane', 'read', 'w2:p1', '--source', 'visible', '--format', 'text']),
     await run(['pane', 'read', 'w2:p2', '--source', 'visible', '--format', 'ansi']),
+    await run(['tab', 'rename', 'w2:t3', 'checkout fix']),
+    await run(['tab', 'close', 'w2:t3']),
   ];
 
   assert.deepEqual(herdr.requests, [
@@ -95,6 +97,8 @@ test('socketRunner_Should_AskSocketForViewersCommands_AnsweringAsProgramPrints',
     { method: 'pane.send_keys', params: { pane_id: 'w2:p1', keys: ['esc', 'enter'] } },
     { method: 'pane.read', params: { pane_id: 'w2:p1', source: 'visible', format: 'text', strip_ansi: true } },
     { method: 'pane.read', params: { pane_id: 'w2:p2', source: 'visible', format: 'ansi', strip_ansi: false } },
+    { method: 'tab.rename', params: { tab_id: 'w2:t3', label: 'checkout fix' } },
+    { method: 'tab.close', params: { tab_id: 'w2:t3' } },
   ]);
   assert.deepEqual(replies, [
     { ok: true, json: { result: { type: 'ok', asked: 'session.snapshot' } }, text: '' },
@@ -104,6 +108,8 @@ test('socketRunner_Should_AskSocketForViewersCommands_AnsweringAsProgramPrints',
     { ok: true, json: { result: { type: 'ok', asked: 'pane.send_keys' } }, text: '' },
     { ok: true, json: undefined, text: 'screen in text' },
     { ok: true, json: undefined, text: 'screen in ansi' },
+    { ok: true, json: { result: { type: 'ok', asked: 'tab.rename' } }, text: '' },
+    { ok: true, json: { result: { type: 'ok', asked: 'tab.close' } }, text: '' },
   ]);
 });
 

@@ -206,3 +206,69 @@ test('herdrView_Should_LookForPaneOfProcessOnce_WhenItRunsOutsideHerdr', async (
 
   assert.equal(asked.filter((call) => call === 'pane process-info').length, 1);
 });
+
+/**
+ * herdr with one workspace, web, and its tabs; renaming and closing a tab change them, the commands are recorded.
+ * @param {{ fails?: boolean }} [options] - fails: herdr refuses to rename or close
+ */
+function tabsHerdr({ fails = false } = {}) {
+  /** @type {FakeTab[]} */
+  let tabs = [
+    { tab_id: 'w2:t1', workspace_id: 'w2', number: 1, label: '1', agent_status: 'idle' },
+    { tab_id: 'w2:t2', workspace_id: 'w2', number: 2, label: 'tests', agent_status: 'idle' },
+  ];
+  /** @type {string[]} */
+  const changes = [];
+  /** @param {readonly string[]} args @returns {Promise<import('../server/composer.js').HerdrReply>} */
+  const run = async (args) => {
+    const [subject, command, tab, label] = args;
+    if (subject !== 'tab') return fakeHerdr({ workspaces: [{ workspace_id: 'w2', label: 'web' }], tabs })(args);
+    changes.push(args.join(' '));
+    if (fails) return { ok: false, error: 'tab_not_found', missing: false };
+    tabs = command === 'close' ? tabs.filter((known) => known.tab_id !== tab) : tabs.map((known) => (known.tab_id === tab && label !== undefined ? { ...known, label } : known));
+    return { ok: true, json: { result: { type: 'ok' } }, text: '' };
+  };
+  return { run, changes };
+}
+
+/** @param {ReturnType<typeof tabsHerdr>} herdr — asked at most once a minute */
+async function tabsView(herdr) {
+  const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
+  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], file: join(folder, 'workspaces.json'), refreshMs: 60_000 });
+}
+
+/** @param {import('../public/model/herdr.js').HerdrLayout} layout */
+const tabNames = (layout) => layout.workspaces.flatMap((workspace) => workspace.tabs.map((tab) => tab.label));
+
+// A tab named from the page gets its name in herdr — on one line — and the page sees it at once, not after the next look
+test('renameTab_Should_NameTabInHerdr_And_ShowNameAtOnce', async () => {
+  const herdr = tabsHerdr();
+  const view = await tabsView(herdr);
+  await view.layout();
+
+  const outcome = await view.renameTab('w2:t1', '  checkout\n  fix ');
+
+  assert.deepEqual({ outcome, changes: herdr.changes, names: tabNames(await view.layout()) }, { outcome: { ok: true }, changes: ['tab rename w2:t1 checkout fix'], names: ['checkout fix', 'tests'] });
+});
+
+// A tab closed from the page is closed in herdr — what runs in it stops — and is gone from the page at once
+test('closeTab_Should_CloseTabInHerdr_And_LeaveItOutAtOnce', async () => {
+  const herdr = tabsHerdr();
+  const view = await tabsView(herdr);
+  await view.layout();
+
+  const outcome = await view.closeTab('w2:t2');
+
+  assert.deepEqual({ outcome, changes: herdr.changes, names: tabNames(await view.layout()) }, { outcome: { ok: true }, changes: ['tab close w2:t2'], names: ['1'] });
+});
+
+// A name of nothing but spaces is not sent; what herdr refuses is told, and the page keeps the tabs as they are
+test('renameTab_And_closeTab_Should_TellWhatWasNotDone', async () => {
+  const quiet = tabsHerdr();
+  const refusing = tabsHerdr({ fails: true });
+  const refusingView = await tabsView(refusing);
+
+  const outcomes = [await (await tabsView(quiet)).renameTab('w2:t1', ' \n '), await refusingView.renameTab('w2:t1', 'checkout'), await refusingView.closeTab('w2:t2')];
+
+  assert.deepEqual({ outcomes, unsent: quiet.changes }, { outcomes: [{ ok: false, error: 'empty' }, { ok: false, error: 'failed' }, { ok: false, error: 'failed' }], unsent: [] });
+});

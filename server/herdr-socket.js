@@ -141,6 +141,7 @@ export function socketRunner(socket, program) {
 function socketCall(args) {
   const [subject, command, ...rest] = args;
   if (subject === 'api' && command === 'snapshot' && rest.length === 0) return { method: 'session.snapshot', params: {} };
+  if (subject === 'tab') return tabCall(command, rest);
   if (subject !== 'pane') return undefined;
   const [pane, ...more] = rest;
   switch (command) {
@@ -160,4 +161,17 @@ function socketCall(args) {
     default:
       return undefined;
   }
+}
+
+/**
+ * @param {string | undefined} command
+ * @param {readonly string[]} rest — the tab, and the new name for rename
+ * @returns {{ method: string, params: Record<string, unknown> } | undefined}
+ */
+function tabCall(command, rest) {
+  const [tab, label, ...more] = rest;
+  if (tab === undefined || more.length > 0) return undefined;
+  if (command === 'rename' && label !== undefined) return { method: 'tab.rename', params: { tab_id: tab, label } };
+  if (command === 'close' && label === undefined) return { method: 'tab.close', params: { tab_id: tab } };
+  return undefined;
 }
