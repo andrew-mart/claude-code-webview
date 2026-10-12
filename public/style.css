@@ -12,6 +12,8 @@
   /* a herdr workspace's mark (.tinted): its hue, this light and strong, on the row's left edge */
   --mark-lightness: 0.66;
   --mark-chroma: 0.19;
+  /* a usage meter's spare room (.usage-meter[data-gap='spare']): its green washed into this — the page shows through */
+  --usage-room-wash: transparent;
   --bg-code: #f7f6f2;
   --bg-code-bar: #efede6;
   --text: #141413;
@@ -58,6 +60,7 @@
     --bg-selected: rgba(250, 249, 245, 0.085);
     --mark-lightness: 0.74;
     --mark-chroma: 0.16;
+    --usage-room-wash: rgba(222, 220, 209, 0.5);
     --bg-code: #1e1d1c;
     --bg-code-bar: #252422;
     --text: #f5f4ef;
@@ -94,6 +97,7 @@
   --bg-selected: rgba(250, 249, 245, 0.085);
   --mark-lightness: 0.74;
   --mark-chroma: 0.16;
+  --usage-room-wash: rgba(222, 220, 209, 0.5);
   --bg-code: #1e1d1c;
   --bg-code-bar: #252422;
   --text: #f5f4ef;
@@ -246,11 +250,12 @@ button {
 }
 
 /* the gap's colour follows the pace (app.js: --pace, percent points the use lags behind the time, below 0 ahead of it):
-   green with room to spare, yellow as the use catches the time up, red once it is well ahead */
+   green with room to spare, yellow as the use catches the time up, red once it is well ahead. Spare is room not used
+   yet, not part of the bar: pale — the overspent red is used, as bright as the blue */
 .usage-meter[data-gap='spare'] {
   --greenness: clamp(0, calc(var(--pace, 0) / 20), 1);
-  --gap-start: color-mix(in oklch, #6ee7b7 calc(var(--greenness) * 100%), #fde047);
-  --gap-end: color-mix(in oklch, #10b981 calc(var(--greenness) * 100%), #eab308);
+  --gap-start: color-mix(in oklch, color-mix(in oklch, #6ee7b7 calc(var(--greenness) * 100%), #fde047) 45%, var(--usage-room-wash));
+  --gap-end: color-mix(in oklch, color-mix(in oklch, #10b981 calc(var(--greenness) * 100%), #eab308) 45%, var(--usage-room-wash));
 }
 
 .usage-meter[data-gap='over'] {
