@@ -340,7 +340,8 @@ async function newTab(deps, body, response) {
     response.writeHead(400).end('Bad new tab');
     return;
   }
-  return sendJson(response, await deps.herdrView.createTab(tab, start));
+  const label = isRecord(body) ? text(body.label) : undefined;
+  return sendJson(response, await deps.herdrView.createTab(tab, start, label));
 }
 
 /**

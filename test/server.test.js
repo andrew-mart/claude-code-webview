@@ -122,8 +122,8 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
       tabChanges.push(['close', tab]);
       return { ok: true };
     },
-    createTab: async (beside, start) => {
-      tabChanges.push(['create', beside, start]);
+    createTab: async (beside, start, label) => {
+      tabChanges.push(['create', beside, start, String(label)]);
       return { ok: true, target: '#/pane/w1:p2' };
     },
     createWorkspace: async (label, folder, start) => {
@@ -252,16 +252,17 @@ test('workspaces_Should_OpenNewWorkspace_And_RefuseUnknownStart', async (t) => {
   );
 });
 
-// A new tab is asked for beside the open one, with a shell or Claude Code in it; anything else is refused before herdr
+// A new tab is asked for beside the open one, under a name or none, with a shell or Claude Code in it; anything else is refused before herdr
 test('tabs_Should_OpenNewTabBesideOne_And_RefuseUnknownStart', async (t) => {
   const { port, tabChanges } = await withServer(t);
 
-  const opened = await post(port, '/api/tab/new', pageHeaders(port), JSON.stringify({ tab: 'w1:t1', start: 'claude' }));
+  const opened = await post(port, '/api/tab/new', pageHeaders(port), JSON.stringify({ tab: 'w1:t1', start: 'claude', label: 'api' }));
+  const unnamed = await post(port, '/api/tab/new', pageHeaders(port), JSON.stringify({ tab: 'w1:t1', start: 'shell' }));
   const strange = await post(port, '/api/tab/new', pageHeaders(port), JSON.stringify({ tab: 'w1:t1', start: 'rm -rf' }));
 
   assert.deepEqual(
-    { opened: [opened.status, JSON.parse(opened.body)], strange: strange.status, tabChanges },
-    { opened: [200, { ok: true, target: '#/pane/w1:p2' }], strange: 400, tabChanges: [['create', 'w1:t1', 'claude']] },
+    { opened: [opened.status, JSON.parse(opened.body)], unnamed: unnamed.status, strange: strange.status, tabChanges },
+    { opened: [200, { ok: true, target: '#/pane/w1:p2' }], unnamed: 200, strange: 400, tabChanges: [['create', 'w1:t1', 'claude', 'api'], ['create', 'w1:t1', 'shell', 'undefined']] },
   );
 });
 

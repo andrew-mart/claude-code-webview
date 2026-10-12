@@ -763,6 +763,25 @@ input.herdr-tab-name.failed {
   color: #fff;
 }
 
+/* closing a tab: two buttons, ✓ in the danger colour, ✕ plain */
+.herdr-tab-confirm .icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+}
+
+.herdr-tab-confirm .icon-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.herdr-tab-confirm .icon-button.herdr-tab-confirm-close {
+  background: var(--danger);
+}
+
 /* A herdr pane's terminal: dark, as terminal programs draw for. Its top row — the sidebar's button — on a phone only. */
 .terminal-top {
   display: none;

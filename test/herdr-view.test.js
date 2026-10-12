@@ -293,14 +293,14 @@ test('renameTab_And_closeTab_Should_TellWhatWasNotDone', async () => {
   assert.deepEqual({ outcomes, unsent: quiet.changes }, { outcomes: [{ ok: false, error: 'empty' }, { ok: false, error: 'failed' }, { ok: false, error: 'failed' }], unsent: [] });
 });
 
-// A new tab opens beside the one it is asked from — its workspace, its folder — and the page goes to it; for Claude Code
-// the command the viewer was told to start it with is typed into it
+// A new tab opens beside the one it is asked from — its workspace, its folder — under the name it is given, and the page
+// goes to it; for Claude Code the command the viewer was told to start it with is typed into it
 test('createTab_Should_OpenTabBesideOne_And_StartClaudeWithItsCommand', async () => {
   const herdr = tabsHerdr();
   const view = await tabsView(herdr, 'claude-god');
   await view.layout();
 
-  const outcomes = [await view.createTab('w2:t1', 'shell'), await view.createTab('w2:t1', 'claude')];
+  const outcomes = [await view.createTab('w2:t1', 'shell', undefined), await view.createTab('w2:t1', 'claude', '  slow  tests ')];
 
   assert.deepEqual(
     { outcomes, changes: herdr.changes, tabs: tabNames(await view.layout()).length },
@@ -309,7 +309,7 @@ test('createTab_Should_OpenTabBesideOne_And_StartClaudeWithItsCommand', async ()
         { ok: true, target: '#/pane/w2:p3' },
         { ok: true, target: '#/pane/w2:p4' },
       ],
-      changes: ['tab create --workspace w2 --cwd D:/shop', 'tab create --workspace w2 --cwd D:/shop', 'pane send-text w2:p4 claude-god', 'pane send-keys w2:p4 enter'],
+      changes: ['tab create --workspace w2 --cwd D:/shop', 'tab create --workspace w2 --cwd D:/shop', 'tab rename w2:t4 slow tests', 'pane send-text w2:p4 claude-god', 'pane send-keys w2:p4 enter'],
       tabs: 4,
     },
   );
