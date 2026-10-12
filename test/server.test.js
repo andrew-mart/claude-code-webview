@@ -90,11 +90,11 @@ const webWorkspace = {
 
 /**
  * @param {import('node:test').TestContext} t
- * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[], sessionRunning?: boolean }} [options] - takenBack: see
+ * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[], sessionRunning?: boolean, editor?: 'set' | 'none' }} [options] - takenBack: see
  *   fakeComposer; palette, publicAddresses: what the viewer is started with; sessionRunning: whether Claude Code has the
- *   session open
+ *   session open; editor: whether the viewer opens files in an editor — the files it is asked to open are recorded
  */
-async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true } = {}) {
+async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true, editor = 'set' } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'csv-'));
   const project = join(root, 'D--dev-x');
   await mkdir(project);
@@ -141,9 +141,18 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
       return { ok: true };
     },
   };
-  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId });
+  // the editor opens what is asked; a file named missing.cs is not there
+  /** @type {(string | number)[][]} */
+  const opened = [];
+  /** @type {import('../server/app.js').OpenEditor} */
+  const openEditor = async (path, line) => {
+    if (path.endsWith('missing.cs')) return { ok: false, error: 'not-a-file' };
+    opened.push([path, line]);
+    return { ok: true };
+  };
+  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined });
   t.after(() => server.close());
-  return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls, typed, tabChanges };
+  return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls, typed, tabChanges, opened };
 }
 
 /**
@@ -276,6 +285,42 @@ test('taskOutput_Should_ReadCommandOutputOnFromWherePageStopped', async (t) => {
   const other = await fetch(`${base}/api/tasks/output?session=${sessionId}&task=toolu_other`);
 
   assert.deepEqual([first, next, other.status], [{ text: 'compiling\n', from: 0, size: 10 }, { text: 'ready on :3000\n', from: 10, size: 25 }, 404]);
+});
+
+// The page tells whether it is opened on the viewer's own computer: it asks the viewer at 127.0.0.1 which instance
+// answers there — from its public address as well — and learns whether the viewer has an editor to open files in
+test('machine_Should_NameViewerInstance_ToItsOwnPagesOnly', async (t) => {
+  const publicAddresses = [{ origin: 'https://viewer.example.com', host: 'viewer.example.com' }];
+  const { port } = await withServer(t, { publicAddresses });
+  const bare = await withServer(t, { editor: 'none' });
+
+  const [own, again, foreign, plain] = await Promise.all([
+    rawGet(port, '/api/machine', { origin: 'https://viewer.example.com' }),
+    rawGet(port, '/api/machine', {}),
+    rawGet(port, '/api/machine', { origin: 'https://evil.example.com' }),
+    rawGet(bare.port, '/api/machine', {}),
+  ]);
+
+  const told = JSON.parse(own.body.toString());
+  assert.deepEqual(
+    { told, sameAgain: JSON.parse(again.body.toString()).instance === told.instance, allowed: own.headers['access-control-allow-origin'], foreign: foreign.headers['access-control-allow-origin'], plain: JSON.parse(plain.body.toString()).editor },
+    { told: { instance: told.instance, port, editor: true }, sameAgain: true, allowed: 'https://viewer.example.com', foreign: undefined, plain: false },
+  );
+  assert.match(told.instance, /^[0-9a-f-]{36}$/);
+});
+
+// A file of the panel opens in the editor at its line; a file that is gone, or a viewer without an editor, opens nothing
+test('openInEditor_Should_OpenFileAtLine_WhenViewerHasEditor', async (t) => {
+  const { port, opened } = await withServer(t);
+  const bare = await withServer(t, { editor: 'none' });
+  const ask = (/** @type {number} */ at, /** @type {unknown} */ body) => post(at, '/api/open-in-editor', pageHeaders(at), JSON.stringify(body));
+
+  const replies = await Promise.all([ask(port, { path: 'D:/dev/x/App.cs', line: 21 }), ask(port, { path: 'D:/dev/x/missing.cs', line: 1 }), ask(port, { path: 'D:/dev/x/App.cs' }), ask(bare.port, { path: 'D:/dev/x/App.cs', line: 3 })]);
+
+  assert.deepEqual({ replies: replies.map(({ status, body }) => [status, status === 200 ? JSON.parse(body) : body]), opened }, {
+    replies: [[200, { ok: true }], [200, { ok: false, error: 'not-a-file' }], [400, 'Bad file or line'], [200, { ok: false, error: 'no-editor' }]],
+    opened: [['D:/dev/x/App.cs', 21]],
+  });
 });
 
 // The page shows the account's usage the viewer reads: the 5-hour window and the week

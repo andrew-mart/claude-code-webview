@@ -38,7 +38,10 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   stays visible. In detail shows every call.
 - **File links.** Absolute paths in answers (`/Users/ann/app/src/x.ts:42`, `~/notes.md`, `C:\repo\a.cs:10-20`),
   `file:///` links and paths in Read/Edit/Write rows open the file in a side panel, scrolled to and highlighting the line.
-  The panel shows the file as it is on disk now, not at the time of the answer.
+  The panel shows the file as it is on disk now, not at the time of the answer. Started with `--editor-command`, the
+  viewer adds a button that opens the file at the marked line in your editor — in a browser on the viewer's own
+  computer, where the editor shows up. A page opened through a tunnel finds that out by asking the viewer at the
+  browser's 127.0.0.1 whether it is the same one: Chrome asks once to let the page reach apps on the device.
 - **Outline and bookmarks.** A right-hand outline lists your prompts (the one on screen is highlighted; Alt+↑ / Alt+↓
   jump between them) and your bookmarks: hover a prompt, an answer or a subagent report and click the flag to keep it
   one click away. Bookmarks are kept by the viewer in `~/.claude-code-webview/bookmarks.json`, so every browser and
@@ -210,6 +213,7 @@ Several computers? Give each its own tunnel, hostname and `--palette`, and the p
 | `node bin/claude-code-webview.js --no-open` | do not open the browser |
 | `node bin/claude-code-webview.js --no-herdr` | do not use herdr even if it is found: the page only reads sessions |
 | `node bin/claude-code-webview.js --claude-command my-claude` | start Claude Code with this command in a tab opened from the page (default: `claude`) |
+| `node bin/claude-code-webview.js --editor-command "code --goto {path}:{line}"` | open a file of the file panel in an editor of this computer; `{path}`, `{line}` and `{project}` — the nearest folder above the file with a `.sln`, `.slnx` or `.git` — are filled in; the program is started directly, not through a shell — on Windows name its `.exe`. Rider: `"C:/Program Files/JetBrains/Rider/bin/rider64.exe" {project} --line {line} {path}` |
 | `node bin/claude-code-webview.js --install-shortcut` | Windows: desktop shortcut that starts the viewer in the background (`--start-menu` for the Start menu) |
 
 `npm start -- <options>` does the same as `node bin/claude-code-webview.js <options>`.

@@ -2,7 +2,7 @@
 // The viewer's HTTP server: static files, the session list, the stream of transcript entries.
 // Transcripts contain everything the agent saw, secrets included, so the server listens only on a local address
 // and answers only requests whose Host is that address: a page from another site cannot read it via DNS rebinding.
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import http from 'node:http';
 import { homedir } from 'node:os';
@@ -12,7 +12,7 @@ import { promisify } from 'node:util';
 import { constants as zlibConstants, createGzip, gzip } from 'node:zlib';
 import { withAttachedImages } from '../public/model/attachments.js';
 import { parseBookmarkChange } from '../public/model/bookmarks.js';
-import { isRecord } from '../public/model/narrow.js';
+import { isRecord, text } from '../public/model/narrow.js';
 import { takenBackPrompt } from './branch.js';
 import { parseSteps } from '../public/model/dialog.js';
 import { readImageFile, readTextFile } from './files.js';
@@ -62,17 +62,20 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  * @typedef {{ name: string, version: string }} About
  * @typedef {() => Promise<import('../public/model/usage.js').Usage | undefined>} ReadUsage — none until Claude Code has read it
  * @typedef {(sessionId: string) => Promise<boolean>} IsRunning
+ * @typedef {(path: string, line: number) => Promise<import('./editor.js').EditorOutcome>} OpenEditor
  */
 
 /**
- * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning }} options
+ * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined }} options
  *   about — package name and version for /api/health; palette — the page's colours (public/model/palettes.js);
  *   publicAddresses — where else the page is opened at, answered as the local address is; herdrView — what herdr
  *   shows (herdr-view.js); terminals — herdr panes' terminals (terminal.js); usage — the account's usage (usage.js);
- *   isRunning — whether Claude Code has a session open
+ *   isRunning — whether Claude Code has a session open; editor — opens a file at a line in the editor of this computer,
+ *   if the viewer was given one
  * @returns {Promise<{ port: number, close: () => void }>}
  */
-export async function startServer({ root, host, port, pollMs, composer, bookmarks, uploads, about, palette, publicAddresses, herdrView, terminals, usage, isRunning }) {
+export async function startServer({ root, host, port, pollMs, composer, bookmarks, uploads, about, palette, publicAddresses, herdrView, terminals, usage, isRunning, editor }) {
+  const instance = randomUUID();
   const index = createSessionIndex(root, { summaryBudgetMs: 1500 });
   const build = await pageBuild();
   /** Sessions this page rewound: session id → the prompt rewound to; its branch is hidden before the next prompt shows the fork. */
@@ -84,7 +87,7 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
   /** @type {Set<string>} */
   const allowedOrigins = new Set();
   const server = http.createServer((request, response) => {
-    handle({ index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, uploads, about, build, rewinds, transcripts, palette, herdrView, terminals, usage, isRunning }, request, response).catch((error) => {
+    handle({ index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, uploads, about, build, rewinds, transcripts, palette, herdrView, terminals, usage, isRunning, editor, instance }, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
       if (!response.headersSent) response.writeHead(500).end();
       else response.end();
@@ -111,7 +114,8 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
 }
 
 /**
- * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning }} Deps
+ * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, instance: string }} Deps
+ *   instance: this run of the viewer, told apart from any other — see /api/machine
  * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'createTab' | 'history' | 'reopen'>} HerdrView
  * @typedef {Pick<ReturnType<typeof import('./terminal.js').createTerminals>, 'stream' | 'type'>} Terminals
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
@@ -163,6 +167,8 @@ async function handle(deps, request, response) {
     case '/api/herdr':
       return sendRevalidated(response, await deps.herdrView.layout());
     // Where sessions ran in herdr, closed ones included: the session list finds them by workspace and tab.
+    case '/api/machine':
+      return sendMachine(deps, request, response);
     case '/api/tasks':
       return withSession(url, response, async (id) => sendTasks(deps, id, response));
     case '/api/tasks/output':
@@ -218,6 +224,7 @@ async function handleWrite(deps, url, request, response) {
   if (url.pathname === '/api/tab/rename') return renameTab(deps, body, response);
   if (url.pathname === '/api/tab/close') return closeTab(deps, body, response);
   if (url.pathname === '/api/tab/new') return newTab(deps, body, response);
+  if (url.pathname === '/api/open-in-editor') return openFile(deps, body, response);
   const sessionId = isRecord(body) && typeof body.session === 'string' && sessionIdPattern.test(body.session) ? body.session : undefined;
   if (sessionId === undefined) {
     response.writeHead(400).end('Bad session id');
@@ -648,6 +655,38 @@ async function sendSnapshot(deps, url, id, response) {
   }
   const read = await deps.transcripts.read(path, { scope: 'main', imageUrl: (lineStart, n) => imageLink(id, null, lineStart, n) });
   return sendJson(response, openingPart(read.entries, deps.rewinds.get(id), tailOf(url)));
+}
+
+/**
+ * Which run of the viewer answers, at which port, and whether it has an editor. A page opened through a tunnel asks the
+ * viewer at 127.0.0.1 on that port: the same run answering there means the browser is on the viewer's computer, where
+ * a file opened in the editor shows up. So the viewer's own pages may read it from any of their addresses.
+ * @param {Deps} deps
+ * @param {http.IncomingMessage} request
+ * @param {http.ServerResponse} response
+ */
+function sendMachine(deps, request, response) {
+  const origin = request.headers.origin;
+  if (origin !== undefined && deps.allowedOrigins.has(origin)) response.setHeader('Access-Control-Allow-Origin', origin);
+  response.setHeader('Vary', 'Origin');
+  return sendJson(response, { instance: deps.instance, port: request.socket.localPort, editor: deps.editor !== undefined });
+}
+
+/**
+ * A file of the file panel, opened at its line in the editor of the viewer's computer.
+ * @param {Deps} deps
+ * @param {unknown} body — { path, line }
+ * @param {http.ServerResponse} response
+ */
+async function openFile(deps, body, response) {
+  const path = isRecord(body) ? text(body.path) : undefined;
+  const line = isRecord(body) && typeof body.line === 'number' && Number.isInteger(body.line) && body.line >= 1 ? body.line : undefined;
+  if (path === undefined || line === undefined) {
+    response.writeHead(400).end('Bad file or line');
+    return;
+  }
+  if (deps.editor === undefined) return sendJson(response, { ok: false, error: 'no-editor' });
+  return sendJson(response, await deps.editor(path, line));
 }
 
 /**

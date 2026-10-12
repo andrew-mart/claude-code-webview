@@ -21,6 +21,7 @@ import { rewindMessage } from './model/rewind.js';
 import { createOutline } from './view/outline-view.js';
 import { h } from './view/dom.js';
 import { createFilePanel } from './view/file-panel.js';
+import { createEditorOpener } from './view/editor-opener.js';
 import { relabelTables } from './view/markdown.js';
 import { createResizer, restoreWidth } from './view/resizer.js';
 import { icon } from './view/icons.js';
@@ -77,7 +78,7 @@ const drawers = createDrawers({ root: document.documentElement, backdrop: byId('
 const settings = createSettings((change) => page.keepPlace(change));
 const page = createPage();
 const layout = byId('layout', HTMLElement);
-const filePanel = createFilePanel({ panel: byId('file-panel', HTMLElement), layout });
+const filePanel = createFilePanel({ panel: byId('file-panel', HTMLElement), layout, editor: createEditorOpener() });
 /** @type {import('./view/resizer.js').PanelWidth} */
 const outlineWidth = { property: '--outline-width', storageKey: 'viewer.outlineWidth' };
 restoreWidth(layout, outlineWidth);
