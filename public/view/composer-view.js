@@ -13,6 +13,8 @@ import { icon } from './icons.js';
 
 /** How often to check whether the session is running and busy. */
 const liveRefreshMs = 4000;
+/** A box taller than this — about three lines — can be folded to it, px. */
+const foldedHeightPx = 80;
 /** After an answer to Claude Code's dialog the terminal redraws: the next question, or the box again. */
 const redrawMs = 400;
 /** How long the success notice stays visible. */
@@ -50,7 +52,10 @@ export function createComposer(sessionId, { focusBox, placeOf }) {
   /** @type {ReturnType<typeof setTimeout> | undefined} */
   let noticeTimer;
   const attachments = createAttachmentPicker({ onChange: () => refreshButtons(), onError: (message) => say(message, 'error') });
-  const form = h('form', { className: 'composer-box' }, [attachments.list, attachments.button, input, h('div', { className: 'composer-actions' }, [interrupt, send])]);
+  // a box taller than a few lines folds to them: a long text pasted in need not cover the conversation
+  const fold = h('button', { className: 'icon-button composer-fold', attrs: { type: 'button', hidden: '' } });
+  let folded = false;
+  const form = h('form', { className: 'composer-box' }, [fold, attachments.list, attachments.button, input, h('div', { className: 'composer-actions' }, [interrupt, send])]);
   const aside = h('section', { className: 'side-answer', attrs: { hidden: '', 'aria-label': 'Side question', 'aria-live': 'polite' } });
   const closeAside = h('button', { className: 'icon-button side-answer-close', title: 'Close', attrs: { type: 'button', 'aria-label': 'Close' } }, [icon('cross')]);
   closeAside.addEventListener('click', () => (aside.hidden = true));
@@ -66,6 +71,17 @@ export function createComposer(sessionId, { focusBox, placeOf }) {
   const fit = () => {
     input.style.height = 'auto';
     input.style.height = `${input.scrollHeight}px`;
+    showFold();
+  };
+  /** The fold button for a box taller than a few lines; a box that is not, unfolded. */
+  const showFold = () => {
+    const tall = input.scrollHeight > foldedHeightPx;
+    if (!tall) folded = false;
+    fold.hidden = !tall;
+    form.classList.toggle('folded', folded);
+    fold.title = folded ? 'Unfold the box' : 'Fold the box to a few lines, to read the conversation';
+    fold.setAttribute('aria-label', fold.title);
+    fold.replaceChildren(icon(folded ? 'unfold' : 'fold'));
   };
   const refreshButtons = () => {
     send.disabled = !enabled || sending || (input.value.trim() === '' && attachments.images().length === 0);
@@ -256,6 +272,10 @@ export function createComposer(sessionId, { focusBox, placeOf }) {
     if (files.length === 0) return;
     event.preventDefault();
     if (enabled) void attachments.add(files);
+  });
+  fold.addEventListener('click', () => {
+    folded = !folded;
+    showFold();
   });
   input.addEventListener('input', () => {
     writeDraft(draftKey, input.value);
