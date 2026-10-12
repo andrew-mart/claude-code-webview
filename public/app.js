@@ -97,6 +97,8 @@ document.addEventListener('click', (event) => {
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && drawers.isOpen()) drawers.close();
   else if (event.key === 'Escape' && filePanel.isOpen()) filePanel.close();
+  // with nothing else to close, Esc stops Claude, as in its terminal; a field of its own keeps its Esc
+  else if (event.key === 'Escape' && !(event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]') !== null)) page.stop();
   if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
     event.preventDefault();
     page.step(event.key === 'ArrowUp' ? 'previous' : 'next');
@@ -167,7 +169,7 @@ function createPage() {
   /** @type {number | undefined} */
   let listVersion;
   let listMinute = 0;
-  /** @type {{ id: string, dispose: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, keepPlace: (change: () => void) => void, rewound: (reply: import('./model/rewind.js').RewindReply) => void } | undefined} */
+  /** @type {{ id: string, dispose: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, keepPlace: (change: () => void) => void, rewound: (reply: import('./model/rewind.js').RewindReply) => void, stop: () => boolean } | undefined} */
   let current;
   /** Where the reader left each session opened in this tab: coming back returns there. */
   /** @type {Map<string, import('./view/session-view.js').ReadingPlace>} */
@@ -448,6 +450,7 @@ function createPage() {
         const target = spy.target(direction);
         if (target !== undefined) void mounted.scrollToAnchor(target);
       },
+      stop: () => composer.stop(),
       // Like the terminal, the rewound message comes back into the box to be edited and sent again.
       rewound(reply) {
         composer.say(rewindMessage(reply), 'ok');
@@ -475,6 +478,10 @@ function createPage() {
     keepPlace(change) {
       if (current === undefined) change();
       else current.keepPlace(change);
+    },
+    /** Stops Claude in the open session, if it is working: the page's Esc. */
+    stop() {
+      current?.stop();
     },
     /** @param {'previous' | 'next'} direction — move to the neighbouring prompt (Alt+↑ / Alt+↓) */
     step(direction) {

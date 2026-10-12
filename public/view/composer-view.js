@@ -25,7 +25,7 @@ const serverSilent = { shown: true, enabled: false, canInterrupt: false, canReop
  * @param {string} sessionId
  * @param {{ focusBox: 'when-ready' | 'no' }} options — when-ready: the user opened the session, so the box takes the
  *   focus once the session can be written to; no: following the active session switched to it
- * @returns {{ element: HTMLElement, say: (message: string, tone: 'ok' | 'error') => void, fill: (text: string) => void, dispose: () => void }}
+ * @returns {{ element: HTMLElement, say: (message: string, tone: 'ok' | 'error') => void, fill: (text: string) => void, stop: () => boolean, dispose: () => void }} — stop: Claude stopped if it was working
  */
 export function createComposer(sessionId, { focusBox }) {
   /** @type {import('../model/composer.js').Keyboard} */
@@ -213,6 +213,11 @@ export function createComposer(sessionId, { focusBox }) {
     });
   });
   input.addEventListener('keydown', (event) => {
+    // Esc stops Claude, as it does in the terminal
+    if (event.key === 'Escape' && stop()) {
+      event.preventDefault();
+      return;
+    }
     // Enter sends, Shift+Enter inserts a new line; while composing with an IME, Enter confirms the word.
     // A phone keyboard has no Shift+Enter: there Enter always starts a new line and the button sends.
     if (keyboard === 'physical' && event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
@@ -250,6 +255,15 @@ export function createComposer(sessionId, { focusBox }) {
   });
   // A prompt Claude had not started on comes back into the box, as Esc in the terminal does. Watching for it takes a
   // moment: the button waits, so a second press does not reach the terminal as a second Esc.
+  /**
+   * Stops Claude, as Esc in its terminal does — if it is working.
+   * @returns {boolean} — whether there was anything to stop
+   */
+  const stop = () => {
+    if (interrupt.hidden || interrupt.disabled) return false;
+    interrupt.click();
+    return true;
+  };
   interrupt.addEventListener('click', () => {
     interrupt.disabled = true;
     say('Stopping…', 'ok');
@@ -270,6 +284,7 @@ export function createComposer(sessionId, { focusBox }) {
     element,
     say,
     fill,
+    stop,
     dispose() {
       clearInterval(timer);
       clearTimeout(noticeTimer);
