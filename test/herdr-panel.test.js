@@ -194,3 +194,18 @@ test('tabBar_Should_OpenNewTabWithTerminalOrClaude_And_GoToIt', async () => {
 
   assert.deepEqual(asked, [['create', 'w2:t1', 'claude'], ['open', '#/pane/w2:p9']]);
 });
+
+// A workspace's rows take its colour — its own row and the rows of the sessions running in it — set apart from another
+// workspace's
+test('herdrSidebar_Should_TintWorkspaceAndItsSessions_WithWorkspaceColour', () => {
+  const element = window.document.createElement('div');
+  const api = { ...web, id: 'w3', number: 3, label: 'api', activeTab: 'w3:t1', tabs: [{ id: 'w3:t1', number: 1, label: '1', status: /** @type {const} */ ('idle'), panes: [paneOf({ id: 'w3:p1', title: 'Add the endpoint', session: 's9', activity: 3 })] }] };
+
+  createHerdrSidebar(element).render({ herdr: true, workspaces: [web, api] }, undefined, '');
+
+  /** @param {Element} row */
+  const hueOf = (row) => (row instanceof window.HTMLElement ? row.style.getPropertyValue('--workspace-hue') : '');
+  const workspaces = new Map([...element.querySelectorAll('.herdr-workspace')].map((row) => [row.querySelector('.herdr-name')?.textContent, hueOf(row)]));
+  const sessions = [...element.querySelectorAll('.herdr-tab')].map((row) => hueOf(row) === workspaces.get(row.querySelector('.herdr-tab-where')?.textContent?.split(' · ')[0]));
+  assert.deepEqual({ apart: workspaces.get('web') !== workspaces.get('api') && workspaces.get('web') !== '', sessions }, { apart: true, sessions: [true, true, true, true] });
+});

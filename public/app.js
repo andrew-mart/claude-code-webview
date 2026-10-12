@@ -13,6 +13,7 @@ import { openedAt, parseHerdrLayout, parseNewTab, parseTabChange, placeOf } from
 import { parseHistory } from './model/history.js';
 import { parseUsage, usageText } from './model/usage.js';
 import { createHerdrSidebar, createTabBar } from './view/herdr-panel.js';
+import { tintByWorkspace } from './view/workspace-tint.js';
 import { mountTerminal } from './view/terminal-view.js';
 import { openOfflineStore } from './view/offline-store.js';
 import { createRewindDialog } from './view/rewind-dialog.js';
@@ -245,7 +246,9 @@ function createPage() {
     const tab = place?.tab !== undefined && !/^\d+$/.test(place.tab) ? place.tab : '';
     const closed = place?.tab !== undefined && !place.open;
     const note = place?.note ?? '';
-    const look = [title, folder, named, tab, closed, note, ago, active, selected, unavailable].join('\u0000');
+    // the workspace it runs or ran in colours the row, named on it or not
+    const tint = workspaces.of.get(session.id) ?? place?.workspace;
+    const look = [title, folder, named, tab, closed, note, ago, active, selected, unavailable, tint].join('\u0000');
     const known = items.get(session.id);
     if (known !== undefined && known.look === look) return known.element;
     const where = h('span', { className: 'session-place' }, [h('span', { className: 'session-folder', text: folder })]);
@@ -260,6 +263,7 @@ function createPage() {
     link.classList.toggle('active', active);
     link.classList.toggle('selected', selected);
     link.classList.toggle('unavailable', unavailable);
+    tintByWorkspace(link, tint);
     items.set(session.id, { look, element: link });
     return link;
   };
@@ -275,6 +279,7 @@ function createPage() {
       h('span', { className: 'session-group-name', text: workspace ?? 'No workspace' }),
       h('span', { className: 'session-group-count', text: String(count) }),
     ]);
+    tintByWorkspace(head, workspace);
     groupHeads.set(workspace ?? '', { look, element: head });
     return head;
   };
