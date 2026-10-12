@@ -230,14 +230,13 @@ button {
   --used-end: #3b82f6;
   --gap-start: transparent;
   --gap-end: transparent;
-  --meter-paint: linear-gradient(
-    90deg,
-    var(--used-start) 0%,
-    var(--used-end) calc(var(--fill, 0) * 1%),
-    var(--gap-start) calc(var(--fill, 0) * 1%),
-    var(--gap-end) calc(var(--gap-to, 0) * 1%),
-    var(--border) calc(var(--gap-to, 0) * 1%)
-  );
+  /* the colours flow into each other across the boundary — over a stretch no longer than half of either side, so a
+     short one keeps its colour — and the end fades into the empty track */
+  --blend: min(7, calc(var(--fill, 0) / 2), calc((var(--gap-to, 0) - var(--fill, 0)) / 2));
+  --used-to: calc((var(--fill, 0) - var(--blend)) * 1%);
+  --gap-from: calc((var(--fill, 0) + var(--blend)) * 1%);
+  --gap-until: calc((var(--gap-to, 0) - 2) * 1%);
+  --track-from: calc((var(--gap-to, 0) + 2) * 1%);
 }
 
 .usage-meter[data-gap='spare'] {
@@ -250,11 +249,14 @@ button {
   --gap-end: #dc2626;
 }
 
+/* blended in OKLCH, blue turns green through a bright teal and red through a purple, with no grey between; a browser
+   that cannot blend so takes the first */
 .usage-line {
   width: 64px;
   height: 6px;
   border-radius: 3px;
-  background: var(--meter-paint);
+  background: linear-gradient(90deg, var(--used-start) 0%, var(--used-end) var(--used-to), var(--gap-start) var(--gap-from), var(--gap-end) var(--gap-until), var(--border) var(--track-from));
+  background: linear-gradient(in oklch 90deg, var(--used-start) 0%, var(--used-end) var(--used-to), var(--gap-start) var(--gap-from), var(--gap-end) var(--gap-until), var(--border) var(--track-from));
   box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.08);
 }
 
@@ -276,13 +278,8 @@ button {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: conic-gradient(
-    var(--used-start) 0%,
-    var(--used-end) calc(var(--fill, 0) * 1%),
-    var(--gap-start) calc(var(--fill, 0) * 1%),
-    var(--gap-end) calc(var(--gap-to, 0) * 1%),
-    var(--border) calc(var(--gap-to, 0) * 1%)
-  );
+  background: conic-gradient(var(--used-start) 0%, var(--used-end) var(--used-to), var(--gap-start) var(--gap-from), var(--gap-end) var(--gap-until), var(--border) var(--track-from));
+  background: conic-gradient(in oklch, var(--used-start) 0%, var(--used-end) var(--used-to), var(--gap-start) var(--gap-from), var(--gap-end) var(--gap-until), var(--border) var(--track-from));
   -webkit-mask: radial-gradient(circle, transparent 14.5px, #000 15px);
   mask: radial-gradient(circle, transparent 14.5px, #000 15px);
 }
