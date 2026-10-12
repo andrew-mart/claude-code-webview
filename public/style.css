@@ -2716,6 +2716,38 @@ table.diff tr.gap td {
   resize: none;
 }
 
+/* a tall box folded to about three lines, scrolling inside: the conversation stays in view */
+.composer-box {
+  position: relative;
+}
+
+.composer-box.folded .composer-input {
+  max-height: 4.9em;
+}
+
+.composer-fold {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+  opacity: 0.7;
+}
+
+.composer-fold:hover {
+  opacity: 1;
+}
+
+.composer-fold svg {
+  width: 14px;
+  height: 14px;
+}
+
+.composer-box:has(.composer-fold:not([hidden])) .composer-input {
+  padding-right: 22px;
+}
+
 .composer-input:disabled {
   cursor: not-allowed;
 }
