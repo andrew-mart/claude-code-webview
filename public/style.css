@@ -287,7 +287,7 @@ button {
   white-space: nowrap;
 }
 
-/* Where a session is: its herdr workspace, when that is not named as the folder, and the folder. */
+/* Where a session is: its herdr workspace, when that is not named as the folder, the tab it ran in, and the folder. */
 .session-place {
   display: flex;
   gap: 6px;
@@ -299,6 +299,16 @@ button {
   max-width: 50%;
   overflow: hidden;
   color: var(--accent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The herdr tab the session ran in, after its workspace. */
+.session-tab {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  color: var(--text-3);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

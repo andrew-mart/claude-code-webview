@@ -2,21 +2,23 @@
 // Which sessions the sidebar lists.
 
 /**
- * SDK sessions (a program drives Claude Code: claude -p, the Agent SDK) are hidden unless shown;
- * the search matches the title, the folder or the herdr workspace, ignoring case.
+ * SDK sessions (a program drives Claude Code: claude -p, the Agent SDK) are hidden unless shown; the search matches the
+ * title, the folder, the herdr workspace, and the tab the session ran in — its name now or before — and its note,
+ * ignoring case.
  * @template {{ id: string, title: string | undefined, cwd: string | undefined, kind: 'interactive' | 'sdk' }} T
  * @param {readonly T[]} sessions
- * @param {{ sdk: 'hidden' | 'shown', search: string, workspaces: ReadonlyMap<string, string> }} options — workspaces:
- *   the herdr workspace of each session, by its id; empty without herdr
+ * @param {{ sdk: 'hidden' | 'shown', search: string, workspaces: ReadonlyMap<string, string>, history: import('./history.js').History, closed: 'all' | 'only' }} options
+ *   — workspaces: the herdr workspace of each session, by its id; empty without herdr; history: where sessions ran in
+ *   herdr; closed: only — just the sessions that ran in a herdr tab and do not any more
  * @returns {T[]}
  */
-export function listedSessions(sessions, { sdk, search, workspaces }) {
+export function listedSessions(sessions, { sdk, search, workspaces, history, closed }) {
   const wanted = search.trim().toLowerCase();
-  return sessions.filter(
-    (session) =>
-      (sdk === 'shown' || session.kind !== 'sdk') &&
-      (wanted === '' || `${session.title ?? ''} ${session.cwd ?? ''} ${workspaces.get(session.id) ?? ''}`.toLowerCase().includes(wanted)),
-  );
+  return sessions.filter((session) => {
+    const place = history[session.id];
+    const found = [session.title, session.cwd, workspaces.get(session.id), place?.tab, ...(place?.earlierTabs ?? []), place?.note].join(' ').toLowerCase();
+    return (sdk === 'shown' || session.kind !== 'sdk') && (closed === 'all' || (place?.tab !== undefined && !place.open)) && (wanted === '' || found.includes(wanted));
+  });
 }
 
 /**

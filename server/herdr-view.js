@@ -12,6 +12,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { isRecord, text } from '../public/model/narrow.js';
 import { foregroundPids, snapshotOf, succeeded } from './herdr.js';
 import { latestRecords } from './registry.js';
+import { parseHistory } from '../public/model/history.js';
+import { observed } from './session-history.js';
 
 /**
  * @typedef {{ herdr: boolean, sessions: Record<string, string> }} SessionWorkspaces — the /api/workspaces reply.
@@ -33,15 +35,15 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
   /** Claude Code processes in no pane — run in an IDE, a plain terminal: not looked for again on every look at herdr. */
   /** @type {Set<number>} */
   const outsideHerdr = new Set();
-  /** The workspace of every session seen running, by session id — read from the file once. */
-  /** @type {Promise<Map<string, string>> | undefined} */
-  let remembered;
+  /** Where every session seen running was — read from the file once, then kept here and written back. */
+  /** @type {Promise<{ history: import('../public/model/history.js').History, writtenAt: number }> | undefined} */
+  let kept;
   /** @type {{ at: number, view: Promise<HerdrView> } | undefined} */
   let latest;
 
-  const seenSessions = () => {
-    remembered ??= readRemembered(file);
-    return remembered;
+  const keptHistory = () => {
+    kept ??= readHistory(file).then((history) => ({ history, writtenAt: Date.now() }));
+    return kept;
   };
 
   /**
@@ -72,16 +74,21 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
    */
   const rememberRunning = async (snapshot, sessionByPane) => {
     const labels = workspaceLabels(snapshot);
-    const seen = await seenSessions();
-    let learned = false;
-    for (const pane of snapshot.panes) {
+    const tabLabels = new Map(snapshot.tabs.map((tab) => [tab.id, tab.label]));
+    const running = snapshot.panes.flatMap((pane) => {
       const session = sessionByPane.get(pane.paneId);
-      const label = labels.get(pane.workspaceId);
-      if (session === undefined || label === undefined || seen.get(session) === label) continue;
-      seen.set(session, label);
-      learned = true;
-    }
-    if (learned) await writeRemembered(file, seen);
+      const workspace = labels.get(pane.workspaceId);
+      const tab = pane.tabId === undefined ? undefined : tabLabels.get(pane.tabId);
+      return session === undefined || workspace === undefined ? [] : [{ session, workspace, tab, folder: pane.cwd }];
+    });
+    const store = await keptHistory();
+    const now = Date.now();
+    const { history, changed } = observed(store.history, running, now);
+    store.history = history;
+    // when running sessions were last seen is written now and then: a session closed meanwhile keeps a time near it
+    if (!changed && (running.length === 0 || now - store.writtenAt < sightingsWriteMs)) return;
+    store.writtenAt = now;
+    await writeHistory(file, history);
   };
 
   /** @param {readonly Pane[]} panes */
@@ -142,9 +149,9 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
     async workspacesOf(sessions) {
       const view = await currentView();
       if (view === undefined) return { herdr: false, sessions: {} };
-      const seen = await seenSessions();
+      const { history } = await keptHistory();
       const found = sessions.flatMap(({ id, cwd }) => {
-        const label = seen.get(id) ?? (cwd === undefined ? undefined : view.byFolder.get(folderKey(cwd)));
+        const label = history[id]?.workspace ?? (cwd === undefined ? undefined : view.byFolder.get(folderKey(cwd)));
         return label === undefined ? [] : [[id, label]];
       });
       return { herdr: true, sessions: Object.fromEntries(found) };
@@ -185,6 +192,14 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
      */
     async closeTab(tabId) {
       return changed(await herdr(['tab', 'close', tabId]));
+    },
+    /**
+     * Where the sessions ran in herdr, the ones closed since included.
+     * @returns {Promise<import('../public/model/history.js').History>}
+     */
+    async history() {
+      await currentView();
+      return (await keptHistory()).history;
     },
     /** @returns {Promise<import('../public/model/herdr.js').HerdrLayout>} */
     async layout() {
@@ -258,28 +273,32 @@ function folderKey(path) {
 }
 
 /**
+ * The history kept in the file; a missing or broken file is an empty history — it is learned again from what runs.
+ * Older viewers kept a session's workspace alone in the same file.
  * @param {string} file
- * @returns {Promise<Map<string, string>>}
+ * @returns {Promise<import('../public/model/history.js').History>}
  */
-async function readRemembered(file) {
+async function readHistory(file) {
   const content = await readFile(file, 'utf8').catch(() => undefined);
-  if (content === undefined) return new Map();
+  if (content === undefined) return {};
   try {
-    const json = JSON.parse(content);
-    return new Map(isRecord(json) ? Object.entries(json).flatMap(([id, label]) => (typeof label === 'string' ? [/** @type {const} */ ([id, label])] : [])) : []);
+    return parseHistory(JSON.parse(content));
   } catch {
-    return new Map(); // a corrupt file — the workspaces are learned again from the sessions running now
+    return {}; // a corrupt file
   }
 }
 
 /**
  * @param {string} file
- * @param {ReadonlyMap<string, string>} seen
+ * @param {import('../public/model/history.js').History} history
  */
-async function writeRemembered(file, seen) {
+async function writeHistory(file, history) {
   await mkdir(dirname(file), { recursive: true });
-  await writeFile(file, `${JSON.stringify(Object.fromEntries(seen), undefined, 1)}\n`);
+  await writeFile(file, `${JSON.stringify(history, undefined, 1)}\n`);
 }
+
+/** How often the last sightings of running sessions are written down. */
+const sightingsWriteMs = 60_000;
 
 /** A new tab's shell shows its prompt within a few seconds. */
 const shellStepMs = 150;
