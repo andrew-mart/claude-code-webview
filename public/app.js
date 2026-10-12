@@ -26,7 +26,8 @@ import { createEditorOpener } from './view/editor-opener.js';
 import { relabelTables } from './view/markdown.js';
 import { createResizer, restoreWidth } from './view/resizer.js';
 import { icon } from './view/icons.js';
-import { activityModeEvent, jumpMarginPx, mountSession } from './view/session-view.js';
+import { activityModeEvent, jumpMarginPx, mountSession, openSubagentTranscript } from './view/session-view.js';
+import { createTasksView } from './view/tasks-view.js';
 
 /**
  * activeAt — the session's last prompt or answer
@@ -417,6 +418,14 @@ function createPage() {
     });
     scroller.append(view.element);
     const composer = createComposer(id, { focusBox: followedTo === id ? 'no' : 'when-ready' });
+    const tasks = createTasksView({
+      sessionId: id,
+      load: async (path) => {
+        const response = await fetch(path).catch(() => undefined);
+        return response?.ok ? response.json().catch(() => undefined) : undefined;
+      },
+      openSubagent: (toolUseId, holder) => void openSubagentTranscript(id, toolUseId, holder),
+    });
     followedTo = undefined;
     const outlineResizer = createResizer({
       layout,
@@ -428,7 +437,7 @@ function createPage() {
       label: 'Outline width',
       className: 'outline-resizer',
     });
-    main.replaceChildren(tabBar.element, header.element, h('div', { className: 'main-body' }, [h('div', { className: 'feed-column' }, [scroller, composer.element]), outlineResizer, outlineElement]));
+    main.replaceChildren(tabBar.element, header.element, h('div', { className: 'main-body' }, [h('div', { className: 'feed-column' }, [scroller, tasks.element, composer.element]), outlineResizer, outlineElement]));
     const mounted = view;
     current = {
       id,
@@ -448,6 +457,7 @@ function createPage() {
         mounted.dispose();
         header.dispose();
         composer.dispose();
+        tasks.dispose();
         unsubscribe();
         bookmarks.dispose();
         spy.dispose();
