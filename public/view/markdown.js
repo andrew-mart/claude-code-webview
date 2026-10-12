@@ -7,7 +7,8 @@ import { h } from './dom.js';
 import { linkFileRefs } from './file-links.js';
 import { icon } from './icons.js';
 
-const markdown = new Marked({ gfm: true, breaks: false });
+// a line break in an answer is a line break, as the terminal shows it — not a space within the paragraph
+const markdown = new Marked({ gfm: true, breaks: true });
 
 /** Link URLs that DOMPurify keeps: its default list plus file:, since such links open the file in the panel. */
 const allowedUris = /^(?:(?:(?:f|ht)tps?|mailto|tel|file):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i;
