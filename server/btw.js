@@ -7,9 +7,14 @@ import { inputBox, settleOn, squash } from './claude-screen.js';
 /**
  * @typedef {'screen-unreadable' | 'box-not-empty' | 'not-asked' | 'no-answer' | 'answer-unreadable'} BtwRefusal
  * @typedef {{ ok: true, answer: string } | { ok: false, error: BtwRefusal }} BtwOutcome
- * @typedef {{ state: 'answering' } | { state: 'answered', lines: readonly string[] }} SidePanel
+ * @typedef {{ state: 'answering' } | { state: 'answered', lines: readonly string[], width: number }} SidePanel — width: the
+ *   columns the panel wraps the answer at
  */
 
+/** The panel indents the answer by six columns and wraps it at the terminal's width less those. */
+const answerIndent = 6;
+/** Box-drawing characters a line of a table starts with, as Claude Code draws tables. */
+const tableLine = /^\s*[┌│├└]/;
 /** A side answer takes as long as Claude thinks: up to a few minutes. */
 const answerStepMs = 500;
 const answerLooks = 360;
@@ -36,11 +41,11 @@ export async function driveBtw(terminal, { question, wait }) {
   await terminal.keys('enter');
   if ((await settleOn(terminal, wait, (next) => sidePanel(next, asked) !== undefined)) === undefined) return { ok: false, error: 'not-asked' };
   const first = await answerShown(terminal, wait, asked);
-  const lines = first === undefined ? undefined : await readToEnd(terminal, wait, asked, first);
+  const lines = first === undefined ? undefined : await readToEnd(terminal, wait, asked, first.lines);
   await closePanel(terminal, wait, asked);
   if (first === undefined) return { ok: false, error: 'no-answer' };
   if (lines === undefined) return { ok: false, error: 'answer-unreadable' };
-  return { ok: true, answer: withoutBlankEnds(lines).join('\n') };
+  return { ok: true, answer: unwrapped(withoutBlankEnds(lines), first.width).join('\n') };
 }
 
 /**
@@ -54,19 +59,22 @@ export function sidePanel(screen, question) {
   const lines = screen.split('\n');
   const top = lines.findLastIndex((line) => /▔{8,}/.test(line));
   if (top < 0) return undefined;
-  // the question as the panel repeats it, wrapped at the terminal's width
+  // the question as the panel repeats it, under a blank line: one line, cut with an ellipsis when the question is longer
+  const echoAt = lines.findIndex((line, index) => index > top && line.trim() !== '');
+  const echo = lines[echoAt] ?? '';
   const asked = squash(`/btw ${question}`);
-  let echoed = '';
-  let at = top + 1;
-  while (at < lines.length && echoed.length < asked.length) echoed += squash(lines[at++] ?? '');
-  if (echoed !== asked) return undefined;
+  const echoed = squash(echo);
+  const cut = echo.trimEnd().endsWith('…');
+  if (echoAt < 0 || !(cut ? echoed.length > '/btw'.length && asked.startsWith(echoed) : echoed === asked)) return undefined;
+  const at = echoAt + 1;
   const bottom = lines.findIndex((line, index) => index >= at && /Esc to close\s*$/.test(line));
   if (bottom < 0) return undefined;
   const body = lines.slice(at, bottom);
   if (body.some((line) => /^\s*\S\s+Answering…\s*$/.test(line))) return { state: 'answering' };
   // The panel pads its lines with a blank line above and below. A blank line of the answer itself at the edge of the
   // view is inside the next view: the views overlap by all but three lines.
-  return { state: 'answered', lines: withoutBlankEnds(body.map((line) => line.trimEnd().replace(/^ {1,6}/, ''))) };
+  const width = [...(lines[top] ?? '')].length - answerIndent;
+  return { state: 'answered', lines: withoutBlankEnds(body.map((line) => line.trimEnd().replace(/^ {1,6}/, ''))), width };
 }
 
 /**
@@ -83,17 +91,17 @@ async function closePanel(terminal, wait, question) {
 }
 
 /**
- * The first lines of the answer, once Claude has written it.
+ * The first lines of the answer, once Claude has written it, and the width the panel wraps it at.
  * @param {import('./claude-screen.js').Terminal} terminal
  * @param {(ms: number) => Promise<void>} wait
  * @param {string} question
- * @returns {Promise<readonly string[] | undefined>}
+ * @returns {Promise<{ lines: readonly string[], width: number } | undefined>}
  */
 async function answerShown(terminal, wait, question) {
   for (let look = 0; look < answerLooks; look++) {
     const screen = await terminal.read();
     const panel = screen === undefined ? undefined : sidePanel(screen, question);
-    if (panel?.state === 'answered') return panel.lines;
+    if (panel?.state === 'answered') return panel;
     await wait(answerStepMs);
   }
   return undefined;
@@ -164,4 +172,24 @@ function withoutBlankEnds(lines) {
   const first = lines.findIndex((line) => line !== '');
   const last = lines.findLastIndex((line) => line !== '');
   return first < 0 ? [] : lines.slice(first, last + 1);
+}
+
+/**
+ * The answer with the lines the panel wrapped joined again, so the page wraps them at its own width: a line was
+ * wrapped when the next one's first word would not have fitted after it. A table's lines are never joined.
+ * @param {readonly string[]} lines
+ * @param {number} width
+ * @returns {string[]}
+ */
+function unwrapped(lines, width) {
+  /** @type {string[]} */
+  const joined = [];
+  lines.forEach((line, index) => {
+    const before = lines[index - 1];
+    const word = line.trimStart().split(/\s/, 1)[0] ?? '';
+    const wrapped = before !== undefined && before !== '' && word !== '' && !tableLine.test(before) && !tableLine.test(line) && [...before].length + 1 + [...word].length > width;
+    if (wrapped) joined.push(`${joined.pop() ?? ''} ${line.trimStart()}`);
+    else joined.push(line);
+  });
+  return joined;
 }

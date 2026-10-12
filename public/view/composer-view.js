@@ -2,6 +2,7 @@
 // Prompt box under the feed: the prompt goes to the session terminal via herdr (server: /api/send, /api/interrupt).
 // "/btw …" asks aside, as in the terminal (/api/btw): the answer shows above the box and never joins the feed.
 import { btwMessage, composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, sideQuestionOf, stopMessage } from '../model/composer.js';
+import { answerBlocks } from '../model/side-answer.js';
 import { createAttachmentPicker } from './attachment-picker.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
@@ -128,7 +129,7 @@ export function createComposer(sessionId, { focusBox }) {
   const showAside = (question, answer) => {
     aside.replaceChildren(
       h('header', { className: 'side-answer-head' }, [h('span', { className: 'side-answer-label', text: 'By the way' }), h('span', { className: 'side-answer-question', text: question }), closeAside]),
-      h('div', { className: 'side-answer-text', text: answer === undefined ? 'Answering…' : answer }),
+      h('div', { className: 'side-answer-text' }, answer === undefined ? [h('p', { className: 'side-answer-paragraph', text: 'Answering…' })] : answerBlocks(answer).map(answerBlock)),
     );
     aside.classList.toggle('answering', answer === undefined);
     aside.hidden = false;
@@ -275,4 +276,35 @@ function writeDraft(key, value) {
  */
 function isOtherField(element, box) {
   return element instanceof HTMLElement && element !== box && (element.isContentEditable || element.matches('input, textarea, select'));
+}
+
+/**
+ * A block of a side answer: text with its line breaks, a table drawn in the terminal as a table again, box lines that
+ * make no table as drawn.
+ * @param {import('../model/side-answer.js').AnswerBlock} block
+ * @returns {HTMLElement}
+ */
+function answerBlock(block) {
+  switch (block.kind) {
+    case 'text':
+      return h('p', { className: 'side-answer-paragraph', text: block.text });
+    case 'preformatted':
+      return h('pre', { className: 'side-answer-box', text: block.text });
+    case 'table': {
+      const [head = [], ...body] = block.rows;
+      const table = h('table', {}, [h('thead', {}, [h('tr', {}, head.map((cell) => h('th', { text: cell })))]), h('tbody', {}, body.map((row) => h('tr', {}, row.map((cell) => h('td', { text: cell })))))]);
+      // the feed's tables look the same
+      return h('div', { className: 'md side-answer-table' }, [h('div', { className: 'table-scroll' }, [table])]);
+    }
+    default:
+      return unexpected(block);
+  }
+}
+
+/**
+ * @param {never} value
+ * @returns {never}
+ */
+function unexpected(value) {
+  throw new Error(`Unexpected side answer block ${JSON.stringify(value)}`);
 }
