@@ -88,6 +88,7 @@ test('socketRunner_Should_AskSocketForViewersCommands_AnsweringAsProgramPrints',
     await run(['tab', 'rename', 'w2:t3', 'checkout fix']),
     await run(['tab', 'close', 'w2:t3']),
     await run(['tab', 'create', '--workspace', 'w2', '--cwd', 'D:/dev/shop']),
+    await run(['workspace', 'create', '--label', 'shop', '--cwd', 'D:/dev/shop']),
   ];
 
   assert.deepEqual(herdr.requests, [
@@ -101,6 +102,7 @@ test('socketRunner_Should_AskSocketForViewersCommands_AnsweringAsProgramPrints',
     { method: 'tab.rename', params: { tab_id: 'w2:t3', label: 'checkout fix' } },
     { method: 'tab.close', params: { tab_id: 'w2:t3' } },
     { method: 'tab.create', params: { workspace_id: 'w2', cwd: 'D:/dev/shop', focus: false } },
+    { method: 'workspace.create', params: { label: 'shop', cwd: 'D:/dev/shop', focus: false } },
   ]);
   assert.deepEqual(replies, [
     { ok: true, json: { result: { type: 'ok', asked: 'session.snapshot' } }, text: '' },
@@ -113,6 +115,7 @@ test('socketRunner_Should_AskSocketForViewersCommands_AnsweringAsProgramPrints',
     { ok: true, json: { result: { type: 'ok', asked: 'tab.rename' } }, text: '' },
     { ok: true, json: { result: { type: 'ok', asked: 'tab.close' } }, text: '' },
     { ok: true, json: { result: { type: 'ok', asked: 'tab.create' } }, text: '' },
+    { ok: true, json: { result: { type: 'ok', asked: 'workspace.create' } }, text: '' },
   ]);
 });
 

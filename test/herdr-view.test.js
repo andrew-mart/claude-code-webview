@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHerdrView } from '../server/herdr-view.js';
@@ -230,6 +230,10 @@ function tabsHerdr({ fails = false } = {}) {
       changes.push(args.join(' '));
       return { ok: true, json: { result: { type: 'ok' } }, text: '' };
     }
+    if (subject === 'workspace' && command === 'create') {
+      changes.push(args.join(' '));
+      return { ok: true, json: { result: { type: 'workspace_created', workspace: { workspace_id: 'w5' }, tab: { tab_id: 'w5:t1' }, root_pane: { pane_id: 'w5:p1' } } }, text: '' };
+    }
     if (subject !== 'tab') return fakeHerdr({ workspaces: [{ workspace_id: 'w2', label: 'web' }], tabs, panes })(args);
     changes.push(args.join(' '));
     if (fails) return { ok: false, error: 'tab_not_found', missing: false };
@@ -330,4 +334,51 @@ test('history_Should_KeepSessionWithItsTab_AndCloseItOnceItsPaneIsGone', async (
     { workspace: 'job_search', tab: 'resume', folder: 'D:\job_search', open: true },
     { workspace: 'job_search', tab: 'resume', folder: 'D:\job_search', open: false },
   ]);
+});
+
+/**
+ * A herdr view whose history already holds these sessions, closed: Claude Code starts with claude-god.
+ * @param {ReturnType<typeof tabsHerdr>} herdr
+ * @param {Record<string, Partial<import('../public/model/history.js').Place>>} closed
+ */
+async function viewWithHistory(herdr, closed) {
+  const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
+  const kept = Object.fromEntries(Object.entries(closed).map(([session, place]) => [session, { earlierTabs: [], open: false, firstSeen: 1, lastSeen: 2, ...place }]));
+  await writeFile(join(folder, 'workspaces.json'), JSON.stringify(kept));
+  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], file: join(folder, 'workspaces.json'), refreshMs: 60_000, claudeCommand: 'claude-god' });
+}
+
+// A closed session opens where it was: a new tab of its workspace, named as before, in its folder, Claude Code resuming
+// it; the page stays on its feed
+test('reopen_Should_OpenSessionInItsWorkspace_InTabNamedAsBefore', async () => {
+  const herdr = tabsHerdr();
+  const view = await viewWithHistory(herdr, { s9: { workspace: 'web', tab: 'checkout fix', folder: 'D:/web' } });
+
+  const outcome = await view.reopen('s9', 'D:/elsewhere');
+
+  assert.deepEqual({ outcome, changes: herdr.changes }, {
+    outcome: { ok: true, target: '#/s9' },
+    changes: ['tab create --workspace w2 --cwd D:/web', 'tab rename w2:t3 checkout fix', 'pane send-text w2:p3 claude-god --resume s9', 'pane send-keys w2:p3 enter'],
+  });
+});
+
+// Its workspace closed meanwhile — or the session never ran in herdr — it gets its workspace again, named as before or
+// after its folder
+test('reopen_Should_OpenWorkspaceAgain_When_ItIsGone', async () => {
+  const herdr = tabsHerdr();
+  const view = await viewWithHistory(herdr, { s8: { workspace: 'billing' } });
+
+  const outcomes = [await view.reopen('s8', 'D:/dev/billing'), await view.reopen('s7', 'D:/dev/reports')];
+
+  assert.deepEqual({ outcomes, changes: herdr.changes }, {
+    outcomes: [{ ok: true, target: '#/s8' }, { ok: true, target: '#/s7' }],
+    changes: [
+      'workspace create --label billing --cwd D:/dev/billing',
+      'pane send-text w5:p1 claude-god --resume s8',
+      'pane send-keys w5:p1 enter',
+      'workspace create --label reports --cwd D:/dev/reports',
+      'pane send-text w5:p1 claude-god --resume s7',
+      'pane send-keys w5:p1 enter',
+    ],
+  });
 });

@@ -142,6 +142,7 @@ function socketCall(args) {
   const [subject, command, ...rest] = args;
   if (subject === 'api' && command === 'snapshot' && rest.length === 0) return { method: 'session.snapshot', params: {} };
   if (subject === 'tab') return tabCall(command, rest);
+  if (subject === 'workspace' && command === 'create') return workspaceCreateCall(rest);
   if (subject !== 'pane') return undefined;
   const [pane, ...more] = rest;
   switch (command) {
@@ -187,4 +188,15 @@ function tabCreateCall(rest) {
   if (workspaceFlag !== '--workspace' || workspace === undefined || more.length > 0) return undefined;
   if (cwdFlag === undefined) return { method: 'tab.create', params: { workspace_id: workspace, focus: false } };
   return cwdFlag === '--cwd' && cwd !== undefined ? { method: 'tab.create', params: { workspace_id: workspace, cwd, focus: false } } : undefined;
+}
+
+/**
+ * A new workspace with its first tab, in a folder; the one focused stays so in herdr.
+ * @param {readonly string[]} rest — --label <name> --cwd <folder>
+ * @returns {{ method: string, params: Record<string, unknown> } | undefined}
+ */
+function workspaceCreateCall(rest) {
+  const [labelFlag, label, cwdFlag, cwd, ...more] = rest;
+  const known = labelFlag === '--label' && label !== undefined && cwdFlag === '--cwd' && cwd !== undefined && more.length === 0;
+  return known ? { method: 'workspace.create', params: { label, cwd, focus: false } } : undefined;
 }

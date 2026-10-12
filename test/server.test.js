@@ -89,11 +89,15 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // tabs renamed and closed are recorded
   /** @type {string[][]} */
   const tabChanges = [];
-  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'createTab' | 'history'>} */
+  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'createTab' | 'history' | 'reopen'>} */
   const herdrView = {
     workspacesOf: async (listed) => ({ herdr: true, sessions: Object.fromEntries(listed.map(({ id }) => [id, 'web'])) }),
     layout: async () => ({ herdr: true, workspaces: [webWorkspace] }),
     history: async () => ({ [sessionId]: closedPlace }),
+    reopen: async (session, cwd) => {
+      tabChanges.push(['reopen', session, String(cwd)]);
+      return { ok: true, target: `#/${session}` };
+    },
     renameTab: async (tab, label) => {
       tabChanges.push(['rename', tab, label]);
       return { ok: true };
@@ -224,6 +228,15 @@ test('history_Should_TellWhereSessionsRanInHerdr', async (t) => {
   const response = await fetch(`${base}/api/history`);
 
   assert.deepEqual({ status: response.status, history: await response.json() }, { status: 200, history: { [sessionId]: { workspace: 'web', tab: 'viewer', earlierTabs: [], folder: 'D:/dev/x', firstSeen: 1, lastSeen: 2, open: false } } });
+});
+
+// A session closed in herdr is opened there again from the page, in the folder its transcript names
+test('history_Should_OpenClosedSessionAgain_InItsFolder', async (t) => {
+  const { port, tabChanges } = await withServer(t);
+
+  const reply = await post(port, '/api/history/reopen', pageHeaders(port), JSON.stringify({ session: sessionId }));
+
+  assert.deepEqual({ status: reply.status, body: JSON.parse(reply.body), tabChanges }, { status: 200, body: { ok: true, target: `#/${sessionId}` }, tabChanges: [['reopen', sessionId, 'D:\\dev\\x']] });
 });
 
 test('send_Should_RejectRequestsThatOtherSitesCouldForge', async (t) => {

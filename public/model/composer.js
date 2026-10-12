@@ -14,7 +14,8 @@ import { isRecord, text } from './narrow.js';
  * The /api/interrupt reply. prompt — a prompt Claude had not started on, taken out of the terminal's box for the page's
  * box; box-not-cleared — it came back into the terminal's box but could not be taken out of it.
  * @typedef {{ ok: true, pane: string, prompt: string | undefined } | { ok: false, error: SendRefusal | 'box-not-cleared' }} StopOutcome
- * @typedef {{ shown: boolean, enabled: boolean, canInterrupt: boolean, placeholder: string, hint: string }} ComposerView
+ * @typedef {{ shown: boolean, enabled: boolean, canInterrupt: boolean, canReopen: boolean, placeholder: string, hint: string }} ComposerView
+ *   canReopen: the session is not running — it can be opened again in herdr, where it ran
  * @typedef {'physical' | 'touch'} Keyboard
  * @typedef {Exclude<SendRefusal, 'send-failed'> | 'screen-unreadable' | 'box-not-empty' | 'not-asked' | 'no-answer' | 'answer-unreadable'} BtwRefusal
  *   — why a side question got no answer
@@ -37,12 +38,13 @@ export function composerState(live, sessionId, keyboard) {
   switch (live.state) {
     case 'live': {
       // typed now, a prompt would land in Claude Code's dialog — its digits picking answers
-      if (live.dialog !== undefined) return { shown: true, enabled: false, canInterrupt: false, placeholder: 'Claude Code is asking — answer above', hint: `Pick an answer above, or answer in the session's terminal (herdr pane ${live.pane}).` };
+      if (live.dialog !== undefined) return { shown: true, enabled: false, canInterrupt: false, canReopen: false, placeholder: 'Claude Code is asking — answer above', hint: `Pick an answer above, or answer in the session's terminal (herdr pane ${live.pane}).` };
       const busy = live.status === 'busy';
       return {
         shown: true,
         enabled: true,
         canInterrupt: busy,
+        canReopen: false,
         placeholder: busy ? 'Claude is working — your message will be queued' : 'Message Claude…',
         hint: `${keysHint[keyboard]} The text goes to the session's terminal (herdr pane ${live.pane}).`,
       };
@@ -51,7 +53,7 @@ export function composerState(live, sessionId, keyboard) {
       // Without herdr the session cannot be written to at all — the box is hidden so as not to promise what is unavailable.
       return { ...unavailable('herdr is not installed — write prompts in the terminal.'), shown: false };
     case 'offline':
-      return unavailable(`The session is not running. To write to it from here, open it in a herdr pane: claude --resume ${sessionId}`);
+      return { ...unavailable(`The session is not running. Open it in herdr again — where it ran — or in a herdr pane: claude --resume ${sessionId}`), canReopen: true };
     case 'outside-herdr':
       return unavailable('The session is not running in herdr — its terminal cannot receive text.');
     case 'no-herdr':
@@ -125,7 +127,7 @@ export function btwMessage(error) {
  * @returns {ComposerView}
  */
 function unavailable(hint) {
-  return { shown: true, enabled: false, canInterrupt: false, placeholder: 'Sending is unavailable', hint };
+  return { shown: true, enabled: false, canInterrupt: false, canReopen: false, placeholder: 'Sending is unavailable', hint };
 }
 
 /**

@@ -9,6 +9,7 @@ test('composerState_Should_EnableInputOnlyForSessionRunningInHerdr', () => {
     shown: true,
     enabled: true,
     canInterrupt: false,
+    canReopen: false,
     placeholder: 'Message Claude…',
     hint: "Enter to send, Shift+Enter for a new line. The text goes to the session's terminal (herdr pane w3D:p1).",
   });
@@ -16,6 +17,7 @@ test('composerState_Should_EnableInputOnlyForSessionRunningInHerdr', () => {
     shown: true,
     enabled: true,
     canInterrupt: true,
+    canReopen: false,
     placeholder: 'Claude is working — your message will be queued',
     hint: "Enter to send, Shift+Enter for a new line. The text goes to the session's terminal (herdr pane w3D:p1).",
   });
@@ -46,7 +48,7 @@ test('composerState_Should_ExplainWhyInputIsUnavailable', () => {
       return [view.enabled, view.hint];
     }),
     [
-      [false, `The session is not running. To write to it from here, open it in a herdr pane: claude --resume ${sessionId}`],
+      [false, `The session is not running. Open it in herdr again — where it ran — or in a herdr pane: claude --resume ${sessionId}`],
       [false, 'The session is not running in herdr — its terminal cannot receive text.'],
       [false, 'Could not reach herdr. Start the viewer from a herdr pane.'],
     ],
@@ -136,4 +138,12 @@ test('composerState_Should_HoldBox_WhileClaudeCodeAsks', () => {
   const view = composerState({ state: 'live', status: 'busy', pane: 'w3D:p1', dialog: asking }, sessionId, 'physical');
 
   assert.deepEqual({ enabled: view.enabled, canInterrupt: view.canInterrupt, placeholder: view.placeholder }, { enabled: false, canInterrupt: false, placeholder: 'Claude Code is asking — answer above' });
+});
+
+// A session that is not running can be opened again in herdr from the page — where it ran, or by its folder
+test('composerState_Should_OfferToOpenSessionAgain_OnlyWhenItIsNotRunning', () => {
+  /** @type {readonly import('../public/model/composer.js').LiveState[]} */
+  const states = [{ state: 'offline' }, { state: 'live', status: 'idle', pane: 'w3D:p1', dialog: undefined }, { state: 'herdr-missing' }, { state: 'no-herdr', status: 'idle' }];
+
+  assert.deepEqual(states.map((live) => composerState(live, sessionId, 'physical').canReopen), [true, false, false, false]);
 });
