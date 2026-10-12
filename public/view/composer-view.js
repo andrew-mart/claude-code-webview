@@ -1,14 +1,19 @@
 // @ts-check
 // Prompt box under the feed: the prompt goes to the session terminal via herdr (server: /api/send, /api/interrupt).
-// "/btw …" asks aside, as in the terminal (/api/btw): the answer shows above the box and never joins the feed.
+// "/btw …" asks aside, as in the terminal (/api/btw): the answer shows above the box and never joins the feed. A choice
+// Claude Code waits for — its AskUserQuestion dialog — shows above the box too, and is answered from there (/api/dialog).
 import { btwMessage, composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, sideQuestionOf, stopMessage } from '../model/composer.js';
+import { parseDialogReply } from '../model/dialog.js';
 import { answerBlocks } from '../model/side-answer.js';
 import { createAttachmentPicker } from './attachment-picker.js';
+import { createDialogCard } from './dialog-card.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
 
 /** How often to check whether the session is running and busy. */
 const liveRefreshMs = 4000;
+/** After an answer to Claude Code's dialog the terminal redraws: the next question, or the box again. */
+const redrawMs = 400;
 /** How long the success notice stays visible. */
 const noticeMs = 4000;
 
@@ -42,7 +47,14 @@ export function createComposer(sessionId, { focusBox }) {
   const aside = h('section', { className: 'side-answer', attrs: { hidden: '', 'aria-label': 'Side question', 'aria-live': 'polite' } });
   const closeAside = h('button', { className: 'icon-button side-answer-close', title: 'Close', attrs: { type: 'button', 'aria-label': 'Close' } }, [icon('cross')]);
   closeAside.addEventListener('click', () => (aside.hidden = true));
-  const element = h('div', { className: 'composer' }, [aside, form, h('div', { className: 'composer-footer' }, [hint, status]), attachments.input]);
+  const dialogCard = createDialogCard({
+    answer: async (steps) => {
+      const reply = parseDialogReply(await post('/api/dialog', { steps }));
+      setTimeout(() => void refreshLive(), redrawMs);
+      return reply;
+    },
+  });
+  const element = h('div', { className: 'composer' }, [dialogCard.element, aside, form, h('div', { className: 'composer-footer' }, [hint, status]), attachments.input]);
 
   const fit = () => {
     input.style.height = 'auto';
@@ -68,6 +80,7 @@ export function createComposer(sessionId, { focusBox }) {
     input.placeholder = view.placeholder;
     hint.textContent = view.hint;
     interrupt.hidden = !view.canInterrupt;
+    dialogCard.show(live?.state === 'live' ? live.dialog : undefined);
     refreshButtons();
     if (focusPending) {
       focusPending = false;
@@ -78,8 +91,8 @@ export function createComposer(sessionId, { focusBox }) {
     }
   };
   /**
-   * @param {'/api/send' | '/api/interrupt' | '/api/btw'} path
-   * @param {{ text?: string, images?: readonly import('./attachment-picker.js').AttachedImage[], question?: string }} payload
+   * @param {'/api/send' | '/api/interrupt' | '/api/btw' | '/api/dialog'} path
+   * @param {{ text?: string, images?: readonly import('./attachment-picker.js').AttachedImage[], question?: string, steps?: readonly import('../model/dialog.js').DialogStep[] }} payload
    * @returns {Promise<unknown>} — the reply's JSON; undefined if the server did not answer
    */
   const post = async (path, payload) => {

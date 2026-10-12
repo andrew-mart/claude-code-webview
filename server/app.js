@@ -14,6 +14,7 @@ import { withAttachedImages } from '../public/model/attachments.js';
 import { parseBookmarkChange } from '../public/model/bookmarks.js';
 import { isRecord } from '../public/model/narrow.js';
 import { takenBackPrompt } from './branch.js';
+import { parseSteps } from '../public/model/dialog.js';
 import { readImageFile, readTextFile } from './files.js';
 import { readBranch } from './git.js';
 import { readImage } from './images.js';
@@ -56,7 +57,7 @@ const agentIdPattern = /^[0-9a-z]{1,64}$/i;
 const paneIdPattern = /^[\w:-]{1,40}$/;
 
 /**
- * @typedef {{ liveState: (sessionId: string) => Promise<import('./composer.js').LiveState>, send: (sessionId: string, text: string) => Promise<import('./composer.js').SendOutcome>, interrupt: (sessionId: string) => Promise<import('./composer.js').StopReply>, rewind: (sessionId: string, request: import('./composer.js').RewindRequest) => Promise<import('./composer.js').RewindReply>, btw: (sessionId: string, question: string) => Promise<import('./composer.js').BtwReply> }} Composer
+ * @typedef {{ liveState: (sessionId: string) => Promise<import('./composer.js').LiveState>, send: (sessionId: string, text: string) => Promise<import('./composer.js').SendOutcome>, interrupt: (sessionId: string) => Promise<import('./composer.js').StopReply>, rewind: (sessionId: string, request: import('./composer.js').RewindRequest) => Promise<import('./composer.js').RewindReply>, btw: (sessionId: string, question: string) => Promise<import('./composer.js').BtwReply>, answer: (sessionId: string, steps: readonly import('../public/model/dialog.js').DialogStep[]) => Promise<import('../public/model/dialog.js').DialogReply> }} Composer
  * @typedef {{ name: string, version: string }} About
  */
 
@@ -225,6 +226,14 @@ async function handleWrite(deps, url, request, response) {
       return stop(deps, sessionId, response);
     case '/api/rewind':
       return rewind(deps, sessionId, isRecord(body) ? body : {}, response);
+    case '/api/dialog': {
+      const steps = parseSteps(isRecord(body) ? body.steps : undefined);
+      if (steps === undefined) {
+        response.writeHead(400).end('Bad answer');
+        return;
+      }
+      return sendJson(response, await deps.composer.answer(sessionId, steps));
+    }
     case '/api/btw':
       return askAside(deps, sessionId, isRecord(body) && typeof body.question === 'string' ? body.question : '', response);
     case '/api/bookmarks': {

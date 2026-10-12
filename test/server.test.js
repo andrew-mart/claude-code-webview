@@ -29,7 +29,7 @@ function fakeComposer(takenBack) {
       /** @param {string} id @returns {Promise<import('../server/composer.js').LiveState>} */
       liveState: async (id) => {
         calls.push(['liveState', id]);
-        return { state: 'live', status: 'idle', pane: 'w3D:p1' };
+        return { state: 'live', status: 'idle', pane: 'w3D:p1', dialog: undefined };
       },
       /** @param {string} id @param {string} text @returns {Promise<import('../server/composer.js').SendOutcome>} */
       send: async (id, text) => {
@@ -40,6 +40,11 @@ function fakeComposer(takenBack) {
       interrupt: async (id) => {
         calls.push(['interrupt', id]);
         return { ok: true, pane: 'w3D:p1', prompt: takenBack };
+      },
+      /** @param {string} id @param {readonly import('../public/model/dialog.js').DialogStep[]} steps @returns {Promise<import('../public/model/dialog.js').DialogReply>} */
+      answer: async (id, steps) => {
+        calls.push(['answer', id, JSON.stringify(steps)]);
+        return { ok: true };
       },
       /** @param {string} id @param {string} question @returns {Promise<import('../server/composer.js').BtwReply>} */
       btw: async (id, question) => {
@@ -171,6 +176,23 @@ test('tabs_Should_PassRenameAndCloseFromViewerPage_And_RefuseWhatIsNoTab', async
   assert.deepEqual(
     { replies: [renamed, closed].map((reply) => [reply.status, JSON.parse(reply.body)]), refused: [strange.status, nameless.status], tabChanges },
     { replies: [[200, { ok: true }], [200, { ok: true }]], refused: [400, 400], tabChanges: [['rename', 'w1:t1', 'viewer'], ['close', 'w1:t1']] },
+  );
+});
+
+// An answer to Claude Code's question goes to the session's terminal as the keys and words the page sent; anything but
+// a dialog's keys and one line of words is refused before the terminal
+test('dialog_Should_PassAnswerFromViewerPage_And_RefuseOtherKeys', async (t) => {
+  const { port, calls } = await withServer(t);
+  const answer = [{ key: '3' }, { text: 'Purple' }, { key: 'enter' }];
+
+  const answered = await post(port, '/api/dialog', pageHeaders(port), JSON.stringify({ session: sessionId, steps: answer }));
+  const refused = await Promise.all(
+    [[{ key: 'ctrl+c' }], [{ text: 'two\nlines' }], []].map((steps) => post(port, '/api/dialog', pageHeaders(port), JSON.stringify({ session: sessionId, steps }))),
+  );
+
+  assert.deepEqual(
+    { answered: [answered.status, JSON.parse(answered.body)], refused: refused.map((reply) => reply.status), calls },
+    { answered: [200, { ok: true }], refused: [400, 400, 400], calls: [['answer', sessionId, JSON.stringify(answer)]] },
   );
 });
 

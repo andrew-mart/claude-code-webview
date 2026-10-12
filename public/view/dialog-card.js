@@ -1,0 +1,117 @@
+// @ts-check
+// What Claude Code asks in its terminal — its AskUserQuestion dialog — above the box: the question, its choices as
+// buttons, an answer of one's own, ← and → between several questions, Esc. A click is the key the terminal would get.
+import { h } from './dom.js';
+
+/** The choice Claude Code's dialog opens a line of words with. */
+const ownWords = /^Type something/;
+
+/**
+ * @param {{ answer: (steps: readonly import('../model/dialog.js').DialogStep[]) => Promise<import('../model/dialog.js').DialogReply> }} actions —
+ *   answer resolves once the terminal has the keys
+ */
+export function createDialogCard({ answer }) {
+  const element = h('section', { className: 'dialog-card', attrs: { hidden: '', 'aria-label': 'Claude Code asks', 'aria-live': 'polite' } });
+  let shown = '';
+  const status = h('div', { className: 'dialog-card-status', attrs: { role: 'status' } });
+
+  /** @param {readonly import('../model/dialog.js').DialogStep[]} steps */
+  const send = (steps) => {
+    for (const button of element.querySelectorAll('button')) button.disabled = true;
+    status.textContent = '';
+    void answer(steps).then((reply) => {
+      for (const button of element.querySelectorAll('button')) button.disabled = false;
+      if (!reply.ok) status.textContent = reply.error === 'no-dialog' ? 'The question is no longer in the terminal.' : 'The answer did not reach the terminal.';
+    });
+  };
+
+  /**
+   * @param {string} text
+   * @param {readonly import('../model/dialog.js').DialogStep[]} steps
+   * @param {string} className
+   */
+  const button = (text, steps, className) => {
+    const made = h('button', { className, text, attrs: { type: 'button' } });
+    made.addEventListener('click', () => send(steps));
+    return made;
+  };
+
+  /** @param {import('../model/dialog.js').DialogOption} option */
+  const choice = (option) => {
+    const mark = option.checked === undefined ? '' : option.checked ? '☑ ' : '☐ ';
+    const made = h('button', { className: 'dialog-option', attrs: { type: 'button', 'aria-pressed': String(option.checked === true) } }, [
+      h('span', { className: 'dialog-option-key', text: option.key }),
+      h('span', { className: 'dialog-option-text' }, [h('span', { className: 'dialog-option-label', text: `${mark}${option.label}` }), ...(option.detail === undefined ? [] : [h('span', { className: 'dialog-option-detail', text: option.detail })])]),
+    ]);
+    made.classList.toggle('current', option.current);
+    made.addEventListener('click', () => send([{ key: digitOf(option.key) }]));
+    return made;
+  };
+
+  /**
+   * A line of one's own words: the choice that opens it, the words, Enter — only in a question with one answer, where
+   * Enter answers.
+   * @param {import('../model/dialog.js').DialogOption} option
+   */
+  const ownAnswer = (option) => {
+    const words = h('input', { className: 'dialog-own', attrs: { type: 'text', placeholder: 'An answer of your own', 'aria-label': 'An answer of your own' } });
+    const go = h('button', { className: 'dialog-own-send', text: 'Answer', attrs: { type: 'button' } });
+    const submit = () => {
+      const text = words.value.replace(/\s+/g, ' ').trim();
+      if (text !== '') send([{ key: digitOf(option.key) }, { text }, { key: 'enter' }]);
+    };
+    go.addEventListener('click', submit);
+    words.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      submit();
+    });
+    return h('div', { className: 'dialog-own-row' }, [words, go]);
+  };
+
+  return {
+    element,
+    /** @param {import('../model/dialog.js').Dialog | undefined} dialog — none: nothing is asked */
+    show(dialog) {
+      const look = JSON.stringify(dialog ?? null);
+      if (look === shown) return;
+      shown = look;
+      element.hidden = dialog === undefined;
+      if (dialog === undefined) return element.replaceChildren();
+      const own = dialog.options.find((option) => ownWords.test(option.label) && option.checked === undefined);
+      const choices = dialog.options.filter((option) => option !== own);
+      element.replaceChildren(
+        h('header', { className: 'dialog-card-head', text: 'Claude Code asks' }),
+        ...dialog.lines.map((line) => h('p', { className: 'dialog-line', text: line })),
+        h('div', { className: 'dialog-options' }, choices.map(choice)),
+        ...(own === undefined ? [] : [ownAnswer(own)]),
+        h('div', { className: 'dialog-nav' }, [
+          ...(dialog.tabs ? [button('← Previous', [{ key: 'left' }], 'dialog-nav-button'), button('Next →', [{ key: 'right' }], 'dialog-nav-button')] : []),
+          button('Cancel (Esc)', [{ key: 'esc' }], 'dialog-nav-button dialog-cancel'),
+        ]),
+        status,
+      );
+    },
+  };
+}
+
+/**
+ * @param {string} key — an option's, as read off the screen
+ * @returns {import('../model/dialog.js').DialogKey}
+ */
+function digitOf(key) {
+  switch (key) {
+    case '1':
+    case '2':
+    case '3':
+    case '4':
+    case '5':
+    case '6':
+    case '7':
+    case '8':
+    case '9':
+      return key;
+    default:
+      return 'esc';
+  }
+}

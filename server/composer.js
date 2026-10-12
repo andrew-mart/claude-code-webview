@@ -6,6 +6,7 @@
 //   herdr pane send-text / send-keys → the text and Enter, as if the user typed them
 import { setTimeout as delay } from 'node:timers/promises';
 import { driveBtw } from './btw.js';
+import { choiceDialog } from './dialog.js';
 import { claudePaneIds, foregroundPids, succeeded, toTerminalInput } from './herdr.js';
 import { latestRecords } from './registry.js';
 import { driveRewind } from './rewind.js';
@@ -24,6 +25,8 @@ import { driveStop } from './stop.js';
  */
 
 const presenceTtlMs = 30_000;
+/** A pause between the keys of an answer to a dialog. */
+const answerStepMs = 150;
 /** How many of the latest prompts sent from the page are kept per session: Esc gives back the one Claude had not started on. */
 const keptPrompts = 5;
 
@@ -161,8 +164,10 @@ export function createComposer({ readRecords, herdr }) {
         case 'herdr-missing':
         case 'offline':
           return { state: place.kind };
-        case 'live':
-          return { state: 'live', status: place.record.status, pane: place.pane };
+        case 'live': {
+          const screen = await terminalOf(place.pane).read();
+          return { state: 'live', status: place.record.status, pane: place.pane, dialog: screen === undefined ? undefined : choiceDialog(screen) };
+        }
         default:
           return { state: place.kind, status: place.record.status };
       }
@@ -199,6 +204,29 @@ export function createComposer({ readRecords, herdr }) {
         const place = await target(sessionId);
         if (!place.ok) return place;
         return driveBtw(terminalOf(place.pane), { question, wait: (ms) => delay(ms) });
+      });
+    },
+    /**
+     * An answer to the choice Claude Code waits for — its AskUserQuestion dialog — typed as the terminal would get it.
+     * Only while the dialog is on the screen: in the prompt box its digits would be typed as text.
+     * @param {string} sessionId
+     * @param {readonly import('../public/model/dialog.js').DialogStep[]} steps
+     * @returns {Promise<import('../public/model/dialog.js').DialogReply>}
+     */
+    async answer(sessionId, steps) {
+      return inTurn(sessionId, async () => {
+        const place = await target(sessionId);
+        if (!place.ok) return place;
+        const terminal = terminalOf(place.pane);
+        const screen = await terminal.read();
+        if (screen === undefined || choiceDialog(screen) === undefined) return { ok: false, error: 'no-dialog' };
+        for (const step of steps) {
+          const done = 'key' in step ? await terminal.keys(step.key) : await terminal.text(step.text);
+          if (!done) return { ok: false, error: 'send-failed' };
+          // a digit opens "Type something" for the words that follow: the dialog redraws first
+          await delay(answerStepMs);
+        }
+        return { ok: true };
       });
     },
     /**

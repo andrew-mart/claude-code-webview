@@ -5,14 +5,14 @@ import { composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutc
 const sessionId = '3f2c9a50-1111-4222-8333-944455556666';
 
 test('composerState_Should_EnableInputOnlyForSessionRunningInHerdr', () => {
-  assert.deepEqual(composerState({ state: 'live', status: 'idle', pane: 'w3D:p1' }, sessionId, 'physical'), {
+  assert.deepEqual(composerState({ state: 'live', status: 'idle', pane: 'w3D:p1', dialog: undefined }, sessionId, 'physical'), {
     shown: true,
     enabled: true,
     canInterrupt: false,
     placeholder: 'Message Claude…',
     hint: "Enter to send, Shift+Enter for a new line. The text goes to the session's terminal (herdr pane w3D:p1).",
   });
-  assert.deepEqual(composerState({ state: 'live', status: 'busy', pane: 'w3D:p1' }, sessionId, 'physical'), {
+  assert.deepEqual(composerState({ state: 'live', status: 'busy', pane: 'w3D:p1', dialog: undefined }, sessionId, 'physical'), {
     shown: true,
     enabled: true,
     canInterrupt: true,
@@ -24,7 +24,7 @@ test('composerState_Should_EnableInputOnlyForSessionRunningInHerdr', () => {
 test('composerState_Should_ExplainSendingByButtonOnTouchKeyboard', () => {
   // a phone keyboard has no Shift+Enter: Enter starts a new line, the button sends
   assert.equal(
-    composerState({ state: 'live', status: 'idle', pane: 'w3D:p1' }, sessionId, 'touch').hint,
+    composerState({ state: 'live', status: 'idle', pane: 'w3D:p1', dialog: undefined }, sessionId, 'touch').hint,
     "The ↑ button sends, Enter starts a new line. The text goes to the session's terminal (herdr pane w3D:p1).",
   );
 });
@@ -59,7 +59,7 @@ test('outcomeMessage_Should_SayWhatHappenedToSentText', () => {
 });
 
 test('parseLiveState_Should_AcceptOnlyKnownServerReplies', () => {
-  assert.deepEqual(parseLiveState({ state: 'live', status: 'idle', pane: 'w3D:p1' }), { state: 'live', status: 'idle', pane: 'w3D:p1' });
+  assert.deepEqual(parseLiveState({ state: 'live', status: 'idle', pane: 'w3D:p1' }), { state: 'live', status: 'idle', pane: 'w3D:p1', dialog: undefined });
   assert.deepEqual(parseLiveState({ state: 'offline' }), { state: 'offline' });
   assert.deepEqual(parseLiveState({ state: 'herdr-missing' }), { state: 'herdr-missing' });
   assert.deepEqual(parseLiveState({ state: 'no-herdr', status: 'busy' }), { state: 'no-herdr', status: 'busy' });
@@ -108,4 +108,32 @@ test('parseBtwReply_Should_TakeAnswerOrKnownRefusal_And_NothingElse', () => {
     [{ ok: true, answer: 'In src/config.ts.' }, { ok: false, error: 'box-not-empty' }, { ok: true }, { ok: false, error: 'exploded' }].map(parseBtwReply),
     [{ ok: true, answer: 'In src/config.ts.' }, { ok: false, error: 'box-not-empty' }, undefined, undefined],
   );
+});
+
+/** Claude Code's AskUserQuestion dialog, as the viewer reads it off the terminal. */
+const asking = {
+  lines: ['Which colour do you prefer?'],
+  options: [
+    { key: '1', label: 'Red', detail: 'Warm', checked: undefined, current: true },
+    { key: '2', label: 'Green', detail: undefined, checked: false, current: false },
+  ],
+  tabs: false,
+};
+
+// The page learns of a choice Claude Code waits for; a dialog it cannot read is no reason to lose the rest of the state
+test('parseLiveState_Should_TakeChoiceClaudeCodeWaitsFor_And_LeaveOutOneItCannotRead', () => {
+  assert.deepEqual(
+    [{ state: 'live', status: 'busy', pane: 'w3D:p1', dialog: asking }, { state: 'live', status: 'busy', pane: 'w3D:p1', dialog: { lines: 'Which?' } }].map(parseLiveState),
+    [
+      { state: 'live', status: 'busy', pane: 'w3D:p1', dialog: asking },
+      { state: 'live', status: 'busy', pane: 'w3D:p1', dialog: undefined },
+    ],
+  );
+});
+
+// Typed while Claude Code asks, a prompt would land in its dialog — its digits picking answers: the box waits
+test('composerState_Should_HoldBox_WhileClaudeCodeAsks', () => {
+  const view = composerState({ state: 'live', status: 'busy', pane: 'w3D:p1', dialog: asking }, sessionId, 'physical');
+
+  assert.deepEqual({ enabled: view.enabled, canInterrupt: view.canInterrupt, placeholder: view.placeholder }, { enabled: false, canInterrupt: false, placeholder: 'Claude Code is asking — answer above' });
 });
