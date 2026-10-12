@@ -1057,6 +1057,7 @@ input.herdr-tab-name.failed {
 
 /* The conversation at full width: the feed and the box under it take the whole column, as wide as the window allows. */
 :root[data-width="full"] .session,
+:root[data-width="full"] .tasks,
 :root[data-width="full"] .composer {
   max-width: none;
 }
@@ -2151,6 +2152,167 @@ table.diff tr.gap td {
   max-width: 800px;
   margin: 0 auto;
   padding: 0 24px 14px;
+}
+
+/* The session's background work over its input box: a line of what runs; opened, every task, each with its work. */
+.tasks {
+  flex: none;
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 0 24px 8px;
+}
+
+.tasks-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elev);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tasks-bar svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+.tasks-summary {
+  flex: none;
+}
+
+.tasks-chips {
+  display: flex;
+  flex: 1;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tasks-chip {
+  overflow: hidden;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tasks-bar .chevron {
+  margin-left: auto;
+  transition: transform 0.15s;
+}
+
+.tasks.open .tasks-bar .chevron {
+  transform: rotate(90deg);
+}
+
+.tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 50vh;
+  margin-top: 6px;
+  overflow-y: auto;
+}
+
+.task-row {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elev);
+}
+
+.task-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.task-head::-webkit-details-marker {
+  display: none;
+}
+
+.task-head svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--text-3);
+}
+
+.task-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-detail {
+  flex: none;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.task-state {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.task-row[data-state="running"] .task-state {
+  color: var(--accent);
+}
+
+.task-row[data-state="failed"] .task-state,
+.task-row[data-state="interrupted"] .task-state {
+  color: var(--danger);
+}
+
+.task-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 12px 10px;
+}
+
+.task-note {
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+
+.task-command,
+.task-output {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-code);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.task-output {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.task-output:empty::before {
+  content: "Nothing written yet";
+  color: var(--text-3);
 }
 
 /* What Claude Code asks in its terminal, above the box: its choices as buttons, a click is the key the terminal gets. */

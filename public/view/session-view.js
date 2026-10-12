@@ -846,7 +846,7 @@ function card(title, body, variant) {
  * @param {string} toolUseId
  * @param {HTMLElement} holder
  */
-async function openSubagentTranscript(sessionId, toolUseId, holder) {
+export async function openSubagentTranscript(sessionId, toolUseId, holder) {
   const response = await fetch(`/api/subagents?session=${encodeURIComponent(sessionId)}`);
   /** @type {unknown} */
   const list = await response.json();
