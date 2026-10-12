@@ -1905,10 +1905,52 @@ table.diff tr.gap td {
   cursor: zoom-in;
 }
 
-.inline-image.zoomed {
-  max-width: 100%;
-  max-height: none;
+/* A picture over the whole page, above everything: fitted to the screen, or at its own size — scrolling — after a
+   click on it. */
+.image-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px));
+  background: rgb(0 0 0 / 0.92);
   cursor: zoom-out;
+}
+
+.image-viewer-picture {
+  max-width: 100%;
+  max-height: calc(100dvh - 32px);
+  border-radius: 6px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.5);
+  cursor: zoom-in;
+}
+
+/* At its own size a large picture starts at its top left corner and scrolls; a small one stays in the middle. */
+.image-viewer.own-size {
+  display: block;
+}
+
+.image-viewer.own-size .image-viewer-picture {
+  display: block;
+  max-width: none;
+  max-height: none;
+  margin: auto;
+  cursor: zoom-out;
+}
+
+.image-viewer-close {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top, 0px));
+  right: 12px;
+  background: rgb(0 0 0 / 0.55);
+  color: #fff;
+}
+
+.image-viewer-close:hover {
+  background: rgb(0 0 0 / 0.75);
+  color: #fff;
 }
 
 /* ---------- Cards: subagent report, summary, service message ---------- */
