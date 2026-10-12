@@ -217,9 +217,8 @@ button {
 }
 
 /* the account's usage under the viewer's name: a meter for the 5-hour window and one for the week. What is used is a
-   thick blue — red past how much of the window has gone by, overspent — its rounded end running into a thin line; on the
-   thin line, from the use to the time gone by, green — spare — while the use lags behind the time. When each resets —
-   on hover. */
+   thick blue — red past how much of the window has gone by, overspent — that narrows smoothly into a thinner line, its
+   colour flowing on: green — spare — up to the time gone by while the use lags behind it. When each resets — on hover. */
 .brand .usage {
   display: flex;
   flex-basis: 100%;
@@ -242,16 +241,12 @@ button {
   min-width: 0;
   --used-start: #5cf0ff;
   --used-end: #00b4ff;
-  --gap-start: transparent;
-  --gap-end: transparent;
-  /* how much is used, percent (app.js: --fill and --gap-to, the gap's ends) */
+  /* with no time to measure by, the line past the use is the empty track */
+  --gap-start: var(--border);
+  --gap-end: var(--border);
+  /* how much is used and how much of the window has gone by, percent (app.js: --fill and --gap-to, the gap's ends) */
   --used: var(--fill, 0);
-  /* the overspent red flows from the blue over the same stretch whatever its size */
-  --blend: 7;
-  /* the spare green fades into the empty track past the time gone by, never cut off at it */
-  --room-until-at: max(var(--used), calc(var(--gap-to, 0) - 2));
-  --room-until: calc(var(--room-until-at) * 1%);
-  --track-from: calc(max(calc(var(--room-until-at) + 4), calc(var(--gap-to, 0) + 2)) * 1%);
+  --elapsed: var(--gap-to, 0);
 }
 
 /* the gap's colour follows the pace (app.js: --pace, percent points the use lags behind the time, below 0 ahead of it):
@@ -265,48 +260,46 @@ button {
 
 .usage-meter[data-gap='over'] {
   --used: var(--gap-to, 0);
+  --elapsed: var(--fill, 0);
   --redness: clamp(0, calc(var(--pace, 0) / -15), 1);
   --gap-start: color-mix(in oklch, #fb7185 calc(var(--redness) * 100%), #fde047);
   --gap-end: color-mix(in oklch, #dc2626 calc(var(--redness) * 100%), #eab308);
 }
 
-/* the thin line: the empty track, and the spare green on it. Blended in OKLCH, blue turns red through a purple, with no
-   grey between; a browser that cannot blend so takes the first */
+/* The line's shape is a mask over its colours: thick (10px) to the use — a pixel past it, no seam where the narrowing
+   joins — narrowing over a quarter of the line — a curve that leaves the
+   thick part and meets the thin one level with each — to the thin line (6px) running on to the end; the ends rounded.
+   A little used is the narrowing alone, cut short; none — the thin line alone. The colours flow along it in OKLCH: blue
+   into the spare green as the line narrows, the green into the track past the time gone by; blue into the overspent
+   red at the time gone by, the red into the track as it narrows. A browser that cannot blend in OKLCH takes the first. */
 .usage-line {
   position: relative;
   flex: 1;
   min-width: 32px;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--border);
-  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+  height: 10px;
+  /* the narrowing is placed in the line's own width: cqw */
+  container-type: inline-size;
 }
 
-.usage-meter[data-gap='spare'] .usage-line {
-  background: linear-gradient(90deg, var(--gap-start) calc(var(--used) * 1%), var(--gap-end) var(--room-until), var(--border) var(--track-from));
-  background: linear-gradient(in oklch 90deg, var(--gap-start) calc(var(--used) * 1%), var(--gap-end) var(--room-until), var(--border) var(--track-from));
-}
-
-/* what is used: thicker than the line, its rounded end running into it; a little used is a dot, none — nothing */
 .usage-line::before {
   content: '';
   position: absolute;
-  top: 50%;
-  left: 0;
-  width: calc(max(calc(var(--used) * 1%), 10px) * min(1, var(--used)));
-  height: 10px;
+  inset: 0;
   border-radius: 5px;
-  transform: translateY(-50%);
-  background: linear-gradient(90deg, var(--used-start), var(--used-end));
-  background: linear-gradient(in oklch 90deg, var(--used-start), var(--used-end));
+  --at-use: calc(var(--used) * 1%);
+  /* a quarter of the line, 34px at most; none used: no narrowing, the green from the start */
+  --narrowing: calc(min(34px, 25cqw) * min(1, var(--used)));
+  background: linear-gradient(90deg, var(--used-start) 0%, var(--used-end) var(--at-use), var(--gap-start) calc(var(--at-use) + var(--narrowing) * 0.8), var(--gap-end) max(calc(var(--at-use) + var(--narrowing)), calc(var(--elapsed) * 1% - 2%)), var(--border) max(calc(var(--at-use) + var(--narrowing) + 8px), calc(var(--elapsed) * 1% + 4%)));
+  background: linear-gradient(in oklch 90deg, var(--used-start) 0%, var(--used-end) var(--at-use), var(--gap-start) calc(var(--at-use) + var(--narrowing) * 0.8), var(--gap-end) max(calc(var(--at-use) + var(--narrowing)), calc(var(--elapsed) * 1% - 2%)), var(--border) max(calc(var(--at-use) + var(--narrowing) + 8px), calc(var(--elapsed) * 1% + 4%)));
+  mask:
+    linear-gradient(#000 0 0) 0 0 / calc(var(--at-use) + 1px) 100% no-repeat,
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 10' preserveAspectRatio='none'%3E%3Cpath d='M0 0C17 0 17 2 34 2V8C17 8 17 10 0 10Z'/%3E%3C/svg%3E") calc(var(--used) * 1cqw) 0 / var(--narrowing) 100% no-repeat,
+    linear-gradient(transparent 2px, #000 2px 8px, transparent 8px);
 }
 
-/* overspent: blue to the time gone by, red past it — where it is along the thick part, which ends at the use */
 .usage-meter[data-gap='over'] .usage-line::before {
-  --time-at: calc(var(--fill) / var(--gap-to) * 100%);
-  --blend-half: calc(var(--blend) / var(--gap-to) * 50%);
-  background: linear-gradient(90deg, var(--used-start) 0%, var(--used-end) calc(var(--time-at) - var(--blend-half)), var(--gap-start) calc(var(--time-at) + var(--blend-half)), var(--gap-end) 100%);
-  background: linear-gradient(in oklch 90deg, var(--used-start) 0%, var(--used-end) calc(var(--time-at) - var(--blend-half)), var(--gap-start) calc(var(--time-at) + var(--blend-half)), var(--gap-end) 100%);
+  background: linear-gradient(90deg, var(--used-start) 0%, var(--used-end) calc(var(--elapsed) * 1% - 3.5%), var(--gap-start) calc(var(--elapsed) * 1% + 3.5%), var(--gap-end) var(--at-use), var(--border) calc(var(--at-use) + var(--narrowing) * 0.9));
+  background: linear-gradient(in oklch 90deg, var(--used-start) 0%, var(--used-end) calc(var(--elapsed) * 1% - 3.5%), var(--gap-start) calc(var(--elapsed) * 1% + 3.5%), var(--gap-end) var(--at-use), var(--border) calc(var(--at-use) + var(--narrowing) * 0.9));
 }
 
 .usage-percent {
