@@ -235,6 +235,23 @@ test('file_Should_ReturnTextForPanelAndNotFoundForMissingFile', async (t) => {
   assert.deepEqual(await missing.json(), { ok: false, error: 'not-found' });
 });
 
+// The panel shows a linked picture as an <img>: its bytes come with their type, and a file that is no picture is refused
+test('fileImage_Should_SendPictureWithItsType_And_RefuseFileThatIsNoPicture', async (t) => {
+  const { file, root, base } = await withServer(t);
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+  const picture = join(root, 'shot.png');
+  await writeFile(picture, png);
+
+  const found = await fetch(`${base}/api/file/image?path=${encodeURIComponent(picture)}`);
+  const transcript = await fetch(`${base}/api/file/image?path=${encodeURIComponent(file)}`);
+
+  assert.deepEqual(
+    { status: found.status, type: found.headers.get('content-type'), nosniff: found.headers.get('x-content-type-options'), bytes: Buffer.from(await found.arrayBuffer()) },
+    { status: 200, type: 'image/png', nosniff: 'nosniff', bytes: png },
+  );
+  assert.deepEqual({ status: transcript.status, body: await transcript.json() }, { status: 415, body: { ok: false, error: 'not-image' } });
+});
+
 test('server_Should_RejectRequestForForeignHost', async (t) => {
   const { port } = await withServer(t);
 

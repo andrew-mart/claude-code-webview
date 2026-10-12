@@ -1,5 +1,7 @@
 // @ts-check
-// Right-hand panel: the content of a file linked from the feed, with the target line highlighted and scrolled into view.
+// Right-hand panel: the content of a file linked from the feed, with the target line highlighted and scrolled into view,
+// or the picture.
+import { imageTypeOfPath } from '../model/file-ref.js';
 import { countOf } from '../model/format.js';
 import { isRecord, text } from '../model/narrow.js';
 import { h } from './dom.js';
@@ -26,6 +28,9 @@ const refusals = {
   'not-a-file': 'This is a folder, not a file.',
   'not-absolute': 'The path is not absolute — it is unclear which folder it is relative to.',
 };
+
+/** An <img> does not tell why it did not load. */
+const notShownImage = 'The picture is not shown: the file is gone, larger than 20 MB, or not a picture.';
 
 /** @type {import('./resizer.js').PanelWidth} */
 const panelWidth = { property: '--panel-width', storageKey: 'viewer.panelWidth' };
@@ -64,6 +69,10 @@ export function createFilePanel({ panel, layout }) {
 
   const load = async (/** @type {FileTarget} */ target) => {
     const ticket = ++request;
+    if (imageTypeOfPath(target.path) !== undefined) {
+      showImage(body, target, ticket);
+      return;
+    }
     body.replaceChildren(h('div', { className: 'panel-message', text: 'Loading…' }));
     const response = await fetch(`/api/file?path=${encodeURIComponent(target.path)}`).catch(() => undefined);
     /** @type {unknown} */
@@ -136,6 +145,23 @@ function showContent(body, target, content) {
   view.prepend(mark);
   body.scrollTop = Math.max(0, top - body.clientHeight / 3);
   body.scrollLeft = 0;
+}
+
+/**
+ * The picture, fitted to the panel's width; a click shows it at its own size. The load's number in the address makes
+ * Reload fetch the file again: a page reuses an image it has loaded from the same address.
+ * @param {HTMLElement} body
+ * @param {FileTarget} target
+ * @param {number} ticket — the panel's count of loads
+ */
+function showImage(body, target, ticket) {
+  const image = h('img', { className: 'file-image', attrs: { alt: target.path } });
+  image.src = `/api/file/image?path=${encodeURIComponent(target.path)}&load=${ticket}`;
+  image.addEventListener('click', () => image.classList.toggle('zoomed'));
+  image.addEventListener('error', () => {
+    if (image.parentNode === body) body.replaceChildren(h('div', { className: 'panel-message', text: notShownImage })); // else another file is open now
+  });
+  body.replaceChildren(image);
 }
 
 /**

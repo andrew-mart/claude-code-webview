@@ -14,7 +14,7 @@ import { withAttachedImages } from '../public/model/attachments.js';
 import { parseBookmarkChange } from '../public/model/bookmarks.js';
 import { isRecord } from '../public/model/narrow.js';
 import { takenBackPrompt } from './branch.js';
-import { readTextFile } from './files.js';
+import { readImageFile, readTextFile } from './files.js';
 import { readBranch } from './git.js';
 import { readImage } from './images.js';
 import { rewindTarget } from './rewind.js';
@@ -167,6 +167,8 @@ async function handle(deps, request, response) {
       return withSession(url, response, async (id) => stream(deps, url, id, request, response));
     case '/api/file':
       return sendFile(url, response);
+    case '/api/file/image':
+      return sendFileImage(url, response);
     case '/api/image':
       return withSession(url, response, async (id) => sendImage(deps, url, id, response));
     case '/api/entry':
@@ -568,6 +570,24 @@ async function sendFile(url, response) {
 /** @type {Readonly<Record<import('./files.js').FileRefusal, number>>} */
 const refusalStatus = { 'not-absolute': 400, 'not-a-file': 400, 'not-found': 404, 'too-large': 413, binary: 415 };
 const maxFileBytes = 2 * 1024 * 1024;
+
+/**
+ * A picture for the right-hand panel's <img>, from any absolute path as the file text is. The file may change, so
+ * the browser keeps nothing.
+ * @param {URL} url
+ * @param {http.ServerResponse} response
+ */
+async function sendFileImage(url, response) {
+  const outcome = await readImageFile(url.searchParams.get('path') ?? '', { maxBytes: maxImageBytes, home: homedir() });
+  if (!outcome.ok) return sendJson(response, outcome, imageFileRefusalStatus[outcome.error]);
+  response.writeHead(200, { 'Content-Type': outcome.mediaType, 'Content-Length': outcome.bytes.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+  response.end(outcome.bytes);
+}
+
+/** @type {Readonly<Record<import('./files.js').ImageRefusal, number>>} */
+const imageFileRefusalStatus = { 'not-absolute': 400, 'not-a-file': 400, 'not-found': 404, 'too-large': 413, 'not-image': 415 };
+/** Screenshots run to several megabytes. */
+const maxImageBytes = 20 * 1024 * 1024;
 
 /**
  * @param {http.ServerResponse} response
