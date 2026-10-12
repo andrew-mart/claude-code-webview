@@ -70,3 +70,24 @@ test('findFileRefs_Should_LeaveClosingQuotesOutsideOfPath', () => {
     ],
   );
 });
+
+// A file whose name has spaces is one reference up to its extension and line — in a sentence, a heading or inline code;
+// a folder followed by words, or a file followed by other words, keeps the spaces out
+test('findFileRefs_Should_TakeFileNameWithSpaces_UpToItsExtension', () => {
+  assert.deepEqual(
+    [
+      'Отметить пункты 5–6 в D:/dev/acme/local-docs/kiwi/Замечания после ревью.md:40 и ответить',
+      'D:/dev/acme/local-docs/kiwi/Замечания после ревью.md',
+      'See ~/notes/My Plan.md.',
+      'D:/dev/app/a.md and b.md',
+      'in D:/dev/app then go home',
+    ].map((source) => findFileRefs(source).map(({ text, path, line }) => ({ text, path, line }))),
+    [
+      [{ text: 'D:/dev/acme/local-docs/kiwi/Замечания после ревью.md:40', path: 'D:/dev/acme/local-docs/kiwi/Замечания после ревью.md', line: 40 }],
+      [{ text: 'D:/dev/acme/local-docs/kiwi/Замечания после ревью.md', path: 'D:/dev/acme/local-docs/kiwi/Замечания после ревью.md', line: undefined }],
+      [{ text: '~/notes/My Plan.md', path: '~/notes/My Plan.md', line: undefined }],
+      [{ text: 'D:/dev/app/a.md', path: 'D:/dev/app/a.md', line: undefined }],
+      [{ text: 'D:/dev/app', path: 'D:/dev/app', line: undefined }],
+    ],
+  );
+});
