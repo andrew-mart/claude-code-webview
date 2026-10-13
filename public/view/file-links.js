@@ -60,7 +60,7 @@ function linkText(node) {
  * @param {Element} link
  * @param {FileTarget} target
  */
-function markFileLink(link, target) {
+export function markFileLink(link, target) {
   link.classList.add('file-link');
   link.setAttribute('href', `file:///${encodeURI(target.path.replaceAll('\\', '/'))}`);
   link.setAttribute('data-path', target.path);

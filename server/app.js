@@ -40,6 +40,8 @@ const vendor = new Map([
   // the ES module: the package's main file is the CommonJS one, which a browser cannot import from
   ['/vendor/xterm.js', fileURLToPath(import.meta.resolve('@xterm/xterm/lib/xterm.mjs'))],
   ['/vendor/xterm.css', fileURLToPath(import.meta.resolve('@xterm/xterm/css/xterm.css'))],
+  // the whole library in one script, loaded by a <script> tag (view/diagrams.js): its ES build is split into chunks
+  ['/vendor/mermaid.js', fileURLToPath(import.meta.resolve('mermaid/dist/mermaid.min.js'))],
 ]);
 
 /** @type {Readonly<Record<string, string>>} */

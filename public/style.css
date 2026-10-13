@@ -17,6 +17,9 @@
   --usage-room-lightness: 1;
   --usage-room-chroma: 1;
   --usage-room-alpha: 0.35;
+  /* a table's columns in the file panel (.csv-c0…7): their colours this light and strong */
+  --csv-lightness: 0.5;
+  --csv-chroma: 0.15;
   --bg-code: #f7f6f2;
   --bg-code-bar: #efede6;
   --text: #141413;
@@ -66,6 +69,8 @@
     --usage-room-lightness: 0.75;
     --usage-room-chroma: 0.7;
     --usage-room-alpha: 0.45;
+    --csv-lightness: 0.8;
+    --csv-chroma: 0.12;
     --bg-code: #1e1d1c;
     --bg-code-bar: #252422;
     --text: #f5f4ef;
@@ -105,6 +110,8 @@
   --usage-room-lightness: 0.75;
   --usage-room-chroma: 0.7;
   --usage-room-alpha: 0.45;
+  --csv-lightness: 0.8;
+  --csv-chroma: 0.12;
   --bg-code: #1e1d1c;
   --bg-code-bar: #252422;
   --text: #f5f4ef;
@@ -3545,6 +3552,72 @@ a.file-link:hover {
   padding: 10px 16px 40px 12px;
   font: 12.75px/20px var(--font-mono);
   white-space: pre;
+}
+
+/* A table's columns told apart by colour: eight hues round the circle, over and over. */
+.csv-c0 {
+  color: oklch(var(--csv-lightness) var(--csv-chroma) 25);
+}
+
+.csv-c1 {
+  color: oklch(var(--csv-lightness) var(--csv-chroma) 250);
+}
+
+.csv-c2 {
+  color: oklch(var(--csv-lightness) var(--csv-chroma) 140);
+}
+
+.csv-c3 {
+  color: oklch(var(--csv-lightness) var(--csv-chroma) 310);
+}
+
+.csv-c4 {
+  color: oklch(var(--csv-lightness) var(--csv-chroma) 70);
+}
+
+.csv-c5 {
+  color: oklch(var(--csv-lightness) var(--csv-chroma) 195);
+}
+
+.csv-c6 {
+  color: oklch(var(--csv-lightness) var(--csv-chroma) 350);
+}
+
+.csv-c7 {
+  color: oklch(var(--csv-lightness) var(--csv-chroma) 110);
+}
+
+.file-code a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* A markdown file drawn as a document: on the page's ground, at a width to read. */
+.panel-body:has(> .doc-markdown) {
+  background: var(--bg);
+}
+
+.doc-markdown {
+  max-width: 880px;
+  padding: 16px 22px 48px;
+  font-size: 14.5px;
+  line-height: 1.6;
+}
+
+/* a diagram at its own size, a wide one scrolling sideways */
+.diagram {
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+.md .diagram img {
+  max-width: none;
+}
+
+.diagram-error {
+  color: var(--danger);
+  font-size: 12.5px;
 }
 
 .line-mark {
