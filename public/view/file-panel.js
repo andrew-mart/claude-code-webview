@@ -2,18 +2,21 @@
 // Right-hand panel: a file linked from the feed, drawn by file-views by what it is — a markdown document or a page, a
 // table with its columns coloured, text and code with the target line marked, a picture, a PDF or a Word document as
 // its pages. The panel holds its header — the file's name and path, buttons to show the source, run a page's scripts,
-// open the file in the editor, reload, copy the path, close — and tells file-views where the viewer's files are.
+// open the file in the editor, reload, copy the path, close — and tells file-views where the viewer's files are. In
+// place of a file it shows the changes of the session's branch; a changed file opened from them has a way back.
 import { hasSource, kindOfPath, renderFile } from 'file-views';
 import { folderAddress } from '../model/folder-address.js';
 import { isRecord, text } from '../model/narrow.js';
 import { h } from './dom.js';
+import { createChangesView } from './changes-view.js';
 import { linkFileRefs, markFileLink } from './file-links.js';
 import { icon } from './icons.js';
 import { createResizer, restoreWidth } from './resizer.js';
 
 /**
  * @typedef {import('./file-links.js').FileTarget} FileTarget
- * @typedef {{ open: (target: FileTarget) => void, close: () => void, isOpen: () => boolean }} FilePanel
+ * @typedef {{ open: (target: FileTarget) => void, showChanges: (source: Omit<import('./changes-view.js').ChangesSource, 'openFile'>) => void, close: () => void, isOpen: () => boolean }} FilePanel
+ *   — showChanges: the branch's changes in place of a file, read from the source
  */
 
 /** @type {Readonly<Record<string, string>>} */
@@ -61,6 +64,9 @@ export function createFilePanel({ panel, layout, editor }) {
   const reload = panelButton('reload', 'Reload file');
   const copy = panelButton('copy', 'Copy path');
   const close = panelButton('cross', 'Close (Esc)');
+  // a file opened from the branch's changes goes back to them
+  const back = h('button', { className: 'panel-back', text: '← Changes', title: "Back to the branch's changes", attrs: { type: 'button' } });
+  back.hidden = true;
   const body = h('div', { className: 'panel-body' });
   restoreWidth(layout, panelWidth);
   const resizer = createResizer({
@@ -75,7 +81,7 @@ export function createFilePanel({ panel, layout, editor }) {
   });
   panel.replaceChildren(
     resizer,
-    h('header', { className: 'panel-head' }, [h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [icon('read'), name, where]), path]), scripts, view, inEditor, reload, copy, close]),
+    h('header', { className: 'panel-head' }, [back, h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [icon('read'), name, where]), path]), scripts, view, inEditor, reload, copy, close]),
     body,
   );
   /** @type {FileTarget | undefined} */
@@ -89,6 +95,10 @@ export function createFilePanel({ panel, layout, editor }) {
   /** Whether the page shown runs its scripts. */
   /** @type {'on' | 'off'} */
   let pageScripts = 'off';
+  /** The branch's changes shown, or kept for the way back from a file opened from them. */
+  /** @type {ReturnType<typeof createChangesView> | undefined} */
+  let changes;
+  let showingChanges = false;
   /** The file drawn: let go of before the panel shows something else. */
   /** @type {import('file-views').FileView | undefined} */
   let shown;
@@ -149,10 +159,34 @@ export function createFilePanel({ panel, layout, editor }) {
     if (!reply.ok) say(editorRefusals[reply.error] ?? 'The viewer did not answer.');
   });
 
+  /** The changes in the panel, as they were left. */
+  const showList = () => {
+    if (changes === undefined) return;
+    current = undefined;
+    showingChanges = true;
+    shown?.dispose();
+    shown = undefined;
+    name.textContent = 'Branch changes';
+    path.textContent = changes.summary() ?? '';
+    path.title = '';
+    where.textContent = '';
+    for (const button of [view, scripts, inEditor, copy, back]) button.hidden = true;
+    panel.hidden = false;
+    layout.classList.add('with-panel');
+    body.replaceChildren(changes.element);
+  };
+  const readChanges = async () => {
+    await changes?.reload();
+    if (showingChanges) path.textContent = changes?.summary() ?? '';
+  };
+
   const api = {
     /** @param {FileTarget} target */
     open(target) {
       current = target;
+      showingChanges = false;
+      back.hidden = true;
+      copy.hidden = false;
       void editor.reach().then((reach) => {
         if (current === target) offerEditor(reach);
       });
@@ -166,14 +200,30 @@ export function createFilePanel({ panel, layout, editor }) {
       layout.classList.add('with-panel');
       load(target);
     },
+    /** @param {Omit<import('./changes-view.js').ChangesSource, 'openFile'>} source */
+    showChanges(source) {
+      changes = createChangesView({
+        ...source,
+        openFile: (file) => {
+          api.open({ path: file, line: undefined, endLine: undefined });
+          back.hidden = false;
+        },
+      });
+      showList();
+      changes.element.replaceChildren(h('div', { className: 'panel-message', text: 'Reading the branch…' }));
+      void readChanges();
+    },
     close() {
       current = undefined;
+      changes = undefined;
+      showingChanges = false;
+      back.hidden = true;
       shown?.dispose();
       shown = undefined;
       panel.hidden = true;
       layout.classList.remove('with-panel');
     },
-    isOpen: () => current !== undefined,
+    isOpen: () => current !== undefined || showingChanges,
   };
 
   view.addEventListener('click', () => {
@@ -188,7 +238,9 @@ export function createFilePanel({ panel, layout, editor }) {
   });
   reload.addEventListener('click', () => {
     if (current !== undefined) load(current);
+    else if (showingChanges) void readChanges();
   });
+  back.addEventListener('click', showList);
   copy.addEventListener('click', () => {
     if (current !== undefined) void navigator.clipboard.writeText(current.path);
   });

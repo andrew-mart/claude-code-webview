@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { appendFile, mkdir, mkdtemp, readdir, readFile, utimes, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { appendFile, mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import { promisify } from 'node:util';
 import { gunzipSync } from 'node:zlib';
 import { palettes } from '../public/model/palettes.js';
 import { startServer } from '../server/app.js';
@@ -899,6 +901,31 @@ test('branch_Should_ReadBranchCheckedOutInSessionFolderNotOneTranscriptRecorded'
   const response = await fetch(`${base}/api/branch?session=${sessionId}`);
 
   assert.deepEqual(await response.json(), { branch: 'feat/header' });
+});
+
+// The changes of the branch checked out in the session's folder, and one file's diff; a base for the diff that is not
+// a commit is refused — git would take "--output=…" for an order
+test('changes_Should_GiveBranchChangesInSessionFolder_AndFileDiff_RefusingBaseThatIsNotCommit', async (t) => {
+  const { file, base } = await withServer(t);
+  const repo = await mkdtemp(join(tmpdir(), 'csv-repo-'));
+  t.after(() => rm(repo, { recursive: true, force: true }));
+  const git = (/** @type {string[]} */ ...args) => promisify(execFile)('git', ['-c', 'user.name=Ann', '-c', 'user.email=ann@example.com', ...args], { cwd: repo });
+  await git('init', '-q', '-b', 'main');
+  await writeFile(join(repo, 'a.txt'), 'one\n');
+  await git('add', '-A');
+  await git('commit', '-q', '-m', 'start');
+  await git('checkout', '-q', '-b', 'feat');
+  await writeFile(join(repo, 'a.txt'), 'one\ntwo\n');
+  await appendFile(file, `${JSON.stringify({ type: 'user', uuid: 'u2', timestamp: at, cwd: repo, message: { role: 'user', content: 'Next' } })}\n`);
+
+  const changes = await (await fetch(`${base}/api/changes?session=${sessionId}`)).json();
+  const diff = await (await fetch(`${base}/api/changes/file?session=${sessionId}&base=${changes.base.sha}&path=a.txt&status=modified`)).json();
+  const refused = await fetch(`${base}/api/changes/file?session=${sessionId}&base=--output=x&path=a.txt&status=modified`);
+
+  assert.deepEqual(
+    { branch: changes.branch, base: changes.base.name, files: changes.files.map((/** @type {{ path: string }} */ one) => one.path), diff: diff.rows.map((/** @type {{ kind: string, text: string }} */ row) => `${row.kind} ${row.text}`), refused: refused.status },
+    { branch: 'feat', base: 'main', files: ['a.txt'], diff: ['ctx one', 'add two'], refused: 400 },
+  );
 });
 
 test('sessions_Should_SendOnlySessionsChangedSinceVersionPageHas', async (t) => {

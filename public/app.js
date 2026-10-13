@@ -26,6 +26,7 @@ import { rewindMessage } from './model/rewind.js';
 import { createOutline } from './view/outline-view.js';
 import { h } from './view/dom.js';
 import { createFilePanel } from './view/file-panel.js';
+import { parseBranchChanges, parseFileDiff } from './model/branch-changes.js';
 import { createEditorOpener } from './view/editor-opener.js';
 import { relabelTables } from './view/markdown.js';
 import { createResizer, restoreWidth } from './view/resizer.js';
@@ -392,7 +393,7 @@ function createPage() {
     const info = sessions.find((session) => session.id === id);
     const tables = sessionTables(id, (change) => (current === undefined ? change() : current.keepPlace(change)));
     tables.apply();
-    const header = createSessionHeader({ place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation: [drawerButton('outline', 'list', 'Outline')], tools: settings.buttons() });
+    const header = createSessionHeader({ place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation: [changesButton(id), drawerButton('outline', 'list', 'Outline')], tools: settings.buttons() });
     const scroller = h('div', { className: 'scroller' });
     const outlineElement = h('aside', { className: 'outline', attrs: { 'aria-label': 'Outline' } });
     const bookmarks = createBookmarkStore(id);
@@ -933,6 +934,47 @@ async function fetchBranch(sessionId) {
   const response = await fetch(`/api/branch?session=${encodeURIComponent(sessionId)}`).catch(() => undefined);
   const json = response?.ok ? await response.json().catch(() => undefined) : undefined;
   return isRecord(json) ? text(json.branch) : undefined;
+}
+
+/**
+ * The button over a session that shows its branch's changes in the side panel; hidden while the session has no branch
+ * (style.css).
+ * @param {string} sessionId
+ * @returns {HTMLButtonElement}
+ */
+function changesButton(sessionId) {
+  const button = iconButton('branch');
+  button.classList.add('head-changes');
+  button.title = "The branch's changes";
+  button.setAttribute('aria-label', button.title);
+  button.addEventListener('click', () => {
+    drawers.close();
+    filePanel.showChanges({ load: (base) => fetchChanges(sessionId, base), loadDiff: (base, file) => fetchFileDiff(sessionId, base, file) });
+  });
+  return button;
+}
+
+/**
+ * The changes of the branch checked out in the session's folder, against a base chosen or the one it was made from.
+ * @param {string} sessionId
+ * @param {string | undefined} base
+ */
+async function fetchChanges(sessionId, base) {
+  const query = new URLSearchParams({ session: sessionId, ...(base === undefined ? {} : { base }) });
+  const response = await fetch(`/api/changes?${query}`).catch(() => undefined);
+  return parseBranchChanges(response?.ok ? await response.json().catch(() => undefined) : undefined);
+}
+
+/**
+ * One changed file's diff since the base.
+ * @param {string} sessionId
+ * @param {string} base
+ * @param {import('./model/branch-changes.js').ChangedFile} file
+ */
+async function fetchFileDiff(sessionId, base, file) {
+  const query = new URLSearchParams({ session: sessionId, base, path: file.path, status: file.status, ...(file.oldPath === undefined ? {} : { old: file.oldPath }) });
+  const response = await fetch(`/api/changes/file?${query}`).catch(() => undefined);
+  return parseFileDiff(response?.ok ? await response.json().catch(() => undefined) : undefined);
 }
 
 /**

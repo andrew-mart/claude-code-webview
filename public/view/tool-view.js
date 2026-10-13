@@ -3,6 +3,7 @@
 import { diffRows, firstChangedLine, summarizeCall, summarizeResult } from '../model/tool.js';
 import { interpretEntry } from '../model/entry.js';
 import { isRecord, text } from '../model/narrow.js';
+import { diffTable } from './diff-table.js';
 import { h } from './dom.js';
 import { inlineImage } from './picture.js';
 import { fileLink } from './file-links.js';
@@ -199,7 +200,7 @@ function toolBody(call, result, openSubagent) {
     default:
       if (diff === undefined) parts.push(inputBlock(input));
   }
-  if (diff !== undefined) parts.push(diffTable(diff, languageOfPath(text(input.file_path) ?? '')));
+  if (diff !== undefined) parts.push(diffTable(diff, languageOfPath(text(input.file_path) ?? ''), shownLines * 2));
   if (result === undefined) parts.push(h('div', { className: 'tool-waiting', text: 'Waiting for the result…' }));
   else if (output.trim() !== '' && (diff === undefined || result.isError)) parts.push(outputBlock(output, result.isError));
   return [...parts, ...images];
@@ -270,33 +271,6 @@ function numberedFile(output, path) {
   highlightInto(code, source, languageOfPath(path) ?? 'plaintext');
   const pre = h('pre', { className: 'code numbered' }, [h('span', { className: 'gutter', text: numbers }), code]);
   return codeFrame(pre, source, path.split(/[\\/]/).pop());
-}
-
-/**
- * @param {readonly import('../model/tool.js').DiffRow[]} rows
- * @param {string | undefined} language
- * @returns {Node}
- */
-function diffTable(rows, language) {
-  const table = h('table', { className: 'diff' });
-  for (const row of rows.slice(0, shownLines * 2)) {
-    if (row.kind === 'gap') {
-      table.append(h('tr', { className: 'gap' }, [h('td', { attrs: { colspan: '4' }, text: '⋯' })]));
-      continue;
-    }
-    const code = h('td', { className: 'line' });
-    highlightInto(code, row.text, language ?? 'plaintext');
-    const sign = row.kind === 'add' ? '+' : row.kind === 'del' ? '−' : '';
-    table.append(
-      h('tr', { className: row.kind }, [
-        h('td', { className: 'no', text: row.oldNo === undefined ? '' : String(row.oldNo) }),
-        h('td', { className: 'no', text: row.newNo === undefined ? '' : String(row.newNo) }),
-        h('td', { className: 'sign', text: sign }),
-        code,
-      ]),
-    );
-  }
-  return h('div', { className: 'diff-frame' }, [table]);
 }
 
 /**
