@@ -871,6 +871,47 @@ input.herdr-tab-name.failed {
   border-color: var(--danger);
 }
 
+/* A workspace or a session in the sidebar, its buttons shown on a double click in place of its status; being named,
+   a box in place of its name. */
+.herdr-row-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin: -3px -6px -3px 0;
+}
+
+.herdr-row-actions .icon-button {
+  width: 24px;
+  height: 24px;
+}
+
+.herdr-row-actions .icon-button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.herdr-row-failed {
+  color: var(--danger);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+input.herdr-row-name {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border-strong));
+  border-radius: 7px;
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+}
+
+input.herdr-row-name.failed {
+  border-color: var(--danger);
+}
+
 .herdr-tab-confirm {
   display: flex;
   flex: none;

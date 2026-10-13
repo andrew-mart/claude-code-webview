@@ -131,7 +131,7 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
 /**
  * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, instance: string }} Deps
  *   instance: this run of the viewer, told apart from any other — see /api/machine
- * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'createTab' | 'createWorkspace' | 'history' | 'reopen'>} HerdrView
+ * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'renameWorkspace' | 'closeWorkspace' | 'createTab' | 'createWorkspace' | 'history' | 'reopen'>} HerdrView
  * @typedef {Pick<ReturnType<typeof import('./terminal.js').createTerminals>, 'stream' | 'type'>} Terminals
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
  * @typedef {{ origin: string, host: string }} PublicAddress — where the page is opened from outside, behind a tunnel:
@@ -241,6 +241,8 @@ async function handleWrite(deps, url, request, response) {
   if (url.pathname === '/api/tab/close') return closeTab(deps, body, response);
   if (url.pathname === '/api/tab/new') return newTab(deps, body, response);
   if (url.pathname === '/api/workspace/new') return newWorkspace(deps, body, response);
+  if (url.pathname === '/api/workspace/rename') return renameWorkspace(deps, body, response);
+  if (url.pathname === '/api/workspace/close') return closeWorkspace(deps, body, response);
   if (url.pathname === '/api/open-in-editor') return openFile(deps, body, response);
   const sessionId = isRecord(body) && typeof body.session === 'string' && sessionIdPattern.test(body.session) ? body.session : undefined;
   if (sessionId === undefined) {
@@ -331,6 +333,36 @@ async function renameTab(deps, body, response) {
 }
 
 /**
+ * A herdr workspace named from the page's sidebar.
+ * @param {Deps} deps
+ * @param {unknown} body — { workspace, label }
+ * @param {http.ServerResponse} response
+ */
+async function renameWorkspace(deps, body, response) {
+  const workspace = workspaceOf(body);
+  if (workspace === undefined || !isRecord(body) || typeof body.label !== 'string') {
+    response.writeHead(400).end('Bad workspace name');
+    return;
+  }
+  return sendJson(response, await deps.herdrView.renameWorkspace(workspace, body.label));
+}
+
+/**
+ * A herdr workspace closed from the page's sidebar, with its tabs.
+ * @param {Deps} deps
+ * @param {unknown} body — { workspace }
+ * @param {http.ServerResponse} response
+ */
+async function closeWorkspace(deps, body, response) {
+  const workspace = workspaceOf(body);
+  if (workspace === undefined) {
+    response.writeHead(400).end('Bad workspace');
+    return;
+  }
+  return sendJson(response, await deps.herdrView.closeWorkspace(workspace));
+}
+
+/**
  * A herdr tab closed from the page's tab bar.
  * @param {Deps} deps
  * @param {unknown} body — { tab }
@@ -386,6 +418,14 @@ async function newWorkspace(deps, body, response) {
  */
 function tabOf(body) {
   return isRecord(body) && typeof body.tab === 'string' && paneIdPattern.test(body.tab) ? body.tab : undefined;
+}
+
+/**
+ * @param {unknown} body
+ * @returns {string | undefined} — herdr's workspace id: w2, w3D
+ */
+function workspaceOf(body) {
+  return isRecord(body) && typeof body.workspace === 'string' && paneIdPattern.test(body.workspace) ? body.workspace : undefined;
 }
 
 /**

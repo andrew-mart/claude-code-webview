@@ -106,8 +106,11 @@ function link(target, className, children) {
 }
 
 /**
- * @typedef {{ createWorkspace: (label: string, folder: string, start: import('../model/herdr.js').TabStart) => Promise<import('../model/herdr.js').NewWorkspace>, open: (target: string) => void }} SidebarActions
- *   — createWorkspace resolves once the page shows the new workspace; open goes to a page address
+ * @typedef {import('../model/herdr.js').TabChange} TabChange
+ * @typedef {{ createWorkspace: (label: string, folder: string, start: import('../model/herdr.js').TabStart) => Promise<import('../model/herdr.js').NewWorkspace>, open: (target: string) => void, renameWorkspace: (workspaceId: string, label: string) => Promise<TabChange>, closeWorkspace: (workspaceId: string) => Promise<TabChange>, renameTab: (tabId: string, label: string) => Promise<TabChange>, closeTab: (tabId: string) => Promise<TabChange> }} SidebarActions
+ *   — createWorkspace, and the renames and closings, resolve once the page shows the change; open goes to a page address
+ * @typedef {{ label: string, rename: (label: string) => Promise<TabChange>, close: () => Promise<TabChange>, names: string, closes: string }} RowSubject
+ *   — what a row stands for, to name and close: its name now, how to change it, the buttons' titles
  */
 
 /** Why a workspace was not opened. */
@@ -122,11 +125,122 @@ const newWorkspaceRefusals = {
  * herdr's workspaces, and the sessions in them by their latest activity. "+" — newButton, for the page to put beside
  * the search — opens a new one: named, in a folder, with a terminal or Claude Code in it; the page goes to it. The
  * form shows at the top, above the workspaces, and stays put while herdr is looked at again; "+" again puts it away.
+ * A double click on a workspace or a session shows its buttons, as an open tab has them: one names it — for a session,
+ * its tab — the other closes it once the closing is confirmed.
  * @param {HTMLElement} element — the sidebar's place for it
  * @param {SidebarActions} actions
  */
-export function createHerdrSidebar(element, { createWorkspace, open }) {
+export function createHerdrSidebar(element, { createWorkspace, open, renameWorkspace, closeWorkspace, renameTab, closeTab }) {
   let shown = '';
+  /** What the sidebar was given last: drawn again once a name is typed or a closing answered. */
+  /** @type {{ layout: import('../model/herdr.js').HerdrLayout, opened: import('../model/herdr.js').Opened | undefined, search: string } | undefined} */
+  let given;
+  /** While a row is being named or closed the lists stay as they are: a look at herdr every few seconds would undo the
+   * typing. */
+  let busy = false;
+  const redraw = () => {
+    busy = false;
+    shown = '';
+    if (given !== undefined) sidebar.render(given.layout, given.opened, given.search);
+  };
+
+  /**
+   * The row's name — its text part — turns into a box holding it; Enter names it, Escape or a click elsewhere leaves it.
+   * @param {HTMLElement} dressed
+   * @param {Element} text
+   * @param {RowSubject} subject
+   */
+  const startNaming = (dressed, text, subject) => {
+    busy = true;
+    const box = h('input', { className: 'herdr-row-name', attrs: { type: 'text', maxlength: '60', 'aria-label': subject.names } });
+    box.value = subject.label;
+    let sending = false;
+    box.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        redraw();
+        return;
+      }
+      if (event.key !== 'Enter' || sending) return;
+      event.preventDefault();
+      if (box.value.trim() === '' || box.value === subject.label) return redraw();
+      sending = true;
+      box.disabled = true;
+      void subject.rename(box.value).then((outcome) => {
+        sending = false;
+        if (outcome.ok) return redraw();
+        box.disabled = false;
+        box.classList.add('failed');
+        box.title = 'herdr did not rename it.';
+        box.focus();
+      });
+    });
+    box.addEventListener('blur', () => {
+      if (busy && !sending && box.isConnected) redraw();
+    });
+    text.replaceWith(box);
+    dressed.querySelector('.herdr-row-actions')?.remove();
+    box.focus();
+    box.select();
+  };
+
+  /**
+   * The row's buttons give way to the question whether to close what it stands for: ✓ closes — the title tells what
+   * that stops — ✕ keeps it.
+   * @param {HTMLElement} actions
+   * @param {RowSubject} subject
+   */
+  const startClosing = (actions, subject) => {
+    busy = true;
+    const yes = iconButton('herdr-row-confirm-close', 'check', subject.closes);
+    const no = iconButton('herdr-row-confirm-cancel', 'cross', 'Keep it');
+    const failed = h('span', { className: 'herdr-row-failed', attrs: { hidden: '' } });
+    no.addEventListener('click', redraw);
+    yes.addEventListener('click', () => {
+      yes.disabled = true;
+      void subject.close().then((outcome) => {
+        if (outcome.ok) return redraw();
+        yes.disabled = false;
+        failed.hidden = false;
+        failed.textContent = 'herdr did not close it.';
+      });
+    });
+    actions.replaceChildren(yes, no, failed);
+    yes.focus();
+  };
+
+  /**
+   * A double click on the row shows its buttons in place of its status — a row of a link no more, while they are
+   * shown — and a second one hides them.
+   * @param {HTMLElement} row
+   * @param {string} textSelector — the row's name part, which naming turns into a box
+   * @param {RowSubject} subject
+   */
+  const offerChanges = (row, textSelector, subject) => {
+    row.addEventListener('dblclick', (event) => {
+      event.preventDefault();
+      if (busy) return;
+      const dressed = h('div', { className: `${row.className} herdr-row-dressed` });
+      const style = row.getAttribute('style');
+      if (style !== null) dressed.setAttribute('style', style);
+      const status = row.querySelector(':scope > .herdr-status');
+      dressed.append(...[...row.childNodes].filter((child) => child !== status));
+      const naming = iconButton('herdr-row-rename', 'edit', subject.names);
+      const closing = iconButton('herdr-row-close', 'cross', subject.closes);
+      const actions = h('span', { className: 'herdr-row-actions' }, [naming, closing]);
+      dressed.append(actions);
+      dressed.addEventListener('dblclick', (again) => {
+        again.preventDefault();
+        if (!busy) redraw();
+      });
+      naming.addEventListener('click', () => {
+        const text = dressed.querySelector(textSelector);
+        if (text !== null) startNaming(dressed, text, subject);
+      });
+      closing.addEventListener('click', () => startClosing(actions, subject));
+      row.replaceWith(dressed);
+    });
+  };
   const slot = h('div', { className: 'herdr-workspace-slot' });
   const workspacesList = h('div', { className: 'herdr-workspaces', attrs: { role: 'list' } });
   const head = h('div', { className: 'herdr-tabs-head' });
@@ -183,7 +297,7 @@ export function createHerdrSidebar(element, { createWorkspace, open }) {
   newButton.addEventListener('click', () => (slot.hidden ? startForm() : showButton()));
   showButton();
 
-  return {
+  const sidebar = {
     newButton,
     /**
      * @param {import('../model/herdr.js').HerdrLayout} layout
@@ -191,6 +305,8 @@ export function createHerdrSidebar(element, { createWorkspace, open }) {
      * @param {string} search — the search box text
      */
     render(layout, opened, search) {
+      given = { layout, opened, search };
+      if (busy) return;
       const workspaces = searchLayout(layout.workspaces, search);
       const sessions = sessionsByActivity(layout.workspaces, search);
       const place = opened === undefined ? undefined : placeOf(layout, opened);
@@ -206,6 +322,13 @@ export function createHerdrSidebar(element, { createWorkspace, open }) {
         ]);
         row.classList.toggle('selected', workspace.id === place?.workspace.id);
         tintByWorkspace(row, workspace.label);
+        offerChanges(row, '.herdr-name', {
+          label: workspace.label,
+          rename: (label) => renameWorkspace(workspace.id, label),
+          close: () => closeWorkspace(workspace.id),
+          names: 'Name this workspace',
+          closes: 'Close the workspace: what runs in its tabs stops',
+        });
         return row;
       });
       const rows = sessions.map(({ workspace, tab, pane }) => {
@@ -221,6 +344,13 @@ export function createHerdrSidebar(element, { createWorkspace, open }) {
         ]);
         row.classList.toggle('selected', opened !== undefined && (opened.kind === 'session' ? pane.session === opened.id : pane.id === opened.id));
         tintByWorkspace(row, workspace.label);
+        offerChanges(row, '.herdr-tab-text', {
+          label: tab.label,
+          rename: (label) => renameTab(tab.id, label),
+          close: () => closeTab(tab.id),
+          names: 'Name its tab',
+          closes: 'Close its tab: what runs in it stops',
+        });
         return row;
       });
       workspacesList.replaceChildren(...list);
@@ -228,6 +358,7 @@ export function createHerdrSidebar(element, { createWorkspace, open }) {
       tabsList.replaceChildren(...rows);
     },
   };
+  return sidebar;
 }
 
 /**

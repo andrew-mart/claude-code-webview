@@ -110,7 +110,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // tabs renamed and closed are recorded
   /** @type {string[][]} */
   const tabChanges = [];
-  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'createTab' | 'createWorkspace' | 'history' | 'reopen'>} */
+  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'renameWorkspace' | 'closeWorkspace' | 'createTab' | 'createWorkspace' | 'history' | 'reopen'>} */
   const herdrView = {
     workspacesOf: async (listed) => ({ herdr: true, sessions: Object.fromEntries(listed.map(({ id }) => [id, 'web'])) }),
     layout: async () => ({ herdr: true, workspaces: [webWorkspace] }),
@@ -125,6 +125,14 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
     },
     closeTab: async (tab) => {
       tabChanges.push(['close', tab]);
+      return { ok: true };
+    },
+    renameWorkspace: async (workspace, label) => {
+      tabChanges.push(['rename workspace', workspace, label]);
+      return { ok: true };
+    },
+    closeWorkspace: async (workspace) => {
+      tabChanges.push(['close workspace', workspace]);
       return { ok: true };
     },
     createTab: async (beside, start, label) => {
@@ -235,6 +243,21 @@ test('tabs_Should_PassRenameAndCloseFromViewerPage_And_RefuseWhatIsNoTab', async
   assert.deepEqual(
     { replies: [renamed, closed].map((reply) => [reply.status, JSON.parse(reply.body)]), refused: [strange.status, nameless.status], tabChanges },
     { replies: [[200, { ok: true }], [200, { ok: true }]], refused: [400, 400], tabChanges: [['rename', 'w1:t1', 'viewer'], ['close', 'w1:t1']] },
+  );
+});
+
+// A herdr workspace is renamed and closed from the page's sidebar; what is no workspace, or a name of nothing, is refused
+test('workspaces_Should_PassRenameAndCloseFromViewerPage_And_RefuseWhatIsNoWorkspace', async (t) => {
+  const { port, tabChanges } = await withServer(t);
+
+  const renamed = await post(port, '/api/workspace/rename', pageHeaders(port), JSON.stringify({ workspace: 'w1', label: 'shop' }));
+  const closed = await post(port, '/api/workspace/close', pageHeaders(port), JSON.stringify({ workspace: 'w1' }));
+  const strange = await post(port, '/api/workspace/close', pageHeaders(port), JSON.stringify({ workspace: '../w1 x' }));
+  const nameless = await post(port, '/api/workspace/rename', pageHeaders(port), JSON.stringify({ workspace: 'w1' }));
+
+  assert.deepEqual(
+    { replies: [renamed, closed].map((reply) => [reply.status, JSON.parse(reply.body)]), refused: [strange.status, nameless.status], tabChanges },
+    { replies: [[200, { ok: true }], [200, { ok: true }]], refused: [400, 400], tabChanges: [['rename workspace', 'w1', 'shop'], ['close workspace', 'w1']] },
   );
 });
 
