@@ -166,7 +166,8 @@ export function createHerdrSidebar(element, { createWorkspace, open }) {
       button.addEventListener('click', () => void submit(start));
       return button;
     };
-    const cancel = h('button', { className: 'herdr-new-cancel', text: 'Cancel', attrs: { type: 'button' } });
+    // an icon, as in a new tab's choices: the three fit on one line in a narrow sidebar
+    const cancel = iconButton('herdr-new-cancel', 'cross', 'Cancel (Esc)');
     cancel.addEventListener('click', showButton);
     const form = h('div', { className: 'herdr-new-workspace' }, [name, folder, h('div', { className: 'herdr-new-actions' }, [choice('herdr-new-shell', 'Terminal', 'shell'), choice('herdr-new-claude', 'Claude Code', 'claude'), cancel]), error]);
     // Enter starts Claude Code there, Escape leaves the form
