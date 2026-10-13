@@ -1040,3 +1040,18 @@ test('folderFile_Should_SendPageInSandbox_And_RefuseWhatLiesOutsideItsFolder', a
   assert.equal(await page.text(), '<p>hi</p>');
   assert.deepEqual({ status: outside.status, body: await outside.json() }, { status: 403, body: { ok: false, error: 'outside' } });
 });
+
+// pdf.js loads what it needs as it goes — character maps, fonts, decoders — from its folders, the decoders as
+// WebAssembly; nothing above those folders is given
+test('vendor_Should_ServePdfLibraryFolders_And_NothingAboveThem', async (t) => {
+  const { base } = await withServer(t);
+
+  const map = await fetch(`${base}/vendor/pdfjs/cmaps/78-H.bcmap`);
+  const decoder = await fetch(`${base}/vendor/pdfjs/wasm/openjpeg.wasm`);
+  const above = await fetch(`${base}/vendor/pdfjs/cmaps/..%2F..%2Fpackage.json`);
+
+  assert.deepEqual(
+    { map: map.status, decoder: [decoder.status, decoder.headers.get('content-type')], above: above.status },
+    { map: 200, decoder: [200, 'application/wasm'], above: 404 },
+  );
+});

@@ -7,7 +7,7 @@ import { createReadStream } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import http from 'node:http';
 import { homedir } from 'node:os';
-import { extname, join, resolve, sep } from 'node:path';
+import { dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { constants as zlibConstants, createGzip, gzip } from 'node:zlib';
@@ -43,7 +43,27 @@ const vendor = new Map([
   ['/vendor/xterm.css', fileURLToPath(import.meta.resolve('@xterm/xterm/css/xterm.css'))],
   // the whole library in one script, loaded by a <script> tag (view/diagrams.js): its ES build is split into chunks
   ['/vendor/mermaid.js', fileURLToPath(import.meta.resolve('mermaid/dist/mermaid.min.js'))],
+  ['/vendor/pdfjs/pdf.mjs', fileURLToPath(import.meta.resolve('pdfjs-dist/build/pdf.min.mjs'))],
+  ['/vendor/pdfjs/pdf.worker.mjs', fileURLToPath(import.meta.resolve('pdfjs-dist/build/pdf.worker.min.mjs'))],
 ]);
+
+/** Folders of a library that loads its parts as it goes, URL prefix → folder: pdf.js's maps, fonts and decoders. */
+const pdfjsRoot = dirname(fileURLToPath(import.meta.resolve('pdfjs-dist/package.json')));
+const vendorFolders = new Map(['cmaps', 'standard_fonts', 'wasm', 'iccs'].map((name) => [`/vendor/pdfjs/${name}/`, join(pdfjsRoot, name)]));
+
+/**
+ * A file in one of the vendor folders, none above them.
+ * @param {string} pathname
+ * @returns {string | undefined}
+ */
+function vendorFolderFile(pathname) {
+  for (const [prefix, folder] of vendorFolders) {
+    if (!pathname.startsWith(prefix)) continue;
+    const file = resolve(folder, decodeURIComponent(pathname.slice(prefix.length)));
+    return file.startsWith(folder + sep) ? file : undefined;
+  }
+  return undefined;
+}
 
 /** @type {Readonly<Record<string, string>>} */
 const contentTypes = {
@@ -53,6 +73,8 @@ const contentTypes = {
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  // compiled as it streams in only with its own type: pdf.js's decoders
+  '.wasm': 'application/wasm',
 };
 
 const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -926,7 +948,7 @@ async function pageBuild() {
  * @param {string} cacheControl
  */
 async function serveFile(pathname, response, cacheControl) {
-  const file = vendor.get(pathname) ?? publicFile(pathname === '/' ? '/index.html' : pathname);
+  const file = vendor.get(pathname) ?? vendorFolderFile(pathname) ?? publicFile(pathname === '/' ? '/index.html' : pathname);
   const info = file === undefined ? undefined : await stat(file).catch(() => undefined);
   if (file === undefined || info === undefined || !info.isFile()) {
     response.writeHead(404).end('Not found');
