@@ -9,7 +9,7 @@ import { actionLabel, choices, nextChoice } from './model/view-settings.js';
 import { createBookmarkStore, moveLocalBookmarksToServer } from './view/bookmark-store.js';
 import { createComposer } from './view/composer-view.js';
 import { createAsideStore } from './view/aside-store.js';
-import { copyAsMarkdown } from './view/markdown-copy.js';
+import { copySelection } from './view/markdown-copy.js';
 import { createDrawers } from './view/drawers.js';
 import { openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf } from './model/herdr.js';
 import { parseHistory } from './model/history.js';
@@ -89,7 +89,7 @@ restoreWidth(layout, outlineWidth);
 mountSidebarResizer(byId('sidebar', HTMLElement));
 settings.applyAll();
 // A part of an answer copies as markdown, as the answer was written.
-document.addEventListener('copy', copyAsMarkdown);
+document.addEventListener('copy', (event) => copySelection(event, settings.get('copy') === 'plain' ? 'plain' : 'markdown'));
 // File links (marked up by view/file-links.js) open in the right-hand panel, not in the browser.
 document.addEventListener('click', (event) => {
   const link = event.target instanceof Element ? event.target.closest('a.file-link') : null;
@@ -671,6 +671,7 @@ const headerSettings = [
   ['theme', 'moon'],
   ['tables', 'table'],
   ['width', 'widen'],
+  ['copy', 'copy'],
 ];
 
 /**
@@ -757,6 +758,7 @@ function settingKeyOf(value) {
     case 'sdk':
     case 'tables':
     case 'width':
+    case 'copy':
       return value;
     default:
       return undefined;
