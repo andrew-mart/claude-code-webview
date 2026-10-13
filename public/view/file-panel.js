@@ -8,6 +8,7 @@ import { folderAddress } from '../model/doc-links.js';
 import { countOf } from '../model/format.js';
 import { isRecord, text } from '../model/narrow.js';
 import { renderMarkdownDoc } from './doc-markdown.js';
+import { renderPdf } from './doc-pdf.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
 import { highlightInto, languageOfPath } from './markdown.js';
@@ -98,6 +99,8 @@ export function createFilePanel({ panel, layout, editor }) {
   /** Whether the page shown runs its scripts. */
   /** @type {'on' | 'off'} */
   let pageScripts = 'off';
+  /** Lets go of what the document shown holds — a PDF's pages — before the panel shows something else. */
+  let letGo = () => {};
 
   /** The buttons over the panel, for what the file is and how it shows. */
   const dress = (/** @type {import('../model/doc-kind.js').DocKind} */ kind) => {
@@ -113,12 +116,19 @@ export function createFilePanel({ panel, layout, editor }) {
     const ticket = ++request;
     const kind = docKindOfPath(target.path);
     dress(kind);
+    letGo();
     if (kind === 'image') {
       showImage(body, target, ticket);
       return;
     }
     if (kind === 'html' && mode === 'document') {
       body.replaceChildren(pageFrame(target.path, pageScripts));
+      return;
+    }
+    if (kind === 'pdf') {
+      const pages = renderPdf(target.path, body);
+      letGo = pages.dispose;
+      body.replaceChildren(pages.element);
       return;
     }
     body.replaceChildren(h('div', { className: 'panel-message', text: 'Loading…' }));
@@ -180,6 +190,8 @@ export function createFilePanel({ panel, layout, editor }) {
     close() {
       current = undefined;
       request++;
+      letGo();
+      letGo = () => {};
       panel.hidden = true;
       layout.classList.remove('with-panel');
     },
