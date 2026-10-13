@@ -197,6 +197,10 @@ function createPage() {
     open: (target) => {
       location.hash = target;
     },
+    renameWorkspace: (workspace, label) => changeTab('/api/workspace/rename', { workspace, label }),
+    closeWorkspace: (workspace) => changeTab('/api/workspace/close', { workspace }),
+    renameTab: (tab, label) => changeTab('/api/tab/rename', { tab, label }),
+    closeTab: (tab) => changeTab('/api/tab/close', { tab }),
   });
   // "+" for a new workspace beside the search: a row of its own under the workspaces took the list's height. It shows
   // in the herdr mode only, and there is none before herdr is heard from
@@ -1041,10 +1045,10 @@ function writeStorage(key, value) {
 }
 
 /**
- * A herdr tab named or closed from the tab bar; once herdr has done it the page looks at herdr again, so the change
- * shows at once.
- * @param {'/api/tab/rename' | '/api/tab/close'} path
- * @param {{ tab: string, label?: string }} change
+ * A herdr tab or workspace named or closed from the tab bar or the sidebar; once herdr has done it the page looks at
+ * herdr again, so the change shows at once.
+ * @param {'/api/tab/rename' | '/api/tab/close' | '/api/workspace/rename' | '/api/workspace/close'} path
+ * @param {{ tab: string, label?: string } | { workspace: string, label?: string }} change
  * @returns {Promise<import('./model/herdr.js').TabChange>}
  */
 async function changeTab(path, change) {

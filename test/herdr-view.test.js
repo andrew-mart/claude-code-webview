@@ -233,6 +233,10 @@ function tabsHerdr({ fails = false, screens = ['PS D:\\shop> '] } = {}) {
       changes.push(args.join(' '));
       return { ok: true, json: { result: { type: 'ok' } }, text: '' };
     }
+    if (subject === 'workspace' && (command === 'rename' || command === 'close')) {
+      changes.push(args.join(' '));
+      return fails ? { ok: false, error: 'workspace_not_found', missing: false } : { ok: true, json: { result: { type: 'ok' } }, text: '' };
+    }
     if (subject === 'workspace' && command === 'create') {
       changes.push(args.join(' '));
       return { ok: true, json: { result: { type: 'workspace_created', workspace: { workspace_id: 'w5' }, tab: { tab_id: 'w5:t1' }, root_pane: { pane_id: 'w5:p1' } } }, text: '' };
@@ -308,6 +312,18 @@ test('createTab_Should_AnswerYes_When_ClaudeStartedInItAsksToTrustFolder', async
   await new Promise((done) => setTimeout(done, 20));
 
   assert.deepEqual(herdr.changes.filter((change) => change.startsWith('pane')), ['pane send-text w2:p3 claude-god', 'pane send-keys w2:p3 enter', 'pane send-keys w2:p3 down', 'pane send-keys w2:p3 enter']);
+});
+
+// A workspace renamed from the page gets its name in herdr — on one line — and one closed is closed there; a name of
+// nothing is not sent, and what herdr refuses is told
+test('renameWorkspace_And_closeWorkspace_Should_ChangeWorkspaceInHerdr', async () => {
+  const herdr = tabsHerdr();
+  const refusing = tabsHerdr({ fails: true });
+  const view = await tabsView(herdr);
+
+  const outcomes = [await view.renameWorkspace('w2', '  shop\n  front '), await view.renameWorkspace('w2', ' \n '), await view.closeWorkspace('w2'), await (await tabsView(refusing)).closeWorkspace('w2')];
+
+  assert.deepEqual({ outcomes, changes: herdr.changes }, { outcomes: [{ ok: true }, { ok: false, error: 'empty' }, { ok: true }, { ok: false, error: 'failed' }], changes: ['workspace rename w2 shop front', 'workspace close w2'] });
 });
 
 // A new tab opens beside the one it is asked from — its workspace, its folder — under the name it is given, and the page

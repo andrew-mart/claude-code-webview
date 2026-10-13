@@ -216,6 +216,27 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
       return changed(await herdr(['tab', 'rename', tabId, name]));
     },
     /**
+     * Names a workspace, as herdr's own rename does.
+     * @param {string} workspaceId
+     * @param {string} label
+     * @returns {Promise<import('../public/model/herdr.js').TabChange>}
+     */
+    async renameWorkspace(workspaceId, label) {
+      // a workspace's name is one line
+      const name = label.replace(/\s+/g, ' ').trim();
+      if (name === '') return { ok: false, error: 'empty' };
+      return changed(await herdr(['workspace', 'rename', workspaceId, name]));
+    },
+    /**
+     * Closes a workspace with its tabs: what runs in them stops — Claude Code sessions can be resumed, their
+     * transcripts stay.
+     * @param {string} workspaceId
+     * @returns {Promise<import('../public/model/herdr.js').TabChange>}
+     */
+    async closeWorkspace(workspaceId) {
+      return changed(await herdr(['workspace', 'close', workspaceId]));
+    },
+    /**
      * Closes a tab: what runs in it stops — a Claude Code session can be resumed, its transcript stays.
      * @param {string} tabId
      * @returns {Promise<import('../public/model/herdr.js').TabChange>}
