@@ -6,7 +6,7 @@ const { window } = new JSDOM('<!doctype html><html><body></body></html>', { url:
 // DOMPurify binds to window on import (through markdown.js), so the DOM is set up before it loads.
 Object.assign(globalThis, { window, document: window.document, NodeFilter: window.NodeFilter, Text: window.Text, HTMLElement: window.HTMLElement, Element: window.Element, Node: window.Node });
 const { renderMarkdown } = await import('../public/view/markdown.js');
-const { copyAsMarkdown, markdownOf } = await import('../public/view/markdown-copy.js');
+const { copySelection, markdownOf } = await import('../public/view/markdown-copy.js');
 
 const answer = [
   '## Title',
@@ -59,16 +59,17 @@ test('markdownOf_Should_KeepMarksOfSelectedPart', () => {
   assert.equal(markdownOf(range.cloneContents()), ['**old** and `code` and [a link](https://x.y) and D:/dev/x/a.cs:12.', '', '- one', '- two', '  - nested', '', '1. fir'].join('\n'));
 });
 
-// A copy from the feed goes as markdown, the formatting along with it; a copy from anywhere else is the browser's own
-test('copyAsMarkdown_Should_CopyFeedSelectionAsMarkdown_AndLeaveTheRest', () => {
+// A copy from the feed goes as markdown, the formatting along with it, unless the reader turned that off; a copy from
+// anywhere else is the browser's own
+test('copySelection_Should_CopyFeedSelectionAsMarkdown_UnlessTurnedOff_AndLeaveTheRest', () => {
   const thread = window.document.createElement('div');
   thread.className = 'thread';
   thread.append(renderMarkdown('Use **this** one'));
   const elsewhere = window.document.createElement('p');
   elsewhere.textContent = 'A **plain** line';
   window.document.body.append(thread, elsewhere);
-  /** @param {Node} node */
-  const copyOf = (node) => {
+  /** @param {Node} node @param {'markdown' | 'plain'} as */
+  const copyOf = (node, as = /** @type {const} */ ('markdown')) => {
     const selection = window.getSelection();
     assert.ok(selection);
     selection.selectAllChildren(node);
@@ -76,12 +77,13 @@ test('copyAsMarkdown_Should_CopyFeedSelectionAsMarkdown_AndLeaveTheRest', () => 
     const data = {};
     let prevented = false;
     const event = { clipboardData: { setData: (/** @type {string} */ type, /** @type {string} */ value) => (data[type] = value) }, preventDefault: () => (prevented = true) };
-    copyAsMarkdown(event);
+    copySelection(event, as);
     return { text: data['text/plain'], html: data['text/html'] !== undefined, prevented };
   };
 
-  assert.deepEqual([copyOf(thread), copyOf(elsewhere)], [
+  assert.deepEqual([copyOf(thread), copyOf(thread, 'plain'), copyOf(elsewhere)], [
     { text: 'Use **this** one', html: true, prevented: true },
+    { text: undefined, html: false, prevented: false },
     { text: undefined, html: false, prevented: false },
   ]);
 });

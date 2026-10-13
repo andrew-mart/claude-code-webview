@@ -19,6 +19,8 @@ const labels = [
   ['tables', 'wide', 'Fit tables to the width everywhere'],
   ['width', 'column', 'Show the conversation at full width'],
   ['width', 'full', 'Show the conversation in a column'],
+  ['copy', 'markdown', 'Copy selections as plain text'],
+  ['copy', 'plain', 'Copy selections as markdown'],
 ];
 
 for (const [key, current, expected] of labels) {

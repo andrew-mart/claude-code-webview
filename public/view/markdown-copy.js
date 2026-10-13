@@ -180,10 +180,12 @@ function tableOf(table) {
 
 /**
  * A copy of what is selected in the feed or a side answer goes as markdown — the formatting as well, for a paste that
- * takes it; anywhere else the browser copies as it does.
+ * takes it — unless the reader turned that off; anywhere else the browser copies as it does.
  * @param {{ clipboardData: Pick<DataTransfer, 'setData'> | null, preventDefault: () => void }} event — the copy event
+ * @param {'markdown' | 'plain'} as — the reader's choice (view-settings.js, copy)
  */
-export function copyAsMarkdown(event) {
+export function copySelection(event, as) {
+  if (as === 'plain') return;
   const selection = document.getSelection();
   if (selection === null || selection.isCollapsed || selection.rangeCount === 0 || event.clipboardData === null) return;
   const range = selection.getRangeAt(0);
