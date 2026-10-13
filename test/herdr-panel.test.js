@@ -437,48 +437,64 @@ function nameIn(element, name) {
   return before;
 }
 
-// A double click on a workspace or a session shows its buttons, as a tab has them: one names it — the box holding its
-// name — the other closes it once the closing is confirmed; for a session that is its tab
-test('herdrSidebar_Should_NameAndCloseWorkspaceAndSession_FromButtonsShownOnDoubleClick', async () => {
-  const { element, changes } = changingSidebar();
-  const settle = () => new Promise((done) => setTimeout(done, 0));
-  const doubleClick = (/** @type {string} */ selector) => element.querySelector(selector)?.dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+/** A click on a row, as a finger or a mouse makes it; whether the page stayed where it was. */
+const clickOn = (/** @type {HTMLElement} */ element, /** @type {string} */ selector) => {
+  const click = new window.MouseEvent('click', { bubbles: true, cancelable: true });
+  element.querySelector(selector)?.dispatchEvent(click);
+  return click.defaultPrevented;
+};
 
-  doubleClick('.herdr-workspace');
+// A click on the open workspace or the open session — a second click, the first opened it — shows its buttons, as an
+// open tab has them: one names it — the box holding its name; an unnamed tab's is empty — the other closes it once the
+// closing is confirmed; for a session that is its tab. A click on a row not open opens it, no buttons
+test('herdrSidebar_Should_NameAndCloseOpenWorkspaceAndSession_FromButtonsShownOnSecondClick', async () => {
+  const { element, sidebar, changes } = changingSidebar();
+  const settle = () => new Promise((done) => setTimeout(done, 0));
+  sidebar.render({ herdr: true, workspaces: [web] }, { kind: 'session', id: 's1' }, '');
+  const elsewhere = { stays: clickOn(element, '.herdr-tab:not(.selected)'), buttons: element.querySelector('.herdr-row-actions') !== null };
+
+  const stays = clickOn(element, '.herdr-workspace.selected');
   pressIn(element, '.herdr-row-rename');
   const workspaceName = nameIn(element, 'shop');
   await settle();
-  doubleClick('.herdr-workspace');
+  clickOn(element, '.herdr-workspace.selected');
   pressIn(element, '.herdr-row-close');
   pressIn(element, '.herdr-row-confirm-close');
   await settle();
-  doubleClick('.herdr-tab');
+  clickOn(element, '.herdr-tab.selected');
   pressIn(element, '.herdr-row-rename');
-  const tabName = nameIn(element, 'upgrade');
+  const tabName = nameIn(element, 'checkout');
   await settle();
-  doubleClick('.herdr-tab');
+  clickOn(element, '.herdr-tab.selected');
   pressIn(element, '.herdr-row-close');
   pressIn(element, '.herdr-row-confirm-close');
   await settle();
 
-  assert.deepEqual({ workspaceName, tabName, changes }, {
+  assert.deepEqual({ elsewhere, stays, workspaceName, tabName, changes }, {
+    elsewhere: { stays: false, buttons: false },
+    stays: true,
     workspaceName: 'web',
-    tabName: 'node-24',
-    changes: [['rename workspace', 'w2', 'shop'], ['close workspace', 'w2'], ['rename tab', 'w2:t2', 'upgrade'], ['close tab', 'w2:t2']],
+    tabName: '',
+    changes: [['rename workspace', 'w2', 'shop'], ['close workspace', 'w2'], ['rename tab', 'w2:t1', 'checkout'], ['close tab', 'w2:t1']],
   });
 });
 
-// While a name is being typed, a fresh look at herdr leaves the box as it is; Escape leaves the name as it was
-test('herdrSidebar_Should_KeepNameBox_WhileHerdrIsLookedAtAgain', () => {
+// The buttons go on another click on the row; while a name is being typed, a fresh look at herdr leaves the box as it
+// is; Escape leaves the name as it was
+test('herdrSidebar_Should_HideButtonsOnClick_And_KeepNameBox_WhileHerdrIsLookedAtAgain', () => {
   const { element, sidebar, changes } = changingSidebar();
-  element.querySelector('.herdr-workspace')?.dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+  sidebar.render({ herdr: true, workspaces: [web] }, { kind: 'session', id: 's1' }, '');
+  clickOn(element, '.herdr-workspace.selected');
+  clickOn(element, '.herdr-workspace.selected');
+  const hidden = element.querySelector('.herdr-row-actions') === null;
+  clickOn(element, '.herdr-workspace.selected');
   pressIn(element, '.herdr-row-rename');
 
-  sidebar.render({ herdr: true, workspaces: [{ ...web, status: 'working' }] }, undefined, '');
+  sidebar.render({ herdr: true, workspaces: [{ ...web, status: 'working' }] }, { kind: 'session', id: 's1' }, '');
   const kept = element.querySelector('input.herdr-row-name') !== null;
   element.querySelector('input.herdr-row-name')?.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 
-  assert.deepEqual({ kept, after: element.querySelector('input.herdr-row-name'), changes }, { kept: true, after: null, changes: [] });
+  assert.deepEqual({ hidden, kept, after: element.querySelector('input.herdr-row-name'), changes }, { hidden: true, kept: true, after: null, changes: [] });
 });
 
 // The folder of a new workspace is chosen from those the page offers — typed before, where sessions ran — or typed

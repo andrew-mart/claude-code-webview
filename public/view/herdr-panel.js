@@ -126,8 +126,8 @@ const newWorkspaceRefusals = {
  * herdr's workspaces, and the sessions in them by their latest activity. "+" — newButton, for the page to put beside
  * the search — opens a new one: named, in a folder, with a terminal or Claude Code in it; the page goes to it. The
  * form shows at the top, above the workspaces, and stays put while herdr is looked at again; "+" again puts it away.
- * A double click on a workspace or a session shows its buttons, as an open tab has them: one names it — for a session,
- * its tab — the other closes it once the closing is confirmed.
+ * A click on the open workspace or the open session — a second click, the first opened it — shows its buttons, as an
+ * open tab has them: one names it — for a session, its tab — the other closes it once the closing is confirmed.
  * @param {HTMLElement} element — the sidebar's place for it
  * @param {SidebarActions} actions
  */
@@ -164,7 +164,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
       }
       if (event.key !== 'Enter' || sending) return;
       event.preventDefault();
-      if (box.value.trim() === '' || box.value === subject.label) return redraw();
+      if (box.value.trim() === '' || box.value === subject.label) return redraw(); // nothing new: the name stays
       sending = true;
       box.disabled = true;
       void subject.rename(box.value).then((outcome) => {
@@ -211,14 +211,15 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
   };
 
   /**
-   * A double click on the row shows its buttons in place of its status — a row of a link no more, while they are
-   * shown — and a second one hides them.
+   * A click on the open row — it is open already — shows its buttons in place of its status, a row of a link no more
+   * while they are shown; another click on it hides them. A click on a row not open opens it.
    * @param {HTMLElement} row
    * @param {string} textSelector — the row's name part, which naming turns into a box
    * @param {RowSubject} subject
    */
   const offerChanges = (row, textSelector, subject) => {
-    row.addEventListener('dblclick', (event) => {
+    row.addEventListener('click', (event) => {
+      if (!row.classList.contains('selected')) return;
       event.preventDefault();
       if (busy) return;
       const dressed = h('div', { className: `${row.className} herdr-row-dressed` });
@@ -230,9 +231,9 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
       const closing = iconButton('herdr-row-close', 'cross', subject.closes);
       const actions = h('span', { className: 'herdr-row-actions' }, [naming, closing]);
       dressed.append(actions);
-      dressed.addEventListener('dblclick', (again) => {
-        again.preventDefault();
-        if (!busy) redraw();
+      dressed.addEventListener('click', (again) => {
+        const on = again.target instanceof window.HTMLElement ? again.target.closest('button, input') : null;
+        if (on === null && !busy) redraw();
       });
       naming.addEventListener('click', () => {
         const text = dressed.querySelector(textSelector);
@@ -348,7 +349,8 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
         row.classList.toggle('selected', opened !== undefined && (opened.kind === 'session' ? pane.session === opened.id : pane.id === opened.id));
         tintByWorkspace(row, workspace.label);
         offerChanges(row, '.herdr-tab-text', {
-          label: tab.label,
+          // a tab herdr numbers has no name of its own to start from
+          label: tab.label === String(tab.number) ? '' : tab.label,
           rename: (label) => renameTab(tab.id, label),
           close: () => closeTab(tab.id),
           names: 'Name its tab',
