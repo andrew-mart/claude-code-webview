@@ -244,6 +244,25 @@ test('herdrSidebar_Should_OpenNewWorkspaceForm_AboveWorkspaces_FromIconBesideSea
   );
 });
 
+// Cancel in the form is an icon named on hover, as in the new tab's choices: the three fit on one line in a narrow
+// sidebar; it puts the form away
+test('herdrSidebar_Should_CancelNewWorkspace_WithIconNamedOnHover', () => {
+  const element = window.document.createElement('div');
+  const sidebar = createHerdrSidebar(element, noActions);
+  sidebar.render({ herdr: true, workspaces: [web] }, undefined, '');
+  sidebar.newButton.click();
+  const cancel = element.querySelector('.herdr-new-cancel');
+  assert.ok(cancel instanceof window.HTMLButtonElement);
+  const looks = { text: cancel.textContent, icon: cancel.querySelector('svg') !== null, title: cancel.getAttribute('title') };
+
+  cancel.click();
+
+  assert.deepEqual(
+    { looks, form: element.querySelector('.herdr-new-workspace') },
+    { looks: { text: '', icon: true, title: 'Cancel (Esc)' }, form: null },
+  );
+});
+
 // "+" opens a workspace: its name, its folder, a terminal or Claude Code in it — and the page goes there.
 // A folder that is not there is said so and the form stays to be put right; a fresh look at herdr leaves it as it is
 test('herdrSidebar_Should_OpenNewWorkspace_FromItsNameAndFolder', async () => {

@@ -735,7 +735,7 @@ button {
 
 .herdr-new-actions {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
 }
 
@@ -748,6 +748,27 @@ button {
   font: inherit;
   font-size: 12.5px;
   cursor: pointer;
+}
+
+/* Cancel: an icon at the row's right end */
+.herdr-new-actions .icon-button.herdr-new-cancel {
+  width: 26px;
+  height: 26px;
+  margin-left: auto;
+  padding: 0;
+  border-color: transparent;
+  background: none;
+  color: var(--text-3);
+}
+
+.herdr-new-actions .icon-button.herdr-new-cancel:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.herdr-new-actions .herdr-new-cancel svg {
+  width: 14px;
+  height: 14px;
 }
 
 .herdr-new-actions .herdr-new-claude {
