@@ -42,7 +42,8 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   as a document — its pictures and links read from its folder, mermaid diagrams drawn; the button over the panel
   shows its source, and a link to one of its lines opens the source there — a CSV table with its columns coloured,
   a text file with its web addresses as links, code highlighted, a picture, an HTML page drawn with what lies beside
-  it — its scripts off until the ⚡ button runs them, sandboxed — a PDF as its pages, their text selectable, drawn by
+  it — its scripts off until the ⚡ button runs them, sandboxed — a Word document as its pages, fitted to the panel,
+  its styles and links checked — a PDF as its pages, their text selectable, drawn by
   pdf.js as they come into view. Text that is not UTF-8 is read as
   Windows-1251. Started with `--editor-command`, the
   viewer adds a button that opens the file at the marked line in your editor — in a browser on the viewer's own
