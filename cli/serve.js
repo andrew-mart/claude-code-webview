@@ -49,6 +49,8 @@ const herdrSources = {
 
 /** herdr is asked what it shows at most this often: each call starts a process. */
 const herdrRefreshMs = 3_000;
+/** Claude Code started from the page is watched this long for the question whether to trust its folder: 30 s. */
+const claudeTrustPace = { looks: 60, stepMs: 500 };
 
 /**
  * @param {{ port: number, about: import('../server/app.js').About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[], herdr: 'on' | 'off', claudeCommand: string, editor: import('../server/editor.js').EditorCommand | undefined }} options
@@ -61,7 +63,7 @@ export async function serve({ port, about, palette, publicAddresses, herdr, clau
   const readRecords = () => readSessionRecords(join(claude, 'sessions'));
   const composer = createComposer({ readRecords, herdr: run });
   const usageFiles = { claudeState: claudeStateFile(process.env), rateLimits: join(stateDir, 'rate-limits.json') };
-  const herdrView = createHerdrView({ herdr: run, readRecords, file: join(stateDir, 'workspaces.json'), refreshMs: herdrRefreshMs, claudeCommand });
+  const herdrView = createHerdrView({ herdr: run, readRecords, file: join(stateDir, 'workspaces.json'), refreshMs: herdrRefreshMs, trust: claudeTrustPace, claudeCommand });
   // A terminal on the page: through herdr's socket a screen is read in a millisecond or two, so it is read every 40 ms
   // while typing; through the herdr program every call starts a process, a tenth of a second.
   const terminals = createTerminals({ io: paneIoOf(run), quickMs: via === 'socket' ? 40 : 200, slowMs: via === 'socket' ? 500 : 1000, quickForMs: 4000 });

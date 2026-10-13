@@ -13,6 +13,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { isRecord, text } from '../public/model/narrow.js';
 import { foregroundPids, snapshotOf, succeeded } from './herdr.js';
 import { latestRecords } from './registry.js';
+import { acceptTrust } from './trust.js';
 import { parseHistory } from '../public/model/history.js';
 import { observed } from './session-history.js';
 
@@ -25,11 +26,11 @@ import { observed } from './session-history.js';
  */
 
 /**
- * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, file: string, refreshMs: number, claudeCommand: string }} deps
+ * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, file: string, refreshMs: number, claudeCommand: string, trust: { looks: number, stepMs: number } }} deps
  *   readRecords — contents of ~/.claude/sessions/*.json; file — where the workspaces of sessions seen running are kept;
  *   refreshMs — herdr is asked at most this often; claudeCommand — what starts Claude Code in a new tab
  */
-export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCommand }) {
+export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCommand, trust }) {
   /** A process's pane does not change while it runs: process-info is asked once for each Claude process. */
   /** @type {Map<number, string>} */
   const paneByPid = new Map();
@@ -123,7 +124,7 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
 
   /**
    * Claude Code in a new tab's shell: its command typed once the shell shows its prompt — what is typed before it may
-   * be lost.
+   * be lost. Asked whether to trust the folder the user chose for it, it is answered yes, out of the reply's way.
    * @param {string} pane
    * @param {readonly string[]} options — after the command: --resume <session>
    * @returns {Promise<boolean>} — whether herdr took the keys
@@ -134,7 +135,9 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
       if (screen.ok && screen.text.trim() !== '') break;
       await delay(shellStepMs);
     }
-    return succeeded(await herdr(['pane', 'send-text', pane, [claudeCommand, ...options].join(' ')])) && succeeded(await herdr(['pane', 'send-keys', pane, 'enter']));
+    const started = succeeded(await herdr(['pane', 'send-text', pane, [claudeCommand, ...options].join(' ')])) && succeeded(await herdr(['pane', 'send-keys', pane, 'enter']));
+    if (started) void acceptTrust(herdr, pane, trust).catch(() => undefined); // herdr gone meanwhile: nothing to answer
+    return started;
   };
 
   /** Pages that ask at once, or within refreshMs, share one look at herdr. */
