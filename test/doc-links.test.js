@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { docLinkTarget, splitFrontMatter } from '../public/model/doc-links.js';
+import { docLinkTarget, folderAddress, splitFrontMatter } from '../public/model/doc-links.js';
 
 // A link in a document is read where the document lies: a path next to it or above it is a file to open — at a line
 // when it names one, a % that escapes nothing taken as it is — a #name a place in the document itself, an address with
@@ -43,5 +43,16 @@ test('splitFrontMatter_Should_TakeSettingsBlockOffHeadOnly', () => {
       { frontMatter: undefined, body: '# Notes\n\n---\n\nmore\n' },
       { frontMatter: undefined, body: '---\nnever closed\n# Notes\n' },
     ],
+  );
+});
+
+// A document drawn in the panel comes by its folder's name in the address — so what it loads beside it resolves
+// there — and its own name, escaped; asked to run its scripts, the address says so
+test('folderAddress_Should_NameFolderAndFile_And_AskForScripts', () => {
+  const folder = (/** @type {string} */ path) => Buffer.from(path).toString('base64url');
+
+  assert.deepEqual(
+    [folderAddress('D:/dev/x/site/page.html', 'off'), folderAddress('D:\\dev\\Отчёты\\итоги 2026.html', 'on')],
+    [`/api/folder/${folder('D:/dev/x/site')}/page.html`, `/api/folder/${folder('D:\\dev\\Отчёты')}/%D0%B8%D1%82%D0%BE%D0%B3%D0%B8%202026.html?scripts=1`],
   );
 });

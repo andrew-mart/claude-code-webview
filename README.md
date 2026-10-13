@@ -41,7 +41,8 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   The panel shows the file as it is on disk now, not at the time of the answer, by what it is: a markdown file drawn
   as a document — its pictures and links read from its folder, mermaid diagrams drawn; the button over the panel
   shows its source, and a link to one of its lines opens the source there — a CSV table with its columns coloured,
-  a text file with its web addresses as links, code highlighted, a picture. Text that is not UTF-8 is read as
+  a text file with its web addresses as links, code highlighted, a picture, an HTML page drawn with what lies beside
+  it — its scripts off until the ⚡ button runs them, sandboxed. Text that is not UTF-8 is read as
   Windows-1251. Started with `--editor-command`, the
   viewer adds a button that opens the file at the marked line in your editor — in a browser on the viewer's own
   computer, where the editor shows up. A page opened through a tunnel finds that out by asking the viewer at the
@@ -272,6 +273,10 @@ Transcripts contain everything the agent has seen, secrets included. So the view
   the viewer's `Origin`, a JSON body and an `X-Viewer` header, which another site cannot send without a CORS preflight
   that the server never allows. herdr is run without a shell, so the prompt text is never interpreted as a command;
 - serves file contents for the side panel (`/api/file`, any text file up to 2 MB by absolute path) under the same rules.
+  An HTML page drawn in the panel, and what it loads beside it, comes from `/api/folder/…`: only from the page's folder
+  and below — no `..` out, no link in it that leads out — in a sandbox, also when opened in a tab of its own. Its
+  scripts are off; the button over the panel runs them in an origin of their own, out of reach of the viewer's page:
+  such a page can neither read what the viewer serves nor send a prompt.
 
 ## Limitations
 

@@ -224,3 +224,39 @@ test('filePanel_Should_GoToHeadingInsidePanel_When_DocumentLinksToIt', async () 
 
   assert.deepEqual({ reached, stays: click.defaultPrevented, ids: [...panel.querySelectorAll('h2')].map((heading) => heading.id) }, { reached: ['install-on-windows'], stays: true, ids: ['install-on-windows', 'install-on-windows-1'] });
 });
+
+// A page opens drawn in a frame from its folder, in a sandbox that runs none of its scripts; the button over the
+// panel runs them — in an origin of its own, out of reach of the viewer's page — and the source is a button away
+test('filePanel_Should_DrawPageInSandboxedFrame_And_RunScriptsOnlyWhenAsked', async () => {
+  serveTexts({ 'D:/dev/x/site/page.html': '<p>hi</p>\n' });
+  const { panel, open } = filePanel();
+  const frame = () => {
+    const found = panel.querySelector('.panel-body iframe');
+    return found === null ? undefined : { sandbox: found.getAttribute('sandbox'), src: found.getAttribute('src') };
+  };
+  /** @param {string} selector */
+  const press = (selector) => {
+    const button = panel.querySelector(selector);
+    assert.ok(button instanceof window.HTMLButtonElement, selector);
+    button.click();
+  };
+  const folder = Buffer.from('D:/dev/x/site').toString('base64url');
+
+  open('D:/dev/x/site/page.html');
+  await settled();
+  const quiet = frame();
+  press('.panel-scripts');
+  await settled();
+  const running = frame();
+  press('.panel-view');
+  await settled();
+
+  assert.deepEqual(
+    { quiet, running, source: panel.querySelector('.panel-body .file-code code')?.textContent },
+    {
+      quiet: { sandbox: 'allow-same-origin allow-popups allow-popups-to-escape-sandbox', src: `/api/folder/${folder}/page.html` },
+      running: { sandbox: 'allow-scripts allow-popups allow-popups-to-escape-sandbox', src: `/api/folder/${folder}/page.html?scripts=1` },
+      source: '<p>hi</p>',
+    },
+  );
+});

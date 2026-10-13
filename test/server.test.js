@@ -1014,3 +1014,29 @@ test('page_Should_GetTerminalLibraryAsModuleItCanImport', async (t) => {
   assert.equal(library.status, 200);
   assert.match(library.body.toString('utf8'), /export\s*\{[^}]*\bas Terminal\b/);
 });
+
+// A page drawn in the panel comes from its folder by the folder's name in the address, so what it loads beside it —
+// styles, pictures — comes from there too; it comes in a sandbox that runs no script unless asked, and then in an
+// origin of its own; nothing outside the folder is given
+test('folderFile_Should_SendPageInSandbox_And_RefuseWhatLiesOutsideItsFolder', async (t) => {
+  const { root, base } = await withServer(t);
+  const site = join(root, 'site');
+  await mkdir(site);
+  await writeFile(join(site, 'page.html'), '<p>hi</p>');
+  await writeFile(join(root, 'secret.txt'), 'secret');
+  const folder = Buffer.from(site).toString('base64url');
+
+  const page = await fetch(`${base}/api/folder/${folder}/page.html`);
+  const scripted = await fetch(`${base}/api/folder/${folder}/page.html?scripts=1`);
+  const outside = await fetch(`${base}/api/folder/${folder}/..%2Fsecret.txt`);
+
+  assert.deepEqual(
+    [page, scripted].map((response) => ({ status: response.status, type: response.headers.get('content-type'), sandbox: response.headers.get('content-security-policy'), nosniff: response.headers.get('x-content-type-options') })),
+    [
+      { status: 200, type: 'text/html', sandbox: 'sandbox allow-same-origin allow-popups allow-popups-to-escape-sandbox', nosniff: 'nosniff' },
+      { status: 200, type: 'text/html', sandbox: 'sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox', nosniff: 'nosniff' },
+    ],
+  );
+  assert.equal(await page.text(), '<p>hi</p>');
+  assert.deepEqual({ status: outside.status, body: await outside.json() }, { status: 403, body: { ok: false, error: 'outside' } });
+});

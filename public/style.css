@@ -3605,6 +3605,24 @@ a.file-link:hover {
   line-height: 1.6;
 }
 
+/* A page drawn in a frame fills the panel; it scrolls itself. Its own ground, white unless it says otherwise. */
+.panel-body:has(> .doc-frame) {
+  overflow: hidden;
+}
+
+.doc-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+
+/* the page's scripts running: the button lit */
+.panel-scripts.on {
+  color: var(--accent);
+}
+
 /* a diagram at its own size, a wide one scrolling sideways */
 .diagram {
   overflow-x: auto;

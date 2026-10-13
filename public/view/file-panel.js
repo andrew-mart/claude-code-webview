@@ -1,9 +1,10 @@
 // @ts-check
-// Right-hand panel: a file linked from the feed, shown by what it is — a markdown document drawn, a table with its
-// columns coloured, text with its addresses as links, code highlighted, a picture — the target line highlighted and
-// scrolled into view in the file's text.
+// Right-hand panel: a file linked from the feed, shown by what it is — a markdown document or a page drawn, a table
+// with its columns coloured, text with its addresses as links, code highlighted, a picture — the target line
+// highlighted and scrolled into view in the file's text.
 import { csvDelimiterOf, csvLines } from '../model/csv.js';
 import { docKindOfPath } from '../model/doc-kind.js';
+import { folderAddress } from '../model/doc-links.js';
 import { countOf } from '../model/format.js';
 import { isRecord, text } from '../model/narrow.js';
 import { renderMarkdownDoc } from './doc-markdown.js';
@@ -60,10 +61,14 @@ export function createFilePanel({ panel, layout, editor }) {
   const inEditor = panelButton('external', 'Open in the editor at this line');
   inEditor.classList.add('panel-editor');
   inEditor.hidden = true;
-  // a markdown document drawn, or its text
+  // a document drawn, or its text
   const view = panelButton('eye', 'Show as a document');
   view.classList.add('panel-view');
   view.hidden = true;
+  // a page's scripts: off until asked
+  const scripts = panelButton('skill', "Run the page's scripts");
+  scripts.classList.add('panel-scripts');
+  scripts.hidden = true;
   const reload = panelButton('reload', 'Reload file');
   const copy = panelButton('copy', 'Copy path');
   const close = panelButton('cross', 'Close (Esc)');
@@ -81,32 +86,39 @@ export function createFilePanel({ panel, layout, editor }) {
   });
   panel.replaceChildren(
     resizer,
-    h('header', { className: 'panel-head' }, [h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [icon('read'), name, where]), path]), view, inEditor, reload, copy, close]),
+    h('header', { className: 'panel-head' }, [h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [icon('read'), name, where]), path]), scripts, view, inEditor, reload, copy, close]),
     body,
   );
   /** @type {FileTarget | undefined} */
   let current;
   let request = 0;
-  /** How a markdown file shows: drawn, or its text — at a line a link names. */
+  /** How a document shows: drawn, or its text — at a line a link names. */
   /** @type {'document' | 'source'} */
   let mode = 'document';
-  /** The text of the file shown, to switch between the two without loading it again. */
-  let shownText = '';
+  /** Whether the page shown runs its scripts. */
+  /** @type {'on' | 'off'} */
+  let pageScripts = 'off';
 
-  const show = (/** @type {FileTarget} */ target) => {
-    const kind = docKindOfPath(target.path);
-    view.hidden = kind !== 'markdown';
+  /** The buttons over the panel, for what the file is and how it shows. */
+  const dress = (/** @type {import('../model/doc-kind.js').DocKind} */ kind) => {
+    view.hidden = kind !== 'markdown' && kind !== 'html';
     view.replaceChildren(icon(mode === 'document' ? 'code' : 'eye'));
     view.title = mode === 'document' ? 'Show the source' : 'Show as a document';
-    if (kind === 'markdown' && mode === 'document') body.replaceChildren(renderMarkdownDoc(target.path, shownText));
-    else showContent(body, target, shownText, painterOf(kind, target.path));
+    scripts.hidden = kind !== 'html' || mode !== 'document';
+    scripts.classList.toggle('on', pageScripts === 'on');
+    scripts.title = pageScripts === 'on' ? "Stop the page's scripts" : "Run the page's scripts — in a sandbox, out of reach of this page";
   };
 
   const load = async (/** @type {FileTarget} */ target) => {
     const ticket = ++request;
-    if (docKindOfPath(target.path) === 'image') {
-      view.hidden = true;
+    const kind = docKindOfPath(target.path);
+    dress(kind);
+    if (kind === 'image') {
       showImage(body, target, ticket);
+      return;
+    }
+    if (kind === 'html' && mode === 'document') {
+      body.replaceChildren(pageFrame(target.path, pageScripts));
       return;
     }
     body.replaceChildren(h('div', { className: 'panel-message', text: 'Loading…' }));
@@ -120,8 +132,8 @@ export function createFilePanel({ panel, layout, editor }) {
       body.replaceChildren(h('div', { className: 'panel-message', text: (reason === undefined ? undefined : refusals[reason]) ?? 'Could not get the file from the server.' }));
       return;
     }
-    shownText = content;
-    show(target);
+    if (kind === 'markdown' && mode === 'document') body.replaceChildren(renderMarkdownDoc(target.path, content));
+    else showContent(body, target, content, painterOf(kind, target.path));
   };
 
   /** @param {string} message */
@@ -160,6 +172,7 @@ export function createFilePanel({ panel, layout, editor }) {
       path.title = target.path;
       where.textContent = lineLabel(target);
       mode = target.line === undefined ? 'document' : 'source';
+      pageScripts = 'off';
       panel.hidden = false;
       layout.classList.add('with-panel');
       void load(target);
@@ -176,7 +189,12 @@ export function createFilePanel({ panel, layout, editor }) {
   view.addEventListener('click', () => {
     if (current === undefined) return;
     mode = mode === 'document' ? 'source' : 'document';
-    show(current);
+    void load(current);
+  });
+  scripts.addEventListener('click', () => {
+    if (current === undefined) return;
+    pageScripts = pageScripts === 'on' ? 'off' : 'on';
+    void load(current);
   });
   reload.addEventListener('click', () => {
     if (current !== undefined) void load(current);
@@ -186,6 +204,19 @@ export function createFilePanel({ panel, layout, editor }) {
   });
   close.addEventListener('click', () => api.close());
   return api;
+}
+
+/**
+ * A page drawn in a frame from its folder (server/app.js, /api/folder/), what it loads beside it coming from there
+ * too. Its scripts off: no script runs, and the frame shares the page's origin only to be drawn; on: they run in an
+ * origin of their own, out of reach of the viewer's page, which can send prompts to Claude.
+ * @param {string} path
+ * @param {'on' | 'off'} scripts
+ * @returns {HTMLElement}
+ */
+function pageFrame(path, scripts) {
+  const sandbox = `${scripts === 'on' ? 'allow-scripts' : 'allow-same-origin'} allow-popups allow-popups-to-escape-sandbox`;
+  return h('iframe', { className: 'doc-frame', attrs: { sandbox, src: folderAddress(path, scripts), referrerpolicy: 'no-referrer', title: path } });
 }
 
 /**
