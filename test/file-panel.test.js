@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom';
 
 // DOMPurify binds to window on import (through markdown.js), so the DOM is set up before the panel loads.
 const { window } = new JSDOM('<!doctype html><html><body><main id="layout"><aside id="panel" hidden></aside></main></body></html>', { url: 'http://localhost/' });
-Object.assign(globalThis, { window, document: window.document, NodeFilter: window.NodeFilter, Text: window.Text });
+Object.assign(globalThis, { window, document: window.document, NodeFilter: window.NodeFilter, Text: window.Text, Element: window.Element });
 const { createFilePanel } = await import('../public/view/file-panel.js');
 
 /** @typedef {import('../public/view/editor-opener.js').EditorOpener} EditorOpener */
@@ -108,4 +108,119 @@ test('filePanel_Should_OpenFileInEditorAtItsLine_OnViewersComputerOnly', async (
   await settle();
 
   assert.deepEqual({ before, after: shown(), opened }, { before: [true, false, true, true], after: [true, false, false, true], opened: [['D:/dev/x/App.cs', 21], ['D:/dev/x/App.cs', 21]] });
+});
+
+/**
+ * The viewer's answers to /api/file: the text of each file by its path.
+ * @param {Record<string, string>} texts
+ */
+function serveTexts(texts) {
+  globalThis.fetch = async (/** @type {string | URL | Request} */ address) => {
+    const path = new URL(String(address), 'http://localhost/').searchParams.get('path') ?? '';
+    const content = texts[path];
+    return new Response(JSON.stringify(content === undefined ? { ok: false, error: 'not-found' } : { ok: true, content }));
+  };
+}
+const settled = () => new Promise((done) => setTimeout(done, 10));
+
+// A markdown document opens drawn as a document: its pictures and links read from where it lies — a picture shown
+// from the file next to it, a linked file opened in the panel — a page on the web left to the browser; the settings
+// block at its head is not shown
+test('filePanel_Should_DrawMarkdownAsDocument_WithLinksReadFromItsFolder', async () => {
+  serveTexts({ 'D:/dev/x/docs/README.md': '---\ntitle: Guide\n---\n# Guide\n\n![shot](img/shot.png)\n\nSee [the app](../src/App.cs#L12) and [the site](https://example.com).\n' });
+  const { panel, open } = filePanel();
+
+  open('D:/dev/x/docs/README.md');
+  await settled();
+
+  const doc = panel.querySelector('.panel-body .doc-markdown');
+  const image = doc?.querySelector('img');
+  const links = [...(doc?.querySelectorAll('a') ?? [])].map((link) => ({ text: link.textContent, path: link.getAttribute('data-path'), line: link.getAttribute('data-line'), target: link.getAttribute('target') }));
+  assert.deepEqual(
+    { heading: doc?.querySelector('h1')?.textContent, settings: doc?.textContent?.includes('title: Guide'), picture: image instanceof window.HTMLImageElement ? new URL(image.src).searchParams.get('path') : undefined, links },
+    {
+      heading: 'Guide',
+      settings: false,
+      picture: 'D:/dev/x/docs/img/shot.png',
+      links: [
+        { text: 'the app', path: 'D:/dev/x/src/App.cs', line: '12', target: null },
+        { text: 'the site', path: null, line: null, target: '_blank' },
+      ],
+    },
+  );
+});
+
+// A link to a line of a markdown file opens its source at that line; the button over the panel turns it into the drawn
+// document and back
+test('filePanel_Should_OpenMarkdownSourceAtLinkedLine_And_SwitchToDocumentAndBack', async () => {
+  serveTexts({ 'D:/dev/x/notes.md': '# Notes\n\nfirst\n\nsecond\n' });
+  const { panel, files } = filePanel();
+  const shown = () => ({ source: panel.querySelector('.panel-body .file-code') !== null, document: panel.querySelector('.panel-body .doc-markdown') !== null, mark: panel.querySelector('.panel-body .line-mark') !== null });
+  const toggle = () => {
+    const button = panel.querySelector('.panel-view');
+    assert.ok(button instanceof window.HTMLButtonElement);
+    return button;
+  };
+
+  files.open({ path: 'D:/dev/x/notes.md', line: 5, endLine: undefined });
+  await settled();
+  const atLine = shown();
+  toggle().click();
+  await settled();
+  const drawn = shown();
+  toggle().click();
+  await settled();
+
+  assert.deepEqual({ atLine, drawn, back: shown() }, {
+    atLine: { source: true, document: false, mark: true },
+    drawn: { source: false, document: true, mark: false },
+    back: { source: true, document: false, mark: true },
+  });
+});
+
+// A table's columns are told apart by colour, its lines numbered as any file's
+test('filePanel_Should_ColourTableColumns', async () => {
+  serveTexts({ 'D:/dev/x/rates.csv': 'name;price\nmilk;1,20\n' });
+  const { panel, open } = filePanel();
+
+  open('D:/dev/x/rates.csv');
+  await settled();
+
+  assert.deepEqual(
+    [...panel.querySelectorAll('.panel-body .file-code code span')].map((span) => [span.className, span.textContent]),
+    [['csv-c0', 'name'], ['csv-c1', 'price'], ['csv-c0', 'milk'], ['csv-c1', '1,20']],
+  );
+});
+
+// Addresses in a text file are links to open in the browser
+test('filePanel_Should_LinkWebAddressesInTextFile', async () => {
+  serveTexts({ 'D:/dev/x/notes.txt': 'docs at https://example.com/guide, and <b>no markup</b>\n' });
+  const { panel, open } = filePanel();
+
+  open('D:/dev/x/notes.txt');
+  await settled();
+
+  const code = panel.querySelector('.panel-body .file-code code');
+  assert.deepEqual(
+    { links: [...(code?.querySelectorAll('a') ?? [])].map((link) => [link.getAttribute('href'), link.getAttribute('target')]), bold: code?.querySelector('b'), text: code?.textContent },
+    { links: [['https://example.com/guide', '_blank']], bold: null, text: 'docs at https://example.com/guide, and <b>no markup</b>' },
+  );
+});
+
+// A link to a heading of the document goes to it inside the panel; the page's own address stays as it is
+test('filePanel_Should_GoToHeadingInsidePanel_When_DocumentLinksToIt', async () => {
+  serveTexts({ 'D:/dev/x/guide.md': '[Install](#install-on-windows)\n\n## Install on Windows\n\n## Install on Windows\n' });
+  const { panel, open } = filePanel();
+  open('D:/dev/x/guide.md');
+  await settled();
+  /** @type {string[]} */
+  const reached = [];
+  for (const heading of panel.querySelectorAll('h2')) heading.scrollIntoView = () => reached.push(heading.id);
+  const link = panel.querySelector('.doc-markdown a');
+  assert.ok(link);
+
+  const click = new window.MouseEvent('click', { bubbles: true, cancelable: true });
+  link.dispatchEvent(click);
+
+  assert.deepEqual({ reached, stays: click.defaultPrevented, ids: [...panel.querySelectorAll('h2')].map((heading) => heading.id) }, { reached: ['install-on-windows'], stays: true, ids: ['install-on-windows', 'install-on-windows-1'] });
 });

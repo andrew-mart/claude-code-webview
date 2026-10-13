@@ -24,7 +24,19 @@ export async function readTextFile(requested, { maxBytes, home }) {
   if (!file.ok) return file;
   const bytes = await readFile(file.path);
   if (bytes.subarray(0, sniffBytes).includes(0)) return { ok: false, error: 'binary' };
-  return { ok: true, path: file.path, content: bytes.toString('utf8'), size: file.size, modifiedAt: file.modifiedAt };
+  return { ok: true, path: file.path, content: decodeText(bytes), size: file.size, modifiedAt: file.modifiedAt };
+}
+
+/**
+ * UTF-8 — its mark at the head dropped — and what is not: Windows-1251, the old Russian text files.
+ * @param {Buffer} bytes
+ */
+function decodeText(bytes) {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder('windows-1251').decode(bytes);
+  }
 }
 
 /**

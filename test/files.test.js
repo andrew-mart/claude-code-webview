@@ -61,6 +61,18 @@ test('readTextFile_Should_ReturnTextOfAbsolutePath', async () => {
   assert.equal(outcome.ok && outcome.content, 'class A\n{\n}\n');
 });
 
+// Old Russian text files are in Windows-1251, not UTF-8: read as such, they show their words; a UTF-8 mark at the head
+// is no part of the text
+test('readTextFile_Should_ReadWindows1251_When_TextIsNotUtf8_And_DropUtf8Mark', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'csv-'));
+  await writeFile(join(dir, 'old.txt'), Buffer.from([0xcf, 0xf0, 0xe8, 0xe2, 0xe5, 0xf2, 0x0a]));
+  await writeFile(join(dir, 'marked.md'), Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('# Привет\n')]));
+
+  const outcomes = await Promise.all(['old.txt', 'marked.md'].map((name) => readTextFile(join(dir, name), limits)));
+
+  assert.deepEqual(outcomes.map((outcome) => outcome.ok && outcome.content), ['Привет\n', '# Привет\n']);
+});
+
 test('readTextFile_Should_ExplainWhyFileIsNotShown', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'csv-'));
   await writeFile(join(dir, 'big.txt'), 'x'.repeat(1001));

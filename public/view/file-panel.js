@@ -1,9 +1,12 @@
 // @ts-check
-// Right-hand panel: the content of a file linked from the feed, with the target line highlighted and scrolled into view,
-// or the picture.
-import { imageTypeOfPath } from '../model/file-ref.js';
+// Right-hand panel: a file linked from the feed, shown by what it is — a markdown document drawn, a table with its
+// columns coloured, text with its addresses as links, code highlighted, a picture — the target line highlighted and
+// scrolled into view in the file's text.
+import { csvDelimiterOf, csvLines } from '../model/csv.js';
+import { docKindOfPath } from '../model/doc-kind.js';
 import { countOf } from '../model/format.js';
 import { isRecord, text } from '../model/narrow.js';
+import { renderMarkdownDoc } from './doc-markdown.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
 import { highlightInto, languageOfPath } from './markdown.js';
@@ -17,7 +20,7 @@ import { createResizer, restoreWidth } from './resizer.js';
 /** Height of a code line in the panel, px — the highlight position is computed from it. */
 const lineHeight = 20;
 const codePaddingTop = 10;
-/** Larger files are shown without syntax highlighting so the page does not freeze. */
+/** Larger files are shown without syntax highlighting or column colours so the page does not freeze. */
 const highlightLimit = 400 * 1024;
 
 /** @type {Readonly<Record<string, string>>} */
@@ -57,6 +60,10 @@ export function createFilePanel({ panel, layout, editor }) {
   const inEditor = panelButton('external', 'Open in the editor at this line');
   inEditor.classList.add('panel-editor');
   inEditor.hidden = true;
+  // a markdown document drawn, or its text
+  const view = panelButton('eye', 'Show as a document');
+  view.classList.add('panel-view');
+  view.hidden = true;
   const reload = panelButton('reload', 'Reload file');
   const copy = panelButton('copy', 'Copy path');
   const close = panelButton('cross', 'Close (Esc)');
@@ -74,16 +81,31 @@ export function createFilePanel({ panel, layout, editor }) {
   });
   panel.replaceChildren(
     resizer,
-    h('header', { className: 'panel-head' }, [h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [icon('read'), name, where]), path]), inEditor, reload, copy, close]),
+    h('header', { className: 'panel-head' }, [h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [icon('read'), name, where]), path]), view, inEditor, reload, copy, close]),
     body,
   );
   /** @type {FileTarget | undefined} */
   let current;
   let request = 0;
+  /** How a markdown file shows: drawn, or its text — at a line a link names. */
+  /** @type {'document' | 'source'} */
+  let mode = 'document';
+  /** The text of the file shown, to switch between the two without loading it again. */
+  let shownText = '';
+
+  const show = (/** @type {FileTarget} */ target) => {
+    const kind = docKindOfPath(target.path);
+    view.hidden = kind !== 'markdown';
+    view.replaceChildren(icon(mode === 'document' ? 'code' : 'eye'));
+    view.title = mode === 'document' ? 'Show the source' : 'Show as a document';
+    if (kind === 'markdown' && mode === 'document') body.replaceChildren(renderMarkdownDoc(target.path, shownText));
+    else showContent(body, target, shownText, painterOf(kind, target.path));
+  };
 
   const load = async (/** @type {FileTarget} */ target) => {
     const ticket = ++request;
-    if (imageTypeOfPath(target.path) !== undefined) {
+    if (docKindOfPath(target.path) === 'image') {
+      view.hidden = true;
       showImage(body, target, ticket);
       return;
     }
@@ -98,7 +120,8 @@ export function createFilePanel({ panel, layout, editor }) {
       body.replaceChildren(h('div', { className: 'panel-message', text: (reason === undefined ? undefined : refusals[reason]) ?? 'Could not get the file from the server.' }));
       return;
     }
-    showContent(body, target, content);
+    shownText = content;
+    show(target);
   };
 
   /** @param {string} message */
@@ -136,6 +159,7 @@ export function createFilePanel({ panel, layout, editor }) {
       path.textContent = target.path;
       path.title = target.path;
       where.textContent = lineLabel(target);
+      mode = target.line === undefined ? 'document' : 'source';
       panel.hidden = false;
       layout.classList.add('with-panel');
       void load(target);
@@ -149,6 +173,11 @@ export function createFilePanel({ panel, layout, editor }) {
     isOpen: () => current !== undefined,
   };
 
+  view.addEventListener('click', () => {
+    if (current === undefined) return;
+    mode = mode === 'document' ? 'source' : 'document';
+    show(current);
+  });
   reload.addEventListener('click', () => {
     if (current !== undefined) void load(current);
   });
@@ -160,14 +189,64 @@ export function createFilePanel({ panel, layout, editor }) {
 }
 
 /**
+ * @typedef {(code: HTMLElement, text: string) => void} Painter — fills the code element with the file's text, marked up
+ */
+
+/**
+ * @param {import('../model/doc-kind.js').DocKind} kind
+ * @param {string} path
+ * @returns {Painter}
+ */
+function painterOf(kind, path) {
+  if (kind === 'csv') return paintColumns;
+  if (kind === 'text') return paintAddresses;
+  return (code, text) => highlightInto(code, text, languageOfPath(path) ?? 'plaintext');
+}
+
+/**
+ * A table's cells coloured by their column, eight colours over and over; the signs between them left plain.
+ * @type {Painter}
+ */
+function paintColumns(code, text) {
+  const delimiter = csvDelimiterOf(text);
+  /** @type {(Node | string)[]} */
+  const parts = [];
+  for (const [index, line] of csvLines(text, delimiter).entries()) {
+    if (index > 0) parts.push('\n');
+    for (const piece of line) parts.push(piece.column === undefined ? piece.text : h('span', { className: `csv-c${piece.column % 8}`, text: piece.text }));
+  }
+  code.replaceChildren(...parts);
+}
+
+/** A web address in text, without the sign that ends the sentence after it. */
+const webAddress = /https?:\/\/[^\s<>"'`]+[^\s<>"'`.,;:!?)\]]/g;
+
+/**
+ * Text as it is, its web addresses links to open in the browser.
+ * @type {Painter}
+ */
+function paintAddresses(code, text) {
+  /** @type {(Node | string)[]} */
+  const parts = [];
+  let position = 0;
+  for (const found of text.matchAll(webAddress)) {
+    parts.push(text.slice(position, found.index), h('a', { text: found[0], attrs: { href: found[0], target: '_blank', rel: 'noopener noreferrer' } }));
+    position = found.index + found[0].length;
+  }
+  parts.push(text.slice(position));
+  code.replaceChildren(...parts.filter((part) => part !== ''));
+}
+
+/**
  * @param {HTMLElement} body
  * @param {FileTarget} target
  * @param {string} content
+ * @param {Painter} paint
  */
-function showContent(body, target, content) {
+function showContent(body, target, content, paint) {
   const lines = content.replace(/\r\n/g, '\n').replace(/\n$/, '').split('\n');
   const code = h('code');
-  if (content.length <= highlightLimit) highlightInto(code, lines.join('\n'), languageOfPath(target.path) ?? 'plaintext');
+  if (content.length <= highlightLimit) paint(code, lines.join('\n'));
   else code.textContent = lines.join('\n');
   const gutter = h('span', { className: 'gutter', text: lines.map((_, index) => index + 1).join('\n') });
   const view = h('div', { className: 'file-view' }, [h('pre', { className: 'code numbered file-code' }, [gutter, code])]);
