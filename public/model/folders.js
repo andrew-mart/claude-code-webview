@@ -36,8 +36,9 @@ function once(folders) {
  * @returns {string[]}
  */
 export function folderChoices(remembered, history) {
+  // a session open now ran latest of all: the viewer does not say when it saw it last — it sees it now
   const ran = Object.values(history)
-    .flatMap((place) => (place.folder === undefined ? [] : [{ folder: place.folder, at: place.lastSeen ?? 0 }]))
+    .flatMap((place) => (place.folder === undefined ? [] : [{ folder: place.folder, at: place.open ? Infinity : (place.lastSeen ?? 0) }]))
     .sort((a, b) => b.at - a.at)
     .map(({ folder }) => folder);
   return once([...remembered, ...ran]);

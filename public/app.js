@@ -10,6 +10,7 @@ import { createBookmarkStore, moveLocalBookmarksToServer } from './view/bookmark
 import { createComposer } from './view/composer-view.js';
 import { createAsideStore } from './view/aside-store.js';
 import { copySelection } from './view/markdown-copy.js';
+import { revalidatedPolls } from './view/revalidated-polls.js';
 import { createDrawers } from './view/drawers.js';
 import { openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf } from './model/herdr.js';
 import { folderChoices, rememberFolder } from './model/folders.js';
@@ -43,6 +44,8 @@ const refreshMs = 4000;
 const workspacesEveryMs = 15_000;
 /** What herdr shows — its agents' status above all — is asked about this often. */
 const herdrEveryMs = 3000;
+/** The polls the viewer answers 304 while nothing changed: herdr's layout, the workspaces, the history. */
+const pollReply = revalidatedPolls((url, init) => fetch(url, init));
 /** While the viewer answers, the latest sessions are saved to read offline this often at most… */
 const keepEveryMs = 5 * 60_000;
 /** …that many of the latest ones worked on, within this stretch of time, their latest entries. */
@@ -549,8 +552,7 @@ function createPage() {
     /** The herdr workspaces of the sessions: they group the list and are searched by. */
     async refreshWorkspaces() {
       void this.refreshHistory();
-      const response = await fetch('/api/workspaces').catch(() => undefined);
-      const reply = response?.ok ? await response.json().catch(() => undefined) : undefined;
+      const reply = await pollReply('/api/workspaces');
       // Out of the viewer's reach the page keeps what it knew.
       if (reply === undefined) return;
       const next = parseWorkspaces(reply);
@@ -566,8 +568,7 @@ function createPage() {
     },
     /** Where sessions ran in herdr: it changes as tabs open and close. */
     async refreshHistory() {
-      const response = await fetch('/api/history').catch(() => undefined);
-      const reply = response?.ok ? await response.json().catch(() => undefined) : undefined;
+      const reply = await pollReply('/api/history');
       if (reply === undefined) return;
       const known = JSON.stringify(reply);
       if (known === historyKnown) return;
@@ -612,8 +613,7 @@ function createPage() {
     },
     /** What herdr shows now: its workspaces, tabs, panes and their agents' status. */
     async refreshHerdr() {
-      const response = await fetch('/api/herdr').catch(() => undefined);
-      const reply = response?.ok ? await response.json().catch(() => undefined) : undefined;
+      const reply = await pollReply('/api/herdr');
       // Out of the viewer's reach the page keeps what it knew.
       if (reply === undefined) return;
       const known = JSON.stringify(reply);
