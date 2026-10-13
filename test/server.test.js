@@ -1041,17 +1041,18 @@ test('folderFile_Should_SendPageInSandbox_And_RefuseWhatLiesOutsideItsFolder', a
   assert.deepEqual({ status: outside.status, body: await outside.json() }, { status: 403, body: { ok: false, error: 'outside' } });
 });
 
-// pdf.js loads what it needs as it goes — character maps, fonts, decoders — from its folders, the decoders as
-// WebAssembly; nothing above those folders is given
-test('vendor_Should_ServePdfLibraryFolders_And_NothingAboveThem', async (t) => {
+// The file panel's views come with what they load as they go — the bundle, pdf.js's character maps and decoders, the
+// decoders as WebAssembly; nothing above their folders is given
+test('vendor_Should_ServeFileViewsAssets_And_NothingAboveThem', async (t) => {
   const { base } = await withServer(t);
 
-  const map = await fetch(`${base}/vendor/pdfjs/cmaps/78-H.bcmap`);
-  const decoder = await fetch(`${base}/vendor/pdfjs/wasm/openjpeg.wasm`);
-  const above = await fetch(`${base}/vendor/pdfjs/cmaps/..%2F..%2Fpackage.json`);
+  const bundle = await fetch(`${base}/vendor/file-views/file-views.js`);
+  const map = await fetch(`${base}/vendor/file-views/pdfjs/cmaps/78-H.bcmap`);
+  const decoder = await fetch(`${base}/vendor/file-views/pdfjs/wasm/openjpeg.wasm`);
+  const above = await fetch(`${base}/vendor/file-views/pdfjs/cmaps/..%2F..%2Fpackage.json`);
 
   assert.deepEqual(
-    { map: map.status, decoder: [decoder.status, decoder.headers.get('content-type')], above: above.status },
-    { map: 200, decoder: [200, 'application/wasm'], above: 404 },
+    { bundle: [bundle.status, bundle.headers.get('content-type')], map: map.status, decoder: [decoder.status, decoder.headers.get('content-type')], above: above.status },
+    { bundle: [200, 'text/javascript; charset=utf-8'], map: 200, decoder: [200, 'application/wasm'], above: 404 },
   );
 });

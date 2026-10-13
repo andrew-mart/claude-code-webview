@@ -38,13 +38,13 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   stays visible. In detail shows every call.
 - **File links.** Absolute paths in answers (`/Users/ann/app/src/x.ts:42`, `~/notes.md`, `C:\repo\a.cs:10-20`),
   `file:///` links and paths in Read/Edit/Write rows open the file in a side panel, scrolled to and highlighting the line.
-  The panel shows the file as it is on disk now, not at the time of the answer, by what it is: a markdown file drawn
-  as a document — its pictures and links read from its folder, mermaid diagrams drawn; the button over the panel
-  shows its source, and a link to one of its lines opens the source there — a CSV table with its columns coloured,
-  a text file with its web addresses as links, code highlighted, a picture, an HTML page drawn with what lies beside
-  it — its scripts off until the ⚡ button runs them, sandboxed — a Word document as its pages, fitted to the panel,
-  its styles and links checked — a PDF as its pages, their text selectable, drawn by
-  pdf.js as they come into view. Text that is not UTF-8 is read as
+  The panel shows the file as it is on disk now, not at the time of the answer, by what it is — drawn by
+  [file-views](https://github.com/andrew-mart/file-views): a markdown file as a document — its pictures and links
+  read from its folder, mermaid diagrams drawn; the button over the panel shows its source, and a link to one of its
+  lines opens the source there — a CSV table with its columns coloured, a text file with its web addresses as links,
+  code highlighted, a picture, an HTML page drawn with what lies beside it — its scripts off until the ⚡ button runs
+  them, sandboxed — a Word document as its pages, fitted to the panel, its styles and links checked — a PDF as its
+  pages, their text selectable, drawn by pdf.js as they come into view. Text that is not UTF-8 is read as
   Windows-1251. Started with `--editor-command`, the
   viewer adds a button that opens the file at the marked line in your editor — in a browser on the viewer's own
   computer, where the editor shows up. A page opened through a tunnel finds that out by asking the viewer at the

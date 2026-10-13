@@ -7,7 +7,7 @@ import { createReadStream } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import http from 'node:http';
 import { homedir } from 'node:os';
-import { dirname, extname, join, resolve, sep } from 'node:path';
+import { extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { constants as zlibConstants, createGzip, gzip } from 'node:zlib';
@@ -16,7 +16,8 @@ import { parseBookmarkChange } from '../public/model/bookmarks.js';
 import { isRecord, text } from '../public/model/narrow.js';
 import { takenBackPrompt } from './branch.js';
 import { parseSteps } from '../public/model/dialog.js';
-import { folderFileAt, readImageFile, readTextFile } from './files.js';
+import { assetFile, folderFileAt, sandboxPolicy } from 'file-views/server';
+import { readImageFile, readTextFile } from './files.js';
 import { readBranch } from './git.js';
 import { readImage } from './images.js';
 import { rewindTarget } from './rewind.js';
@@ -41,32 +42,17 @@ const vendor = new Map([
   // the ES module: the package's main file is the CommonJS one, which a browser cannot import from
   ['/vendor/xterm.js', fileURLToPath(import.meta.resolve('@xterm/xterm/lib/xterm.mjs'))],
   ['/vendor/xterm.css', fileURLToPath(import.meta.resolve('@xterm/xterm/css/xterm.css'))],
-  // the whole library in one script, loaded by a <script> tag (view/diagrams.js): its ES build is split into chunks
-  ['/vendor/mermaid.js', fileURLToPath(import.meta.resolve('mermaid/dist/mermaid.min.js'))],
-  ['/vendor/pdfjs/pdf.mjs', fileURLToPath(import.meta.resolve('pdfjs-dist/build/pdf.min.mjs'))],
-  ['/vendor/pdfjs/pdf.worker.mjs', fileURLToPath(import.meta.resolve('pdfjs-dist/build/pdf.worker.min.mjs'))],
-  // scripts setting a global, loaded by <script> tags (view/doc-docx.js): docx-preview's ES build imports 'jszip' by
-  // name, which a browser cannot resolve; its package names only its main files, so its script is found beside them
-  ['/vendor/jszip.js', fileURLToPath(import.meta.resolve('jszip/dist/jszip.min.js'))],
-  ['/vendor/docx-preview.js', join(dirname(fileURLToPath(import.meta.resolve('docx-preview'))), 'docx-preview.min.js')],
 ]);
 
-/** Folders of a library that loads its parts as it goes, URL prefix → folder: pdf.js's maps, fonts and decoders. */
-const pdfjsRoot = dirname(fileURLToPath(import.meta.resolve('pdfjs-dist/package.json')));
-const vendorFolders = new Map(['cmaps', 'standard_fonts', 'wasm', 'iccs'].map((name) => [`/vendor/pdfjs/${name}/`, join(pdfjsRoot, name)]));
+/** The file panel's views (file-views): the bundle, its styles, and what they load as they go — pdf.js, mermaid. */
+const fileViewsPrefix = '/vendor/file-views/';
 
 /**
- * A file in one of the vendor folders, none above them.
  * @param {string} pathname
  * @returns {string | undefined}
  */
-function vendorFolderFile(pathname) {
-  for (const [prefix, folder] of vendorFolders) {
-    if (!pathname.startsWith(prefix)) continue;
-    const file = resolve(folder, decodeURIComponent(pathname.slice(prefix.length)));
-    return file.startsWith(folder + sep) ? file : undefined;
-  }
-  return undefined;
+function fileViewsFile(pathname) {
+  return pathname.startsWith(fileViewsPrefix) ? assetFile(decodeURIComponent(pathname.slice(fileViewsPrefix.length))) : undefined;
 }
 
 /** @type {Readonly<Record<string, string>>} */
@@ -836,11 +822,10 @@ async function sendFolderFile(url, response) {
   }
   const outcome = await folderFileAt(folder, relative, { maxBytes: maxFolderFileBytes });
   if (!outcome.ok) return sendJson(response, outcome, folderFileRefusalStatus[outcome.error]);
-  const sandbox = url.searchParams.get('scripts') === '1' ? 'allow-scripts' : 'allow-same-origin';
   response.writeHead(200, {
     'Content-Type': outcome.mediaType,
     'Content-Length': outcome.size,
-    'Content-Security-Policy': `sandbox ${sandbox} allow-popups allow-popups-to-escape-sandbox`,
+    'Content-Security-Policy': sandboxPolicy(url.searchParams.get('scripts') === '1' ? 'on' : 'off'),
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
   });
@@ -850,7 +835,7 @@ async function sendFolderFile(url, response) {
 }
 
 const folderPrefix = '/api/folder/';
-/** @type {Readonly<Record<import('./files.js').FolderFileRefusal, number>>} */
+/** @type {Readonly<Record<import('file-views/server').FolderFileRefusal, number>>} */
 const folderFileRefusalStatus = { 'not-absolute': 400, 'not-a-file': 400, 'not-found': 404, 'too-large': 413, outside: 403 };
 /** PDFs of scanned pages run large. */
 const maxFolderFileBytes = 200 * 1024 * 1024;
@@ -937,7 +922,8 @@ async function servePage(build, palette, pathname, response) {
  */
 async function pageBuild() {
   const names = await readdir(publicDir, { recursive: true });
-  const files = [...names.map((name) => join(publicDir, name)), ...vendor.values()].sort();
+  const views = ['file-views.js', 'file-views.css'].flatMap((name) => assetFile(name) ?? []);
+  const files = [...names.map((name) => join(publicDir, name)), ...vendor.values(), ...views].sort();
   const hash = createHash('sha256');
   for (const file of files) {
     const info = await stat(file).catch(() => undefined);
@@ -952,7 +938,7 @@ async function pageBuild() {
  * @param {string} cacheControl
  */
 async function serveFile(pathname, response, cacheControl) {
-  const file = vendor.get(pathname) ?? vendorFolderFile(pathname) ?? publicFile(pathname === '/' ? '/index.html' : pathname);
+  const file = vendor.get(pathname) ?? fileViewsFile(pathname) ?? publicFile(pathname === '/' ? '/index.html' : pathname);
   const info = file === undefined ? undefined : await stat(file).catch(() => undefined);
   if (file === undefined || info === undefined || !info.isFile()) {
     response.writeHead(404).end('Not found');

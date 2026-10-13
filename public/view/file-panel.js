@@ -1,30 +1,20 @@
 // @ts-check
-// Right-hand panel: a file linked from the feed, shown by what it is — a markdown document or a page drawn, a table
-// with its columns coloured, text with its addresses as links, code highlighted, a picture — the target line
-// highlighted and scrolled into view in the file's text.
-import { csvDelimiterOf, csvLines } from '../model/csv.js';
-import { docKindOfPath } from '../model/doc-kind.js';
-import { folderAddress } from '../model/doc-links.js';
-import { countOf } from '../model/format.js';
+// Right-hand panel: a file linked from the feed, drawn by file-views by what it is — a markdown document or a page, a
+// table with its columns coloured, text and code with the target line marked, a picture, a PDF or a Word document as
+// its pages. The panel holds its header — the file's name and path, buttons to show the source, run a page's scripts,
+// open the file in the editor, reload, copy the path, close — and tells file-views where the viewer's files are.
+import { hasSource, kindOfPath, renderFile } from 'file-views';
+import { folderAddress } from '../model/folder-address.js';
 import { isRecord, text } from '../model/narrow.js';
-import { renderDocx } from './doc-docx.js';
-import { renderMarkdownDoc } from './doc-markdown.js';
-import { renderPdf } from './doc-pdf.js';
 import { h } from './dom.js';
+import { linkFileRefs, markFileLink } from './file-links.js';
 import { icon } from './icons.js';
-import { highlightInto, languageOfPath } from './markdown.js';
 import { createResizer, restoreWidth } from './resizer.js';
 
 /**
  * @typedef {import('./file-links.js').FileTarget} FileTarget
  * @typedef {{ open: (target: FileTarget) => void, close: () => void, isOpen: () => boolean }} FilePanel
  */
-
-/** Height of a code line in the panel, px — the highlight position is computed from it. */
-const lineHeight = 20;
-const codePaddingTop = 10;
-/** Larger files are shown without syntax highlighting or column colours so the page does not freeze. */
-const highlightLimit = 400 * 1024;
 
 /** @type {Readonly<Record<string, string>>} */
 const refusals = {
@@ -44,9 +34,6 @@ const editorRefusals = {
   'no-editor': 'The viewer has no editor to open files in.',
 };
 const elsewhere = "The editor opens on the viewer's computer, and this browser is on another one.";
-
-/** An <img> does not tell why it did not load. */
-const notShownImage = 'The picture is not shown: the file is gone, larger than 20 MB, or not a picture.';
 
 /** @type {import('./resizer.js').PanelWidth} */
 const panelWidth = { property: '--panel-width', storageKey: 'viewer.panelWidth' };
@@ -93,19 +80,37 @@ export function createFilePanel({ panel, layout, editor }) {
   );
   /** @type {FileTarget | undefined} */
   let current;
-  let request = 0;
+  /** The panel's count of loads: in a picture's address, it makes Reload fetch it again — a page reuses a picture it
+   * has loaded from the same address. */
+  let loads = 0;
   /** How a document shows: drawn, or its text — at a line a link names. */
   /** @type {'document' | 'source'} */
   let mode = 'document';
   /** Whether the page shown runs its scripts. */
   /** @type {'on' | 'off'} */
   let pageScripts = 'off';
-  /** Lets go of what the document shown holds — a PDF's pages — before the panel shows something else. */
-  let letGo = () => {};
+  /** The file drawn: let go of before the panel shows something else. */
+  /** @type {import('file-views').FileView | undefined} */
+  let shown;
+
+  /** @type {import('file-views').Host} */
+  const host = {
+    text: readText,
+    documentUrl: folderAddress,
+    imageUrl: (file) => `/api/file/image?path=${encodeURIComponent(file)}&load=${loads}`,
+    assets: new URL('../vendor/file-views/', import.meta.url).href,
+    fileLink: markFileLink,
+    // paths in the document's text open in the panel too
+    decorate: linkFileRefs,
+    theme: () => {
+      const chosen = document.documentElement.dataset.theme;
+      return chosen === 'dark' || (chosen !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+    },
+  };
 
   /** The buttons over the panel, for what the file is and how it shows. */
-  const dress = (/** @type {import('../model/doc-kind.js').DocKind} */ kind) => {
-    view.hidden = kind !== 'markdown' && kind !== 'html';
+  const dress = (/** @type {import('file-views').FileKind} */ kind) => {
+    view.hidden = !hasSource(kind);
     view.replaceChildren(icon(mode === 'document' ? 'code' : 'eye'));
     view.title = mode === 'document' ? 'Show the source' : 'Show as a document';
     scripts.hidden = kind !== 'html' || mode !== 'document';
@@ -113,38 +118,11 @@ export function createFilePanel({ panel, layout, editor }) {
     scripts.title = pageScripts === 'on' ? "Stop the page's scripts" : "Run the page's scripts — in a sandbox, out of reach of this page";
   };
 
-  const load = async (/** @type {FileTarget} */ target) => {
-    const ticket = ++request;
-    const kind = docKindOfPath(target.path);
-    dress(kind);
-    letGo();
-    if (kind === 'image') {
-      showImage(body, target, ticket);
-      return;
-    }
-    if (kind === 'html' && mode === 'document') {
-      body.replaceChildren(pageFrame(target.path, pageScripts));
-      return;
-    }
-    if (kind === 'pdf' || kind === 'docx') {
-      const pages = kind === 'pdf' ? renderPdf(target.path, body) : renderDocx(target.path);
-      letGo = pages.dispose;
-      body.replaceChildren(pages.element);
-      return;
-    }
-    body.replaceChildren(h('div', { className: 'panel-message', text: 'Loading…' }));
-    const response = await fetch(`/api/file?path=${encodeURIComponent(target.path)}`).catch(() => undefined);
-    /** @type {unknown} */
-    const json = response === undefined ? undefined : await response.json().catch(() => undefined);
-    if (ticket !== request) return; // another file was opened while this one was loading
-    const content = isRecord(json) && json.ok === true ? text(json.content) : undefined;
-    if (content === undefined) {
-      const reason = isRecord(json) ? text(json.error) : undefined;
-      body.replaceChildren(h('div', { className: 'panel-message', text: (reason === undefined ? undefined : refusals[reason]) ?? 'Could not get the file from the server.' }));
-      return;
-    }
-    if (kind === 'markdown' && mode === 'document') body.replaceChildren(renderMarkdownDoc(target.path, content));
-    else showContent(body, target, content, painterOf(kind, target.path));
+  const load = (/** @type {FileTarget} */ target) => {
+    loads++;
+    shown?.dispose();
+    dress(kindOfPath(target.path));
+    shown = renderFile(body, target, { view: mode, scripts: pageScripts }, host);
   };
 
   /** @param {string} message */
@@ -186,13 +164,12 @@ export function createFilePanel({ panel, layout, editor }) {
       pageScripts = 'off';
       panel.hidden = false;
       layout.classList.add('with-panel');
-      void load(target);
+      load(target);
     },
     close() {
       current = undefined;
-      request++;
-      letGo();
-      letGo = () => {};
+      shown?.dispose();
+      shown = undefined;
       panel.hidden = true;
       layout.classList.remove('with-panel');
     },
@@ -202,15 +179,15 @@ export function createFilePanel({ panel, layout, editor }) {
   view.addEventListener('click', () => {
     if (current === undefined) return;
     mode = mode === 'document' ? 'source' : 'document';
-    void load(current);
+    load(current);
   });
   scripts.addEventListener('click', () => {
     if (current === undefined) return;
     pageScripts = pageScripts === 'on' ? 'off' : 'on';
-    void load(current);
+    load(current);
   });
   reload.addEventListener('click', () => {
-    if (current !== undefined) void load(current);
+    if (current !== undefined) load(current);
   });
   copy.addEventListener('click', () => {
     if (current !== undefined) void navigator.clipboard.writeText(current.path);
@@ -220,112 +197,18 @@ export function createFilePanel({ panel, layout, editor }) {
 }
 
 /**
- * A page drawn in a frame from its folder (server/app.js, /api/folder/), what it loads beside it coming from there
- * too. Its scripts off: no script runs, and the frame shares the page's origin only to be drawn; on: they run in an
- * origin of their own, out of reach of the viewer's page, which can send prompts to Claude.
- * @param {string} path
- * @param {'on' | 'off'} scripts
- * @returns {HTMLElement}
+ * A file's text from the viewer, or why it is not there.
+ * @param {string} file
+ * @returns {Promise<import('file-views').TextReply>}
  */
-function pageFrame(path, scripts) {
-  const sandbox = `${scripts === 'on' ? 'allow-scripts' : 'allow-same-origin'} allow-popups allow-popups-to-escape-sandbox`;
-  return h('iframe', { className: 'doc-frame', attrs: { sandbox, src: folderAddress(path, scripts), referrerpolicy: 'no-referrer', title: path } });
-}
-
-/**
- * @typedef {(code: HTMLElement, text: string) => void} Painter — fills the code element with the file's text, marked up
- */
-
-/**
- * @param {import('../model/doc-kind.js').DocKind} kind
- * @param {string} path
- * @returns {Painter}
- */
-function painterOf(kind, path) {
-  if (kind === 'csv') return paintColumns;
-  if (kind === 'text') return paintAddresses;
-  return (code, text) => highlightInto(code, text, languageOfPath(path) ?? 'plaintext');
-}
-
-/**
- * A table's cells coloured by their column, eight colours over and over; the signs between them left plain.
- * @type {Painter}
- */
-function paintColumns(code, text) {
-  const delimiter = csvDelimiterOf(text);
-  /** @type {(Node | string)[]} */
-  const parts = [];
-  for (const [index, line] of csvLines(text, delimiter).entries()) {
-    if (index > 0) parts.push('\n');
-    for (const piece of line) parts.push(piece.column === undefined ? piece.text : h('span', { className: `csv-c${piece.column % 8}`, text: piece.text }));
-  }
-  code.replaceChildren(...parts);
-}
-
-/** A web address in text, without the sign that ends the sentence after it. */
-const webAddress = /https?:\/\/[^\s<>"'`]+[^\s<>"'`.,;:!?)\]]/g;
-
-/**
- * Text as it is, its web addresses links to open in the browser.
- * @type {Painter}
- */
-function paintAddresses(code, text) {
-  /** @type {(Node | string)[]} */
-  const parts = [];
-  let position = 0;
-  for (const found of text.matchAll(webAddress)) {
-    parts.push(text.slice(position, found.index), h('a', { text: found[0], attrs: { href: found[0], target: '_blank', rel: 'noopener noreferrer' } }));
-    position = found.index + found[0].length;
-  }
-  parts.push(text.slice(position));
-  code.replaceChildren(...parts.filter((part) => part !== ''));
-}
-
-/**
- * @param {HTMLElement} body
- * @param {FileTarget} target
- * @param {string} content
- * @param {Painter} paint
- */
-function showContent(body, target, content, paint) {
-  const lines = content.replace(/\r\n/g, '\n').replace(/\n$/, '').split('\n');
-  const code = h('code');
-  if (content.length <= highlightLimit) paint(code, lines.join('\n'));
-  else code.textContent = lines.join('\n');
-  const gutter = h('span', { className: 'gutter', text: lines.map((_, index) => index + 1).join('\n') });
-  const view = h('div', { className: 'file-view' }, [h('pre', { className: 'code numbered file-code' }, [gutter, code])]);
-  body.replaceChildren(view);
-  const first = target.line;
-  if (first === undefined) return;
-  if (first > lines.length) {
-    body.prepend(h('div', { className: 'panel-message', text: `There is no line ${first}: the file has ${countOf(lines.length, 'line')}.` }));
-    return;
-  }
-  const last = Math.min(Math.max(target.endLine ?? first, first), lines.length);
-  const top = codePaddingTop + (first - 1) * lineHeight;
-  const mark = h('div', { className: 'line-mark' });
-  mark.style.top = `${top}px`;
-  mark.style.height = `${(last - first + 1) * lineHeight}px`;
-  view.prepend(mark);
-  body.scrollTop = Math.max(0, top - body.clientHeight / 3);
-  body.scrollLeft = 0;
-}
-
-/**
- * The picture, fitted to the panel's width; a click shows it at its own size. The load's number in the address makes
- * Reload fetch the file again: a page reuses an image it has loaded from the same address.
- * @param {HTMLElement} body
- * @param {FileTarget} target
- * @param {number} ticket — the panel's count of loads
- */
-function showImage(body, target, ticket) {
-  const image = h('img', { className: 'file-image', attrs: { alt: target.path } });
-  image.src = `/api/file/image?path=${encodeURIComponent(target.path)}&load=${ticket}`;
-  image.addEventListener('click', () => image.classList.toggle('zoomed'));
-  image.addEventListener('error', () => {
-    if (image.parentNode === body) body.replaceChildren(h('div', { className: 'panel-message', text: notShownImage })); // else another file is open now
-  });
-  body.replaceChildren(image);
+async function readText(file) {
+  const response = await fetch(`/api/file?path=${encodeURIComponent(file)}`).catch(() => undefined);
+  /** @type {unknown} */
+  const json = response === undefined ? undefined : await response.json().catch(() => undefined);
+  const content = isRecord(json) && json.ok === true ? text(json.content) : undefined;
+  if (content !== undefined) return { ok: true, text: content };
+  const reason = isRecord(json) ? text(json.error) : undefined;
+  return { ok: false, message: (reason === undefined ? undefined : refusals[reason]) ?? 'Could not get the file from the server.' };
 }
 
 /**
