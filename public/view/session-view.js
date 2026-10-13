@@ -69,7 +69,12 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   const working = h('div', { className: 'working', attrs: { hidden: '' } }, [h('span', { className: 'spark', text: '✻' }), h('span', { text: 'Working…' })]);
   const jump = h('button', { className: 'jump', title: 'Jump to the latest message', attrs: { type: 'button', hidden: '' } }, [icon('down')]);
   const waitingBox = h('div', { className: 'waiting-prompts', attrs: { hidden: '' } });
-  const element = h('div', { className: 'session' }, [earlier, thread, loading, working, waitingBox, jump]);
+  // The copy kept from the last time shows at once while the viewer sends the session, marked as being brought up to
+  // date — or, the viewer out of reach, as the copy it is; the session the viewer sends takes its place.
+  const keptThread = h('div', { className: 'thread kept', attrs: { hidden: '' } });
+  const updatingText = h('span', { text: 'Updating…' });
+  const updating = h('div', { className: 'updating', attrs: { role: 'status', hidden: '' } }, [h('span', { className: 'spark', text: '✻' }), updatingText]);
+  const element = h('div', { className: 'session' }, [updating, earlier, keptThread, thread, loading, working, waitingBox, jump]);
   const anchors = createAnchors(bookmarks, onRewind);
   /** @type {HTMLElement[]} */
   const prompts = [];
@@ -136,7 +141,6 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     received = 0;
     kept = [];
     earlierCount = 0;
-    fromSaved = false;
     thread.hidden = true;
     earlier.hidden = true;
     loading.hidden = false;
@@ -153,14 +157,15 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     const next = new EventSource(`/api/stream?${query}`);
     let opened = false;
     next.addEventListener('open', () => {
-      // Reconnect, or the viewer answers after the saved copy was shown: the server sends the transcript from the start.
-      if (opened || fromSaved) startOver();
+      // a reconnect: the server sends the transcript from the start
+      if (opened) startOver();
       opened = true;
+      if (!keptThread.hidden) updatingText.textContent = 'Updating…';
     });
     next.addEventListener('error', () => {
-      // The viewer is out of reach: the saved copy meanwhile. A stream refused outright (a proxy's error page) is not
+      // The viewer is out of reach: the kept copy meanwhile. A stream refused outright (a proxy's error page) is not
       // retried by the browser — it is opened again when the viewer answers.
-      if (!ready) void showSaved();
+      if (!ready) void showKept('out of reach');
       if (next.readyState === EventSource.CLOSED) waitForViewer();
     });
     next.addEventListener('earlier', (message) => {
@@ -206,8 +211,11 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     });
     return next;
   };
-  /** The history in, the feed is shown once, at the reader's place. */
+  /** The history in, the feed is shown once, at the reader's place — in place of the kept copy. */
   const showFeed = () => {
+    keptThread.replaceChildren();
+    keptThread.hidden = true;
+    updating.hidden = true;
     thread.hidden = false;
     loading.hidden = true;
     const returned = resumeAt?.kind === 'message' && returnTo(resumeAt);
@@ -222,14 +230,12 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   /** @type {unknown[]} */
   let kept = [];
   let earlierCount = 0;
-  /** The feed shows the saved copy, not what the server sent. */
-  let fromSaved = false;
   /** @type {ReturnType<typeof setTimeout> | undefined} */
   let keepTimer;
   const keepNow = () => {
     clearTimeout(keepTimer);
     keepTimer = undefined;
-    if (keeping === undefined || fromSaved || !ready || kept.length === 0) return;
+    if (keeping === undefined || !ready || kept.length === 0) return;
     keeping.save({ ...feedToKeep({ entries: kept, earlier: earlierCount }, keptEntries), savedAt: Date.now() });
   };
   const scheduleKeep = () => {
@@ -239,23 +245,33 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     if (document.visibilityState === 'hidden') keepNow();
   };
   document.addEventListener('visibilitychange', onHidden);
-  /** The copy saved the last time, while the viewer is out of reach. */
-  const showSaved = async () => {
-    if (keeping === undefined || fromSaved) return;
-    const saved = await keeping.load();
-    if (ready || fromSaved) return;
-    if (saved === undefined) {
-      loadingText.textContent = 'The viewer is out of reach, and this session is not saved to read offline.';
-      loadingCount.textContent = '';
+  /**
+   * The copy kept the last time, in a feed of its own, until the session the viewer sends is in: shown once.
+   * @param {'in reach' | 'out of reach'} viewer — whether the viewer answers, or the copy is all there is
+   */
+  const showKept = async (viewer) => {
+    if (keeping === undefined) return;
+    if (!keptThread.hidden) {
+      if (viewer === 'out of reach') updatingText.textContent = 'Offline · the copy kept from before';
       return;
     }
-    fromSaved = true;
-    ready = true;
-    const update = feed.apply(saved.entries);
-    meta = { ...meta, ...update };
-    listener.onMeta(meta);
-    earlier.hidden = true;
-    showFeed();
+    const saved = await keeping.load();
+    if (ready || !keptThread.hidden) return;
+    if (saved === undefined) {
+      if (viewer === 'out of reach') {
+        loadingText.textContent = 'The viewer is out of reach, and this session is not saved to read offline.';
+        loadingCount.textContent = '';
+      }
+      return;
+    }
+    const keptFeed = createFeed({ thread: keptThread, waitingBox: h('div') }, sessionId, { loadEntry, sendQueueNow: undefined, anchor: (_, content) => content, onPrompt: () => {} });
+    const update = keptFeed.apply(saved.entries);
+    if (Object.keys(update).length > 0) listener.onMeta({ ...update, ...meta });
+    updatingText.textContent = viewer === 'out of reach' ? 'Offline · the copy kept from before' : 'Updating…';
+    keptThread.hidden = false;
+    updating.hidden = false;
+    loading.hidden = true;
+    toBottom();
   };
   /** @type {(() => void) | undefined} */
   let stopWaiting;
@@ -279,7 +295,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   /** @type {number | undefined} */
   let tail = matchMedia('(max-width: 820px)').matches ? initialTail.narrow : initialTail.wide;
   let source = connect(tail);
-  if (keeping !== undefined && !keeping.online()) void showSaved();
+  if (keeping !== undefined) void showKept(keeping.online() ? 'in reach' : 'out of reach');
   /**
    * The whole session, the reader staying at the message they were at.
    * @returns {Promise<void>} — once it is in
