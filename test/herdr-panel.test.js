@@ -30,7 +30,7 @@ const web = {
 };
 
 /** A sidebar nobody opens a workspace from. @type {import('../public/view/herdr-panel.js').SidebarActions} */
-const noActions = { createWorkspace: async () => ({ ok: false, error: 'failed' }), open: () => undefined, renameWorkspace: async () => ({ ok: false, error: 'failed' }), closeWorkspace: async () => ({ ok: false, error: 'failed' }), renameTab: async () => ({ ok: false, error: 'failed' }), closeTab: async () => ({ ok: false, error: 'failed' }) };
+const noActions = { createWorkspace: async () => ({ ok: false, error: 'failed' }), open: () => undefined, folders: () => [], renameWorkspace: async () => ({ ok: false, error: 'failed' }), closeWorkspace: async () => ({ ok: false, error: 'failed' }), renameTab: async () => ({ ok: false, error: 'failed' }), closeTab: async () => ({ ok: false, error: 'failed' }) };
 
 // Many tabs are never named, so a session is told by its title: it is the row's first line, where it runs comes under it
 test('herdrSidebar_Should_LeadSessionRowWithItsTitle_And_TellWorkspaceAndTabUnderIt', () => {
@@ -277,6 +277,7 @@ test('herdrSidebar_Should_OpenNewWorkspace_FromItsNameAndFolder', async () => {
       return folder === 'D:/nowhere' ? { ok: false, error: 'no-folder' } : { ok: true, target: '#/pane/w5:p1' };
     },
     open: (target) => opened.push(target),
+    folders: () => [],
     renameWorkspace: async () => ({ ok: false, error: 'failed' }),
     closeWorkspace: async () => ({ ok: false, error: 'failed' }),
     renameTab: async () => ({ ok: false, error: 'failed' }),
@@ -478,4 +479,18 @@ test('herdrSidebar_Should_KeepNameBox_WhileHerdrIsLookedAtAgain', () => {
   element.querySelector('input.herdr-row-name')?.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 
   assert.deepEqual({ kept, after: element.querySelector('input.herdr-row-name'), changes }, { kept: true, after: null, changes: [] });
+});
+
+// The folder of a new workspace is chosen from those the page offers — typed before, where sessions ran — or typed
+test('herdrSidebar_Should_OfferFoldersForNewWorkspace', () => {
+  const element = window.document.createElement('div');
+  window.document.body.append(element);
+  const sidebar = createHerdrSidebar(element, { ...noActions, folders: () => ['D:/dev/billing', '/home/ann/notes'] });
+  sidebar.render({ herdr: true, workspaces: [web] }, undefined, '');
+
+  sidebar.newButton.click();
+
+  const box = element.querySelector('.herdr-new-folder');
+  const list = box === null ? null : element.querySelector(`datalist#${box.getAttribute('list')}`);
+  assert.deepEqual([...(list?.querySelectorAll('option') ?? [])].map((option) => option.getAttribute('value')), ['D:/dev/billing', '/home/ann/notes']);
 });

@@ -12,6 +12,7 @@ import { createAsideStore } from './view/aside-store.js';
 import { copySelection } from './view/markdown-copy.js';
 import { createDrawers } from './view/drawers.js';
 import { openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf } from './model/herdr.js';
+import { folderChoices, rememberFolder } from './model/folders.js';
 import { parseHistory } from './model/history.js';
 import { parseUsage, usageView } from './model/usage.js';
 import { createHerdrSidebar, createTabBar } from './view/herdr-panel.js';
@@ -193,10 +194,15 @@ function createPage() {
   let herdrLayout = { herdr: false, workspaces: [] };
   let herdrKnown = '';
   const herdrSidebar = createHerdrSidebar(herdrPanel, {
-    createWorkspace: (label, folder, start) => newWorkspace(label, folder, start),
+    createWorkspace: async (label, folder, start) => {
+      const outcome = await newWorkspace(label, folder, start);
+      if (outcome.ok) writeStorage(foldersKey, JSON.stringify(rememberFolder(typedFolders(), folder)));
+      return outcome;
+    },
     open: (target) => {
       location.hash = target;
     },
+    folders: () => folderChoices(typedFolders(), history),
     renameWorkspace: (workspace, label) => changeTab('/api/workspace/rename', { workspace, label }),
     closeWorkspace: (workspace) => changeTab('/api/workspace/close', { workspace }),
     renameTab: (tab, label) => changeTab('/api/tab/rename', { tab, label }),
@@ -1042,6 +1048,23 @@ function writeStorage(key, value) {
   } catch {
     // storage is unavailable — the setting lasts until the page reloads
   }
+}
+
+/** Folders new workspaces were opened in, the latest first: offered when the next one's folder is typed. */
+const foldersKey = 'viewer.workspaceFolders';
+
+/** @returns {string[]} */
+function typedFolders() {
+  const stored = readStorage(foldersKey);
+  if (stored === undefined) return [];
+  /** @type {unknown} */
+  let parsed;
+  try {
+    parsed = JSON.parse(stored);
+  } catch {
+    return []; // not what the page wrote: nothing to offer
+  }
+  return Array.isArray(parsed) ? parsed.filter((folder) => typeof folder === 'string') : [];
 }
 
 /**
