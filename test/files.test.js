@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readImageFile, readTextFile } from '../server/files.js';
+import { folderFileAt, readImageFile, readTextFile } from '../server/files.js';
 
 const limits = { maxBytes: 1000, home: tmpdir() };
 const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]);
@@ -88,5 +88,45 @@ test('readTextFile_Should_ExplainWhyFileIsNotShown', async () => {
     { ok: false, error: 'not-a-file' },
     { ok: false, error: 'too-large' },
     { ok: false, error: 'binary' },
+  ]);
+});
+
+// A page drawn in the panel loads what lies beside it — its styles, pictures, scripts — each by the type it is
+test('folderFileAt_Should_GiveFileBesideDocumentWithItsType', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'csv-page-'));
+  await mkdir(join(dir, 'assets'));
+  await writeFile(join(dir, 'page.html'), '<p>hi</p>');
+  await writeFile(join(dir, 'assets', 'site.css'), 'p {}');
+  await writeFile(join(dir, 'assets', 'data.bin'), Buffer.from([1, 2]));
+
+  const outcomes = await Promise.all(['page.html', 'assets/site.css', 'assets/data.bin'].map((relative) => folderFileAt(dir, relative, limits)));
+
+  assert.deepEqual(
+    outcomes.map((outcome) => (outcome.ok ? { mediaType: outcome.mediaType, path: outcome.path } : outcome)),
+    [
+      { mediaType: 'text/html', path: join(dir, 'page.html') },
+      { mediaType: 'text/css', path: join(dir, 'assets', 'site.css') },
+      { mediaType: 'application/octet-stream', path: join(dir, 'assets', 'data.bin') },
+    ],
+  );
+});
+
+// Nothing outside the document's folder is given: not by .. steps, not by an absolute path, not through a link in it
+// that leads out
+test('folderFileAt_Should_RefuseWhatLiesOutsideFolder', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'csv-fence-'));
+  const dir = join(root, 'site');
+  const secret = join(root, 'secret');
+  await mkdir(dir);
+  await mkdir(secret);
+  await writeFile(join(secret, 'key.txt'), 'secret');
+  await symlink(secret, join(dir, 'way-out'), 'junction');
+
+  const outcomes = await Promise.all(['../secret/key.txt', join(secret, 'key.txt'), 'way-out/key.txt'].map((relative) => folderFileAt(dir, relative, limits)));
+
+  assert.deepEqual(outcomes, [
+    { ok: false, error: 'outside' },
+    { ok: false, error: 'outside' },
+    { ok: false, error: 'outside' },
   ]);
 });

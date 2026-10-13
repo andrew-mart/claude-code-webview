@@ -3,6 +3,7 @@
 // Transcripts contain everything the agent saw, secrets included, so the server listens only on a local address
 // and answers only requests whose Host is that address: a page from another site cannot read it via DNS rebinding.
 import { createHash, randomUUID } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import http from 'node:http';
 import { homedir } from 'node:os';
@@ -15,7 +16,7 @@ import { parseBookmarkChange } from '../public/model/bookmarks.js';
 import { isRecord, text } from '../public/model/narrow.js';
 import { takenBackPrompt } from './branch.js';
 import { parseSteps } from '../public/model/dialog.js';
-import { readImageFile, readTextFile } from './files.js';
+import { folderFileAt, readImageFile, readTextFile } from './files.js';
 import { readBranch } from './git.js';
 import { readImage } from './images.js';
 import { rewindTarget } from './rewind.js';
@@ -198,6 +199,7 @@ async function handle(deps, request, response) {
     case '/api/snapshot':
       return withSession(url, response, async (id) => sendSnapshot(deps, url, id, response));
     default:
+      if (url.pathname.startsWith(folderPrefix)) return sendFolderFile(url, response);
       return servePage(deps.build, deps.palette, url.pathname, response);
   }
 }
@@ -787,6 +789,45 @@ async function sendFileImage(url, response) {
   response.writeHead(200, { 'Content-Type': outcome.mediaType, 'Content-Length': outcome.bytes.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
   response.end(outcome.bytes);
 }
+
+/**
+ * A document drawn in the panel — a page, a PDF — and what it loads beside it: /api/folder/<folder>/<path from it>,
+ * the folder's absolute path in base64url, so the page's relative addresses resolve inside it. A page comes in a
+ * sandbox — also when opened by its address in a tab of its own — that runs no script; with ?scripts=1 it runs them,
+ * in an origin of its own: then it cannot reach the viewer's page or read what the viewer sends.
+ * @param {URL} url
+ * @param {http.ServerResponse} response
+ */
+async function sendFolderFile(url, response) {
+  const [token = '', ...steps] = url.pathname.slice(folderPrefix.length).split('/');
+  const folder = Buffer.from(token, 'base64url').toString('utf8');
+  /** @type {string} */
+  let relative;
+  try {
+    relative = steps.map((step) => decodeURIComponent(step)).join('/');
+  } catch {
+    return sendJson(response, { ok: false, error: 'not-found' }, 404); // a % that escapes nothing names no file
+  }
+  const outcome = await folderFileAt(folder, relative, { maxBytes: maxFolderFileBytes });
+  if (!outcome.ok) return sendJson(response, outcome, folderFileRefusalStatus[outcome.error]);
+  const sandbox = url.searchParams.get('scripts') === '1' ? 'allow-scripts' : 'allow-same-origin';
+  response.writeHead(200, {
+    'Content-Type': outcome.mediaType,
+    'Content-Length': outcome.size,
+    'Content-Security-Policy': `sandbox ${sandbox} allow-popups allow-popups-to-escape-sandbox`,
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  createReadStream(outcome.path)
+    .on('error', () => response.destroy())
+    .pipe(response);
+}
+
+const folderPrefix = '/api/folder/';
+/** @type {Readonly<Record<import('./files.js').FolderFileRefusal, number>>} */
+const folderFileRefusalStatus = { 'not-absolute': 400, 'not-a-file': 400, 'not-found': 404, 'too-large': 413, outside: 403 };
+/** PDFs of scanned pages run large. */
+const maxFolderFileBytes = 200 * 1024 * 1024;
 
 /** @type {Readonly<Record<import('./files.js').ImageRefusal, number>>} */
 const imageFileRefusalStatus = { 'not-absolute': 400, 'not-a-file': 400, 'not-found': 404, 'too-large': 413, 'not-image': 415 };
