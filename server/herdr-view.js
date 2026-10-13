@@ -270,12 +270,15 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
       return { ok: true, target: `#/${sessionId}` };
     },
     /**
-     * Where the sessions ran in herdr, the ones closed since included.
+     * Where the sessions ran in herdr, the ones closed since included. An open session's place leaves out when it was
+     * last seen — it is seen now: the reply stays the same while nothing changes, and the page's poll of it comes back
+     * as 304.
      * @returns {Promise<import('../public/model/history.js').History>}
      */
     async history() {
       await currentView();
-      return (await keptHistory()).history;
+      const { history } = await keptHistory();
+      return Object.fromEntries(Object.entries(history).map(([session, place]) => [session, place.open ? { ...place, lastSeen: undefined } : place]));
     },
     /** @returns {Promise<import('../public/model/herdr.js').HerdrLayout>} */
     async layout() {

@@ -369,6 +369,23 @@ test('history_Should_KeepSessionWithItsTab_AndCloseItOnceItsPaneIsGone', async (
   ]);
 });
 
+// The page asks for the history every few seconds and is told "not changed" while nothing has: an open session's place
+// does not carry when it was last seen — it is seen now
+test('history_Should_StayTheSame_WhileNothingChanges', async (t) => {
+  const inTab = fakeHerdr({
+    workspaces: tripPlans.workspaces,
+    tabs: [{ tab_id: 'w2:t1', workspace_id: 'w2', number: 1, label: 'hotels', agent_status: 'idle' }],
+    panes: [{ pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:\trip_plans', agent: 'claude', pid: 101 }],
+  });
+  const view = await workspacesOf(t, { herdr: inTab, records: [runningRecord] });
+
+  const first = JSON.stringify(await view.history());
+  await new Promise((done) => setTimeout(done, 5));
+  const later = JSON.stringify(await view.history());
+
+  assert.equal(later, first);
+});
+
 /**
  * A herdr view whose history already holds these sessions, closed: Claude Code starts with claude-god.
  * @param {ReturnType<typeof tabsHerdr>} herdr

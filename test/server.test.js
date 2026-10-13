@@ -1006,6 +1006,33 @@ test('herdr_Should_ServeWhatHerdrShows_And_AnswerUnchangedReplyWithNotModified',
   assert.deepEqual({ reply: JSON.parse(first.body.toString('utf8')), again: again.status }, { reply: { herdr: true, workspaces: [webWorkspace] }, again: 304 });
 });
 
+// A proxy that recompresses the reply — Cloudflare, gzip into brotli — drops a strong tag or hands it back weakened
+// (W/"…"), and a cache may send several: the tag is weak from the start — the same for the reply gzipped and not — and
+// tags are compared weakly, as RFC 9110 has it for If-None-Match, so an unchanged reply still comes back empty; a tag
+// of another reply does not pass for it
+test('herdr_Should_TagReplyWeakly_And_AnswerNotModified_When_TagComesBackWeakenedOrAmongOthers', async (t) => {
+  const { port } = await withServer(t);
+  const tag = String((await rawGet(port, '/api/herdr', {})).headers.etag);
+  const opaque = tag.replace(/^W\//, '');
+
+  const status = async (/** @type {string} */ ifNoneMatch) => (await rawGet(port, '/api/herdr', { 'if-none-match': ifNoneMatch })).status;
+
+  assert.deepEqual(
+    { weak: tag.startsWith('W/"'), weakened: await status(`W/${opaque}`), strong: await status(opaque), amongOthers: await status(`"old", ${tag}`), another: await status('W/"another-reply"') },
+    { weak: true, weakened: 304, strong: 304, amongOthers: 304, another: 200 },
+  );
+});
+
+// The reply's tag comes in a header of the viewer's own as well: Cloudflare does not pass ETag on to Safari, and the
+// page sends the tag back itself
+test('herdr_Should_GiveReplyTagInHeaderOfItsOwn', async (t) => {
+  const { port } = await withServer(t);
+
+  const reply = await rawGet(port, '/api/herdr', {});
+
+  assert.equal(reply.headers['x-viewer-tag'], reply.headers.etag);
+});
+
 // A herdr pane's terminal on the page: its screen as it changes, until the pane is gone
 test('pane_Should_StreamScreenOfPaneUntilItIsGone', async (t) => {
   const { port } = await withServer(t);

@@ -13,6 +13,13 @@ test('folderChoices_Should_OfferTypedFoldersFirst_ThenWhereSessionsRan_EachOnce'
   assert.deepEqual(folderChoices(['D:/dev/billing', 'D:/dev/shop'], history), ['D:/dev/billing', 'D:/dev/shop', '/home/ann/notes']);
 });
 
+// A session open now ran in its folder latest of all: the viewer does not say when it saw it last — it sees it now
+test('folderChoices_Should_PutFolderOfOpenSessionFirst_AmongWhereSessionsRan', () => {
+  const history = { closed: ranIn('/home/ann/notes', 9), open: { ...ranIn('D:/dev/shop', 1), lastSeen: undefined, open: true } };
+
+  assert.deepEqual(folderChoices([], history), ['D:/dev/shop', '/home/ann/notes']);
+});
+
 // A folder a workspace was opened in goes to the head of those typed, once; the oldest fall off past twenty
 test('rememberFolder_Should_PutFolderFirstOnce_KeepingTwenty', () => {
   const many = Array.from({ length: 20 }, (_, index) => `/f${index}`);

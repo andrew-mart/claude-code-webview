@@ -901,13 +901,27 @@ async function sendJson(response, body, status = 200) {
  */
 async function sendRevalidated(response, body) {
   const json = Buffer.from(JSON.stringify(body));
-  const etag = `"${createHash('sha256').update(json).digest('base64url').slice(0, 27)}"`;
-  const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache', ETag: etag };
-  if (response.req.headers['if-none-match'] === etag) {
+  // weak: the same tag for the reply gzipped and not; a strong one Cloudflare drops or weakens as it recompresses
+  const etag = `W/"${createHash('sha256').update(json).digest('base64url').slice(0, 27)}"`;
+  // the tag in a header of the viewer's own as well: Cloudflare does not pass ETag on to Safari, and the page sends the
+  // tag back itself (view/revalidated-polls.js)
+  const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache', ETag: etag, 'X-Viewer-Tag': etag };
+  if (isUnchanged(response.req.headers['if-none-match'], etag)) {
     response.writeHead(304, headers).end();
     return;
   }
   await sendBody(response, 200, headers, json);
+}
+
+/**
+ * Whether the browser's If-None-Match names this tag among those it lists. Compared weakly, as RFC 9110 has it: a proxy
+ * that recompresses the reply — Cloudflare, gzip into brotli — hands the tag back weakened, W/"…".
+ * @param {string | undefined} ifNoneMatch
+ * @param {string} etag
+ */
+function isUnchanged(ifNoneMatch, etag) {
+  const opaque = (/** @type {string} */ tag) => tag.replace(/^W\//, '');
+  return [...(ifNoneMatch ?? '').matchAll(/(?:W\/)?"[^"]*"/g)].some(([tag]) => opaque(tag) === opaque(etag));
 }
 
 /** Bodies smaller than this gain nothing from gzip. */
@@ -986,7 +1000,7 @@ async function serveFile(pathname, response, cacheControl) {
   }
   // Without the build path the browser asks every time (no-cache) but downloads the file again only when it has changed.
   const etag = `W/"${info.size}-${Math.trunc(info.mtimeMs)}"`;
-  if (response.req.headers['if-none-match'] === etag) {
+  if (isUnchanged(response.req.headers['if-none-match'], etag)) {
     response.writeHead(304, { ETag: etag, 'Cache-Control': cacheControl }).end();
     return;
   }
