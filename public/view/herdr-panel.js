@@ -107,8 +107,9 @@ function link(target, className, children) {
 
 /**
  * @typedef {import('../model/herdr.js').TabChange} TabChange
- * @typedef {{ createWorkspace: (label: string, folder: string, start: import('../model/herdr.js').TabStart) => Promise<import('../model/herdr.js').NewWorkspace>, open: (target: string) => void, renameWorkspace: (workspaceId: string, label: string) => Promise<TabChange>, closeWorkspace: (workspaceId: string) => Promise<TabChange>, renameTab: (tabId: string, label: string) => Promise<TabChange>, closeTab: (tabId: string) => Promise<TabChange> }} SidebarActions
- *   — createWorkspace, and the renames and closings, resolve once the page shows the change; open goes to a page address
+ * @typedef {{ createWorkspace: (label: string, folder: string, start: import('../model/herdr.js').TabStart) => Promise<import('../model/herdr.js').NewWorkspace>, open: (target: string) => void, folders: () => readonly string[], renameWorkspace: (workspaceId: string, label: string) => Promise<TabChange>, closeWorkspace: (workspaceId: string) => Promise<TabChange>, renameTab: (tabId: string, label: string) => Promise<TabChange>, closeTab: (tabId: string) => Promise<TabChange> }} SidebarActions
+ *   — createWorkspace, and the renames and closings, resolve once the page shows the change; open goes to a page address;
+ *   folders: the folders to offer for a new workspace — typed before, where sessions ran
  * @typedef {{ label: string, rename: (label: string) => Promise<TabChange>, close: () => Promise<TabChange>, names: string, closes: string }} RowSubject
  *   — what a row stands for, to name and close: its name now, how to change it, the buttons' titles
  */
@@ -130,7 +131,7 @@ const newWorkspaceRefusals = {
  * @param {HTMLElement} element — the sidebar's place for it
  * @param {SidebarActions} actions
  */
-export function createHerdrSidebar(element, { createWorkspace, open, renameWorkspace, closeWorkspace, renameTab, closeTab }) {
+export function createHerdrSidebar(element, { createWorkspace, open, folders, renameWorkspace, closeWorkspace, renameTab, closeTab }) {
   let shown = '';
   /** What the sidebar was given last: drawn again once a name is typed or a closing answered. */
   /** @type {{ layout: import('../model/herdr.js').HerdrLayout, opened: import('../model/herdr.js').Opened | undefined, search: string } | undefined} */
@@ -254,7 +255,9 @@ export function createHerdrSidebar(element, { createWorkspace, open, renameWorks
   };
   const startForm = () => {
     const name = h('input', { className: 'herdr-new-name', attrs: { type: 'text', maxlength: '60', placeholder: 'Name', 'aria-label': 'Name of the new workspace' } });
-    const folder = h('input', { className: 'herdr-new-folder', attrs: { type: 'text', placeholder: 'Folder: D:/dev/app or ~/app', spellcheck: 'false', 'aria-label': 'Folder of the new workspace' } });
+    // the folder chosen from those the page offers, or typed
+    const choices = h('datalist', { attrs: { id: 'herdr-new-folders' } }, folders().map((choice) => h('option', { attrs: { value: choice } })));
+    const folder = h('input', { className: 'herdr-new-folder', attrs: { type: 'text', placeholder: 'Folder: D:/dev/app or ~/app', spellcheck: 'false', autocomplete: 'off', list: 'herdr-new-folders', 'aria-label': 'Folder of the new workspace' } });
     const error = h('div', { className: 'herdr-new-error', attrs: { role: 'alert' } });
     let sending = false;
     /** @param {import('../model/herdr.js').TabStart} start */
@@ -283,7 +286,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, renameWorks
     // an icon, as in a new tab's choices: the three fit on one line in a narrow sidebar
     const cancel = iconButton('herdr-new-cancel', 'cross', 'Cancel (Esc)');
     cancel.addEventListener('click', showButton);
-    const form = h('div', { className: 'herdr-new-workspace' }, [name, folder, h('div', { className: 'herdr-new-actions' }, [choice('herdr-new-shell', 'Terminal', 'shell'), choice('herdr-new-claude', 'Claude Code', 'claude'), cancel]), error]);
+    const form = h('div', { className: 'herdr-new-workspace' }, [name, folder, choices, h('div', { className: 'herdr-new-actions' }, [choice('herdr-new-shell', 'Terminal', 'shell'), choice('herdr-new-claude', 'Claude Code', 'claude'), cancel]), error]);
     // Enter starts Claude Code there, Escape leaves the form
     form.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') showButton();
