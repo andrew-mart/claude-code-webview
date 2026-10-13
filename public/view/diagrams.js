@@ -3,14 +3,13 @@
 // diagram is met. A diagram goes in as an SVG picture, not as markup: a picture runs no script, whatever the diagram's
 // text holds — the page beside it can send prompts to Claude. A diagram the library cannot read keeps its text, the
 // reason under it.
-import { h } from './dom.js';
 import { isRecord } from '../model/narrow.js';
+import { h } from './dom.js';
+import { loadLibrary } from './library.js';
 
 /**
  * @typedef {{ initialize: (config: Record<string, unknown>) => void, render: (id: string, text: string) => Promise<unknown> }} Mermaid
  */
-
-const libraryId = 'mermaid-library';
 
 /**
  * Draws the document's mermaid blocks, one after another: the library draws in a scratch node of the page, and two at
@@ -21,7 +20,7 @@ export async function drawDiagrams(doc) {
   const sources = [...doc.querySelectorAll('pre > code.language-mermaid')];
   if (sources.length === 0) return;
   const frames = sources.map((code) => ({ code, frame: code.closest('.code-frame') ?? code }));
-  const mermaid = await loadMermaid().catch((/** @type {unknown} */ error) => error);
+  const mermaid = await loadLibrary('mermaid', 'mermaid.js').catch((/** @type {unknown} */ error) => error);
   if (!isMermaid(mermaid)) {
     for (const { frame } of frames) failed(frame, mermaid);
     return;
@@ -37,25 +36,6 @@ export async function drawDiagrams(doc) {
       failed(frame, error);
     }
   }
-}
-
-/**
- * The library, loaded once for the page: a load that failed is tried again the next time.
- * @returns {Promise<unknown>}
- */
-function loadMermaid() {
-  const loaded = Reflect.get(window, 'mermaid');
-  if (loaded !== undefined) return Promise.resolve(loaded);
-  const known = document.getElementById(libraryId);
-  const script = known instanceof HTMLScriptElement ? known : h('script', { attrs: { id: libraryId, src: new URL('../vendor/mermaid.js', import.meta.url).href } });
-  if (script !== known) document.head.append(script);
-  return new Promise((resolve, reject) => {
-    script.addEventListener('load', () => resolve(Reflect.get(window, 'mermaid')));
-    script.addEventListener('error', () => {
-      script.remove();
-      reject(new Error('the diagram library did not load'));
-    });
-  });
 }
 
 /**

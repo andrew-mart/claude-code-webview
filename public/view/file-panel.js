@@ -7,6 +7,7 @@ import { docKindOfPath } from '../model/doc-kind.js';
 import { folderAddress } from '../model/doc-links.js';
 import { countOf } from '../model/format.js';
 import { isRecord, text } from '../model/narrow.js';
+import { renderDocx } from './doc-docx.js';
 import { renderMarkdownDoc } from './doc-markdown.js';
 import { renderPdf } from './doc-pdf.js';
 import { h } from './dom.js';
@@ -125,8 +126,8 @@ export function createFilePanel({ panel, layout, editor }) {
       body.replaceChildren(pageFrame(target.path, pageScripts));
       return;
     }
-    if (kind === 'pdf') {
-      const pages = renderPdf(target.path, body);
+    if (kind === 'pdf' || kind === 'docx') {
+      const pages = kind === 'pdf' ? renderPdf(target.path, body) : renderDocx(target.path);
       letGo = pages.dispose;
       body.replaceChildren(pages.element);
       return;

@@ -277,3 +277,20 @@ test('filePanel_Should_DrawPdfAsPages_WithoutAskingForItsText', async () => {
 
   assert.deepEqual({ pages: panel.querySelector('.panel-body > .doc-pdf') !== null, asked: asked.filter((address) => address.startsWith('/api/file?')) }, { pages: true, asked: [] });
 });
+
+// A Word document opens drawn as its pages, not refused as a file that is not text: the panel does not ask for its
+// text at all
+test('filePanel_Should_DrawWordDocumentAsPages_WithoutAskingForItsText', async () => {
+  /** @type {string[]} */
+  const asked = [];
+  globalThis.fetch = async (/** @type {string | URL | Request} */ address) => {
+    asked.push(String(address));
+    return new Response(JSON.stringify({ ok: false, error: 'binary' }));
+  };
+  const { panel, open } = filePanel();
+
+  open('D:/dev/x/brief.docx');
+  await settled();
+
+  assert.deepEqual({ pages: panel.querySelector('.panel-body > .doc-docx') !== null, asked: asked.filter((address) => address.startsWith('/api/file?')) }, { pages: true, asked: [] });
+});

@@ -45,6 +45,10 @@ const vendor = new Map([
   ['/vendor/mermaid.js', fileURLToPath(import.meta.resolve('mermaid/dist/mermaid.min.js'))],
   ['/vendor/pdfjs/pdf.mjs', fileURLToPath(import.meta.resolve('pdfjs-dist/build/pdf.min.mjs'))],
   ['/vendor/pdfjs/pdf.worker.mjs', fileURLToPath(import.meta.resolve('pdfjs-dist/build/pdf.worker.min.mjs'))],
+  // scripts setting a global, loaded by <script> tags (view/doc-docx.js): docx-preview's ES build imports 'jszip' by
+  // name, which a browser cannot resolve; its package names only its main files, so its script is found beside them
+  ['/vendor/jszip.js', fileURLToPath(import.meta.resolve('jszip/dist/jszip.min.js'))],
+  ['/vendor/docx-preview.js', join(dirname(fileURLToPath(import.meta.resolve('docx-preview'))), 'docx-preview.min.js')],
 ]);
 
 /** Folders of a library that loads its parts as it goes, URL prefix → folder: pdf.js's maps, fonts and decoders. */
