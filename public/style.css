@@ -3632,6 +3632,173 @@ a.file-link:hover {
   color: var(--accent);
 }
 
+/* ---------- The branch's changes in the side panel ---------- */
+
+/* the button over a session: only while its folder has a branch */
+.session-head:not(:has(.fact-branch)) .head-changes {
+  display: none;
+}
+
+/* a file opened from the changes: the way back to them */
+.panel-back {
+  flex: none;
+  margin-right: 8px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.panel-back:hover {
+  background: var(--bg-hover);
+}
+
+.changes {
+  padding: 12px 14px 24px;
+  font-size: 13.5px;
+}
+
+.changes-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.changes-branch {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.changes-against {
+  color: var(--text-3);
+}
+
+.changes-base {
+  max-width: 100%;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elev);
+  color: var(--text);
+  font: 13px var(--font-mono);
+}
+
+.changes-facts {
+  margin-top: 6px;
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
+.changes-commits {
+  margin-top: 10px;
+}
+
+.changes-commits summary {
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.changes-commits ol {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.changes-commits li {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.changes-commits code {
+  flex: none;
+  color: var(--text-3);
+  font: 12px var(--font-mono);
+}
+
+.changes-files {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.change > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.change > summary::-webkit-details-marker {
+  display: none;
+}
+
+.change > summary:hover,
+.change[open] > summary {
+  background: var(--bg-hover);
+}
+
+/* the status as a letter, coloured as a diff's lines are: added green, deleted red, the rest the warning's amber */
+.change-status {
+  flex: none;
+  width: 1.3em;
+  color: var(--warning);
+  font: 600 12px var(--font-mono);
+  text-align: center;
+}
+
+.change-added .change-status,
+.change-untracked .change-status {
+  color: var(--ok);
+}
+
+.change-deleted .change-status {
+  color: var(--danger);
+}
+
+.change-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font: 12.5px var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.change-dir {
+  color: var(--text-3);
+}
+
+.change-deleted .change-name {
+  text-decoration: line-through;
+}
+
+.change-lines {
+  flex: none;
+  color: var(--text-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.change .change-open {
+  flex: none;
+  width: 26px;
+  height: 26px;
+}
+
+.change > .diff-frame,
+.change > div {
+  margin: 4px 0 12px;
+}
+
 /* ---------- Animations and narrow screens ---------- */
 
 @keyframes spin {

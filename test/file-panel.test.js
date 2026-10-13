@@ -214,3 +214,33 @@ test('filePanel_Should_DrawPageInSandboxedFrame_And_RunScriptsOnlyWhenAsked', as
   );
 });
 
+
+// The branch's changes come into the panel in place of a file; a changed file opened from them shows in the panel, and
+// the panel goes back to the changes as they were
+test('filePanel_Should_ShowBranchChanges_And_GoBackToThemFromFileOpenedThere', async () => {
+  const { panel, files } = filePanel();
+  /** @type {import('../public/model/branch-changes.js').BranchChanges} */
+  const changes = {
+    ok: true,
+    root: 'D:/dev/shop',
+    branch: 'feat',
+    base: { name: 'main', sha: 'a'.repeat(40), how: 'made-from' },
+    commits: [],
+    files: [{ path: 'src/limits.ts', oldPath: undefined, status: 'modified', added: 2, removed: 1 }],
+    branches: ['main', 'feat'],
+  };
+  const title = () => [panel.querySelector('.panel-name')?.textContent, panel.querySelector('.panel-path')?.textContent];
+  files.showChanges({ load: async () => changes, loadDiff: async () => undefined });
+  await new Promise((done) => setTimeout(done, 0));
+  const shownChanges = title();
+  const listed = panel.querySelector('.panel-body .changes');
+
+  panel.querySelector('.change-open')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  const shownFile = title();
+  panel.querySelector('.panel-back')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+
+  assert.deepEqual(
+    { shownChanges, shownFile, back: title(), sameList: panel.querySelector('.panel-body .changes') === listed },
+    { shownChanges: ['Branch changes', 'feat since main'], shownFile: ['limits.ts', 'D:/dev/shop/src/limits.ts'], back: ['Branch changes', 'feat since main'], sameList: true },
+  );
+});

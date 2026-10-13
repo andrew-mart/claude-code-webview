@@ -15,6 +15,7 @@ import { withAttachedImages } from '../public/model/attachments.js';
 import { parseBookmarkChange } from '../public/model/bookmarks.js';
 import { isRecord, text } from '../public/model/narrow.js';
 import { takenBackPrompt } from './branch.js';
+import { branchChanges, branchFileDiff } from './branch-changes.js';
 import { parseSteps } from '../public/model/dialog.js';
 import { assetFile, folderFileAt, sandboxPolicy } from 'file-views/server';
 import { readImageFile, readTextFile } from './files.js';
@@ -173,8 +174,27 @@ async function handle(deps, request, response) {
     case '/api/branch':
       // The branch checked out in the session's folder now, for the header.
       return withSession(url, response, async (id) => {
-        const cwd = (await deps.index.list()).find((session) => session.id === id)?.cwd;
+        const cwd = await sessionFolder(deps, id);
         return sendJson(response, { branch: cwd === undefined ? undefined : await readBranch(cwd) });
+      });
+    case '/api/changes':
+      // What the branch checked out in the session's folder changed since it was made: its commits and files, what is
+      // not committed yet too; ?base= — a branch to compare with instead
+      return withSession(url, response, async (id) => {
+        const cwd = await sessionFolder(deps, id);
+        const base = url.searchParams.get('base') || undefined;
+        return sendJson(response, cwd === undefined ? { ok: false, error: 'not-a-repository' } : await branchChanges(cwd, { base }));
+      });
+    case '/api/changes/file':
+      // One changed file's diff since the base the page was given
+      return withSession(url, response, async (id) => {
+        const file = changedFileOf(url);
+        if (file === undefined) {
+          response.writeHead(400).end('Bad file or base');
+          return;
+        }
+        const cwd = await sessionFolder(deps, id);
+        return sendJson(response, cwd === undefined ? { ok: false, error: 'not-a-repository' } : await branchFileDiff(cwd, file));
       });
     // The page asks about herdr every few seconds: an unchanged reply goes without its body.
     case '/api/workspaces':
@@ -536,6 +556,42 @@ async function readJsonBody(request, limit) {
   } catch {
     return undefined; // malformed JSON — the request is rejected as bad
   }
+}
+
+/**
+ * The folder the session works in, as its transcript says last.
+ * @param {Deps} deps
+ * @param {string} id
+ * @returns {Promise<string | undefined>}
+ */
+async function sessionFolder(deps, id) {
+  return (await deps.index.list()).find((session) => session.id === id)?.cwd;
+}
+
+/** How git names a commit: the only base a file's diff is asked from — anything else could be an order to git. */
+const commitPattern = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+/** @type {ReadonlySet<string>} */
+const changeStatuses = new Set(['modified', 'added', 'deleted', 'renamed', 'copied', 'type-changed', 'untracked']);
+
+/**
+ * The changed file a diff is asked for: ?base= a commit, ?path=, ?old= for a renamed one, ?status=.
+ * @param {URL} url
+ * @returns {{ base: string, path: string, oldPath: string | undefined, status: import('../public/model/branch-changes.js').ChangeStatus } | undefined}
+ */
+function changedFileOf(url) {
+  const base = url.searchParams.get('base') ?? '';
+  const path = url.searchParams.get('path') ?? '';
+  const status = url.searchParams.get('status') ?? '';
+  if (!commitPattern.test(base) || path === '' || !isChangeStatus(status)) return undefined;
+  return { base, path, oldPath: url.searchParams.get('old') || undefined, status };
+}
+
+/**
+ * @param {string} value
+ * @returns {value is import('../public/model/branch-changes.js').ChangeStatus}
+ */
+function isChangeStatus(value) {
+  return changeStatuses.has(value);
 }
 
 /**
