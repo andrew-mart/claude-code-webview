@@ -3617,12 +3617,13 @@ a.file-link:hover {
   --fv-hl-tag: var(--hl-tag);
 }
 
-/* a document and pages on the page's ground; a page in a frame scrolls itself */
-.panel-body:has(> :is(.fv-markdown, .fv-pdf, .fv-docx)) {
+/* a markdown document on the page's ground — a page, a PDF, a Word document lie on it in their holder; a page in a
+   frame scrolls itself */
+.panel-body:has(> .fv-markdown) {
   background: var(--bg);
 }
 
-.panel-body:has(> .fv-frame) {
+.panel-body:has(> .fv-document > .fv-frame) {
   overflow: hidden;
 }
 
