@@ -28,7 +28,7 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   Sessions that a program drives (`claude -p`, the Agent SDK) are hidden until you tick "Show SDK sessions".
 - **The feed**:
   - prompts with images, slash commands and `!` shell commands with their output;
-  - answers in markdown with syntax highlighting;
+  - answers in markdown with syntax highlighting, a line break kept as a line break, as in the terminal;
   - thinking with its duration (Claude Code usually does not store the thinking text — then only the duration is shown);
   - tool calls as one-line rows that expand: Bash shows the command and output, Read the file with line numbers,
     Edit and Write a diff with line numbers, Agent its task, report and a live view of the subagent's own transcript;
@@ -38,17 +38,21 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   stays visible. In detail shows every call.
 - **File links.** Absolute paths in answers (`/Users/ann/app/src/x.ts:42`, `~/notes.md`, `C:\repo\a.cs:10-20`),
   `file:///` links and paths in Read/Edit/Write rows open the file in a side panel, scrolled to and highlighting the line.
-  The panel shows the file as it is on disk now, not at the time of the answer, by what it is — drawn by
-  [file-views](https://github.com/andrew-mart/file-views): a markdown file as a document — its pictures and links
-  read from its folder, mermaid diagrams drawn; the button over the panel shows its source, and a link to one of its
-  lines opens the source there — a CSV table with its columns coloured, a text file with its web addresses as links,
-  code highlighted, a picture, an HTML page drawn with what lies beside it — its scripts off until the ⚡ button runs
-  them, sandboxed — a Word document as its pages, fitted to the panel, its styles and links checked — a PDF as its
-  pages, their text selectable, drawn by pdf.js as they come into view. Text that is not UTF-8 is read as
-  Windows-1251. Started with `--editor-command`, the
-  viewer adds a button that opens the file at the marked line in your editor — in a browser on the viewer's own
-  computer, where the editor shows up. A page opened through a tunnel finds that out by asking the viewer at the
-  browser's 127.0.0.1 whether it is the same one: Chrome asks once to let the page reach apps on the device.
+  The panel shows the file as it is on disk now, not at the time of the answer, drawn by what it is by
+  [file-views](https://github.com/andrew-mart/file-views):
+  - markdown as a document — its pictures and links read from its folder, mermaid diagrams drawn; the button over the
+    panel shows its source, and a link to one of its lines opens the source there;
+  - a CSV table with its columns coloured, a text file with its web addresses as links, code highlighted, a picture;
+  - an HTML page with what lies beside it, in a sandbox, its scripts off until the ⚡ button runs them;
+  - a Word document as its pages, fitted to the panel, its styles and links checked;
+  - a PDF as its pages, their text selectable, drawn by pdf.js as they come into view.
+
+  Text that is not UTF-8 is read as Windows-1251. Started with `--editor-command`, the viewer adds a button that opens
+  the file at the marked line in your editor — in a browser on the viewer's own computer, where the editor shows up. A
+  page opened through a tunnel finds that out by asking the viewer at the browser's 127.0.0.1 whether it is the same
+  one: Chrome asks once to let the page reach apps on the device.
+
+  ![A markdown note with a mermaid diagram in the file panel, beside the session](docs/file-panel.png)
 - **Outline and bookmarks.** A right-hand outline lists your prompts (the one on screen is highlighted; Alt+↑ / Alt+↓
   jump between them) and your bookmarks: hover a prompt, an answer or a subagent report and click the flag to keep it
   one click away. Bookmarks are kept by the viewer in `~/.claude-code-webview/bookmarks.json`, so every browser and
@@ -58,12 +62,13 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   A click opens the details: the full path and how much context is used and left. The window comes from the model
   as Claude Code gives it (1M for Opus 4.7+, Sonnet 5+, Haiku 5.5, Fable; 200K for earlier ones unless the session ran
   their `[1m]` variant); for a model Claude Code does not know only the size is shown.
-- **Usage.** Under the viewer's name, a meter for your plan's 5-hour window and one for the week. Blue runs to the
-  nearer of how much is used and how much of the window has gone by; from there to the farther the stretch is green —
-  spare — while the use lags behind the time, red — overspent — once it runs ahead. Hover for
-  when each resets and how old the reading is. Claude Code reads the usage only now and then and keeps the reading in `~/.claude.json`, so it may be hours old. A statusline command is given a fresh
-  one with every reply (`rate_limits` in its input); have yours drop it into `~/.claude-code-webview/rate-limits.json`
-  and the viewer shows whichever reading is fresher. In a bash statusline:
+- **Usage.** Under the viewer's name, a meter for your plan's 5-hour window and one for the week. What is used is a
+  thick light-blue bar that narrows smoothly into a thinner line. While the use lags behind the time, the thin line is
+  pale green — room to spare — up to how much of the window has gone by; once the use runs ahead of the time, the bar
+  is red past that point — overspent. Hover for when each resets and how old the reading is. Claude Code reads
+  the usage only now and then and keeps the reading in `~/.claude.json`, so it may be hours old. A statusline command
+  is given a fresh one with every reply (`rate_limits` in its input); have yours drop it into
+  `~/.claude-code-webview/rate-limits.json` and the viewer shows whichever reading is fresher. In a bash statusline:
   `input=$(cat); echo "$input" | jq -c '.rate_limits // empty' > ~/.claude-code-webview/rate-limits.json`.
 - **Phones.** On a narrow screen the session list and the outline slide in from the sides, bookmark flags stay
   visible without hover, the view buttons fold into a "⋯" menu, and on a touch keyboard Enter starts a new line while
@@ -78,13 +83,14 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   the sessions you opened, plus the latest few sessions worked on, saved in the background while the viewer answered.
   "Offline · reading saved copies" shows meanwhile; once the viewer answers, the page reconnects and catches up, keeping
   your place. On an iPhone, add the page to the Home Screen: Safari may clear a website's saved data after a week
-  without visits.
+  without visits. The saved copies serve online too: a session opened again shows at once as it was last time, marked
+  "Updating…" until the viewer's fresh copy takes its place.
 - **Background work.** Over the input box, what the session runs in the background — subagents and commands — and
   how many have ended; opened, every task with how it stands: a command with its output as it grows, a subagent with
   its own transcript as it works. A subagent quiet for long is shown as such, not as running for days.
 - **Copying.** A part of an answer selected and copied comes as markdown, as the answer was written — headings,
   emphasis, code, links, lists, quotes, code blocks with their language and tables — with the formatting along with it
-  for a paste that takes it.
+  for a paste that takes it. A view button turns this off, and the browser copies as it does.
 - **Tables.** A table fits the answer's width, narrowing its columns down to whole words. When that is too cramped —
   on a phone especially — "Wide" under the table gives each column a comfortable width and lets the table scroll
   sideways. The same choice can be made for all tables of a session (in the header's details) or of the whole viewer
@@ -115,12 +121,16 @@ stops), and the page moves to the tab next to it. A tab can have an emoji icon: 
 is named, it is kept ahead of the name in herdr's label, so herdr shows it too. **+** at the end of the row opens a tab
 beside the open one, in its folder and under the name (and icon) you give it: a terminal, or Claude Code started in it
 with `claude` — or with the command given by `--claude-command`, a wrapper of your own; the page goes from the new tab's
-terminal to its session as soon as Claude Code starts there. Tabs that do not fit the row scroll sideways under the
-mouse wheel.
+terminal to its session as soon as Claude Code starts there. When Claude Code started from the page — in a new tab or
+workspace, or resuming a session — asks whether to trust its folder, the viewer answers yes: the folder is the one
+you chose, and the dialog's arrows and Enter are out of reach on a phone. Tabs that do not fit the row scroll sideways
+under the mouse wheel.
 
 A workspace has a colour of its own — its hue follows from its name — on the left edge of its row and of the rows of
-the sessions that run or ran in it. **+** beside the search opens one: its name, its folder, and a terminal or
-Claude Code in it.
+the sessions that run or ran in it. **+** beside the search opens one: its name, its folder — picked from the folders
+typed before and those sessions ran in, or typed anew — and a terminal or Claude Code in it. A second click on the
+open workspace or session in the sidebar shows its buttons, as the open tab's do: ✎ names the workspace or the
+session's tab, × closes it.
 
 A terminal mirrors the one in herdr, at its size: the keys you type go to it as they are — Enter, arrows, Ctrl+C — and
 what herdr shows comes back within a few hundredths of a second (the viewer talks to herdr through its socket; where
