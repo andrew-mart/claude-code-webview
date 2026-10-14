@@ -26,6 +26,9 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
 - **All sessions** of every project, newest first, with titles, project folder and age; an orange dot marks a session
   written to in the last two minutes. "Follow the active session" switches to whichever session was written to last.
   Sessions that a program drives (`claude -p`, the Agent SDK) are hidden until you tick "Show SDK sessions".
+- **Codex sessions** beside Claude Code's, marked `codex`: prompts, answers, reasoning summaries, commands with their
+  output, patches by the files they change, plans as task lists. `codex exec` runs and subagents count as driven by a
+  program. They are read-only: the input box stays closed — write to Codex in its own terminal.
 - **The feed**:
   - prompts with images, slash commands and `!` shell commands with their output;
   - answers in markdown with syntax highlighting, a line break kept as a line break, as in the terminal;
@@ -266,6 +269,7 @@ Several computers? Give each its own tunnel, hostname and `--palette`, and the p
 
 `--stop` only stops a process that answers on the port as this viewer; another program on the port is left alone.
 Sessions are read from `~/.claude/projects`; if you moved the Claude Code folder, `CLAUDE_CONFIG_DIR` is respected.
+Codex sessions are read from `~/.codex/sessions`, or from `sessions` under `CODEX_HOME` when it is set.
 
 The desktop shortcut starts the viewer from the folder it was created in: after moving the folder, create it again.
 

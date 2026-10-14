@@ -7,7 +7,7 @@ import { isRecord, text } from './narrow.js';
 /**
  * Whether the session can be written to: live — it runs in a herdr pane; herdr-missing — herdr is not installed,
  * sending prompts is unavailable at all; the rest — why it is not possible right now.
- * @typedef {{ state: 'herdr-missing' | 'offline' } | { state: 'no-herdr' | 'outside-herdr', status: string } | { state: 'live', status: string, pane: string, dialog: import('./dialog.js').Dialog | undefined }} LiveState
+ * @typedef {{ state: 'herdr-missing' | 'offline' | 'codex' } | { state: 'no-herdr' | 'outside-herdr', status: string } | { state: 'live', status: string, pane: string, dialog: import('./dialog.js').Dialog | undefined }} LiveState
  *   dialog: the choice Claude Code waits for in its terminal
  * @typedef {'empty' | 'herdr-missing' | 'offline' | 'no-herdr' | 'outside-herdr' | 'send-failed'} SendRefusal
  * @typedef {{ ok: true, pane: string } | { ok: false, error: SendRefusal }} SendOutcome
@@ -59,6 +59,9 @@ export function composerState(live, sessionId, keyboard) {
       return { ...unavailable(`Or in a herdr pane: claude --resume ${sessionId}`), canReopen: true };
     case 'outside-herdr':
       return unavailable('The session is not running in herdr — its terminal cannot receive text.');
+    case 'codex':
+      // the viewer reads Codex's sessions, it does not type into them: nothing to open again in Claude Code either
+      return { ...unavailable('A Codex session: the viewer shows it — write to it in its terminal.'), shown: false };
     case 'no-herdr':
       return unavailable('Could not reach herdr. Start the viewer from a herdr pane.');
     default:
@@ -153,6 +156,7 @@ export function parseLiveState(json) {
   switch (json.state) {
     case 'herdr-missing':
     case 'offline':
+    case 'codex':
       return { state: json.state };
     case 'no-herdr':
     case 'outside-herdr':

@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
 import { gunzipSync } from 'node:zlib';
+import { isRecord } from '../public/model/narrow.js';
 import { palettes } from '../public/model/palettes.js';
 import { startServer } from '../server/app.js';
 import { createBookmarkFile } from '../server/bookmarks.js';
@@ -99,12 +100,12 @@ const webWorkspace = {
 
 /**
  * @param {import('node:test').TestContext} t
- * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[], sessionRunning?: boolean, editor?: 'set' | 'none', vscode?: import('../server/vscode.js').VsCode | undefined }} [options] - takenBack: see
+ * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[], sessionRunning?: boolean, editor?: 'set' | 'none', vscode?: import('../server/vscode.js').VsCode | undefined, codexRoot?: string | undefined }} [options] - takenBack: see
  *   fakeComposer; palette, publicAddresses: what the viewer is started with; sessionRunning: whether Claude Code has the
  *   session open; editor: whether the viewer opens files in an editor — the files it is asked to open are recorded;
- *   vscode: VS Code's web server behind /vscode/
+ *   vscode: VS Code's web server behind /vscode/; codexRoot: Codex's sessions folder
  */
-async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true, editor = 'set', vscode = undefined } = {}) {
+async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true, editor = 'set', vscode = undefined, codexRoot = undefined } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'csv-'));
   const project = join(root, 'D--dev-x');
   await mkdir(project);
@@ -172,7 +173,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
     opened.push([path, line]);
     return { ok: true };
   };
-  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, vscode });
+  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, vscode, codexRoot });
   t.after(() => server.close());
   return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls, typed, tabChanges, opened };
 }
@@ -1226,4 +1227,91 @@ test('vscode_Should_TurnAwayAnotherSite_And_AnswerNotFoundWithoutVsCode', async 
   const none = await fetch(`${plain.base}/vscode/`);
 
   assert.deepEqual({ embedded: embedded.status, form: form.status, socket: socket.echoed, noOrigin: noOrigin.echoed, none: none.status }, { embedded: 403, form: 403, socket: false, noOrigin: false, none: 404 });
+});
+
+// A Codex session is listed beside Claude Code's and shows as they do: its feed comes as Claude Code's records, and a
+// command's long output — left out of the feed at first — comes whole when its row opens; it is shown, not typed into
+test('codex_Should_ListSession_And_ShowItsFeed_WithLongOutputComingWhole', async (t) => {
+  const codexRoot = await mkdtemp(join(tmpdir(), 'csv-codex-'));
+  t.after(() => rm(codexRoot, { recursive: true, force: true }));
+  const day = join(codexRoot, '2026', '10', '13');
+  await mkdir(day, { recursive: true });
+  const id = '01a13634-a2b7-7c90-ae35-9f11f984db97';
+  const output = Array.from({ length: 300 }, (_, line) => `line ${line}`).join('\n');
+  await writeFile(
+    join(day, `rollout-2026-10-13T21-59-41-${id}.jsonl`),
+    [
+      { timestamp: at, ordinal: 0, type: 'session_meta', payload: { id, cwd: 'D:\\dev\\shop', source: 'cli' } },
+      { timestamp: at, ordinal: 1, type: 'response_item', payload: { type: 'message', id: 'msg_1', role: 'user', content: [{ type: 'input_text', text: 'Show the log' }] } },
+      { timestamp: at, ordinal: 2, type: 'response_item', payload: { type: 'function_call', id: 'fc_2', call_id: 'call_log', name: 'exec_command', arguments: JSON.stringify({ cmd: 'cat app.log' }) } },
+      { timestamp: at, ordinal: 3, type: 'response_item', payload: { type: 'function_call_output', id: 'fco_3', call_id: 'call_log', output } },
+    ]
+      .map((record) => JSON.stringify(record))
+      .join('\n') + '\n',
+  );
+  const { base } = await withServer(t, { codexRoot });
+
+  const listed = (await (await fetch(`${base}/api/sessions`)).json()).find((/** @type {{ id: string }} */ session) => session.id === id);
+  const snapshot = await (await fetch(`${base}/api/snapshot?session=${id}`)).json();
+  /** @type {unknown[]} */
+  const entries = snapshot.entries;
+  const result = entries.find((entry) => JSON.stringify(entry).includes('tool_result'));
+  const full = isRecord(result) ? result.full : undefined;
+  const whole = await (await fetch(`${base}/api/entry?session=${id}&at=${String(full)}`)).json();
+  const live = await (await fetch(`${base}/api/live?session=${id}`)).json();
+
+  assert.deepEqual(
+    {
+      listed: { agent: listed?.agent, title: listed?.title, cwd: listed?.cwd },
+      feed: entries.map((entry) => (isRecord(entry) ? entry.type : undefined)),
+      deferred: typeof full,
+      whole: whole.message.content[0].content.length,
+      live,
+    },
+    { listed: { agent: 'codex', title: 'Show the log', cwd: 'D:\\dev\\shop' }, feed: ['user', 'assistant', 'user'], deferred: 'number', whole: output.length, live: { state: 'codex' } },
+  );
+});
+
+// A Codex session that went on in another file — its user edited a prompt and sent it again — shows as one: the file
+// before up to where the session goes on from, then the next one, whose command's long output comes whole when its row
+// opens
+test('codex_Should_ShowSessionGoingOnInAnotherFileAsOne_WithLongOutputThereComingWhole', async (t) => {
+  const codexRoot = await mkdtemp(join(tmpdir(), 'csv-codex-'));
+  t.after(() => rm(codexRoot, { recursive: true, force: true }));
+  const day = join(codexRoot, '2026', '10', '13');
+  await mkdir(day, { recursive: true });
+  const id = '01a0d69a-fc7e-7fe1-9d40-9392029cb8a5';
+  const output = Array.from({ length: 300 }, (_, line) => `line ${line}`).join('\n');
+  const lines = (/** @type {unknown[]} */ records) => records.map((record) => `${JSON.stringify(record)}\n`).join('');
+  /** @param {number} ordinal @param {string} text */
+  const prompted = (ordinal, text) => ({ timestamp: at, ordinal, type: 'response_item', payload: { type: 'message', id: `msg_${ordinal}`, role: 'user', content: [{ type: 'input_text', text }] } });
+  const kept = lines([{ timestamp: at, ordinal: 0, type: 'session_meta', payload: { id, cwd: 'D:\dev\shop', source: 'cli' } }, prompted(1, 'Show the log')]);
+  await writeFile(join(day, `rollout-2026-10-13T21-59-41-${id}.jsonl`), kept + lines([prompted(2, 'Show the errors')]));
+  await writeFile(
+    join(day, `rollout-2026-10-13T22-05-00-${id}_01a0d6a1-6035-7851-ac0d-fba569172c88.jsonl`),
+    lines([
+      { timestamp: at, ordinal: 2, type: 'session_meta', payload: { id, cwd: 'D:\dev\shop', source: 'cli', history_base: { thread_id: id, end_ordinal_exclusive: 2, end_byte_offset: Buffer.byteLength(kept) } } },
+      prompted(3, 'Show the warnings'),
+      { timestamp: at, ordinal: 4, type: 'response_item', payload: { type: 'function_call', id: 'fc_4', call_id: 'call_log', name: 'exec_command', arguments: JSON.stringify({ cmd: 'grep WARN app.log' }) } },
+      { timestamp: at, ordinal: 5, type: 'response_item', payload: { type: 'function_call_output', id: 'fco_5', call_id: 'call_log', output } },
+    ]),
+  );
+  const { base } = await withServer(t, { codexRoot });
+
+  const listed = (await (await fetch(`${base}/api/sessions`)).json()).filter((/** @type {{ id: string }} */ session) => session.id === id);
+  const snapshot = await (await fetch(`${base}/api/snapshot?session=${id}`)).json();
+  /** @type {unknown[]} */
+  const entries = snapshot.entries;
+  const result = entries.find((entry) => JSON.stringify(entry).includes('tool_result'));
+  const full = isRecord(result) ? result.full : undefined;
+  const whole = await (await fetch(`${base}/api/entry?session=${id}&at=${String(full)}`)).json();
+
+  assert.deepEqual(
+    {
+      listed: listed.length,
+      prompts: entries.flatMap((entry) => (isRecord(entry) && entry.type === 'user' && isRecord(entry.message) && typeof entry.message.content === 'string' ? [entry.message.content] : [])),
+      whole: whole.message.content[0].content.length,
+    },
+    { listed: 1, prompts: ['Show the log', 'Show the warnings'], whole: output.length },
+  );
 });

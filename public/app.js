@@ -37,8 +37,8 @@ import { activityModeEvent, jumpMarginPx, mountSession, openSubagentTranscript }
 import { createTasksView } from './view/tasks-view.js';
 
 /**
- * activeAt — the session's last prompt or answer
- * @typedef {{ id: string, project: string, title: string | undefined, cwd: string | undefined, branch: string | undefined, kind: 'interactive' | 'sdk', modifiedAt: number, size: number, activeAt: number }} SessionInfo
+ * activeAt — the session's last prompt or answer; agent — whose session it is: Claude Code's, or Codex's
+ * @typedef {{ id: string, project: string, agent: 'claude' | 'codex', title: string | undefined, cwd: string | undefined, branch: string | undefined, kind: 'interactive' | 'sdk', modifiedAt: number, size: number, activeAt: number }} SessionInfo
  * @typedef {import('./model/view-settings.js').SettingKey} SettingKey
  */
 
@@ -289,12 +289,14 @@ function createPage() {
     const note = place?.note ?? '';
     // the workspace it runs or ran in colours the row, named on it or not
     const tint = workspaces.of.get(session.id) ?? place?.workspace;
-    const look = [title, folder, named, tab, closed, note, ago, active, selected, unavailable, tint].join('\u0000');
+    const look = [session.agent, title, folder, named, tab, closed, note, ago, active, selected, unavailable, tint].join('\u0000');
     const known = items.get(session.id);
     if (known !== undefined && known.look === look) return known.element;
     const where = h('span', { className: 'session-place' }, [h('span', { className: 'session-folder', text: folder })]);
     if (tab !== '') where.prepend(h('span', { className: 'session-tab', text: tab }));
     if (named !== '') where.prepend(h('span', { className: 'session-workspace', text: named }));
+    // Codex's sessions among Claude Code's
+    if (session.agent === 'codex') where.prepend(h('span', { className: 'session-agent', text: 'codex' }));
     const link = h('a', { className: 'session-item', attrs: { href: `#/${session.id}` } }, [
       h('span', { className: 'session-title', text: title }),
       h('span', { className: 'session-sub' }, [where, h('span', { text: closed ? `closed · ${ago}` : ago })]),
@@ -1038,7 +1040,9 @@ function parseSessions(json) {
     const project = text(item.project);
     if (id === undefined || project === undefined || typeof item.modifiedAt !== 'number' || typeof item.size !== 'number' || typeof item.activeAt !== 'number') return [];
     const kind = item.kind === 'sdk' ? 'sdk' : 'interactive';
-    return [{ id, project, title: text(item.title), cwd: text(item.cwd), branch: text(item.branch), kind, modifiedAt: item.modifiedAt, size: item.size, activeAt: item.activeAt }];
+    // a viewer from before Codex's sessions names no agent: its sessions are Claude Code's
+    const agent = item.agent === 'codex' ? 'codex' : 'claude';
+    return [{ id, project, agent, title: text(item.title), cwd: text(item.cwd), branch: text(item.branch), kind, modifiedAt: item.modifiedAt, size: item.size, activeAt: item.activeAt }];
   });
 }
 

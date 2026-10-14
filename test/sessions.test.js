@@ -155,3 +155,87 @@ test('list_Should_PutSessionWithLatestMessageFirstWhateverTheFileTime', async ()
     ],
   );
 });
+
+// Codex's sessions are listed beside Claude Code's — ~/.codex/sessions/<year>/<month>/<day>/rollout-<time>-<id>.jsonl —
+// with their title, folder and branch, told apart by their agent; a run of codex exec is one run by a program. Each is
+// found by its id, and is known for a Codex one by its file
+test('list_Should_ListCodexSessionsBesideClaudeCodesOnes_ToldApartByAgent', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'csv-'));
+  await mkdir(join(root, 'D--dev-a'));
+  await writeFile(join(root, 'D--dev-a', '3f2c9a50-1111-4222-8333-944455556666.jsonl'), `${prompt('Claude question', 'D:\dev\a')}\n`);
+  const codexRoot = await mkdtemp(join(tmpdir(), 'csv-codex-'));
+  const day = join(codexRoot, '2026', '10', '13');
+  await mkdir(day, { recursive: true });
+  /** @param {string} id @param {string} source @param {string} said */
+  const rollout = (id, source, said) =>
+    [
+      line({ timestamp: at, ordinal: 0, type: 'session_meta', payload: { id, cwd: 'D:\dev\shop', source, git: { branch: 'feat/limits' } } }),
+      line({ timestamp: at, ordinal: 1, type: 'turn_context', payload: { cwd: 'D:\dev\shop', model: 'gpt-6-astra' } }),
+      line({ timestamp: at, ordinal: 2, type: 'response_item', payload: { type: 'message', id: 'msg_2', role: 'user', content: [{ type: 'input_text', text: said }] } }),
+      line({ timestamp: at, ordinal: 3, type: 'response_item', payload: { type: 'message', id: 'msg_3', role: 'assistant', content: [{ type: 'output_text', text: 'Done.' }] } }),
+    ].join('\n');
+  const worked = '01a13634-a2b7-7c90-ae35-9f11f984db97';
+  const run = '01a13634-a2b7-7c90-ae35-000000000002';
+  await writeFile(join(day, `rollout-2026-10-13T21-59-41-${worked}.jsonl`), `${rollout(worked, 'cli', 'Add a rate limit\nto POST /orders')}\n`);
+  await writeFile(join(day, `rollout-2026-10-13T22-10-00-${run}.jsonl`), `${rollout(run, 'exec', 'Summarize the log')}\n`);
+  const index = createSessionIndex(root, { summaryBudgetMs: 1000, codexRoot });
+
+  const sessions = await index.list();
+  const found = await index.find(worked);
+
+  assert.deepEqual(
+    {
+      sessions: sessions.map(({ id, agent, title, cwd, branch, kind }) => ({ id, agent, title, cwd, branch, kind })).sort((a, b) => a.id.localeCompare(b.id)),
+      codexFile: found === undefined ? undefined : index.agentOf(found),
+    },
+    {
+      sessions: [
+        { id: run, agent: 'codex', title: 'Summarize the log', cwd: 'D:\dev\shop', branch: 'feat/limits', kind: 'sdk' },
+        { id: worked, agent: 'codex', title: 'Add a rate limit', cwd: 'D:\dev\shop', branch: 'feat/limits', kind: 'interactive' },
+        { id: '3f2c9a50-1111-4222-8333-944455556666', agent: 'claude', title: 'Claude question', cwd: 'D:\dev\a', branch: 'master', kind: 'interactive' },
+      ],
+      codexFile: 'codex',
+    },
+  );
+});
+
+// A Codex session its user edited a prompt of and sent again goes on in another file — maybe of another day — named by
+// the session's id and its own: one session, its title from where it began, its activity from where it goes on; it is
+// read as its files in turn, the one before up to the point the next goes on from
+test('list_Should_ListCodexSessionGoingOnInAnotherFileOnce_ReadAsItsFilesInTurn', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'csv-'));
+  const codexRoot = await mkdtemp(join(tmpdir(), 'csv-codex-'));
+  const id = '01a0d69a-fc7e-7fe1-9d40-9392029cb8a5';
+  const later = '2026-10-14T08:00:00.000Z';
+  /** @param {number} ordinal @param {'user' | 'assistant'} role @param {string} said @param {string} [when] */
+  const said = (ordinal, role, said, when = at) =>
+    line({ timestamp: when, ordinal, type: 'response_item', payload: { type: 'message', id: `msg_${ordinal}`, role, content: [{ type: role === 'user' ? 'input_text' : 'output_text', text: said }] } });
+  const kept = [line({ timestamp: at, ordinal: 0, type: 'session_meta', payload: { id, cwd: 'D:\dev\shop', source: 'cli' } }), said(1, 'user', 'Add a rate limit'), said(2, 'assistant', 'Added.')].map((one) => `${one}\n`).join('');
+  const first = join(codexRoot, '2026', '10', '13', `rollout-2026-10-13T21-59-41-${id}.jsonl`);
+  const next = join(codexRoot, '2026', '10', '14', `rollout-2026-10-14T07-59-00-${id}_01a0d6a1-6035-7851-ac0d-fba569172c88.jsonl`);
+  await mkdir(join(codexRoot, '2026', '10', '13'), { recursive: true });
+  await mkdir(join(codexRoot, '2026', '10', '14'), { recursive: true });
+  await writeFile(first, `${kept}${said(3, 'user', 'Make it 10 a second')}\n`);
+  await writeFile(
+    next,
+    [line({ timestamp: later, ordinal: 3, type: 'session_meta', payload: { id, cwd: 'D:\dev\shop', source: 'cli', history_base: { thread_id: id, end_ordinal_exclusive: 3, end_byte_offset: Buffer.byteLength(kept) } } }), said(4, 'user', 'Make it 20 a second', later), said(5, 'assistant', 'Made it 20.', later)].map((one) => `${one}\n`).join(''),
+  );
+  const index = createSessionIndex(root, { summaryBudgetMs: 1000, codexRoot });
+
+  const sessions = await index.list();
+  const found = await index.find(id);
+
+  assert.deepEqual(
+    {
+      sessions: sessions.map(({ id, title, activeAt }) => ({ id, title, activeAt })),
+      parts: found === undefined ? undefined : await index.partsOf(found),
+    },
+    {
+      sessions: [{ id, title: 'Add a rate limit', activeAt: Date.parse(later) }],
+      parts: [
+        { path: first, end: Buffer.byteLength(kept) },
+        { path: next, end: undefined },
+      ],
+    },
+  );
+});

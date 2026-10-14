@@ -17,6 +17,7 @@ import { parseBookmarkChange } from '../public/model/bookmarks.js';
 import { isRecord, text } from '../public/model/narrow.js';
 import { takenBackPrompt } from './branch.js';
 import { branchChanges, branchFileDiff } from './branch-changes.js';
+import { createCodexReading } from './codex.js';
 import { parseSteps } from '../public/model/dialog.js';
 import { assetFile, folderFileAt, sandboxPolicy } from 'file-views/server';
 import { readImageFile, readTextFile } from './files.js';
@@ -84,7 +85,7 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  */
 
 /**
- * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, vscode?: import('./vscode.js').VsCode | undefined }} options
+ * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, vscode?: import('./vscode.js').VsCode | undefined, codexRoot?: string | undefined }} options
  *   about — package name and version for /api/health; palette — the page's colours (public/model/palettes.js);
  *   publicAddresses — where else the page is opened at, answered as the local address is; herdrView — what herdr
  *   shows (herdr-view.js); terminals — herdr panes' terminals (terminal.js); usage — the account's usage (usage.js);
@@ -92,14 +93,14 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  *   if the viewer was given one
  * @returns {Promise<{ port: number, close: () => void }>}
  */
-export async function startServer({ root, host, port, pollMs, composer, bookmarks, uploads, about, palette, publicAddresses, herdrView, terminals, usage, isRunning, editor, vscode }) {
+export async function startServer({ root, host, port, pollMs, composer, bookmarks, uploads, about, palette, publicAddresses, herdrView, terminals, usage, isRunning, editor, vscode, codexRoot }) {
   const instance = randomUUID();
-  const index = createSessionIndex(root, { summaryBudgetMs: 1500 });
+  const index = createSessionIndex(root, { summaryBudgetMs: 1500, codexRoot });
   const build = await pageBuild();
   /** Sessions this page rewound: session id → the prompt rewound to; its branch is hidden before the next prompt shows the fork. */
   /** @type {Map<string, string>} */
   const rewinds = new Map();
-  const transcripts = createTranscriptCache({ maxFiles: cachedTranscripts });
+  const transcripts = createTranscriptCache({ maxFiles: cachedTranscripts, agentOf: index.agentOf, partsOf: index.partsOf });
   /** @type {Set<string>} */
   const allowedHosts = new Set();
   /** @type {Set<string>} */
@@ -173,7 +174,11 @@ async function handle(deps, request, response) {
       // This reply tells the CLI that the port is held by the viewer itself, and which process to stop.
       return sendJson(response, { ...deps.about, pid: process.pid });
     case '/api/live':
-      return withSession(url, response, async (id) => sendJson(response, await deps.composer.liveState(id)));
+      return withSession(url, response, async (id) => {
+        // a Codex session is shown, not typed into: the composer finds Claude Code's sessions only
+        const path = await deps.index.find(id);
+        return sendJson(response, path !== undefined && deps.index.agentOf(path) === 'codex' ? { state: 'codex' } : await deps.composer.liveState(id));
+      });
     case '/api/sessions': {
       // ?since=<version from the last reply> — only what changed since; an empty version — everything, with a version.
       const since = url.searchParams.get('since');
@@ -885,8 +890,12 @@ async function sendEntry(deps, url, id, response) {
     return;
   }
   const path = agentId === null ? await deps.index.find(id) : await deps.index.findSubagent(id, agentId);
-  const line = path === undefined ? undefined : await readLineAt(path, lineStart);
-  const raw = line === undefined ? undefined : parseLine(line);
+  // a subagent's transcript is its file alone; a session's, the files it went on in
+  const parts = path === undefined ? undefined : agentId === null ? await deps.index.partsOf(path) : [{ path, end: undefined }];
+  const line = parts === undefined ? undefined : await readLineAt(parts, lineStart);
+  const parsed = line === undefined ? undefined : parseLine(line);
+  // a Codex session's line read alone is the record it was read as in turn
+  const raw = path !== undefined && parsed !== undefined && deps.index.agentOf(path) === 'codex' ? createCodexReading().translate(parsed)[0] : parsed;
   const entry = raw === undefined ? undefined : slimEntry(raw, agentId === null ? 'main' : 'subagent', (n) => imageLink(id, agentId, lineStart, n));
   if (entry === undefined) {
     response.writeHead(404).end('Not found');

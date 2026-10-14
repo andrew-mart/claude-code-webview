@@ -71,7 +71,9 @@ export async function serve({ port, about, palette, publicAddresses, herdr, clau
   // VS Code in the browser, its token kept beside the viewer's other files — named by the port: another viewer on this
   // computer has a VS Code of its own
   const vscodeServer = vscode === undefined ? undefined : createVsCode({ command: [vscode], tokenFile: join(stateDir, `vscode-token-${port}`) });
-  const server = await startServer({ root: join(claude, 'projects'), host: '127.0.0.1', port, pollMs: 400, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), uploads: createUploads(join(stateDir, 'uploads')), about, palette, publicAddresses, herdrView, terminals, usage: () => readUsage(usageFiles), isRunning: async (id) => latestRecords(await readRecords()).has(id), editor: editor === undefined ? undefined : (path, line) => openInEditor(editor, path, line), vscode: vscodeServer });
+  // Codex's sessions beside Claude Code's: none while it has never run here
+  const codexRoot = join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'sessions');
+  const server = await startServer({ codexRoot, root: join(claude, 'projects'), host: '127.0.0.1', port, pollMs: 400, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), uploads: createUploads(join(stateDir, 'uploads')), about, palette, publicAddresses, herdrView, terminals, usage: () => readUsage(usageFiles), isRunning: async (id) => latestRecords(await readRecords()).has(id), editor: editor === undefined ? undefined : (path, line) => openInEditor(editor, path, line), vscode: vscodeServer });
   const url = `http://127.0.0.1:${server.port}/`;
   console.log(`Claude Code Webview ${about.version}: ${url}`);
   for (const publicAddress of publicAddresses) console.log(`Also answers at ${publicAddress.origin}/ — keep it behind a login such as Cloudflare Access`);
