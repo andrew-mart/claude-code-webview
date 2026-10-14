@@ -443,6 +443,17 @@ button {
   white-space: nowrap;
 }
 
+/* A Codex session among Claude Code's: its agent named ahead of its place. */
+.session-agent {
+  flex: none;
+  padding: 0 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  color: var(--text-3);
+  font: 600 10.5px/1.5 var(--font-mono);
+  letter-spacing: 0.02em;
+}
+
 /* The herdr tab the session ran in, after its workspace. */
 .session-tab {
   flex: none;

@@ -154,3 +154,12 @@ test('composerState_Should_OfferToOpenSessionAgain_OnlyWhenItIsNotRunning', () =
 
   assert.deepEqual(states.map((live) => composerState(live, sessionId, 'physical').canReopen), [true, false, false, false]);
 });
+
+// A Codex session is shown, not written to: no box, nothing to open again in Claude Code — its own terminal takes text
+test('composerState_Should_OfferNothingForCodexSession_ButItsTerminal', () => {
+  const live = parseLiveState({ state: 'codex' });
+  assert.ok(live !== undefined);
+  const view = composerState(live, sessionId, 'physical');
+
+  assert.deepEqual({ shown: view.shown, enabled: view.enabled, canReopen: view.canReopen, hint: view.hint }, { shown: false, enabled: false, canReopen: false, hint: 'A Codex session: the viewer shows it — write to it in its terminal.' });
+});

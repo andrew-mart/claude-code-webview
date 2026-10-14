@@ -1,6 +1,6 @@
 // @ts-check
 // Reading the rest of a JSONL file that Claude Code keeps appending lines to, and one line of it again.
-import { open } from 'node:fs/promises';
+import { openJoined } from './joined.js';
 
 const readBytes = 1024 * 1024;
 /** A transcript line longer than this is not an entry the stream could have sent. */
@@ -29,32 +29,32 @@ export function splitLines(carry, chunk) {
 
 /**
  * The whole line that starts at the offset; undefined if no line starts there (the offset points inside one).
- * @param {string} path
+ * @param {readonly import('./joined.js').Part[]} parts — the transcript's files, read as one: offsets count across them
  * @param {number} lineStart
  * @returns {Promise<string | undefined>}
  */
-export async function readLineAt(path, lineStart) {
-  const handle = await open(path, 'r');
+export async function readLineAt(parts, lineStart) {
+  const joined = await openJoined(parts);
   try {
     if (lineStart > 0) {
       const before = Buffer.alloc(1);
-      await handle.read(before, 0, 1, lineStart - 1);
+      await joined.read(before, lineStart - 1);
       if (before[0] !== 0x0a) return undefined;
     }
     /** @type {Buffer[]} */
-    const parts = [];
+    const pieces = [];
     for (let position = lineStart, length = 0; length < maxLineBytes; ) {
       const chunk = Buffer.alloc(readBytes);
-      const { bytesRead } = await handle.read(chunk, 0, readBytes, position);
+      const bytesRead = await joined.read(chunk, position);
       if (bytesRead === 0) return undefined; // the line is not finished yet — the stream has not sent it
       const end = chunk.subarray(0, bytesRead).indexOf(0x0a);
-      parts.push(chunk.subarray(0, end < 0 ? bytesRead : end));
-      if (end >= 0) return Buffer.concat(parts).toString('utf8');
+      pieces.push(chunk.subarray(0, end < 0 ? bytesRead : end));
+      if (end >= 0) return Buffer.concat(pieces).toString('utf8');
       position += bytesRead;
       length += bytesRead;
     }
     return undefined;
   } finally {
-    await handle.close();
+    await joined.close();
   }
 }

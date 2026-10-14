@@ -1,10 +1,15 @@
 // @ts-check
-// The list of Claude Code sessions for the sidebar, and lookup of transcript files.
-// Layout: <root>/<project folder>/<session id>.jsonl, subagents — <root>/<project folder>/<session id>/subagents/agent-<id>.jsonl
-import { open, readdir, readFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+// The list of Claude Code sessions — and Codex's — for the sidebar, and lookup of transcript files.
+// Layout: <root>/<project folder>/<session id>.jsonl, subagents — <root>/<project folder>/<session id>/subagents/agent-<id>.jsonl;
+// Codex's: <codexRoot>/<year>/<month>/<day>/rollout-<time>-<session id>.jsonl, read as Claude Code's (codex.js); one
+// its user edited a prompt of and sent again goes on in rollout-<time>-<session id>_<its own id>.jsonl (joined.js).
+import { readdir, readFile, stat } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { interpretEntry } from '../public/model/entry.js';
+import { createCodexReading } from './codex.js';
+import { openJoined } from './joined.js';
 import { isRecord, text } from '../public/model/narrow.js';
+import { readLineAt } from './tail.js';
 
 /**
  * interactive — someone works in it (a terminal, an IDE); sdk — a program drives it through the Agent SDK or claude -p.
@@ -13,12 +18,15 @@ import { isRecord, text } from '../public/model/narrow.js';
  * service records to an old session (a summary on restart, a bridge note)
  * @typedef {{ title: string | undefined, cwd: string | undefined, branch: string | undefined, kind: SessionKind, lastActivity: number | undefined }} SessionSummary
  * activeAt — the last prompt or answer; the file's time while that is not known yet
- * @typedef {{ id: string, project: string, title: string | undefined, cwd: string | undefined, branch: string | undefined, kind: SessionKind, modifiedAt: number, size: number, activeAt: number }} SessionInfo
+ * @typedef {'claude' | 'codex'} Agent — whose session it is: Claude Code's, or Codex's
+ * @typedef {{ id: string, project: string, agent: Agent, title: string | undefined, cwd: string | undefined, branch: string | undefined, kind: SessionKind, modifiedAt: number, size: number, activeAt: number }} SessionInfo
  * @typedef {{ agentId: string, toolUseId: string | undefined, agentType: string | undefined, description: string | undefined }} SubagentInfo
- * @typedef {{ path: string, project: string, id: string, modifiedAt: number, size: number }} SessionFile
+ * @typedef {{ path: string, project: string, agent: Agent, id: string, modifiedAt: number, size: number }} SessionFile
  */
 
 const sessionFileName = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
+/** A Codex session's file: the session's id is the first one in its name — a file the session goes on in names its own after it. */
+const codexFileName = /^rollout-.*?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:_[0-9a-f-]{36})?\.jsonl$/i;
 const headBytes = 256 * 1024;
 const tailBytes = 64 * 1024;
 const maxTailBytes = 4 * 1024 * 1024;
@@ -31,14 +39,33 @@ const unknownSummary = { title: undefined, cwd: undefined, branch: undefined, ki
  * There can be thousands of sessions, so a single list request computes summaries within a time budget
  * (the first batch always), the remaining sessions go out untitled and are filled in on later requests.
  * @param {string} root — ~/.claude/projects
- * @param {{ summaryBudgetMs: number }} options
+ * @param {{ summaryBudgetMs: number, codexRoot?: string | undefined }} options — codexRoot: ~/.codex/sessions, none: no
+ *   Codex sessions
  */
-export function createSessionIndex(root, { summaryBudgetMs }) {
+export function createSessionIndex(root, { summaryBudgetMs, codexRoot }) {
   /** summarizedAt — when the summary was made: a page that asked before learns it with the next changes */
   /** @type {Map<string, { size: number, modifiedAt: number, summary: SessionSummary, summarizedAt: number }>} */
   const summaries = new Map();
   /** @type {Map<string, string>} */
   const pathsById = new Map();
+  /** @type {Set<string>} */
+  const codexPaths = new Set();
+  /** A Codex session's files in turn, by its first one — the path it is known by — when it goes on in more than one. */
+  /** @type {Map<string, readonly string[]>} */
+  const codexParts = new Map();
+  /** Where the file before a Codex session's next one leaves off: the next one's first line tells, and never changes. */
+  /** @type {Map<string, number | undefined>} */
+  const goesOnFrom = new Map();
+
+  /** Every session file, Claude Code's and Codex's, newest first — a Codex session's files as one. */
+  async function allFiles() {
+    const codex = codexRoot === undefined ? [] : codexSessions(await codexFiles(codexRoot));
+    for (const session of codex) {
+      codexPaths.add(session.file.path);
+      if (session.paths.length > 1) codexParts.set(session.file.path, session.paths);
+    }
+    return [...(await sessionFiles(root)), ...codex.map((session) => session.file)].sort((a, b) => b.modifiedAt - a.modifiedAt);
+  }
 
   /** @returns {Promise<readonly SessionInfo[]>} */
   async function list() {
@@ -64,7 +91,7 @@ export function createSessionIndex(root, { summaryBudgetMs }) {
    * @returns {Promise<{ info: SessionInfo, changedAt: number }[]>}
    */
   async function listed(version) {
-    const files = await sessionFiles(root);
+    const files = await allFiles();
     for (const file of files) pathsById.set(file.id, file.path);
     const deadline = Date.now() + summaryBudgetMs;
     const stale = files.filter((file) => cachedSummary(file) === undefined);
@@ -95,7 +122,8 @@ export function createSessionIndex(root, { summaryBudgetMs }) {
    * @param {number} version
    */
   async function summarize(file, version) {
-    const summary = summarizeSession(await edgeLines(file.path, file.size));
+    const lines = await edgeLines(await partsOf(file.path));
+    const summary = summarizeSession(file.agent === 'codex' ? codexLines(lines) : lines);
     summaries.set(file.path, { size: file.size, modifiedAt: file.modifiedAt, summary, summarizedAt: version });
   }
 
@@ -107,7 +135,7 @@ export function createSessionIndex(root, { summaryBudgetMs }) {
   async function find(id) {
     const known = pathsById.get(id);
     if (known !== undefined && (await exists(known))) return known;
-    const found = (await sessionFiles(root)).find((file) => file.id === id);
+    const found = (await allFiles()).find((file) => file.id === id);
     if (found !== undefined) pathsById.set(id, found.path);
     return found?.path;
   }
@@ -137,7 +165,103 @@ export function createSessionIndex(root, { summaryBudgetMs }) {
     return (await exists(path)) ? path : undefined;
   }
 
-  return { list, changes, find, subagents, findSubagent };
+  /**
+   * Whose session a transcript file is: a Codex one is read through codex.js.
+   * @param {string} path
+   * @returns {Agent}
+   */
+  function agentOf(path) {
+    return codexPaths.has(path) ? 'codex' : 'claude';
+  }
+
+  /**
+   * The files a session is read from, in turn, each up to where the session leaves it: one, but for a Codex session
+   * that went on in more.
+   * @param {string} path — the session's, as find gives it
+   * @returns {Promise<readonly import('./joined.js').Part[]>}
+   */
+  async function partsOf(path) {
+    const paths = codexParts.get(path) ?? [path];
+    const ends = await Promise.all(paths.slice(1).map(goesOnAt));
+    return paths.map((part, i) => ({ path: part, end: ends[i] }));
+  }
+
+  /**
+   * @param {string} next — a file a Codex session goes on in
+   * @returns {Promise<number | undefined>} — where in the file before the session goes on from: none while the file's
+   *   first line is not written whole
+   */
+  async function goesOnAt(next) {
+    if (goesOnFrom.has(next)) return goesOnFrom.get(next);
+    const first = await readLineAt([{ path: next, end: undefined }], 0).catch(() => undefined);
+    if (first === undefined) return undefined;
+    const meta = parse(first);
+    const base = isRecord(meta) && isRecord(meta.payload) && isRecord(meta.payload.history_base) ? meta.payload.history_base.end_byte_offset : undefined;
+    const end = typeof base === 'number' ? base : undefined;
+    goesOnFrom.set(next, end);
+    return end;
+  }
+
+  return { list, changes, find, subagents, findSubagent, agentOf, partsOf };
+}
+
+/**
+ * Codex's lines as Claude Code's, for a summary.
+ * @param {readonly string[]} lines
+ * @returns {string[]}
+ */
+function codexLines(lines) {
+  const reading = createCodexReading();
+  return lines.flatMap((line) => reading.translate(parse(line)).map((record) => JSON.stringify(record)));
+}
+
+/**
+ * Codex's sessions, each from its files: known by its first one, as new as its newest one, as long as all of them.
+ * @param {readonly SessionFile[]} files
+ * @returns {{ file: SessionFile, paths: readonly string[] }[]}
+ */
+function codexSessions(files) {
+  /** @type {Map<string, SessionFile[]>} */
+  const byId = new Map();
+  for (const file of files) byId.set(file.id, [...(byId.get(file.id) ?? []), file]);
+  return [...byId.values()].flatMap((own) => {
+    // the session's first file names it alone; the ones it goes on in add their own ids, made later
+    const parts = [...own].sort((a, b) => (basename(a.path) < basename(b.path) ? -1 : 1));
+    const [first] = parts;
+    if (first === undefined) return [];
+    const modifiedAt = Math.max(...parts.map((part) => part.modifiedAt));
+    const size = parts.reduce((sum, part) => sum + part.size, 0);
+    return [{ file: { ...first, modifiedAt, size }, paths: parts.map((part) => part.path) }];
+  });
+}
+
+/**
+ * Codex's session files, by its folders of years, months and days.
+ * @param {string} codexRoot
+ * @returns {Promise<SessionFile[]>}
+ */
+async function codexFiles(codexRoot) {
+  const days = [];
+  for (const year of await readdirOrEmpty(codexRoot)) {
+    for (const month of await readdirOrEmpty(join(codexRoot, year))) {
+      for (const day of await readdirOrEmpty(join(codexRoot, year, month))) days.push(join(codexRoot, year, month, day));
+    }
+  }
+  const nested = await Promise.all(
+    days.map(async (dir) => {
+      const files = await Promise.all(
+        (await readdirOrEmpty(dir)).map(async (name) => {
+          const id = codexFileName.exec(name)?.[1];
+          if (id === undefined) return undefined;
+          const path = join(dir, name);
+          const info = await stat(path).catch(() => undefined);
+          return info === undefined || !info.isFile() ? undefined : { path, project: 'codex', agent: /** @type {const} */ ('codex'), id, modifiedAt: info.mtimeMs, size: info.size };
+        }),
+      );
+      return files.filter((file) => file !== undefined);
+    }),
+  );
+  return nested.flat();
 }
 
 /**
@@ -156,7 +280,7 @@ async function sessionFiles(root) {
           if (match === null || match[1] === undefined) return undefined;
           const path = join(root, project, name);
           const info = await stat(path).catch(() => undefined);
-          return info === undefined ? undefined : { path, project, id: match[1], modifiedAt: info.mtimeMs, size: info.size };
+          return info === undefined ? undefined : { path, project, agent: /** @type {const} */ ('claude'), id: match[1], modifiedAt: info.mtimeMs, size: info.size };
         }),
       );
       return files.filter((file) => file !== undefined);
@@ -169,27 +293,27 @@ async function sessionFiles(root) {
  * The start and end of the file: the start holds the first prompt, the end the latest title, folder and message.
  * The last lines can be huge (a base64 screenshot), and an old session can end with screens of service records, so
  * the tail window grows until it contains a whole prompt or answer.
- * @param {string} path
- * @param {number} size
+ * @param {readonly import('./joined.js').Part[]} parts — the session's files, read as one
  * @returns {Promise<string[]>}
  */
-async function edgeLines(path, size) {
-  const handle = await open(path, 'r');
+async function edgeLines(parts) {
+  const joined = await openJoined(parts);
   try {
+    const size = joined.size;
     const head = Buffer.alloc(Math.min(size, headBytes));
-    await handle.read(head, 0, head.length, 0);
+    await joined.read(head, 0);
     const headLines = head.toString('utf8').split('\n');
     if (size <= headBytes) return headLines;
     for (let window = tailBytes; ; window *= 4) {
       const tail = Buffer.alloc(Math.min(size - headBytes, window));
-      await handle.read(tail, 0, tail.length, size - tail.length);
+      await joined.read(tail, size - tail.length);
       // The window's first line is almost always cut off — skip it.
       const tailLines = tail.toString('utf8').split('\n').slice(1);
       const found = tailLines.some((line) => line.includes('"type":"user"') || line.includes('"type":"assistant"'));
       if (found || tail.length === size - headBytes || window >= maxTailBytes) return [...headLines, ...tailLines];
     }
   } finally {
-    await handle.close();
+    await joined.close();
   }
 }
 

@@ -1,9 +1,12 @@
 // @ts-check
 // Transcripts already read and slimmed for the page. A session opened again — on returning to it, by a second page,
 // after a reconnect — is not read and parsed from the start once more: only the lines appended since are. A long
-// session is tens of megabytes of JSON, a second or two of work every time otherwise.
-import { open, stat } from 'node:fs/promises';
+// session is tens of megabytes of JSON, a second or two of work every time otherwise. A Codex session's file is read as
+// Claude Code's records (codex.js), in turn, from where its reading stopped; a Codex session that went on in more files
+// is read as them in turn (joined.js).
 import { linkOf } from './branch.js';
+import { createCodexReading } from './codex.js';
+import { openJoined } from './joined.js';
 import { liteEntry } from './lite.js';
 import { slimEntry } from './slim.js';
 import { splitLines } from './tail.js';
@@ -17,14 +20,19 @@ const chunkBytes = 4 * 1024 * 1024;
  *   for every record
  * @typedef {{ scope: 'main' | 'subagent', imageUrl: (lineStart: number, n: number) => string }} Reading
  * @typedef {ReturnType<typeof createTaskTracker>} TaskTracker
- * @typedef {{ generation: number, offset: number, carry: Buffer, entries: CachedEntry[], calls: Map<string, import('./lite.js').Call>, tasks: TaskTracker, queue: Promise<unknown> }} FileState — calls: tool calls read whose results have not come yet;
- *   tasks: the work the session started in the background, followed as its entries are read
+ * @typedef {{ generation: number, offset: number, carry: Buffer, entries: CachedEntry[], calls: Map<string, import('./lite.js').Call>, tasks: TaskTracker, codex: ReturnType<typeof createCodexReading> | undefined, layout: string | undefined, queue: Promise<unknown> }} FileState — calls: tool calls read whose results have not come yet;
+ *   tasks: the work the session started in the background, followed as its entries are read; codex: the reading of a
+ *   Codex session's file, none for Claude Code's; layout: the files the transcript was read from, each to where — none
+ *   before the first reading
+ * @typedef {(path: string) => Promise<readonly import('./joined.js').Part[]>} PartsOf
  */
 
 /**
- * @param {{ maxFiles: number }} options — how many transcripts stay read; the one opened longest ago goes first
+ * @param {{ maxFiles: number, agentOf?: (path: string) => import('./sessions.js').Agent, partsOf?: PartsOf }} options —
+ *   maxFiles: how many transcripts stay read, the one opened longest ago goes first; agentOf: whose session a file is —
+ *   Claude Code's when not told; partsOf: the files a session's transcript is read from — the file alone when not told
  */
-export function createTranscriptCache({ maxFiles }) {
+export function createTranscriptCache({ maxFiles, agentOf = () => 'claude', partsOf = async (path) => [{ path, end: undefined }] }) {
   /** Insertion order is the order of use: the first key is the one used longest ago. */
   /** @type {Map<string, FileState>} */
   const files = new Map();
@@ -32,11 +40,12 @@ export function createTranscriptCache({ maxFiles }) {
 
   /**
    * @param {string} key
+   * @param {string} path
    * @returns {FileState}
    */
-  const stateOf = (key) => {
+  const stateOf = (key, path) => {
     const known = files.get(key);
-    const state = known ?? { generation: ++generations, offset: 0, carry: Buffer.alloc(0), entries: [], calls: new Map(), tasks: createTaskTracker(), queue: Promise.resolve() };
+    const state = known ?? { generation: ++generations, offset: 0, carry: Buffer.alloc(0), entries: [], calls: new Map(), tasks: createTaskTracker(), codex: codexReadingOf(path), layout: undefined, queue: Promise.resolve() };
     files.delete(key);
     files.set(key, state);
     for (const oldest of files.keys()) {
@@ -45,6 +54,9 @@ export function createTranscriptCache({ maxFiles }) {
     }
     return state;
   };
+
+  /** @param {string} path */
+  const codexReadingOf = (path) => (agentOf(path) === 'codex' ? createCodexReading() : undefined);
 
   return {
     /**
@@ -55,9 +67,9 @@ export function createTranscriptCache({ maxFiles }) {
      * @returns {Promise<{ entries: readonly CachedEntry[], generation: number, tasks: TaskTracker }>}
      */
     read(path, reading) {
-      const state = stateOf(`${reading.scope}:${path}`);
+      const state = stateOf(`${reading.scope}:${path}`, path);
       // Two pages reading the same file at once take turns, so no line is read twice.
-      const update = state.queue.then(() => catchUp(path, state, reading, () => ++generations));
+      const update = state.queue.then(async () => catchUp(await partsOf(path), state, reading, () => ++generations, () => codexReadingOf(path)));
       state.queue = update.catch(() => undefined);
       return update;
     },
@@ -65,24 +77,46 @@ export function createTranscriptCache({ maxFiles }) {
 }
 
 /**
- * @param {string} path
+ * @param {readonly import('./joined.js').Part[]} parts — the transcript's files, read as one
  * @param {FileState} state
  * @param {Reading} reading
  * @param {() => number} renew — a generation no file had before
+ * @param {() => FileState['codex']} reread — a Codex file's reading from its start, none for Claude Code's
  * @returns {Promise<{ entries: readonly CachedEntry[], generation: number, tasks: TaskTracker }>}
  */
-async function catchUp(path, state, reading, renew) {
-  const size = (await stat(path)).size;
-  if (size < state.offset) {
+async function catchUp(parts, state, reading, renew, reread) {
+  const joined = await openJoined(parts);
+  try {
+    return await readOn(joined, JSON.stringify(parts), state, reading, renew, reread);
+  } finally {
+    await joined.close();
+  }
+}
+
+/**
+ * @param {import('./joined.js').Joined} joined
+ * @param {string} layout — the files it is read from, each to where
+ * @param {FileState} state
+ * @param {Reading} reading
+ * @param {() => number} renew
+ * @param {() => FileState['codex']} reread
+ * @returns {Promise<{ entries: readonly CachedEntry[], generation: number, tasks: TaskTracker }>}
+ */
+async function readOn(joined, layout, state, reading, renew, reread) {
+  const size = joined.size;
+  // a file that shrank was rewritten; a Codex session that went on in another file left the end of the one before
+  if (size < state.offset || (state.layout !== undefined && layout !== state.layout)) {
     state.generation = renew();
     state.offset = 0;
     state.carry = Buffer.alloc(0);
     state.entries = [];
     state.calls = new Map();
     state.tasks = createTaskTracker();
+    state.codex = reread();
   }
+  state.layout = layout;
   if (size > state.offset) {
-    const read = await readEntries(path, state.offset, size, state.carry, { ...reading, calls: state.calls, tasks: state.tasks });
+    const read = await readEntries(joined, state.offset, size, state.carry, { ...reading, calls: state.calls, tasks: state.tasks, codex: state.codex });
     state.offset = read.offset;
     state.carry = read.carry;
     state.entries.push(...read.entries);
@@ -91,39 +125,37 @@ async function catchUp(path, state, reading, renew) {
 }
 
 /**
- * @param {string} path
+ * @param {import('./joined.js').Joined} joined
  * @param {number} from
  * @param {number} to
  * @param {Buffer} carry — the start of a line read before, still without its end
- * @param {Reading & { calls: Map<string, import('./lite.js').Call>, tasks: TaskTracker }} reading
+ * @param {Reading & { calls: Map<string, import('./lite.js').Call>, tasks: TaskTracker, codex: FileState['codex'] }} reading
  * @returns {Promise<{ offset: number, carry: Buffer, entries: CachedEntry[] }>}
  */
-async function readEntries(path, from, to, carry, { scope, imageUrl, calls, tasks }) {
-  const handle = await open(path, 'r');
+async function readEntries(joined, from, to, carry, { scope, imageUrl, calls, tasks, codex }) {
   let offset = from;
   let rest = carry;
   /** @type {CachedEntry[]} */
   const entries = [];
-  try {
-    while (offset < to) {
-      const chunk = Buffer.alloc(Math.min(chunkBytes, to - offset));
-      const { bytesRead } = await handle.read(chunk, 0, chunk.length, offset);
-      if (bytesRead === 0) break;
-      // the carried start of a line was read before this chunk: line offsets count from it
-      const linesStart = offset - rest.length;
-      offset += bytesRead;
-      const split = splitLines(rest, chunk.subarray(0, bytesRead));
-      rest = split.carry;
-      for (const line of split.lines) {
-        const raw = parseLine(line.text);
-        const at = linesStart + line.start;
+  while (offset < to) {
+    const chunk = Buffer.alloc(Math.min(chunkBytes, to - offset));
+    const bytesRead = await joined.read(chunk, offset);
+    if (bytesRead === 0) break;
+    // the carried start of a line was read before this chunk: line offsets count from it
+    const linesStart = offset - rest.length;
+    offset += bytesRead;
+    const split = splitLines(rest, chunk.subarray(0, bytesRead));
+    rest = split.carry;
+    for (const line of split.lines) {
+      const parsed = parseLine(line.text);
+      const at = linesStart + line.start;
+      // a line of Codex is none or one of Claude Code's records, all found again from the line
+      for (const raw of codex === undefined ? [parsed] : codex.translate(parsed)) {
         tasks.note(raw);
         const slim = slimEntry(raw, scope, (n) => imageUrl(at, n));
         entries.push({ slim: slim === undefined ? undefined : liteEntry(slim, { at, calls }), link: linkOf(raw) });
       }
     }
-  } finally {
-    await handle.close();
   }
   return { offset, carry: rest, entries };
 }

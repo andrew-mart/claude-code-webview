@@ -22,7 +22,7 @@ const rasterTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp
  * @returns {Promise<ImageOutcome>}
  */
 export async function readImage(path, lineStart, n) {
-  const line = await readLineAt(path, lineStart);
+  const line = await readLineAt([{ path, end: undefined }], lineStart);
   const entry = line === undefined ? undefined : parse(line);
   /** @type {Record<string, unknown> | undefined} */
   let found;
