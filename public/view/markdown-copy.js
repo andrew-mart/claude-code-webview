@@ -180,9 +180,9 @@ function tableOf(table) {
 
 /**
  * A copy of what is selected in the feed or a side answer goes as markdown — the formatting as well, for a paste that
- * takes it — unless the reader turned that off; anywhere else the browser copies as it does.
+ * takes it — when asked for; anywhere else the browser copies as it does.
  * @param {{ clipboardData: Pick<DataTransfer, 'setData'> | null, preventDefault: () => void }} event — the copy event
- * @param {'markdown' | 'plain'} as — the reader's choice (view-settings.js, copy)
+ * @param {'markdown' | 'plain'} as
  */
 export function copySelection(event, as) {
   if (as === 'plain') return;
@@ -197,4 +197,31 @@ export function copySelection(event, as) {
   event.clipboardData.setData('text/plain', markdownOf(holder));
   event.clipboardData.setData('text/html', holder.innerHTML);
   event.preventDefault();
+}
+
+/**
+ * Copies from the feed: Ctrl+C (Cmd+C) as the reader set it — the browser's own copy unless markdown was asked for —
+ * and Ctrl+Shift+C (Cmd+Shift+C) as markdown whatever the setting. The key is told by its place, so a Cyrillic layout's
+ * С is C as well; in a text field the shortcut is the field's.
+ * @param {Document} page
+ * @param {() => 'markdown' | 'plain'} setting — the reader's choice (view-settings.js, copy)
+ */
+export function listenForCopies(page, setting) {
+  /** The copy under way was asked for by the shortcut. */
+  let shortcut = false;
+  page.addEventListener('copy', (event) => copySelection(event, shortcut ? 'markdown' : setting()));
+  page.addEventListener('keydown', (event) => {
+    const asMarkdown = (event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.code === 'KeyC';
+    const inField = event.target instanceof Element && event.target.closest('input, textarea, [contenteditable]') !== null;
+    if (!asMarkdown || inField) return;
+    // also keeps the browser's own Ctrl+Shift+C — its developer tools' element picker — from opening
+    event.preventDefault();
+    shortcut = true;
+    try {
+      // the browser's copy, run at once: its copy event gets the selection as markdown
+      page.execCommand('copy');
+    } finally {
+      shortcut = false;
+    }
+  });
 }

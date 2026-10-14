@@ -9,7 +9,7 @@ import { actionLabel, choices, nextChoice } from './model/view-settings.js';
 import { createBookmarkStore, moveLocalBookmarksToServer } from './view/bookmark-store.js';
 import { createComposer } from './view/composer-view.js';
 import { createAsideStore } from './view/aside-store.js';
-import { copySelection } from './view/markdown-copy.js';
+import { listenForCopies } from './view/markdown-copy.js';
 import { revalidatedPolls } from './view/revalidated-polls.js';
 import { createDrawers } from './view/drawers.js';
 import { openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf } from './model/herdr.js';
@@ -104,8 +104,8 @@ const outlineWidth = { property: '--outline-width', storageKey: 'viewer.outlineW
 restoreWidth(layout, outlineWidth);
 mountSidebarResizer(byId('sidebar', HTMLElement));
 settings.applyAll();
-// A part of an answer copies as markdown, as the answer was written.
-document.addEventListener('copy', (event) => copySelection(event, settings.get('copy') === 'plain' ? 'plain' : 'markdown'));
+// A part of an answer copies as markdown, as the answer was written: on Ctrl+Shift+C, and on Ctrl+C when the reader asks.
+listenForCopies(document, () => (settings.get('copy') === 'markdown' ? 'markdown' : 'plain'));
 // File links (marked up by view/file-links.js) open in the right-hand panel, not in the browser.
 document.addEventListener('click', (event) => {
   const link = event.target instanceof Element ? event.target.closest('a.file-link') : null;
