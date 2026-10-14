@@ -6,7 +6,7 @@ const { window } = new JSDOM('<!doctype html><html><body></body></html>', { url:
 // DOMPurify binds to window on import (through markdown.js), so the DOM is set up before it loads.
 Object.assign(globalThis, { window, document: window.document, NodeFilter: window.NodeFilter, Text: window.Text, HTMLElement: window.HTMLElement, Element: window.Element, Node: window.Node });
 const { renderMarkdown } = await import('../public/view/markdown.js');
-const { copySelection, markdownOf } = await import('../public/view/markdown-copy.js');
+const { copySelection, listenForCopies, markdownOf } = await import('../public/view/markdown-copy.js');
 
 const answer = [
   '## Title',
@@ -59,9 +59,9 @@ test('markdownOf_Should_KeepMarksOfSelectedPart', () => {
   assert.equal(markdownOf(range.cloneContents()), ['**old** and `code` and [a link](https://x.y) and D:/dev/x/a.cs:12.', '', '- one', '- two', '  - nested', '', '1. fir'].join('\n'));
 });
 
-// A copy from the feed goes as markdown, the formatting along with it, unless the reader turned that off; a copy from
+// A copy from the feed goes as markdown when asked, the formatting along with it, else as the browser copies; a copy from
 // anywhere else is the browser's own
-test('copySelection_Should_CopyFeedSelectionAsMarkdown_UnlessTurnedOff_AndLeaveTheRest', () => {
+test('copySelection_Should_CopyFeedSelectionAsMarkdown_WhenAsked_AndLeaveTheRest', () => {
   const thread = window.document.createElement('div');
   thread.className = 'thread';
   thread.append(renderMarkdown('Use **this** one'));
@@ -86,4 +86,40 @@ test('copySelection_Should_CopyFeedSelectionAsMarkdown_UnlessTurnedOff_AndLeaveT
     { text: undefined, html: false, prevented: false },
     { text: undefined, html: false, prevented: false },
   ]);
+});
+
+// Ctrl+C copies from the feed as the reader set it — the browser's own copy unless markdown was asked for — and
+// Ctrl+Shift+C as markdown whatever the setting, in any keyboard layout; in a text field Ctrl+Shift+C is the field's
+test('listenForCopies_Should_CopyFeedAsMarkdownOnCtrlShiftC_AndAsSetOnCtrlC', () => {
+  const document = window.document;
+  const thread = document.createElement('div');
+  thread.className = 'thread';
+  thread.append(renderMarkdown('Use **this** one'));
+  const field = document.createElement('textarea');
+  document.body.replaceChildren(thread, field);
+  /** @type {Record<string, string>} */
+  let data = {};
+  /** The browser's copy: the copy event, with the clipboard to set. */
+  const copy = () => {
+    const event = new window.Event('copy', { cancelable: true });
+    Object.defineProperty(event, 'clipboardData', { value: { setData: (/** @type {string} */ type, /** @type {string} */ value) => (data[type] = value) } });
+    document.dispatchEvent(event);
+    return true;
+  };
+  document.execCommand = (command) => command === 'copy' && copy();
+  listenForCopies(document, () => 'plain');
+  /** @param {() => void} press @param {Node} [where] */
+  const copied = (press, where = thread) => {
+    data = {};
+    document.getSelection()?.selectAllChildren(thread);
+    press();
+    return data['text/plain'];
+  };
+  /** @param {EventTarget} target @param {string} key */
+  const shortcut = (target, key) => () => target.dispatchEvent(new window.KeyboardEvent('keydown', { key, code: 'KeyC', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+
+  assert.deepEqual(
+    { ctrlC: copied(copy), latin: copied(shortcut(thread, 'C')), cyrillic: copied(shortcut(thread, 'С')), inField: copied(shortcut(field, 'C'), field) },
+    { ctrlC: undefined, latin: 'Use **this** one', cyrillic: 'Use **this** one', inField: undefined },
+  );
 });
