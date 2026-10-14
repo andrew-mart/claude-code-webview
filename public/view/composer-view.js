@@ -192,15 +192,25 @@ export function createComposer(sessionId, { focusBox, placeOf, asides }) {
     // the session keeps the question and its answer, whichever box shows it when the answer comes
     asides.set(sessionId, { question, answer: undefined });
     say('', 'ok');
+    // the question leaves the box — it shows over it while Claude answers — and comes back if it is not answered
+    const asked = input.value;
+    input.value = '';
+    writeDraft(draftKey, '');
+    fit();
     void post('/api/btw', { question }).then((json) => {
       const reply = parseBtwReply(json);
       if (reply?.ok === true) {
-        writeDraft(draftKey, '');
         asides.set(sessionId, { question, answer: reply.answer });
-      } else {
-        asides.set(sessionId, undefined);
-        say(reply === undefined ? 'The viewer server did not answer. The question stays in the box.' : btwMessage(reply.error), 'error');
+        return;
       }
+      asides.set(sessionId, undefined);
+      if (input.value === '') {
+        input.value = asked;
+        writeDraft(draftKey, asked);
+        fit();
+        refreshButtons();
+      }
+      say(reply === undefined ? 'The viewer server did not answer. The question is back in the box.' : btwMessage(reply.error), 'error');
     });
   };
 

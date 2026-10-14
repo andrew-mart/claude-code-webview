@@ -78,3 +78,42 @@ test('asideStore_Should_KeepAnswersAcrossReload_ButNotQuestionsBeingAnswered', (
 
   assert.deepEqual(['s1', 's2', 's3'].map((id) => after.get(id)), [{ question: 'Where is the config?', answer: 'In src/config.ts.' }, undefined, undefined]);
 });
+
+// A side question leaves the box as it is asked — it shows over the box while Claude answers — and comes back into the
+// box when it was not answered, to be asked again
+test('composer_Should_ClearBoxWhenAskingAside_AndPutQuestionBackWhenNotAnswered', async () => {
+  /** @param {unknown} reply */
+  const ask = async (reply) => {
+    /** @type {(value: Response) => void} */
+    let answer = () => undefined;
+    Object.assign(globalThis, {
+      matchMedia: () => ({ matches: false }),
+      fetch: async (/** @type {string} */ path) => {
+        if (path === '/api/btw') return new Promise((resolve) => (answer = resolve));
+        return new Response(JSON.stringify({ state: 'live', status: 'idle', pane: 'w1:p1' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      },
+    });
+    const composer = createComposer(sessionId, { focusBox: 'no', placeOf: () => undefined, asides: createAsideStore() });
+    window.document.body.append(composer.element);
+    await settle();
+    const box = composer.element.querySelector('.composer-input');
+    const form = composer.element.querySelector('.composer-box');
+    assert.ok(box instanceof window.HTMLTextAreaElement && form instanceof window.HTMLElement);
+    box.value = '/btw where is the config?';
+    box.dispatchEvent(new window.Event('input', { bubbles: true }));
+    form.dispatchEvent(new window.Event('submit', { cancelable: true }));
+    await settle();
+    const whileAnswering = box.value;
+    answer(new Response(JSON.stringify(reply), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    await settle();
+    const after = box.value;
+    composer.dispose();
+    composer.element.remove();
+    return { whileAnswering, after };
+  };
+
+  assert.deepEqual(
+    { answered: await ask({ ok: true, answer: 'In src/config.ts.' }), refused: await ask({ ok: false, error: 'no-answer' }) },
+    { answered: { whileAnswering: '', after: '' }, refused: { whileAnswering: '', after: '/btw where is the config?' } },
+  );
+});

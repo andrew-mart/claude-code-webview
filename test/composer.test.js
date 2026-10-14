@@ -52,10 +52,23 @@ test('send_Should_TypeTextIntoSessionPaneAndPressEnter', async () => {
   const outcome = await composerOf([record], herdr).send(sessionId, 'first\r\nsecond\n');
 
   assert.deepEqual(outcome, { ok: true, pane: 'w3D:p1' });
-  assert.deepEqual(herdr.calls.slice(-2), [
+  assert.deepEqual(herdr.calls.filter(([, command]) => command === 'send-text' || command === 'send-keys'), [
     ['pane', 'send-text', 'w3D:p1', 'first\nsecond'],
     ['pane', 'send-keys', 'w3D:p1', 'enter'],
   ]);
+});
+
+// A long text comes into Claude Code as a paste, and an Enter that comes while it is still being pasted joins it as a
+// line break — nothing is sent. Enter waits until the prompt box shows the text
+test('send_Should_PressEnter_OnceTextHasLandedInPromptBox', async () => {
+  const box = (/** @type {string} */ text) => ['● Done.', '────────', `❯ ${text}`, '────────'].join('\n');
+  const herdr = fakeHerdr({ screens: [box(''), box('[Pasted text #1 +40 lines]')] });
+  const long = Array.from({ length: 40 }, (_, line) => `line ${line} of a long text`).join('\n');
+
+  await composerOf([record], herdr).send(sessionId, long);
+
+  const commands = herdr.calls.map(([, command]) => command);
+  assert.deepEqual(commands.slice(commands.indexOf('send-text')), ['send-text', 'read', 'read', 'send-keys']);
 });
 
 // Claude Code's send-now key (Ctrl+X Ctrl+S, the spelling of Ctrl+Enter every terminal passes on) sends what waits in
@@ -94,7 +107,9 @@ test('interrupt_Should_PressEscapeInSessionPane', async () => {
 
 test('interrupt_Should_GiveBackPromptThePageSentExactlyWhenClaudeHadNotStartedOnIt', async () => {
   const box = (/** @type {string} */ text) => `● Earlier answer\n────────\n❯ ${text}\n────────\n  ⏵⏵ auto mode on`;
-  const herdr = fakeHerdr({ screens: [box(''), box('Explain the failing\n  test in detail'), box('')] });
+  const sent = box('Explain the failing\n  test in detail');
+  // the send waits for its text in the box; then the box before Esc, the prompt given back into it, the box cleared
+  const herdr = fakeHerdr({ screens: [sent, box(''), sent, box('')] });
   const composer = composerOf([record], herdr);
   await composer.send(sessionId, 'Explain the failing\ntest in detail');
 

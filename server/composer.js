@@ -6,6 +6,7 @@
 //   herdr pane send-text / send-keys → the text and Enter, as if the user typed them
 import { setTimeout as delay } from 'node:timers/promises';
 import { driveBtw } from './btw.js';
+import { inputBox, settleOn, squash } from './claude-screen.js';
 import { choiceDialog } from './dialog.js';
 import { claudePaneIds, foregroundPids, succeeded, toTerminalInput } from './herdr.js';
 import { latestRecords } from './registry.js';
@@ -138,6 +139,20 @@ export function createComposer({ readRecords, herdr }) {
   }
 
   /**
+   * The text typed into the session's prompt box, and a wait until the box shows it. A long text comes into Claude Code
+   * as a paste, and a key that comes while it is still being pasted joins it — Enter as a line break, and nothing is
+   * sent. At most a few seconds: then the next key goes anyway.
+   * @param {{ pane: string, pid: number }} place
+   * @param {string} input
+   * @returns {Promise<SendOutcome>}
+   */
+  async function typeIn(place, input) {
+    const typed = await press(place, [['send-text', input]]);
+    if (typed.ok) await settleOn(terminalOf(place.pane), (ms) => delay(ms), (screen) => showsTyped(inputBox(screen), input));
+    return typed;
+  }
+
+  /**
    * The session's terminal: what its screen shows, keys and text typed into it.
    * @param {string} pane
    * @returns {import('./claude-screen.js').Terminal}
@@ -184,10 +199,8 @@ export function createComposer({ readRecords, herdr }) {
       return inTurn(sessionId, async () => {
         const place = await target(sessionId);
         if (!place.ok) return place;
-        const outcome = await press(place, [
-          ['send-text', input],
-          ['send-keys', 'enter'],
-        ]);
+        const typed = await typeIn(place, input);
+        const outcome = typed.ok ? await press(place, [['send-keys', 'enter']]) : typed;
         if (outcome.ok) sentPrompts.set(sessionId, [...(sentPrompts.get(sessionId) ?? []), input].slice(-keptPrompts));
         return outcome;
       });
@@ -205,12 +218,15 @@ export function createComposer({ readRecords, herdr }) {
       return inTurn(sessionId, async () => {
         const place = await target(sessionId);
         if (!place.ok) return place;
-        const outcome = await press(place, [
-          // into the box without Enter: Enter would only queue it as well
-          ...(input === '' ? [] : [/** @type {const} */ (['send-text', input])]),
-          ['send-keys', 'ctrl+x'],
-          ['send-keys', 'ctrl+s'],
-        ]);
+        // into the box without Enter: Enter would only queue it as well
+        /** @type {SendOutcome} */
+        const typed = input === '' ? { ok: true, pane: place.pane } : await typeIn(place, input);
+        const outcome = typed.ok
+          ? await press(place, [
+              ['send-keys', 'ctrl+x'],
+              ['send-keys', 'ctrl+s'],
+            ])
+          : typed;
         if (outcome.ok && input !== '') sentPrompts.set(sessionId, [...(sentPrompts.get(sessionId) ?? []), input].slice(-keptPrompts));
         return outcome;
       });
@@ -285,4 +301,14 @@ export function createComposer({ readRecords, herdr }) {
       });
     },
   };
+}
+
+/**
+ * Whether the prompt box shows the text typed into it: its end, or the mark Claude Code puts for a paste. No box on the
+ * screen — a menu or a dialog is open — there is nothing to wait for.
+ * @param {string | undefined} box
+ * @param {string} text
+ */
+function showsTyped(box, text) {
+  return box === undefined || box.includes('[Pasted text') || squash(box).includes(squash(text).slice(-24));
 }
