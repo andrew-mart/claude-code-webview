@@ -68,7 +68,7 @@ export async function serve({ port, about, palette, publicAddresses, herdr, clau
   const usageFiles = { claudeState: claudeStateFile(process.env), rateLimits: join(stateDir, 'rate-limits.json') };
   // Codex's sessions beside Claude Code's: none while it has never run here
   const codexHome = process.env.CODEX_HOME ?? join(homedir(), '.codex');
-  const index = createSessionIndex(join(claude, 'projects'), { summaryBudgetMs: 1500, codexRoot: join(codexHome, 'sessions') });
+  const index = createSessionIndex(join(claude, 'projects'), { summaryBudgetMs: 1500, missRetryMs: 2000, codexRoot: join(codexHome, 'sessions') });
   const codexThreads = createCodexThreads({ home: codexHome, summaryOf: index.summaryOf, held: lockHeld });
   const herdrView = createHerdrView({ herdr: run, readRecords, codexThreads: codexThreads.open, file: join(stateDir, 'workspaces.json'), refreshMs: herdrRefreshMs, trust: claudeTrustPace, claudeCommand, codexCommand });
   const composer = createComposer({ readRecords, herdr: run, codexPlace: herdrView.codexPlace });
