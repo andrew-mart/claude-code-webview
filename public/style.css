@@ -50,6 +50,8 @@
   --hl-tag: #116329;
   /* the lamps — a session being written to, an agent's status in herdr — and their glow */
   --lamp-work: #f25a1d;
+  /* a lamp at work in lamps mode: lemon yellow, apart from the amber of one waiting for the reader */
+  --lamp-busy: #d4b300;
   /* what a robot at work works on, behind it: the work's colour gone toward the page, as far things do */
   --lamp-work-far: color-mix(in srgb, var(--lamp-work) 72%, white);
   --lamp-wait: #e09b00;
@@ -106,6 +108,7 @@
     --hl-type: #ffa657;
     --hl-tag: #7ee787;
     --lamp-work: #ff7a3d;
+    --lamp-busy: #ffe14a;
     --lamp-work-far: color-mix(in srgb, var(--lamp-work) 72%, black);
     --lamp-wait: #ffc21a;
     --lamp-done: #3ee086;
@@ -154,6 +157,7 @@
   --hl-type: #ffa657;
   --hl-tag: #7ee787;
   --lamp-work: #ff7a3d;
+  --lamp-busy: #ffe14a;
   --lamp-work-far: color-mix(in srgb, var(--lamp-work) 72%, black);
   --lamp-wait: #ffc21a;
   --lamp-done: #3ee086;
@@ -691,9 +695,41 @@ button {
   background: var(--text-4);
 }
 
-/* idle — its answer seen, or nothing done yet: no lamp at all */
+/* idle — its answer seen, or nothing done yet: a robot unplugged (unplugged.js), dim on the ground, no glow. A tab's
+   chip above the session shows nothing. */
 .herdr-status[data-status="idle"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 22px;
+  margin: -7px 0;
+  border-radius: 0;
+  background: none;
+  color: var(--text-4);
+  opacity: 0.7;
+}
+
+.herdr-chip > .herdr-status[data-status="idle"] {
   display: none;
+}
+
+.unplugged {
+  width: 30px;
+  height: 22px;
+}
+
+/* a row at work dimmed — its text and its workspace's edge, not its robots — while another waits for its user: for a
+   prompt, an answer seen to, a question; all at work, none is */
+.herdr-panel:has(.herdr-status:is([data-status="idle"], [data-status="ready"], [data-status="blocked"]))
+  :is(.herdr-workspace, .herdr-tab):has(> .herdr-status[data-status="working"])
+  > :is(.herdr-number, .herdr-name, .herdr-tab-text) {
+  opacity: 0.6;
+}
+
+.herdr-panel:has(.herdr-status:is([data-status="idle"], [data-status="ready"], [data-status="blocked"]))
+  .tinted:is(.herdr-workspace, .herdr-tab):has(> .herdr-status[data-status="working"]) {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--edge) 50%, transparent);
 }
 
 /* at work: the robots' story, in place of a lamp (robot.js) */
@@ -8448,9 +8484,10 @@ a.file-link:hover {
   }
 }
 
-/* pole, twelve seconds: the robot hangs by a hand from the pole, swaying and waving; spins round it — its width as a
-   cosine, through edge-on — climbs it and slides down, leans out and kicks, spins again; bills fly in from the right
-   and flutter down onto a heap on the stage beside the pole, gone at the end, and on */
+/* pole, twelve seconds: the robot hangs by a hand from the pole, swaying and waving; spins round it — in front of it a
+   little bigger, turning about there at its full width, and behind it a little smaller, the pole drawn over it then —
+   climbs it and slides down, leans out and kicks, spins again; bills fly in from the right and flutter down onto a heap
+   on the stage beside the pole, gone at the end, and on */
 
 .pole-dancer {
   transform-origin: 16px 13.55px;
@@ -8480,28 +8517,28 @@ a.file-link:hover {
     animation-timing-function: ease-in;
   }
 
-  24.58% {
-    transform: translateY(-1.5px) scaleX(0.3);
+  25% {
+    transform: translateX(7.29px) translateY(-1.5px) scale(1.08, 1.08);
     animation-timing-function: linear;
   }
 
-  25.42% {
-    transform: translateY(-1.5px) scaleX(-0.3);
+  25.17% {
+    transform: translateX(-7.29px) translateY(-1.5px) scale(-1.08, 1.08);
     animation-timing-function: ease-out;
   }
 
   30% {
-    transform: translateY(-1.5px) scaleX(-1);
+    transform: translateX(0px) translateY(-1.5px) scale(-1, 1);
     animation-timing-function: ease-in;
   }
 
-  34.58% {
-    transform: translateY(-1.5px) scaleX(-0.3);
+  35% {
+    transform: translateX(-6.21px) translateY(-1.5px) scale(-0.92, 0.92);
     animation-timing-function: linear;
   }
 
-  35.42% {
-    transform: translateY(-1.5px) scaleX(0.3);
+  35.17% {
+    transform: translateX(6.21px) translateY(-1.5px) scale(0.92, 0.92);
     animation-timing-function: ease-out;
   }
 
@@ -8538,33 +8575,66 @@ a.file-link:hover {
     animation-timing-function: ease-in;
   }
 
-  84.58% {
-    transform: translateY(-1.5px) scaleX(0.3);
+  85% {
+    transform: translateX(7.29px) translateY(-1.5px) scale(1.08, 1.08);
     animation-timing-function: linear;
   }
 
-  85.42% {
-    transform: translateY(-1.5px) scaleX(-0.3);
+  85.17% {
+    transform: translateX(-7.29px) translateY(-1.5px) scale(-1.08, 1.08);
     animation-timing-function: ease-out;
   }
 
   90% {
-    transform: translateY(-1.5px) scaleX(-1);
+    transform: translateX(0px) translateY(-1.5px) scale(-1, 1);
     animation-timing-function: ease-in;
   }
 
-  94.58% {
-    transform: translateY(-1.5px) scaleX(-0.3);
+  95% {
+    transform: translateX(-6.21px) translateY(-1.5px) scale(-0.92, 0.92);
     animation-timing-function: linear;
   }
 
-  95.42% {
-    transform: translateY(-1.5px) scaleX(0.3);
+  95.17% {
+    transform: translateX(6.21px) translateY(-1.5px) scale(0.92, 0.92);
     animation-timing-function: ease-out;
   }
 
   100% {
     transform: none;
+  }
+}
+
+.pole-front {
+  opacity: 0;
+  animation: pole-front 12s linear infinite both;
+  animation-delay: calc(0s - var(--elapsed, 0ms));
+}
+
+@keyframes pole-front {
+  0%,
+  30.83% {
+    opacity: 0;
+  }
+
+  31.67%,
+  38.33% {
+    opacity: 1;
+  }
+
+  39.17%,
+  90.83% {
+    opacity: 0;
+  }
+
+  91.67%,
+  98.33% {
+    opacity: 1;
+  }
+
+  99.17%,
+  100% {
+    opacity: 0;
   }
 }
 
@@ -9480,9 +9550,11 @@ a.file-link:hover {
   }
 }
 
-/* Lamps in place of robots, when the reader asks (view-settings.js: lamps): at work a lamp blinking in its workspace's
-   colour — the work's colour out of a workspace — and an answer ready a green lamp blinking until it is seen. */
-:root[data-lamps="lamps"] :is(.robots, .rests) {
+/* Lamps in place of robots, when the reader asks (view-settings.js: lamps): at work a yellow lamp, always lit, its
+   light wavering unevenly; an answer ready a green lamp blinking, near out between, until it is seen: only what waits
+   for the reader goes out. */
+:root[data-lamps="lamps"] :is(.robots, .rests, .unplugged),
+:root[data-lamps="lamps"] .herdr-status[data-status="idle"] {
   display: none;
 }
 
@@ -9497,11 +9569,8 @@ a.file-link:hover {
 }
 
 :root[data-lamps="lamps"] :is(.herdr-status[data-status="working"], .session-robot) {
-  --lamp: var(--lamp-work);
-}
-
-:root[data-lamps="lamps"] .tinted :is(.herdr-status[data-status="working"], .session-robot) {
-  --lamp: oklch(var(--mark-lightness) var(--mark-chroma) var(--workspace-hue));
+  --lamp: var(--lamp-busy);
+  animation: lamp-waver 3.1s linear infinite;
 }
 
 :root[data-lamps="lamps"] .herdr-status[data-status="ready"] {
@@ -9516,6 +9585,55 @@ a.file-link:hover {
 
 :root[data-lamps="lamps"] .session-item.active :is(.session-title, .session-sub) {
   padding-right: 18px;
+}
+
+/* a lamp at work: lit all the while, a little brighter and dimmer at uneven moments */
+@keyframes lamp-waver {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 7px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
+  }
+
+  8% {
+    opacity: 0.8;
+    box-shadow: 0 0 4px 1px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
+  }
+
+  15% {
+    opacity: 0.95;
+    box-shadow: 0 0 6px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
+  }
+
+  29% {
+    opacity: 0.72;
+    box-shadow: 0 0 3px 1px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
+  }
+
+  36% {
+    opacity: 1;
+    box-shadow: 0 0 8px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
+  }
+
+  51% {
+    opacity: 0.86;
+    box-shadow: 0 0 5px 1px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
+  }
+
+  58% {
+    opacity: 0.97;
+    box-shadow: 0 0 7px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
+  }
+
+  71% {
+    opacity: 0.76;
+    box-shadow: 0 0 4px 1px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
+  }
+
+  84% {
+    opacity: 0.92;
+    box-shadow: 0 0 6px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
+  }
 }
 
 /* a lamp that blinks: lit and glowing, then nearly out */
