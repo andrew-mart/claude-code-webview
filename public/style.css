@@ -240,29 +240,80 @@ button {
   border-right: 1px solid var(--border);
 }
 
+/* the sidebar's head, one row over the lists: the usage, then its buttons (view/sidebar-head.js) */
 .brand {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 2px 8px 4px;
-  font-weight: 600;
-  font-size: 15px;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 0 0 6px;
 }
 
 .brand .spark {
-  font-size: 18px;
+  flex: none;
+  font-size: 17px;
+  font-weight: 600;
 }
 
-/* the account's usage under the viewer's name: a meter for the 5-hour window and one for the week. What is used is a
+/* with both agents' usage shown each row leads with its agent's mark — Claude's ✻ in the brand's place */
+.brand:has(.usage-agent) .spark {
+  display: none;
+}
+
+.usage-rows {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sidebar-tools {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.sidebar-tools .icon-button {
+  width: 26px;
+  height: 28px;
+}
+
+.sidebar-tools .icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* the meters beside the head's buttons: tighter than they would stand alone, each line still long enough to read */
+.usage-rows .usage-agent {
+  width: 14px;
+}
+
+.usage-rows .usage-meter {
+  gap: 4px;
+}
+
+.usage-rows .usage-name {
+  width: 1.4em;
+}
+
+.usage-rows .usage-line {
+  min-width: 18px;
+}
+
+.sidebar-tools .icon-button[aria-expanded='true'] {
+  background: var(--bg-selected);
+  color: var(--text);
+}
+
+/* the account's usage at the head of the sidebar: a meter for the 5-hour window and one for the week. What is used is a
    thick blue — red past how much of the window has gone by, overspent — that narrows smoothly into a thinner line, its
    colour flowing on: green — spare — up to the time gone by while the use lags behind it. When each resets — on hover. */
 .brand .usage {
   display: flex;
-  flex-basis: 100%;
-  gap: 16px;
-  /* from the brand's left edge to its right: the meters share the width, the same space on both sides */
-  margin: 2px 0 0;
+  /* the meters share the row's width up to its buttons */
+  gap: 8px;
   font-size: 11px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
@@ -416,7 +467,7 @@ button {
 }
 
 
-/* the search, and beside it in the herdr mode "+" for a new workspace */
+/* the search, opened from 🔍 in place of the head's row, ✕ beside it */
 .search-row {
   display: flex;
   align-items: center;
@@ -591,35 +642,20 @@ button {
   font-weight: 400;
 }
 
-/* What the sidebar shows: herdr's workspaces and tabs, or every session. */
-.sidebar-modes {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 9px;
-  background: var(--bg-hover);
-}
-
-.sidebar-modes button {
-  flex: 1;
-  padding: 4px 8px;
-  border: 0;
-  border-radius: 7px;
-  background: none;
-  color: var(--text-3);
-  font: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-}
-
-.sidebar-modes button.selected {
-  background: var(--bg);
-  color: var(--text);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
-}
-
+/* the sessions list's options, over the list from ⚙ in the sidebar's head */
 .session-options {
-  display: contents;
+  position: absolute;
+  top: 48px;
+  right: 10px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elev);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
 }
 
 /* herdr in the sidebar: its workspaces, and under them the tabs of the chosen one with their agents' status. */
@@ -726,12 +762,39 @@ button {
 }
 
 .herdr-tabs-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   padding: 0 10px;
   color: var(--text-3);
   font-size: 11.5px;
   font-weight: 600;
   letter-spacing: 0.02em;
   text-transform: uppercase;
+}
+
+/* the sessions hidden while idle: how many, a press shows them again */
+.herdr-hidden-show {
+  margin-left: auto;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-3);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.herdr-hidden-show:hover {
+  border-color: var(--border-strong);
+  color: var(--text-2);
+}
+
+.herdr-hidden-show:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .herdr-tab-text {
@@ -921,18 +984,8 @@ button {
   height: 13px;
 }
 
-/* A new herdr workspace: "+" beside the search, then its name, folder and what starts in it at the top of the panel. */
-/* as tall as the search and framed as it is, square */
-.icon-button.herdr-workspace-new {
-  flex: none;
-  align-self: stretch;
-  width: auto;
-  height: auto;
-  aspect-ratio: 1;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-
+/* A new herdr workspace: "+" at the end of the sidebar's head, then its name, folder and what starts in it at the top of
+   the panel. */
 .herdr-workspace-new[aria-expanded='true'] {
   background: var(--bg-selected);
   color: var(--text);

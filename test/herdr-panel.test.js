@@ -33,7 +33,7 @@ const web = {
 };
 
 /** A sidebar nobody opens a workspace from. @type {import('../public/view/herdr-panel.js').SidebarActions} */
-const noActions = { createWorkspace: async () => ({ ok: false, error: 'failed' }), open: () => undefined, folders: () => [], renameWorkspace: async () => ({ ok: false, error: 'failed' }), closeWorkspace: async () => ({ ok: false, error: 'failed' }), setWorkspaceIcon: async () => ({ ok: false, error: 'failed' }), iconTags: async () => ({}), renameTab: async () => ({ ok: false, error: 'failed' }), closeTab: async () => ({ ok: false, error: 'failed' }) };
+const noActions = { createWorkspace: async () => ({ ok: false, error: 'failed' }), open: () => undefined, folders: () => [], renameWorkspace: async () => ({ ok: false, error: 'failed' }), closeWorkspace: async () => ({ ok: false, error: 'failed' }), setWorkspaceIcon: async () => ({ ok: false, error: 'failed' }), iconTags: async () => ({}), renameTab: async () => ({ ok: false, error: 'failed' }), closeTab: async () => ({ ok: false, error: 'failed' }), hidePane: async () => ({ ok: false, error: 'failed' }), showHidden: async () => ({ ok: false, error: 'failed' }) };
 /** Lucide's icons a test picks from, with the words they are found by. */
 const lucideTags = { star: ['favorite'], wallet: ['money', 'finance'], coins: ['finance'] };
 
@@ -293,6 +293,8 @@ test('herdrSidebar_Should_OpenNewWorkspace_FromItsNameAndFolder', async () => {
     iconTags: async () => ({}),
     renameTab: async () => ({ ok: false, error: 'failed' }),
     closeTab: async () => ({ ok: false, error: 'failed' }),
+    hidePane: async () => ({ ok: false, error: 'failed' }),
+    showHidden: async () => ({ ok: false, error: 'failed' }),
   });
   const layout = { herdr: true, workspaces: [web] };
   sidebar.render(layout, undefined, '', new Map());
@@ -430,6 +432,8 @@ function changingSidebar() {
     iconTags: async () => lucideTags,
     renameTab: (tab, label) => done(['rename tab', tab, label]),
     closeTab: (tab) => done(['close tab', tab]),
+    hidePane: (pane) => done(['hide', pane]),
+    showHidden: () => done(['show hidden']),
   });
   sidebar.render({ herdr: true, workspaces: [web] }, undefined, '', new Map());
   return { element, sidebar, changes };
@@ -803,4 +807,39 @@ test('herdrSidebar_Should_PickLucideIconForWorkspace_FoundByItsWords', async () 
   await settle();
 
   assert.deepEqual({ found, changes }, { found: ['wallet', 'coins'], changes: [['rename workspace', 'w2', 'shop'], ['icon', 'w2', 'lucide:wallet']] });
+});
+
+// The open session idle — its agent not at work, its answer seen — is hidden from the list from its buttons, shown on a
+// second click, until its agent changes state; one at work, and a workspace, have none to hide them
+test('herdrSidebar_Should_HideOpenIdleSession_FromItsButtons', async () => {
+  const { element, sidebar, changes } = changingSidebar();
+  const working = { ...web, tabs: web.tabs.map((tab) => (tab.id === 'w2:t2' ? { ...tab, panes: tab.panes.map((one) => ({ ...one, status: /** @type {const} */ ('working') })) } : tab)) };
+  sidebar.render({ herdr: true, workspaces: [working] }, { kind: 'session', id: 's1' }, '', new Map());
+
+  clickOn(element, '.herdr-tab.selected');
+  pressIn(element, '.herdr-row-hide');
+  await new Promise((done) => setTimeout(done, 0));
+  sidebar.render({ herdr: true, workspaces: [working] }, { kind: 'pane', id: 'w2:p2' }, '', new Map());
+  clickOn(element, '.herdr-tab.selected');
+  const atWork = element.querySelector('.herdr-row-hide') !== null;
+  clickOn(element, '.herdr-tab.selected');
+  clickOn(element, '.herdr-workspace.selected');
+  const workspace = element.querySelector('.herdr-row-hide') !== null;
+
+  assert.deepEqual({ changes, atWork, workspace }, { changes: [['hide', 'w2:p1']], atWork: false, workspace: false });
+});
+
+// The sessions hidden are left out of the list; its head tells how many, and its button shows them again
+test('herdrSidebar_Should_LeaveHiddenSessionsOut_And_ShowThemAgainFromListsHead', async () => {
+  const { element, sidebar, changes } = changingSidebar();
+  const noneHidden = element.querySelector('.herdr-hidden-show') === null;
+  const hiding = { ...web, tabs: web.tabs.map((tab) => (tab.id === 'w2:t3' ? { ...tab, panes: tab.panes.map((one) => ({ ...one, hidden: /** @type {const} */ (true) })) } : tab)) };
+  sidebar.render({ herdr: true, workspaces: [hiding] }, undefined, '', new Map());
+
+  const listed = [...element.querySelectorAll('.herdr-tab')].map((row) => row.getAttribute('href'));
+  const shown = element.querySelector('.herdr-hidden-show')?.textContent;
+  pressIn(element, '.herdr-hidden-show');
+  await new Promise((done) => setTimeout(done, 0));
+
+  assert.deepEqual({ noneHidden, listed, shown, changes }, { noneHidden: true, listed: ['#/pane/w2:p2', '#/s1'], shown: '1 hidden', changes: [['show hidden']] });
 });

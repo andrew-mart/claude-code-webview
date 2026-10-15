@@ -4,6 +4,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHerdrView } from '../server/herdr-view.js';
+import { createHiddenPanes } from '../server/hidden-panes.js';
 
 const running = '7d4e1b20-2222-4333-8444-955566667777';
 
@@ -48,6 +49,8 @@ const jobSearch = {
 const runningRecord = { pid: 101, sessionId: running, kind: 'interactive', status: 'idle', updatedAt: 1 };
 /** Workspaces with no icons: their own test gives them some. */
 const noIcons = { iconsOf: async () => new Map(), setIcon: async () => undefined };
+/** No pane hidden from the page: hiding's own tests hide some. */
+const noHidden = { hide: async () => undefined, showAll: async () => undefined, hiddenAmong: async () => new Set() };
 
 /**
  * @param {import('node:test').TestContext} t
@@ -57,7 +60,7 @@ const noIcons = { iconsOf: async () => new Map(), setIcon: async () => undefined
  */
 async function workspacesOf(t, { herdr, records, dir, codex = [] }) {
   const folder = dir ?? (await mkdtemp(join(tmpdir(), 'ccw-workspaces-')));
-  return createHerdrView({ herdr, readRecords: async () => records, codexThreads: async () => codex, icons: noIcons, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+  return createHerdrView({ herdr, readRecords: async () => records, codexThreads: async () => codex, icons: noIcons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
 }
 
 test('workspaces_Should_PutRunningSessionIntoWorkspaceOfItsPane', async (t) => {
@@ -128,7 +131,7 @@ test('workspaces_Should_AskHerdrAtMostOncePerRefreshPeriod', async (t) => {
     return herdr(args);
   };
   const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
-  const workspaces = createHerdrView({ herdr: counting, readRecords: async () => [runningRecord], codexThreads: async () => [], icons: noIcons, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+  const workspaces = createHerdrView({ herdr: counting, readRecords: async () => [runningRecord], codexThreads: async () => [], icons: noIcons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
 
   await Promise.all([workspaces.workspacesOf([]), workspaces.workspacesOf([])]);
   await workspaces.workspacesOf([{ id: running, cwd: undefined }]);
@@ -201,7 +204,7 @@ test('herdrView_Should_LookForPaneOfProcessOnce_WhenItRunsOutsideHerdr', async (
   };
   const outside = { pid: 777, sessionId: '0b1c2d3e-4444-4555-8666-977788899900', kind: 'interactive', status: 'idle', updatedAt: 2 };
   const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
-  const view = createHerdrView({ herdr: counting, codexThreads: async () => [], readRecords: async () => [runningRecord, outside], icons: noIcons, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+  const view = createHerdrView({ herdr: counting, codexThreads: async () => [], readRecords: async () => [runningRecord, outside], icons: noIcons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
 
   await view.workspacesOf([]);
   await view.workspacesOf([]);
@@ -224,7 +227,7 @@ test('herdrView_Should_GiveEachWorkspaceItsIcon_InTheLayoutAndBySessionsOfIt', a
     setIcon: async () => undefined,
   };
   const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
-  const view = createHerdrView({ herdr: fakeHerdr(jobSearch), readRecords: async () => [runningRecord], codexThreads: async () => [], icons, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+  const view = createHerdrView({ herdr: fakeHerdr(jobSearch), readRecords: async () => [runningRecord], codexThreads: async () => [], icons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
 
   const layout = await view.layout();
   const listed = await view.workspacesOf([{ id: running, cwd: 'D:\\elsewhere' }]);
@@ -276,7 +279,7 @@ test('herdrView_Should_TellIconsTheFolderMostOfAWorkspacesPanesAreIn', async (t)
     ],
   });
   const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
-  const view = createHerdrView({ herdr, readRecords: async () => [], codexThreads: async () => [], icons, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+  const view = createHerdrView({ herdr, readRecords: async () => [], codexThreads: async () => [], icons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
 
   await view.layout();
 
@@ -290,7 +293,7 @@ test('setWorkspaceIcon_Should_KeepIconForWorkspacesFolder', async (t) => {
   const kept = [];
   const icons = { iconsOf: async () => new Map(), setIcon: async (/** @type {string} */ folder, /** @type {string | undefined} */ icon) => void kept.push(`${folder}: ${icon}`) };
   const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
-  const view = createHerdrView({ herdr: fakeHerdr(jobSearch), readRecords: async () => [], codexThreads: async () => [], icons, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+  const view = createHerdrView({ herdr: fakeHerdr(jobSearch), readRecords: async () => [], codexThreads: async () => [], icons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
 
   const outcomes = [await view.setWorkspaceIcon('w2', 'lucide:wallet@green'), await view.setWorkspaceIcon('w2', undefined), await view.setWorkspaceIcon('w9', 'lucide:wallet')];
 
@@ -385,7 +388,7 @@ function tabsHerdr({ fails = false, screens = ['PS D:\\shop> '] } = {}) {
  */
 async function tabsView(herdr, claudeCommand = 'claude') {
   const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
-  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand, codexCommand: 'codex-yolo' });
+  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand, codexCommand: 'codex-yolo' });
 }
 
 /** @param {import('../public/model/herdr.js').HerdrLayout} layout */
@@ -519,7 +522,7 @@ async function viewWithHistory(herdr, closed) {
   const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
   const kept = Object.fromEntries(Object.entries(closed).map(([session, place]) => [session, { earlierTabs: [], open: false, firstSeen: 1, lastSeen: 2, ...place }]));
   await writeFile(join(folder, 'workspaces.json'), JSON.stringify(kept));
-  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-god', codexCommand: 'codex-yolo' });
+  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-god', codexCommand: 'codex-yolo' });
 }
 
 // A closed session opens where it was: a new tab of its workspace, named as before, in its folder, Claude Code resuming
@@ -631,4 +634,66 @@ test('herdrView_Should_ShowCodexPaneAsItsThread_AndTellWhereCodexSessionRuns', a
       places: [{ found: 'pane', pane: 'w4:p1', working: true }, { found: 'elsewhere' }, { found: 'none' }],
     },
   );
+});
+
+/**
+ * herdr with job_search, its one pane's agent done at this count of its changes; a view of it keeping its hidden panes
+ * in the folder.
+ * @param {string} folder
+ * @param {FakePane} pane
+ */
+function hidingView(folder, pane) {
+  const herdr = fakeHerdr({ workspaces: jobSearch.workspaces, tabs: [{ tab_id: 'w2:t1', workspace_id: 'w2', number: 1, label: 'search', agent_status: 'done' }], panes: [pane] });
+  return createHerdrView({ herdr, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: createHiddenPanes(join(folder, 'hidden-panes.json')), file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+}
+
+/** @param {import('../public/model/herdr.js').HerdrLayout} layout */
+const hiddenPanes = (layout) => layout.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes.filter((pane) => pane.hidden === true).map((pane) => pane.id)));
+
+// A session idle in its pane, hidden from the page, stays hidden — for the viewer started again too — until its agent
+// changes state: once it works, it shows again, and stays shown once it is done; a pane herdr does not have is not hidden
+test('hidePane_Should_HidePaneUntilItsAgentChangesState', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'ccw-hidden-'));
+  /** @type {FakePane} */
+  const pane = { pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:\job_search', agent: 'claude', agent_status: 'done', state_change_seq: 50 };
+  const view = hidingView(folder, pane);
+
+  const outcomes = [await view.hidePane('w2:p1'), await view.hidePane('w9:p1')];
+  const hidden = hiddenPanes(await view.layout());
+  const afterRestart = hiddenPanes(await hidingView(folder, pane).layout());
+  Object.assign(pane, { agent_status: 'working', state_change_seq: 51 });
+  const working = hiddenPanes(await view.layout());
+  Object.assign(pane, { agent_status: 'done', state_change_seq: 52 });
+  const doneAgain = hiddenPanes(await view.layout());
+
+  assert.deepEqual(
+    { outcomes, hidden, afterRestart, working, doneAgain },
+    { outcomes: [{ ok: true }, { ok: false, error: 'failed' }], hidden: ['w2:p1'], afterRestart: ['w2:p1'], working: [], doneAgain: [] },
+  );
+});
+
+// The sessions hidden are shown again at the page's asking, before their agents change state
+test('showHidden_Should_ShowEveryHiddenPaneAgain', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'ccw-hidden-'));
+  const view = hidingView(folder, { pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:\job_search', agent: 'claude', agent_status: 'idle', state_change_seq: 7 });
+  await view.hidePane('w2:p1');
+
+  const outcome = await view.showHidden();
+
+  assert.deepEqual({ outcome, hidden: hiddenPanes(await view.layout()) }, { outcome: { ok: true }, hidden: [] });
+});
+
+// herdr that tells no count of an agent's changes: its pane hidden while idle shows again once its agent works
+test('hidePane_Should_ShowPaneAgainOnceItsAgentWorks_When_HerdrTellsNoCount', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'ccw-hidden-'));
+  /** @type {FakePane} */
+  const pane = { pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:\job_search', agent: 'claude', agent_status: 'idle' };
+  const view = hidingView(folder, pane);
+  await view.hidePane('w2:p1');
+
+  const idle = hiddenPanes(await view.layout());
+  pane.agent_status = 'working';
+  const working = hiddenPanes(await view.layout());
+
+  assert.deepEqual({ idle, working }, { idle: ['w2:p1'], working: [] });
 });

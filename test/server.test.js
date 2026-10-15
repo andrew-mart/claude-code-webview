@@ -119,7 +119,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // tabs renamed and closed are recorded
   /** @type {string[][]} */
   const tabChanges = [];
-  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'createTab' | 'createWorkspace' | 'history' | 'reopen'>} */
+  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'createWorkspace' | 'history' | 'reopen'>} */
   const herdrView = {
     workspacesOf: async (listed) => ({ herdr: true, sessions: Object.fromEntries(listed.map(({ id }) => [id, 'web'])), icons: {} }),
     layout: async () => ({ herdr: true, workspaces: [webWorkspace] }),
@@ -138,6 +138,14 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
     },
     setWorkspaceIcon: async (workspace, icon) => {
       tabChanges.push(['icon', workspace, icon ?? 'none']);
+      return { ok: true };
+    },
+    hidePane: async (pane) => {
+      tabChanges.push(['hide', pane]);
+      return { ok: true };
+    },
+    showHidden: async () => {
+      tabChanges.push(['show hidden']);
       return { ok: true };
     },
     renameWorkspace: async (workspace, label) => {
@@ -286,6 +294,21 @@ test('workspaces_Should_PassIconPickedOnViewerPage_And_RefuseWhatIsNoIcon', asyn
   assert.deepEqual(
     { replies: [picked, none].map((reply) => [reply.status, JSON.parse(reply.body)]), refused: strange.status, tabChanges },
     { replies: [[200, { ok: true }], [200, { ok: true }]], refused: 400, tabChanges: [['icon', 'w1', 'lucide:wallet@green'], ['icon', 'w1', 'none']] },
+  );
+});
+
+// An idle session is hidden from herdr's list on the page's asking, and the ones hidden shown again; what is no pane is
+// refused before anything is hidden
+test('herdr_Should_HidePaneOnViewerPagesAsking_AndShowHiddenAgain', async (t) => {
+  const { port, tabChanges } = await withServer(t);
+
+  const hidden = await post(port, '/api/herdr/hide', pageHeaders(port), JSON.stringify({ pane: 'w1:p1' }));
+  const shown = await post(port, '/api/herdr/show', pageHeaders(port), JSON.stringify({}));
+  const strange = await post(port, '/api/herdr/hide', pageHeaders(port), JSON.stringify({ pane: '../x' }));
+
+  assert.deepEqual(
+    { replies: [hidden, shown].map((reply) => [reply.status, JSON.parse(reply.body)]), refused: strange.status, tabChanges },
+    { replies: [[200, { ok: true }], [200, { ok: true }]], refused: 400, tabChanges: [['hide', 'w1:p1'], ['show hidden']] },
   );
 });
 

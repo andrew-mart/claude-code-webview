@@ -24,7 +24,7 @@ import { observed } from './session-history.js';
  * @typedef {{ herdr: boolean, sessions: Record<string, string>, icons: Record<string, string> }} SessionWorkspaces — the
  *   /api/workspaces reply.
  *   herdr: whether herdr answers; without it the page shows no workspaces. sessions: the workspace's name, by session id
- * @typedef {{ snapshot: import('./herdr.js').HerdrSnapshot, sessionByPane: ReadonlyMap<string, string>, byFolder: ReadonlyMap<string, string>, icons: ReadonlyMap<string, string> } | undefined} HerdrView
+ * @typedef {{ snapshot: import('./herdr.js').HerdrSnapshot, sessionByPane: ReadonlyMap<string, string>, byFolder: ReadonlyMap<string, string>, icons: ReadonlyMap<string, string>, hidden: ReadonlySet<string> } | undefined} HerdrView
  *   what herdr showed, the sessions running in its panes, the workspace of each folder, and each workspace's icon by
  *   its id; undefined: no herdr
  * @typedef {import('./herdr.js').Pane} Pane
@@ -34,13 +34,13 @@ import { observed } from './session-history.js';
  */
 
 /**
- * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, codexThreads: () => Promise<readonly import('./codex-live.js').LiveThread[]>, icons: { iconsOf: (workspaces: readonly import('./workspace-icons.js').IconedWorkspace[]) => Promise<ReadonlyMap<string, string>>, setIcon: (folder: string, icon: string | undefined) => Promise<void> }, file: string, refreshMs: number, claudeCommand: string, codexCommand: string, trust: { looks: number, stepMs: number } }} deps
+ * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, codexThreads: () => Promise<readonly import('./codex-live.js').LiveThread[]>, icons: { iconsOf: (workspaces: readonly import('./workspace-icons.js').IconedWorkspace[]) => Promise<ReadonlyMap<string, string>>, setIcon: (folder: string, icon: string | undefined) => Promise<void> }, hidden: ReturnType<typeof import('./hidden-panes.js').createHiddenPanes>, file: string, refreshMs: number, claudeCommand: string, codexCommand: string, trust: { looks: number, stepMs: number } }} deps
  *   readRecords — contents of ~/.claude/sessions/*.json; codexThreads — the threads Codex has open now; icons — each
- *   workspace's (workspace-icons.js); file — where the
+ *   workspace's (workspace-icons.js); hidden — the panes hidden from the page's list (hidden-panes.js); file — where the
  *   workspaces of sessions seen running are kept; refreshMs — herdr is asked at most this often; claudeCommand,
  *   codexCommand — what starts Claude Code, and Codex, in a new tab
  */
-export function createHerdrView({ herdr, readRecords, codexThreads, icons, file, refreshMs, claudeCommand, codexCommand, trust }) {
+export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidden, file, refreshMs, claudeCommand, codexCommand, trust }) {
   /**
    * A process's pane does not change while it runs: process-info is asked once for each Claude process — by its key
    * (registry.js): the number goes to another process once it is gone.
@@ -137,7 +137,7 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, file,
     const sessionByPane = new Map([...claude, ...codex]);
     await rememberRunning(snapshot, sessionByPane);
     const iconed = await icons.iconsOf(snapshot.workspaces.map((workspace) => ({ id: workspace.id, label: workspace.label, folder: workspaceFolder(snapshot, workspace.id) })));
-    return { snapshot, sessionByPane, byFolder: workspaceByFolder(snapshot.panes, workspaceLabels(snapshot)), icons: iconed };
+    return { snapshot, sessionByPane, byFolder: workspaceByFolder(snapshot.panes, workspaceLabels(snapshot)), icons: iconed, hidden: await hidden.hiddenAmong(snapshot.panes) };
   };
 
   /**
@@ -284,6 +284,28 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, file,
       return { ok: true };
     },
     /**
+     * Hides a pane's session from the page's list until its agent changes state.
+     * @param {string} paneId
+     * @returns {Promise<import('../public/model/herdr.js').TabChange>}
+     */
+    async hidePane(paneId) {
+      const view = await currentView();
+      const pane = view?.snapshot.panes.find((one) => one.paneId === paneId);
+      if (pane === undefined) return { ok: false, error: 'failed' };
+      await hidden.hide(pane.paneId, pane.activity);
+      latest = undefined;
+      return { ok: true };
+    },
+    /**
+     * Shows every pane hidden again, before its agent changes state.
+     * @returns {Promise<import('../public/model/herdr.js').TabChange>}
+     */
+    async showHidden() {
+      await hidden.showAll();
+      latest = undefined;
+      return { ok: true };
+    },
+    /**
      * Closes a workspace with its tabs: what runs in them stops — Claude Code sessions can be resumed, their
      * transcripts stay.
      * @param {string} workspaceId
@@ -351,7 +373,7 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, file,
     /** @returns {Promise<import('../public/model/herdr.js').HerdrLayout>} */
     async layout() {
       const view = await currentView();
-      return view === undefined ? { herdr: false, workspaces: [] } : { herdr: true, workspaces: layoutOf(view.snapshot, view.sessionByPane, view.icons) };
+      return view === undefined ? { herdr: false, workspaces: [] } : { herdr: true, workspaces: layoutOf(view.snapshot, view.sessionByPane, view.icons, view.hidden) };
     },
   };
 }
@@ -361,9 +383,10 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, file,
  * @param {import('./herdr.js').HerdrSnapshot} snapshot
  * @param {ReadonlyMap<string, string>} sessionByPane
  * @param {ReadonlyMap<string, string>} icons — by workspace id
+ * @param {ReadonlySet<string>} hidden — the panes hidden from the page's list
  * @returns {import('../public/model/herdr.js').HerdrWorkspace[]}
  */
-function layoutOf(snapshot, sessionByPane, icons) {
+function layoutOf(snapshot, sessionByPane, icons, hidden) {
   const byNumber = (/** @type {{ number: number }} */ a, /** @type {{ number: number }} */ b) => a.number - b.number;
   return [...snapshot.workspaces].sort(byNumber).map((workspace) => ({
     id: workspace.id,
@@ -382,7 +405,7 @@ function layoutOf(snapshot, sessionByPane, icons) {
         status: tab.status,
         panes: snapshot.panes
           .filter((pane) => pane.tabId === tab.id)
-          .map((pane) => ({ id: pane.paneId, agent: pane.agent, status: pane.status, title: pane.title, session: sessionByPane.get(pane.paneId), size: pane.size, activity: pane.activity })),
+          .map((pane) => ({ id: pane.paneId, agent: pane.agent, status: pane.status, title: pane.title, session: sessionByPane.get(pane.paneId), size: pane.size, activity: pane.activity, ...(hidden.has(pane.paneId) ? { hidden: true } : {}) })),
       })),
   }));
 }

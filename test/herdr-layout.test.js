@@ -12,7 +12,7 @@ const jobSearch = {
   status: 'working',
   activeTab: 'w2:t3',
   tabs: [
-    { id: 'w2:t1', number: 1, label: 'resume', status: 'done', panes: [{ id: 'w2:p1', agent: 'claude', status: 'done', title: 'AI-first description', session, size: undefined, activity: 40 }] },
+    { id: 'w2:t1', number: 1, label: 'resume', status: 'done', panes: [{ id: 'w2:p1', agent: 'claude', status: 'done', title: 'AI-first description', session, size: undefined, activity: 40, hidden: true }] },
     { id: 'w2:t2', number: 2, label: 'apply', status: 'unknown', panes: [{ id: 'w2:p2', agent: undefined, status: 'unknown', title: 'powershell', session: undefined, size: { cols: 120, rows: 40 }, activity: undefined }] },
     { id: 'w2:t3', number: 3, label: 'search', status: 'working', panes: [{ id: 'w2:p3', agent: 'claude', status: 'working', title: 'Remote jobs in the EU', session: undefined, size: undefined, activity: 90 }] },
   ],
