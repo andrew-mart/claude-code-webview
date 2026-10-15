@@ -12,7 +12,7 @@ const tripPlans = {
   status: 'working',
   activeTab: 'w2:t3',
   tabs: [
-    { id: 'w2:t1', number: 1, label: 'hotels', status: 'done', panes: [{ id: 'w2:p1', agent: 'claude', status: 'done', title: 'Packing list draft', session, size: undefined, activity: 40 }] },
+    { id: 'w2:t1', number: 1, label: 'hotels', status: 'done', panes: [{ id: 'w2:p1', agent: 'claude', status: 'done', title: 'Packing list draft', session, size: undefined, activity: 40, hidden: true }] },
     { id: 'w2:t2', number: 2, label: 'visas', status: 'unknown', panes: [{ id: 'w2:p2', agent: undefined, status: 'unknown', title: 'powershell', session: undefined, size: { cols: 120, rows: 40 }, activity: undefined }] },
     { id: 'w2:t3', number: 3, label: 'search', status: 'working', panes: [{ id: 'w2:p3', agent: 'claude', status: 'working', title: 'Hostels across the EU', session: undefined, size: undefined, activity: 90 }] },
   ],

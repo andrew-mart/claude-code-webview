@@ -352,13 +352,13 @@ function link(target, className, children) {
 
 /**
  * @typedef {import('../model/herdr.js').TabChange} TabChange
- * @typedef {{ createWorkspace: (label: string, folder: string, start: import('../model/herdr.js').TabStart) => Promise<import('../model/herdr.js').NewWorkspace>, open: (target: string) => void, folders: () => readonly string[], renameWorkspace: (workspaceId: string, label: string) => Promise<TabChange>, closeWorkspace: (workspaceId: string) => Promise<TabChange>, setWorkspaceIcon: (workspaceId: string, icon: string | undefined) => Promise<TabChange>, iconTags: () => Promise<Readonly<Record<string, readonly string[]>>>, renameTab: (tabId: string, label: string) => Promise<TabChange>, closeTab: (tabId: string) => Promise<TabChange> }} SidebarActions
+ * @typedef {{ createWorkspace: (label: string, folder: string, start: import('../model/herdr.js').TabStart) => Promise<import('../model/herdr.js').NewWorkspace>, open: (target: string) => void, folders: () => readonly string[], renameWorkspace: (workspaceId: string, label: string) => Promise<TabChange>, closeWorkspace: (workspaceId: string) => Promise<TabChange>, setWorkspaceIcon: (workspaceId: string, icon: string | undefined) => Promise<TabChange>, iconTags: () => Promise<Readonly<Record<string, readonly string[]>>>, renameTab: (tabId: string, label: string) => Promise<TabChange>, closeTab: (tabId: string) => Promise<TabChange>, hidePane: (paneId: string) => Promise<TabChange>, showHidden: () => Promise<TabChange> }} SidebarActions
  *   — createWorkspace, and the renames and closings, resolve once the page shows the change; open goes to a page address;
  *   folders: the folders to offer for a new workspace — typed before, where sessions ran
  * @typedef {{ atHand: readonly string[], current: string | undefined, setIcon: (icon: string | undefined) => Promise<TabChange>, tags: () => Promise<Readonly<Record<string, readonly string[]>>> }} RowIcon
  *   — a row's icon, picked as it is named: the emoji at hand; the icon now; how one its name cannot hold — Lucide's — is
  *   kept, or taken back; the words Lucide's icons are found by
- * @typedef {{ label: string, icon: RowIcon | undefined, rename: (label: string) => Promise<TabChange>, close: () => Promise<TabChange>, names: string, closes: string }} RowSubject
+ * @typedef {{ label: string, icon: RowIcon | undefined, rename: (label: string) => Promise<TabChange>, close: () => Promise<TabChange>, hide: (() => Promise<TabChange>) | undefined, names: string, closes: string }} RowSubject
  *   — what a row stands for, to name and close: its name now, its icon — none: no icon to pick — how to change it, the
  *   buttons' titles
  * @typedef {{ label: string, keeps: boolean, icon: string | undefined }} Naming
@@ -416,7 +416,7 @@ const newWorkspaceRefusals = {
  * @param {HTMLElement} element — the sidebar's place for it
  * @param {SidebarActions} actions
  */
-export function createHerdrSidebar(element, { createWorkspace, open, folders, renameWorkspace, closeWorkspace, setWorkspaceIcon, iconTags, renameTab, closeTab }) {
+export function createHerdrSidebar(element, { createWorkspace, open, folders, renameWorkspace, closeWorkspace, setWorkspaceIcon, iconTags, renameTab, closeTab, hidePane, showHidden }) {
   /** How long each workspace and agent has been at work: their robots' story goes on across redrawing. */
   const clock = createWorkClock(() => Date.now());
   let shown = '';
@@ -530,7 +530,10 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
       dressed.append(...[...row.childNodes].filter((child) => child !== status));
       const naming = iconButton('herdr-row-rename', 'edit', subject.names);
       const closing = iconButton('herdr-row-close', 'cross', subject.closes);
-      const actions = h('span', { className: 'herdr-row-actions' }, [naming, closing]);
+      const hide = subject.hide;
+      // an idle session only: hidden from the list until its agent changes state
+      const hiding = hide === undefined ? undefined : iconButton('herdr-row-hide', 'hide', 'Hide until its agent changes state');
+      const actions = h('span', { className: 'herdr-row-actions' }, [naming, ...(hiding === undefined ? [] : [hiding]), closing]);
       dressed.append(actions);
       dressed.addEventListener('click', (again) => {
         const on = again.target instanceof window.HTMLElement ? again.target.closest('button, input') : null;
@@ -541,6 +544,10 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
         if (text !== null) startNaming(dressed, text, subject);
       });
       closing.addEventListener('click', () => startClosing(actions, subject));
+      hiding?.addEventListener('click', () => {
+        hiding.disabled = true;
+        void hide?.().then(redraw);
+      });
       row.replaceWith(dressed);
     });
   };
@@ -682,6 +689,22 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
   newButton.addEventListener('click', () => (slot.hidden ? startForm() : showButton()));
   showButton();
 
+  /**
+   * The button that shows the sessions hidden again, beside the list's name — none while none is hidden.
+   * @param {number} hidden
+   * @returns {HTMLButtonElement[]}
+   */
+  const hiddenShown = (hidden) => {
+    if (hidden === 0) return [];
+    const button = h('button', { className: 'herdr-hidden-show', text: `${hidden} hidden`, title: 'Show the hidden sessions again', attrs: { type: 'button' } });
+    button.addEventListener('click', () => {
+      button.disabled = true;
+      void showHidden().then((outcome) => {
+        if (!outcome.ok) button.disabled = false;
+      });
+    });
+    return [button];
+  };
   const sidebar = {
     newButton,
     /**
@@ -715,6 +738,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
           icon: { atHand: workspaceIcons, current: workspace.icon, setIcon: (icon) => setWorkspaceIcon(workspace.id, icon), tags: iconTags },
           rename: (label) => renameWorkspace(workspace.id, label),
           close: () => closeWorkspace(workspace.id),
+          hide: undefined,
           names: 'Name this workspace',
           closes: 'Close the workspace: what runs in its tabs stops',
         };
@@ -722,7 +746,9 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
         offerIcon(row, subject);
         return row;
       });
-      const rows = sessions.map(({ workspace, tab, pane }) => {
+      // the sessions their user hid while idle are left out, until their agents change state
+      const listed = sessions.filter(({ pane }) => pane.hidden !== true);
+      const rows = listed.map(({ workspace, tab, pane }) => {
         const what = pane.agent === 'claude' ? undefined : pane.agent;
         const title = pane.title === '' ? undefined : pane.title;
         // the status on the right, as the workspaces have it
@@ -742,13 +768,14 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
           icon: undefined,
           rename: (label) => renameTab(tab.id, label),
           close: () => closeTab(tab.id),
+          hide: paneLamp(pane, seen) === 'idle' ? () => hidePane(pane.id) : undefined,
           names: 'Name its tab',
           closes: 'Close its tab: what runs in it stops',
         });
         return row;
       });
       workspacesList.replaceChildren(...list);
-      head.textContent = `Sessions · ${sessions.length}`;
+      head.replaceChildren(`Sessions · ${listed.length}`, ...hiddenShown(sessions.length - listed.length));
       tabsList.replaceChildren(...rows);
     },
   };

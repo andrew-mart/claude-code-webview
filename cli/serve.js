@@ -15,6 +15,7 @@ import { createHerdrRunner, herdrTurnedOff, paneIoOf, readSavedHerdr, resolveHer
 import { createHerdrSocket, socketRunner } from '../server/herdr-socket.js';
 import { createHerdrView } from '../server/herdr-view.js';
 import { createCodexThreads, lockHeld } from '../server/codex-live.js';
+import { createHiddenPanes } from '../server/hidden-panes.js';
 import { createWorkspaceIcons } from '../server/workspace-icons.js';
 import { createSessionIndex } from '../server/sessions.js';
 import { createTerminals } from '../server/terminal.js';
@@ -23,7 +24,8 @@ import { openInEditor } from '../server/editor.js';
 
 /**
  * The viewer's settings and log folder: the remembered herdr (herdr.json), bookmarks of all sessions (bookmarks.json),
- * the herdr workspaces of sessions seen running (workspaces.json), images attached to prompts (uploads/), the background
+ * the herdr workspaces of sessions seen running (workspaces.json), the herdr panes hidden from the page's list until
+ * their agents change state (hidden-panes.json), images attached to prompts (uploads/), the background
  * server log (server.log), the account's usage a statusline drops in (rate-limits.json, see the README).
  */
 export const stateDir = join(homedir(), '.claude-code-webview');
@@ -72,7 +74,7 @@ export async function serve({ port, about, palette, publicAddresses, herdr, clau
   const index = createSessionIndex(join(claude, 'projects'), { summaryBudgetMs: 1500, missRetryMs: 2000, codexRoot: join(codexHome, 'sessions') });
   const codexThreads = createCodexThreads({ home: codexHome, summaryOf: index.summaryOf, held: lockHeld });
   const icons = createWorkspaceIcons({ file: join(stateDir, 'workspace-icons.json'), random: Math.random });
-  const herdrView = createHerdrView({ herdr: run, readRecords, codexThreads: codexThreads.open, icons, file: join(stateDir, 'workspaces.json'), refreshMs: herdrRefreshMs, trust: claudeTrustPace, claudeCommand, codexCommand });
+  const herdrView = createHerdrView({ herdr: run, readRecords, codexThreads: codexThreads.open, icons, hidden: createHiddenPanes(join(stateDir, 'hidden-panes.json')), file: join(stateDir, 'workspaces.json'), refreshMs: herdrRefreshMs, trust: claudeTrustPace, claudeCommand, codexCommand });
   const composer = createComposer({ readRecords, herdr: run, codexPlace: herdrView.codexPlace });
   // A terminal on the page: through herdr's socket a screen is read in a millisecond or two, so it is read every 40 ms
   // while typing; through the herdr program every call starts a process, a tenth of a second.

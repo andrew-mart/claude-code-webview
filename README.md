@@ -25,7 +25,9 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
 
 - **All sessions** of every project, newest first, with titles, project folder and age; an orange dot marks a session
   written to in the last two minutes. "Follow the active session" switches to whichever session was written to last.
-  Sessions that a program drives (`claude -p`, the Agent SDK) are hidden until you tick "Show SDK sessions".
+  Sessions that a program drives (`claude -p`, the Agent SDK) are hidden until you tick "Show SDK sessions". These
+  options open from the sliders at the sidebar's head — one row, the account's usage and its buttons, so the lists get
+  the height; the magnifier opens the search in its place, Escape or ✕ closes it.
 - **Codex sessions** beside Claude Code's, marked `codex`: prompts, answers, reasoning summaries, commands with their
   output, patches by the files they change, plans as task lists. `codex exec` runs and subagents count as driven by a
   program. A Codex session running in herdr is written to from the page as Claude Code's is: Enter sends, and while
@@ -126,7 +128,8 @@ the herdr view, the terminals, the input box, Stop and rewind are simply not sho
 
 ### herdr's layout
 
-The sidebar switches between "herdr" and "Sessions". In "herdr" it shows herdr's workspaces in herdr's order, each
+The sidebar switches between "herdr" and "Sessions" with the button at its head that shows the other list's icon. In
+"herdr" it shows herdr's workspaces in herdr's order, each
 with its agents' status — working, waiting for you, done, idle — and under them, as herdr lists its agents, every
 session of every workspace: Claude Code, Codex and other agents, the one whose agent changed state last first. Above an
 open session — or terminal — the tabs of its workspace sit in a row, as in herdr, to switch between them. A session or
@@ -149,7 +152,9 @@ A workspace has a colour of its own — its hue follows from its name — on the
 the sessions that run or ran in it. **+** beside the search opens one: its name, its folder — picked from the folders
 typed before and those sessions ran in, or typed anew — and a terminal or Claude Code in it. A second click on the
 open workspace or session in the sidebar shows its buttons, as the open tab's do: ✎ names the workspace or the
-session's tab, × closes it.
+session's tab, × closes it. An idle session also gets a crossed-out eye: it hides the session from the list until its
+agent changes state — it starts working, say — on every device (`~/.claude-code-webview/hidden-panes.json`). The list's
+head tells how many are hidden, and a press on that brings them all back.
 
 A terminal mirrors the one in herdr, at its size: the keys you type go to it as they are — Enter, arrows, Ctrl+C — and
 what herdr shows comes back within a few hundredths of a second (the viewer talks to herdr through its socket; where

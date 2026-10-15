@@ -6,10 +6,11 @@ import { isRecord, text } from './narrow.js';
 /**
  * @typedef {'idle' | 'working' | 'blocked' | 'done' | 'unknown'} AgentStatus
  * @typedef {{ cols: number, rows: number }} PaneSize
- * @typedef {{ id: string, agent: string | undefined, status: AgentStatus, title: string | undefined, session: string | undefined, size: PaneSize | undefined, activity: number | undefined }} HerdrPane
+ * @typedef {{ id: string, agent: string | undefined, status: AgentStatus, title: string | undefined, session: string | undefined, size: PaneSize | undefined, activity: number | undefined, hidden?: true }} HerdrPane
  *   agent: the coding agent herdr recognized there (claude, codex, …); session: the Claude Code session it runs;
  *   size: its terminal's, in columns and rows; activity: when its agent changed state last, in herdr's count — the
- *   larger, the more recent
+ *   larger, the more recent; hidden: its user hid it from the sidebar's list while idle, its agent not changed state
+ *   since
  * @typedef {{ id: string, number: number, label: string, status: AgentStatus, panes: readonly HerdrPane[] }} HerdrTab
  * @typedef {{ id: string, number: number, label: string, icon?: string | undefined, status: AgentStatus, activeTab: string | undefined, tabs: readonly HerdrTab[] }} HerdrWorkspace
  *   icon: the emoji it is marked with (server/workspace-icons.js)
@@ -140,7 +141,7 @@ function parsePane(raw) {
   if (id === undefined || status === undefined) return [];
   const size = isRecord(raw.size) && Number.isInteger(raw.size.cols) && Number.isInteger(raw.size.rows) ? { cols: Number(raw.size.cols), rows: Number(raw.size.rows) } : undefined;
   const activity = typeof raw.activity === 'number' ? raw.activity : undefined;
-  return [{ id, agent: text(raw.agent), status, title: text(raw.title), session: text(raw.session), size, activity }];
+  return [{ id, agent: text(raw.agent), status, title: text(raw.title), session: text(raw.session), size, activity, ...(raw.hidden === true ? { hidden: /** @type {const} */ (true) } : {}) }];
 }
 
 /**

@@ -45,6 +45,7 @@ import { relabelTables } from './view/markdown.js';
 import { createResizer, restoreWidth } from './view/resizer.js';
 import { icon } from './view/icons.js';
 import { activityModeEvent, jumpMarginPx, mountSession, openSubagentTranscript } from './view/session-view.js';
+import { createSidebarHead } from './view/sidebar-head.js';
 import { createTasksView } from './view/tasks-view.js';
 
 /**
@@ -79,7 +80,8 @@ const groupWorkspaces = byId('group-workspaces', HTMLInputElement);
 const groupWorkspacesOption = byId('group-workspaces-option', HTMLElement);
 const closedOnly = byId('closed-only', HTMLInputElement);
 const closedOnlyOption = byId('closed-only-option', HTMLElement);
-const sidebarModes = byId('sidebar-modes', HTMLElement);
+const brand = byId('brand', HTMLElement);
+const searchRow = byId('search-row', HTMLElement);
 const sessionOptions = byId('session-options', HTMLElement);
 const herdrPanel = byId('herdr-panel', HTMLElement);
 const main = byId('main', HTMLElement);
@@ -143,12 +145,6 @@ search.addEventListener('input', () => {
   page.renderList();
   page.renderHerdr();
 });
-for (const button of sidebarModes.querySelectorAll('button[data-mode]')) {
-  button.addEventListener('click', () => {
-    settings.set('sidebar', button.getAttribute('data-mode') ?? '');
-    page.renderHerdr();
-  });
-}
 follow.addEventListener('change', () => {
   settings.set('follow', follow.checked ? 'on' : 'off');
   page.followLatest();
@@ -258,11 +254,23 @@ function createPage() {
     iconTags: lucideTags,
     renameTab: (tab, label) => changeTab('/api/tab/rename', { tab, label }),
     closeTab: (tab) => changeTab('/api/tab/close', { tab }),
+    hidePane: (pane) => changeTab('/api/herdr/hide', { pane }),
+    showHidden: () => changeTab('/api/herdr/show', {}),
   });
-  // "+" for a new workspace beside the search: a row of its own under the workspaces took the list's height. It shows
-  // in the herdr mode only, and there is none before herdr is heard from
-  search.after(herdrSidebar.newButton);
-  herdrSidebar.newButton.hidden = true;
+  // the sidebar's head, one row: 🔍, ⇄ to the other list, and the list's own — ⚙ for the sessions', herdr's ＋ for a new
+  // workspace; there is no herdr list before herdr is heard from
+  const sidebarHead = createSidebarHead({
+    row: brand,
+    searchRow,
+    search,
+    options: sessionOptions,
+    newWorkspace: herdrSidebar.newButton,
+    onMode: (mode) => {
+      settings.set('sidebar', mode);
+      page.renderHerdr();
+    },
+  });
+  sidebarHead.show({ mode: 'sessions', herdr: false });
   const tabBar = createTabBar({
     rename: (tab, label) => changeTab('/api/tab/rename', { tab, label }),
     close: (tab) => changeTab('/api/tab/close', { tab }),
@@ -684,13 +692,10 @@ function createPage() {
     },
     /** herdr in the sidebar — when it is the sidebar's mode — and the tabs above what the page shows. */
     renderHerdr() {
-      const mode = herdrLayout.herdr ? settings.get('sidebar') : 'sessions';
-      sidebarModes.hidden = !herdrLayout.herdr;
-      for (const button of sidebarModes.querySelectorAll('button[data-mode]')) button.classList.toggle('selected', button.getAttribute('data-mode') === mode);
+      const mode = herdrLayout.herdr && settings.get('sidebar') === 'herdr' ? 'herdr' : 'sessions';
+      sidebarHead.show({ mode, herdr: herdrLayout.herdr });
       herdrPanel.hidden = mode !== 'herdr';
-      herdrSidebar.newButton.hidden = mode !== 'herdr';
       list.hidden = mode === 'herdr';
-      sessionOptions.hidden = mode === 'herdr';
       if (mode === 'herdr') search.placeholder = 'Search workspaces, sessions';
       else search.placeholder = workspaces.herdr ? 'Search by title, folder or workspace' : 'Search by title or folder';
       const opened = openedAt(location.hash);
@@ -1347,10 +1352,10 @@ function typedFolders() {
 }
 
 /**
- * A herdr tab or workspace named or closed — or a workspace's icon picked — from the tab bar or the sidebar; once done
- * the page looks at herdr again, so the change shows at once.
- * @param {'/api/tab/rename' | '/api/tab/close' | '/api/workspace/rename' | '/api/workspace/close' | '/api/workspace/icon'} path
- * @param {{ tab: string, label?: string } | { workspace: string, label?: string } | { workspace: string, icon: string | null }} change
+ * A herdr tab or workspace named or closed — or a workspace's icon picked, an idle session hidden, the hidden shown again
+ * — from the tab bar or the sidebar; once done the page looks at herdr again, so the change shows at once.
+ * @param {'/api/tab/rename' | '/api/tab/close' | '/api/workspace/rename' | '/api/workspace/close' | '/api/workspace/icon' | '/api/herdr/hide' | '/api/herdr/show'} path
+ * @param {{ tab: string, label?: string } | { workspace: string, label?: string } | { workspace: string, icon: string | null } | { pane: string } | Record<string, never>} change
  *   — an icon: one of Lucide's, kept for the workspace; null: none
  * @returns {Promise<import('./model/herdr.js').TabChange>}
  */

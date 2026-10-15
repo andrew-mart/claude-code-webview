@@ -167,7 +167,7 @@ export async function startServer({ index, host, port, pollMs, composer, bookmar
  * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, codexInUse: () => Promise<boolean> }} Deps
  *   instance: this run of the viewer, told apart from any other — see /api/machine; vscode: VS Code's web server
  *   behind /vscode/, none when the viewer runs none
- * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'createTab' | 'createWorkspace' | 'history' | 'reopen'>} HerdrView
+ * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'createWorkspace' | 'history' | 'reopen'>} HerdrView
  * @typedef {Pick<ReturnType<typeof import('./terminal.js').createTerminals>, 'stream' | 'type'>} Terminals
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
  * @typedef {{ origin: string, host: string }} PublicAddress — where the page is opened from outside, behind a tunnel:
@@ -426,6 +426,8 @@ async function handleWrite(deps, url, request, response) {
   if (url.pathname === '/api/workspace/rename') return renameWorkspace(deps, body, response);
   if (url.pathname === '/api/workspace/icon') return setWorkspaceIcon(deps, body, response);
   if (url.pathname === '/api/workspace/close') return closeWorkspace(deps, body, response);
+  if (url.pathname === '/api/herdr/hide') return hidePane(deps, body, response);
+  if (url.pathname === '/api/herdr/show') return sendJson(response, await deps.herdrView.showHidden());
   if (url.pathname === '/api/open-in-editor') return openFile(deps, body, response);
   const sessionId = isRecord(body) && typeof body.session === 'string' && sessionIdPattern.test(body.session) ? body.session : undefined;
   if (sessionId === undefined) {
@@ -545,6 +547,21 @@ async function setWorkspaceIcon(deps, body, response) {
     return;
   }
   return sendJson(response, await deps.herdrView.setWorkspaceIcon(workspace, icon === undefined ? undefined : iconValue(icon)));
+}
+
+/**
+ * An idle session hidden from herdr's list in the page's sidebar, until its agent changes state.
+ * @param {Deps} deps
+ * @param {unknown} body — { pane }
+ * @param {http.ServerResponse} response
+ */
+async function hidePane(deps, body, response) {
+  const pane = isRecord(body) && typeof body.pane === 'string' && paneIdPattern.test(body.pane) ? body.pane : undefined;
+  if (pane === undefined) {
+    response.writeHead(400).end('Bad pane');
+    return;
+  }
+  return sendJson(response, await deps.herdrView.hidePane(pane));
 }
 
 /**

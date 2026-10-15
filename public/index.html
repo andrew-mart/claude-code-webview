@@ -27,17 +27,15 @@
 <body>
   <div class="layout" id="layout">
     <aside class="sidebar" id="sidebar">
-      <div class="brand">
+      <!-- one row: the account's usage, then the head's buttons (view/sidebar-head.js) -->
+      <div class="brand" id="brand">
         <span class="spark" aria-hidden="true">✻</span>
-        <span>Claude Code Webview</span>
-        <span class="usage" id="usage" hidden></span>
-        <span class="usage" id="usage-codex" hidden></span>
+        <span class="usage-rows">
+          <span class="usage" id="usage" hidden></span>
+          <span class="usage" id="usage-codex" hidden></span>
+        </span>
       </div>
-      <div class="sidebar-modes" id="sidebar-modes" role="group" aria-label="What the sidebar shows" hidden>
-        <button type="button" data-mode="herdr" title="herdr's workspaces and their tabs, as herdr shows them">herdr</button>
-        <button type="button" data-mode="sessions" title="Every session, latest first">Sessions</button>
-      </div>
-      <div class="search-row">
+      <div class="search-row" id="search-row">
         <input class="search" id="search" type="search" placeholder="Search by title or folder" autocomplete="off">
       </div>
       <div class="session-options" id="session-options">
