@@ -1,6 +1,6 @@
 // @ts-check
-// A session's project in the side panel: its folders as a tree — a folder opens in place, read only then — and its
-// text searched, by text or pattern, case and whole word as asked; a match opens its file at its line, a file opens in
+// A session's project in the side panel: its folders as a tree — a folder opens in place, shown at once from what was
+// read ahead under the one opened before it, read again then and drawn anew if it changed — and its text searched, by text or pattern, case and whole word as asked; a match opens its file at its line, a file opens in
 // the panel. The search shows in place of the tree while there is something to search for. A name looked for from the
 // editor shows its definitions first, then its uses (definitions.js).
 import { isDefinition } from '../model/definitions.js';
@@ -28,6 +28,12 @@ const refusals = {
 
 /** A search waits this long after the last key, so a word typed is searched once. */
 const typingMs = 350;
+/** How many levels under a folder opened — the project's, as the tree opens — are read ahead, so they open at once. */
+const aheadLevels = 2;
+/** How many folders are read ahead at most each time: a folder of very many is not read through. */
+const aheadFolders = 40;
+/** Folders of what is installed or built, opened seldom and holding very many: read when opened, not ahead. */
+const notReadAhead = new Set(['node_modules', 'bower_components', '.venv', 'venv', '__pycache__', 'obj', 'target', 'dist', 'build', '.next', '.gradle', '.idea', '.vs', 'coverage']);
 
 /**
  * @param {ProjectSource} source
@@ -59,20 +65,66 @@ export function createProjectView({ root, listFolder, search, openFile, iconOf }
   /** The file shown beside the tree, marked in it. */
   /** @type {string | undefined} */
   let selected;
+  /** The folders read — open, or read ahead — by their paths: the tree is drawn from them. */
+  /** @type {Map<string, FolderListing>} */
+  const listings = new Map();
+  /** The folders being read now: one asked for twice meanwhile is read once. */
+  /** @type {Map<string, Promise<FolderListing | undefined>>} */
+  const reading = new Map();
 
   const childOf = (/** @type {string} */ folder, /** @type {string} */ name) => `${folder.replace(/[\\/]$/, '')}${separator}${name}`;
 
   /**
-   * The folder's entries as rows of the tree, its open folders' entries under them.
+   * The folder read from the viewer now, kept; none when the viewer did not answer — what was kept stays.
+   * @param {string} folder
+   * @returns {Promise<FolderListing | undefined>}
+   */
+  const read = (folder) => {
+    const already = reading.get(folder);
+    if (already !== undefined) return already;
+    const asked = listFolder(folder).then((listing) => {
+      reading.delete(folder);
+      if (listing !== undefined) listings.set(folder, listing);
+      return listing;
+    });
+    reading.set(folder, asked);
+    return asked;
+  };
+  /**
+   * The folder as kept, read first if it was not.
+   * @param {string} folder
+   */
+  const listingOf = async (folder) => listings.get(folder) ?? (await read(folder));
+  /**
+   * Reads ahead the folders under this one not read yet, so they open at once: so many levels down, so many folders at
+   * most, none of what is installed or built.
+   * @param {string} folder
+   */
+  const readAhead = async (folder) => {
+    let level = [folder];
+    let left = aheadFolders;
+    for (let depth = 0; depth < aheadLevels && level.length > 0 && left > 0; depth++) {
+      const read = await Promise.all(level.map(async (path) => ({ path, listing: await listingOf(path) })));
+      // the folders take turns: one of very many does not take every place from the others
+      level = takeTurns(
+        read.map(({ path, listing }) => (listing?.ok === true ? listing.entries.filter((entry) => entry.kind === 'folder' && !notReadAhead.has(entry.name)).map((entry) => childOf(path, entry.name)) : [])),
+        left,
+      );
+      left -= level.length;
+    }
+    await Promise.all(level.map(listingOf));
+  };
+
+  /**
+   * The folder's entries as rows of the tree, its open folders' entries under them — as kept.
    * @param {string} folder
    * @param {number} depth
-   * @returns {Promise<HTMLElement[]>}
+   * @returns {HTMLElement[]}
    */
-  const rowsOf = async (folder, depth) => {
-    const listing = await listFolder(folder);
+  const rowsOf = (folder, depth) => {
+    const listing = listings.get(folder);
     if (listing === undefined || !listing.ok) return [h('li', { className: 'project-note', text: listing === undefined ? 'Could not get the folder from the viewer.' : refusals[listing.error] ?? '' })];
-    const rows = await Promise.all(
-      listing.entries.map(async (entry) => {
+    const rows = listing.entries.map((entry) => {
         const path = childOf(folder, entry.name);
         const row = h('button', { className: 'project-entry', title: path, attrs: { type: 'button', 'data-depth': String(depth), 'data-kind': entry.kind } }, [iconOf(entry.name, entry.kind, open.has(path)), entry.name]);
         row.style.setProperty('--depth', String(depth));
@@ -85,19 +137,35 @@ export function createProjectView({ root, listFolder, search, openFile, iconOf }
         row.classList.toggle('open', open.has(path));
         row.setAttribute('aria-expanded', String(open.has(path)));
         row.addEventListener('click', () => void flip(path));
-        return [item, ...(open.has(path) ? await rowsOf(path, depth + 1) : [])];
-      }),
-    );
+        return [item, ...(open.has(path) ? rowsOf(path, depth + 1) : [])];
+    });
     return [...rows.flat(), ...(listing.more ? [h('li', { className: 'project-note', text: 'The folder holds more than is shown.' })] : [])];
   };
-  const drawTree = async () => {
-    tree.replaceChildren(...(await rowsOf(root, 0)));
+  const drawTree = () => {
+    tree.replaceChildren(...rowsOf(root, 0));
+  };
+  /**
+   * The folders read again from the viewer, all at once — the project's and those open — then the tree drawn anew if
+   * any changed.
+   * @param {readonly string[]} folders
+   */
+  const readAgain = async (folders) => {
+    const before = folders.map((folder) => JSON.stringify(listings.get(folder)));
+    const now = await Promise.all(folders.map(read));
+    if (now.some((listing, at) => listing !== undefined && JSON.stringify(listing) !== before[at])) drawTree();
   };
   /** @param {string} path */
   const flip = async (path) => {
-    if (open.has(path)) open.delete(path);
-    else open.add(path);
-    await drawTree();
+    if (open.has(path)) {
+      open.delete(path);
+      drawTree();
+      return;
+    }
+    open.add(path);
+    // read ahead it opens at once; what it holds now comes after
+    if (listings.has(path)) drawTree();
+    await readAgain([path]);
+    await readAhead(path);
   };
 
   /** @returns {SearchQuery} */
@@ -181,8 +249,11 @@ export function createProjectView({ root, listFolder, search, openFile, iconOf }
     reload: async () => {
       // a search asked while the tree is read is not done twice
       const searching = field.value !== '';
-      await drawTree();
+      if (listings.has(root)) drawTree();
+      await readAgain([root, ...open]);
+      drawTree();
       if (searching) await runSearch();
+      await readAhead(root);
     },
     summary: () => root,
     select: (path) => {
@@ -250,6 +321,26 @@ function lineWithMatch(text, marker) {
   }
   line.append(text.slice(from));
   return line;
+}
+
+/**
+ * The lists' items taking turns — the first of each, then the second of each — up to so many.
+ * @template T
+ * @param {readonly (readonly T[])[]} lists
+ * @param {number} limit
+ * @returns {T[]}
+ */
+function takeTurns(lists, limit) {
+  /** @type {T[]} */
+  const taken = [];
+  const longest = Math.max(0, ...lists.map((list) => list.length));
+  for (let turn = 0; turn < longest && taken.length < limit; turn++) {
+    for (const list of lists) {
+      const item = list[turn];
+      if (item !== undefined && taken.length < limit) taken.push(item);
+    }
+  }
+  return taken;
 }
 
 /**

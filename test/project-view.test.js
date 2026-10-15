@@ -186,3 +186,102 @@ test('projectView_Should_ShowEachEntrysIcon', async () => {
 
   assert.deepEqual({ tree, found }, { tree: ['folder:src:open', 'file:limits.ts', 'file:README.md'], found: ['file:limits.ts'] });
 });
+
+/**
+ * A project at D:/dev/shop whose folders the viewer answers for only when told; every folder asked for recorded.
+ * @param {Record<string, import('../public/model/project.js').FolderEntry[]>} folders — by path
+ */
+function heldProject(folders) {
+  /** @type {string[]} */
+  const asked = [];
+  /** @type {(() => void)[]} */
+  const held = [];
+  const view = createProjectView({
+    root: 'D:/dev/shop',
+    listFolder: (path) =>
+      new Promise((resolve) => {
+        asked.push(path);
+        held.push(() => resolve({ ok: true, path, entries: folders[path] ?? [], more: false }));
+      }),
+    search: async () => undefined,
+    openFile: () => undefined,
+    iconOf,
+  });
+  document.body.replaceChildren(view.element);
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  /** The viewer answers every folder asked for, and those asked for meanwhile, until none waits. */
+  const answer = async () => {
+    while (held.length > 0) {
+      for (const go of held.splice(0)) go();
+      await settle();
+    }
+  };
+  const tree = () => [...view.element.querySelectorAll('.project-tree .project-entry')].map((row) => `${'  '.repeat(Number(row.getAttribute('data-depth')))}${row.textContent}`);
+  /** @param {string} label */
+  const row = (label) => {
+    const found = [...view.element.querySelectorAll('.project-entry')].find((one) => one.textContent === label);
+    assert.ok(found instanceof window.HTMLElement, `no row ${label}`);
+    return found;
+  };
+  /** The tree as it opens: the project's folder read, and what is read ahead under it. */
+  const load = async () => {
+    const loaded = view.reload();
+    await answer();
+    await loaded;
+  };
+  return { asked, answer, settle, tree, row, load };
+}
+
+// The folders under the project's are read ahead as its tree opens: one opened shows what it holds at once, before the
+// viewer answers again
+test('projectView_Should_ShowFolderReadAhead_AtOnceAsItOpens', async () => {
+  const project = heldProject({ 'D:/dev/shop': [{ name: 'src', kind: 'folder' }, { name: 'README.md', kind: 'file' }], 'D:/dev/shop/src': [{ name: 'limits.ts', kind: 'file' }] });
+  await project.load();
+
+  project.row('src').click();
+  await project.settle();
+
+  assert.deepEqual(project.tree(), ['src', '  limits.ts', 'README.md']);
+});
+
+// Reading ahead goes two levels under the folder opened — the project's as the tree opens — not into what is installed
+// or built there (node_modules), and not through every folder of one holding very many
+test('projectView_Should_ReadAheadTwoLevelsUnderFolderOpened_ButNotIntoDependencies', async () => {
+  const many = Array.from({ length: 300 }, (_, at) => ({ name: `d${at}`, kind: /** @type {const} */ ('folder') }));
+  const project = heldProject({
+    'D:/dev/shop': [
+      { name: 'assets', kind: 'folder' },
+      { name: 'node_modules', kind: 'folder' },
+      { name: 'src', kind: 'folder' },
+    ],
+    'D:/dev/shop/assets': many,
+    'D:/dev/shop/src': [{ name: 'view', kind: 'folder' }],
+    'D:/dev/shop/src/view': [{ name: 'parts', kind: 'folder' }],
+    'D:/dev/shop/src/view/parts': [{ name: 'deep', kind: 'folder' }],
+  });
+  await project.load();
+  const atOpen = [...project.asked];
+
+  project.row('src').click();
+  await project.answer();
+  const ofProject = (/** @type {string[]} */ paths) => [...new Set(paths.filter((path) => !path.startsWith('D:/dev/shop/assets/')))].sort();
+
+  assert.deepEqual(
+    { atOpen: ofProject(atOpen), assetsFoldersReadAhead: atOpen.filter((path) => path.startsWith('D:/dev/shop/assets/')).length < many.length, underSrc: ofProject(project.asked.slice(atOpen.length)) },
+    { atOpen: ['D:/dev/shop', 'D:/dev/shop/assets', 'D:/dev/shop/src', 'D:/dev/shop/src/view'], assetsFoldersReadAhead: true, underSrc: ['D:/dev/shop/src', 'D:/dev/shop/src/view/parts'] },
+  );
+});
+
+// A folder read ahead may have changed by the time it opens: it is read again as it opens, and drawn as it is now
+test('projectView_Should_DrawFolderAsItIsNow_When_ItChangedSinceReadAhead', async () => {
+  /** @type {Record<string, import('../public/model/project.js').FolderEntry[]>} */
+  const folders = { 'D:/dev/shop': [{ name: 'src', kind: 'folder' }], 'D:/dev/shop/src': [{ name: 'limits.ts', kind: 'file' }] };
+  const project = heldProject(folders);
+  await project.load();
+  folders['D:/dev/shop/src'] = [{ name: 'limits.ts', kind: 'file' }, { name: 'quotas.ts', kind: 'file' }];
+
+  project.row('src').click();
+  await project.answer();
+
+  assert.deepEqual(project.tree(), ['src', '  limits.ts', '  quotas.ts']);
+});
