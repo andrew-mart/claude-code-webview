@@ -52,11 +52,15 @@ const at = '2026-10-09T07:02:11.686Z';
 const prompt = (uuid, text) => ({ type: 'user', uuid, timestamp: at, promptSource: 'typed', message: { role: 'user', content: text } });
 const settled = () => new Promise((done) => setTimeout(done, 10));
 
+/** @param {string} uuid @param {string} text */
+const answer = (uuid, text) => ({ type: 'assistant', uuid, timestamp: at, message: { role: 'assistant', content: [{ type: 'text', text }] } });
+
 /**
  * A session mounted with this copy kept from before, the viewer in reach.
  * @param {import('../public/view/offline-store.js').SavedFeed | undefined} saved
+ * @param {import('../public/view/bookmark-store.js').BookmarkStore} [bookmarks]
  */
-function mounted(saved) {
+function mounted(saved, bookmarks) {
   FakeSource.made = [];
   const scroller = window.document.createElement('div');
   window.document.body.append(scroller);
@@ -64,7 +68,7 @@ function mounted(saved) {
     scroller,
     sessionId: '3f2c9a50-1111-4222-8333-944455556666',
     agentId: undefined,
-    bookmarks: undefined,
+    bookmarks,
     onRewind: undefined,
     sendQueueNow: undefined,
     startAt: undefined,
@@ -118,4 +122,40 @@ test('mountSession_Should_SayItLoads_When_NoCopyIsKept', async () => {
     meanwhile: { prompts: [], loading: true, updating: false },
     after: { prompts: ['Question'], loading: false, updating: false },
   });
+});
+
+// An answer is bookmarked from its corner or from under it — read to its end — both flags showing it bookmarked
+test('mountSession_Should_OfferAnswersBookmarkUnderItToo_BothFlagsShowingIt', async () => {
+  /** @type {Set<string>} */
+  const marked = new Set();
+  /** @type {(() => void)[]} */
+  const listeners = [];
+  /** @type {import('../public/view/bookmark-store.js').BookmarkStore} */
+  const bookmarks = {
+    list: () => [],
+    has: (id) => marked.has(id),
+    toggle: (anchor) => {
+      if (!marked.delete(anchor.id)) marked.add(anchor.id);
+      for (const listener of listeners) listener();
+    },
+    onChange: (listener) => {
+      listeners.push(listener);
+      return () => undefined;
+    },
+    dispose: () => undefined,
+  };
+  const { view, source } = mounted(undefined, bookmarks);
+  source.emit('open');
+  source.emit('entries', [prompt('u1', 'Question'), answer('a1', 'The answer.')]);
+  source.emit('ready');
+  await settled();
+  const flags = () => [...view.element.querySelectorAll('.anchored > .bookmark-toggle')].map((flag) => `${flag.classList.contains('bookmark-under') ? 'under' : 'corner'} ${flag.getAttribute('aria-pressed')}`);
+
+  const before = flags();
+  const under = view.element.querySelector('.anchored > .bookmark-under');
+  if (under instanceof window.HTMLElement) under.click();
+  const after = flags();
+  view.dispose();
+
+  assert.deepEqual({ before, after }, { before: ['corner false', 'under false'], after: ['corner true', 'under true'] });
 });

@@ -3489,6 +3489,12 @@ table.diff tr.gap td {
   right: -38px;
 }
 
+/* an answer's flag under it too, at its end, where it is read to */
+.anchored > .bookmark-toggle.bookmark-under {
+  top: auto;
+  bottom: 0;
+}
+
 .msg.user > .bookmark-toggle {
   align-self: center;
   margin-right: 6px;
@@ -9952,6 +9958,12 @@ a.file-link:hover {
     position: static;
     float: right;
     margin: -4px -6px 4px 8px;
+  }
+
+  /* under the answer: on a line of its own, at the right */
+  .anchored > .bookmark-toggle.bookmark-under {
+    float: none;
+    margin: 2px -6px 0 auto;
   }
 
   .composer {
