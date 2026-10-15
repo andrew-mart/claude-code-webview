@@ -13,7 +13,7 @@ import { driveCodexRewind } from './codex-rewind.js';
 import { codexDialog, codexInputBox, codexQueued, showsSideConversation, showsSubagent } from './codex-screen.js';
 import { choiceDialog } from './dialog.js';
 import { claudePaneIds, foregroundPids, succeeded, toTerminalInput } from './herdr.js';
-import { latestRecords } from './registry.js';
+import { latestRecords, processKey } from './registry.js';
 import { driveRewind } from './rewind.js';
 import { driveStop } from './stop.js';
 
@@ -48,9 +48,12 @@ const keptPrompts = 5;
  *   Codex session runs
  */
 export function createComposer({ readRecords, herdr, codexPlace }) {
-  /** A process's pane does not change while the process is alive: the search across all panes runs only the first time. */
-  /** @type {Map<number, string>} */
-  const paneByPid = new Map();
+  /**
+   * A process's pane does not change while the process is alive: the search across all panes runs only the first time.
+   * By its process's key (registry.js): the number goes to another process once it is gone.
+   * @type {Map<string, string>}
+   */
+  const paneByProcess = new Map();
   /** Prompts the page typed into each session, newest last. */
   /** @type {Map<string, readonly string[]>} */
   const sentPrompts = new Map();
@@ -79,18 +82,18 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
   }
 
   /**
-   * @param {number} pid
+   * @param {LiveRecord} record — the session's process
    * @returns {Promise<{ found: true, pane: string } | { found: false, reason: 'no-herdr' | 'outside-herdr' }>}
    */
-  async function paneOf(pid) {
-    const cached = paneByPid.get(pid);
+  async function paneOf(record) {
+    const cached = paneByProcess.get(processKey(record));
     if (cached !== undefined) return { found: true, pane: cached };
     const list = await herdr(['pane', 'list']);
     if (!succeeded(list)) return { found: false, reason: 'no-herdr' };
     for (const pane of claudePaneIds(list.json)) {
       const info = await herdr(['pane', 'process-info', '--pane', pane]);
-      if (succeeded(info) && foregroundPids(info.json).includes(pid)) {
-        paneByPid.set(pid, pane);
+      if (succeeded(info) && foregroundPids(info.json).includes(record.pid)) {
+        paneByProcess.set(processKey(record), pane);
         return { found: true, pane };
       }
     }
@@ -122,9 +125,9 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
     const record = latestRecords(await readRecords()).get(sessionId);
     if (record === undefined) return locateCodex(sessionId, presence);
     if (presence === 'unreachable') return { kind: 'no-herdr', status: record.status };
-    const place = await paneOf(record.pid);
+    const place = await paneOf(record);
     if (!place.found) return { kind: place.reason, status: record.status };
-    return { kind: 'live', place: { pane: place.pane, agent: 'claude', status: record.status, forget: () => paneByPid.delete(record.pid) } };
+    return { kind: 'live', place: { pane: place.pane, agent: 'claude', status: record.status, forget: () => paneByProcess.delete(processKey(record)) } };
   }
 
   /**

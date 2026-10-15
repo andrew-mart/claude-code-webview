@@ -39,15 +39,19 @@ const unknownSummary = { title: undefined, cwd: undefined, branch: undefined, ki
  * There can be thousands of sessions, so a single list request computes summaries within a time budget
  * (the first batch always), the remaining sessions go out untitled and are filled in on later requests.
  * @param {string} root — ~/.claude/projects
- * @param {{ summaryBudgetMs: number, codexRoot?: string | undefined }} options — codexRoot: ~/.codex/sessions, none: no
- *   Codex sessions
+ * @param {{ summaryBudgetMs: number, missRetryMs: number, codexRoot?: string | undefined }} options — missRetryMs: how
+ *   long an id found in no file is not looked for again — the pages ask about it often, and each look goes over all the
+ *   files; codexRoot: ~/.codex/sessions, none: no Codex sessions
  */
-export function createSessionIndex(root, { summaryBudgetMs, codexRoot }) {
+export function createSessionIndex(root, { summaryBudgetMs, missRetryMs, codexRoot }) {
   /** summarizedAt — when the summary was made: a page that asked before learns it with the next changes */
   /** @type {Map<string, { size: number, modifiedAt: number, summary: SessionSummary, summarizedAt: number }>} */
   const summaries = new Map();
   /** @type {Map<string, string>} */
   const pathsById = new Map();
+  /** Ids found in no file, and when: not looked for again for a while. */
+  /** @type {Map<string, number>} */
+  const missedAt = new Map();
   /** @type {Set<string>} */
   const codexPaths = new Set();
   /** A Codex session's files in turn, by its first one — the path it is known by — when it goes on in more than one. */
@@ -135,9 +139,16 @@ export function createSessionIndex(root, { summaryBudgetMs, codexRoot }) {
   async function find(id) {
     const known = pathsById.get(id);
     if (known !== undefined && (await exists(known))) return known;
+    const missed = missedAt.get(id);
+    if (missed !== undefined && Date.now() - missed < missRetryMs) return undefined;
     const found = (await allFiles()).find((file) => file.id === id);
-    if (found !== undefined) pathsById.set(id, found.path);
-    return found?.path;
+    if (found === undefined) {
+      missedAt.set(id, Date.now());
+      return undefined;
+    }
+    missedAt.delete(id);
+    pathsById.set(id, found.path);
+    return found.path;
   }
 
   /**

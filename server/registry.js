@@ -6,8 +6,19 @@ import { join } from 'node:path';
 import { isRecord, text } from '../public/model/narrow.js';
 
 /**
- * @typedef {{ pid: number, sessionId: string, status: string, updatedAt: number }} LiveRecord
+ * @typedef {{ pid: number, startedAt: number | undefined, sessionId: string, status: string, updatedAt: number }} LiveRecord
+ *   startedAt — when its process started: a process's number goes to another once it is gone, the two told apart by it
  */
+
+/**
+ * A session's process told apart from others: by its number and when it started — the number goes to another process
+ * once it is gone.
+ * @param {LiveRecord} record
+ * @returns {string}
+ */
+export function processKey(record) {
+  return `${record.pid}@${String(record.startedAt)}`;
+}
 
 /**
  * @param {string} dir — ~/.claude/sessions
@@ -56,5 +67,6 @@ function parseRecord(raw) {
   const sessionId = text(raw.sessionId);
   const status = text(raw.status);
   const updatedAt = typeof raw.updatedAt === 'number' ? raw.updatedAt : 0;
-  return sessionId === undefined || status === undefined ? undefined : { pid: raw.pid, sessionId, status, updatedAt };
+  const startedAt = typeof raw.startedAt === 'number' ? raw.startedAt : undefined;
+  return sessionId === undefined || status === undefined ? undefined : { pid: raw.pid, startedAt, sessionId, status, updatedAt };
 }

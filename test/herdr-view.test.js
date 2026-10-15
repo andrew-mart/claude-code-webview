@@ -208,6 +208,40 @@ test('herdrView_Should_LookForPaneOfProcessOnce_WhenItRunsOutsideHerdr', async (
   assert.equal(asked.filter((call) => call === 'pane process-info').length, 1);
 });
 
+// A Claude Code process looked for before herdr tells its pane for Claude's is found once herdr does: it is not taken
+// for one outside herdr for good
+test('workspaces_Should_FindPaneOfSession_When_HerdrTellsItsAgentAfterTheFirstLook', async (t) => {
+  /** @type {FakePane} */
+  const pane = { pane_id: 'w2:p1', workspace_id: 'w2', cwd: 'D:\\job_search', pid: 101 };
+  const view = await workspacesOf(t, { herdr: fakeHerdr({ workspaces: jobSearch.workspaces, panes: [pane] }), records: [runningRecord] });
+  const sessions = [{ id: running, cwd: 'D:\\elsewhere' }];
+
+  const before = await view.workspacesOf(sessions);
+  pane.agent = 'claude';
+  const after = await view.workspacesOf(sessions);
+
+  assert.deepEqual([before, after], [{ herdr: true, sessions: {} }, { herdr: true, sessions: { [running]: 'job_search' } }]);
+});
+
+// A process's number goes to another once it is gone: a new Claude under an old one's number is looked for anew, its
+// session put into its own pane's workspace
+test('workspaces_Should_FindPaneAnew_When_ProcessNumberIsTakenByAnotherClaude', async (t) => {
+  /** @type {FakePane} */
+  const jobs = { pane_id: 'w2:p1', workspace_id: 'w2', cwd: 'D:\\job_search', agent: 'claude', pid: 101 };
+  /** @type {FakePane} */
+  const expenses = { pane_id: 'w3:p1', workspace_id: 'w3', cwd: 'D:\\expenses', agent: 'claude', pid: 555 };
+  const panes = [jobs, expenses];
+  const records = [{ ...runningRecord, startedAt: 1000 }];
+  const view = await workspacesOf(t, { herdr: fakeHerdr({ workspaces: jobSearch.workspaces, panes }), records });
+  const later = '9b1c2d30-1111-4222-8333-944455556666';
+
+  await view.workspacesOf([]);
+  panes.splice(0, 2, { ...jobs, pid: 202 }, { ...expenses, pid: 101 });
+  records.splice(0, 1, { ...runningRecord, sessionId: later, startedAt: 2000 });
+
+  assert.deepEqual(await view.workspacesOf([{ id: later, cwd: 'D:\\elsewhere' }]), { herdr: true, sessions: { [later]: 'expenses' } });
+});
+
 /**
  * herdr with one workspace, web, and its tabs, the first one's pane in D:/shop; renaming, closing and opening a tab
  * change them, a new tab's pane shows its shell's prompt unless told what it shows; the changes and what is typed are

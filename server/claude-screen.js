@@ -6,8 +6,8 @@
  * @typedef {{ read: () => Promise<string | undefined>, keys: (...keys: string[]) => Promise<boolean>, text: (text: string) => Promise<boolean> }} Terminal
  */
 
-/** The rule lines above and below Claude Code's prompt box. */
-const rule = /^\s*─{4,}\s*$/;
+/** The rule lines above and below Claude Code's prompt box — the top one titled while its prompt history is browsed. */
+const rule = /^\s*─{3,}(?: History \d+\/\d+ ─+)?\s*$/;
 
 /**
  * The text in Claude Code's prompt box, its lines joined by spaces; undefined when the box is not on the screen (a menu

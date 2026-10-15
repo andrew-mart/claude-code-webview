@@ -67,7 +67,7 @@ test('list_Should_FindLatestFolderBehindHugeLastLine', async () => {
   const lines = [...filler, prompt('After the move', 'D:\\dev\\b'), screenshot];
   await writeFile(join(root, 'D--dev-a', '3f2c9a50-1111-4222-8333-944455556666.jsonl'), `${lines.join('\n')}\n`);
 
-  const [session] = await createSessionIndex(root, { summaryBudgetMs: 1000 }).list();
+  const [session] = await createSessionIndex(root, { summaryBudgetMs: 1000, missRetryMs: 0 }).list();
 
   assert.equal(session?.cwd, 'D:\\dev\\b');
 });
@@ -79,7 +79,7 @@ test('list_Should_ListEverySessionAndSummarizeRestOnLaterCalls', async () => {
     const id = `3f2c9a50-1111-4222-8333-${String(index).padStart(12, '0')}`;
     await writeFile(join(root, 'D--dev-a', `${id}.jsonl`), `${prompt(`Question ${index}`, 'D:\\dev\\a')}\n`);
   }
-  const index = createSessionIndex(root, { summaryBudgetMs: 0 });
+  const index = createSessionIndex(root, { summaryBudgetMs: 0, missRetryMs: 0 });
 
   const first = await index.list();
   const second = await index.list();
@@ -96,7 +96,7 @@ test('changes_Should_GiveOnlySessionsWrittenSinceVersionCallerHas', async () => 
   const busy = join(root, 'D--dev-a', '3f2c9a50-1111-4222-8333-000000000002.jsonl');
   await writeFile(quiet, `${prompt('Quiet one', 'D:\\dev\\a')}\n`);
   await writeFile(busy, `${prompt('Busy one', 'D:\\dev\\a')}\n`);
-  const index = createSessionIndex(root, { summaryBudgetMs: 1000 });
+  const index = createSessionIndex(root, { summaryBudgetMs: 1000, missRetryMs: 0 });
   await new Promise((resolve) => setTimeout(resolve, 5));
 
   const first = await index.changes(undefined);
@@ -116,7 +116,7 @@ test('changes_Should_BringSummariesMadeOnLaterCallsAndOnlyThem', async () => {
     const id = `3f2c9a50-1111-4222-8333-${String(index).padStart(12, '0')}`;
     await writeFile(join(root, 'D--dev-a', `${id}.jsonl`), `${prompt(`Question ${index}`, 'D:\\dev\\a')}\n`);
   }
-  const index = createSessionIndex(root, { summaryBudgetMs: 0 });
+  const index = createSessionIndex(root, { summaryBudgetMs: 0, missRetryMs: 0 });
   // a file written in the very millisecond the version is taken comes once more — harmless, but not what is tested
   await new Promise((resolve) => setTimeout(resolve, 5));
 
@@ -145,7 +145,7 @@ test('list_Should_PutSessionWithLatestMessageFirstWhateverTheFileTime', async ()
   await writeFile(recent, `${message('Recent talk', '2026-10-08T10:00:00.000Z')}\n`);
   await utimes(recent, new Date('2026-10-08T10:00:00Z'), new Date('2026-10-08T10:00:00Z'));
 
-  const sessions = await createSessionIndex(root, { summaryBudgetMs: 1000 }).list();
+  const sessions = await createSessionIndex(root, { summaryBudgetMs: 1000, missRetryMs: 0 }).list();
 
   assert.deepEqual(
     sessions.map((session) => [session.title?.slice(0, 10), session.activeAt]),
@@ -178,7 +178,7 @@ test('list_Should_ListCodexSessionsBesideClaudeCodesOnes_ToldApartByAgent', asyn
   const run = '01a13634-a2b7-7c90-ae35-000000000002';
   await writeFile(join(day, `rollout-2026-10-13T21-59-41-${worked}.jsonl`), `${rollout(worked, 'cli', 'Add a rate limit\nto POST /orders')}\n`);
   await writeFile(join(day, `rollout-2026-10-13T22-10-00-${run}.jsonl`), `${rollout(run, 'exec', 'Summarize the log')}\n`);
-  const index = createSessionIndex(root, { summaryBudgetMs: 1000, codexRoot });
+  const index = createSessionIndex(root, { summaryBudgetMs: 1000, missRetryMs: 0, codexRoot });
 
   const sessions = await index.list();
   const found = await index.find(worked);
@@ -220,7 +220,7 @@ test('list_Should_ListCodexSessionGoingOnInAnotherFileOnce_ReadAsItsFilesInTurn'
     next,
     [line({ timestamp: later, ordinal: 3, type: 'session_meta', payload: { id, cwd: 'D:\dev\shop', source: 'cli', history_base: { thread_id: id, end_ordinal_exclusive: 3, end_byte_offset: Buffer.byteLength(kept) } } }), said(4, 'user', 'Make it 20 a second', later), said(5, 'assistant', 'Made it 20.', later)].map((one) => `${one}\n`).join(''),
   );
-  const index = createSessionIndex(root, { summaryBudgetMs: 1000, codexRoot });
+  const index = createSessionIndex(root, { summaryBudgetMs: 1000, missRetryMs: 0, codexRoot });
 
   const sessions = await index.list();
   const found = await index.find(id);
@@ -250,7 +250,26 @@ test('summaryOf_Should_TellSessionsFolderKindAndActivity_ById', async () => {
   const meta = line({ timestamp: at, ordinal: 0, type: 'session_meta', payload: { id, cwd: 'D:/dev/shop', source: 'cli' } });
   const asked = line({ timestamp: at, ordinal: 1, type: 'response_item', payload: { type: 'message', id: 'msg_1', role: 'user', content: [{ type: 'input_text', text: 'Add a rate limit' }] } });
   await writeFile(join(day, `rollout-2026-10-14T15-47-35-${id}.jsonl`), `${meta}\n${asked}\n`);
-  const index = createSessionIndex(await mkdtemp(join(tmpdir(), 'csv-')), { summaryBudgetMs: 1000, codexRoot });
+  const index = createSessionIndex(await mkdtemp(join(tmpdir(), 'csv-')), { summaryBudgetMs: 1000, missRetryMs: 0, codexRoot });
 
   assert.deepEqual([await index.summaryOf(id), await index.summaryOf('01a13a06-0000-7481-9aa7-000000000000')], [{ cwd: 'D:/dev/shop', kind: 'interactive', activeAt: Date.parse(at) }, undefined]);
+});
+
+// An id with no transcript — a session opened before its first message, a Codex thread not written yet — is looked for
+// among all the files at most once in a while, not on every ask, which polls it often: a transcript written meanwhile is
+// found once the while is over
+test('find_Should_LookForUnknownIdAmongTheFilesOnceInAWhile', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'csv-'));
+  await mkdir(join(root, 'D--dev-a'));
+  const index = createSessionIndex(root, { summaryBudgetMs: 0, missRetryMs: 300 });
+  const id = '3f2c9a50-1111-4222-8333-000000000009';
+  const path = join(root, 'D--dev-a', `${id}.jsonl`);
+
+  const before = await index.find(id);
+  await writeFile(path, `${prompt('Late one', 'D:\dev\a')}\n`);
+  const meanwhile = await index.find(id);
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  const after = await index.find(id);
+
+  assert.deepEqual([before, meanwhile, after], [undefined, undefined, path]);
 });

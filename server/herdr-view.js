@@ -15,7 +15,7 @@ import { isRecord, text } from '../public/model/narrow.js';
 import { codexPanes } from './codex-live.js';
 import { folderKey } from './folders.js';
 import { foregroundPids, snapshotOf, succeeded } from './herdr.js';
-import { latestRecords } from './registry.js';
+import { latestRecords, processKey } from './registry.js';
 import { acceptTrust } from './trust.js';
 import { parseHistory } from '../public/model/history.js';
 import { observed } from './session-history.js';
@@ -38,12 +38,18 @@ import { observed } from './session-history.js';
  *   codexCommand — what starts Claude Code, and Codex, in a new tab
  */
 export function createHerdrView({ herdr, readRecords, codexThreads, file, refreshMs, claudeCommand, codexCommand, trust }) {
-  /** A process's pane does not change while it runs: process-info is asked once for each Claude process. */
-  /** @type {Map<number, string>} */
-  const paneByPid = new Map();
-  /** Claude Code processes in no pane — run in an IDE, a plain terminal: not looked for again on every look at herdr. */
-  /** @type {Set<number>} */
-  const outsideHerdr = new Set();
+  /**
+   * A process's pane does not change while it runs: process-info is asked once for each Claude process — by its key
+   * (registry.js): the number goes to another process once it is gone.
+   * @type {Map<string, string>}
+   */
+  const paneByProcess = new Map();
+  /**
+   * Claude Code processes in no pane — run in an IDE, a plain terminal: not looked for again on every look at herdr, only
+   * once herdr's Claude panes are other than those looked in — one told for Claude's later, as Claude starts in it.
+   * @type {Map<string, string>} — the Claude panes looked in, by process
+   */
+  const outsideHerdr = new Map();
   /** Where every session seen running was — read from the file once, then kept here and written back. */
   /** @type {Promise<{ history: import('../public/model/history.js').History, writtenAt: number }> | undefined} */
   let kept;
@@ -62,15 +68,16 @@ export function createHerdrView({ herdr, readRecords, codexThreads, file, refres
    */
   const runningSessions = async (panes) => {
     const records = [...latestRecords(await readRecords()).values()];
-    const unknown = records.filter((record) => !paneByPid.has(record.pid) && !outsideHerdr.has(record.pid));
-    if (unknown.length > 0) {
-      await findPanes(panes);
-      for (const record of unknown) if (!paneByPid.has(record.pid)) outsideHerdr.add(record.pid);
+    const claudePanes = panes.filter((pane) => pane.agent === 'claude');
+    const lookedIn = claudePanes.map((pane) => pane.paneId).join(' ');
+    const unknown = records.filter((record) => !paneByProcess.has(processKey(record)) && outsideHerdr.get(processKey(record)) !== lookedIn);
+    if (unknown.length > 0 && (await findPanes(claudePanes, unknown))) {
+      for (const record of unknown) if (!paneByProcess.has(processKey(record))) outsideHerdr.set(processKey(record), lookedIn);
     }
     const shown = new Set(panes.map((pane) => pane.paneId));
     return new Map(
       records.flatMap((record) => {
-        const pane = paneByPid.get(record.pid);
+        const pane = paneByProcess.get(processKey(record));
         return pane !== undefined && shown.has(pane) ? [/** @type {const} */ ([pane, record.sessionId])] : [];
       }),
     );
@@ -100,12 +107,20 @@ export function createHerdrView({ herdr, readRecords, codexThreads, file, refres
     await writeHistory(file, history);
   };
 
-  /** @param {readonly Pane[]} panes */
-  const findPanes = async (panes) => {
-    for (const pane of panes.filter((known) => known.agent === 'claude')) {
+  /**
+   * The panes of these processes, among herdr's Claude panes.
+   * @param {readonly Pane[]} claudePanes
+   * @param {readonly import('./registry.js').LiveRecord[]} records
+   * @returns {Promise<boolean>} — whether every pane told its processes: one that did not may hold one of them
+   */
+  const findPanes = async (claudePanes, records) => {
+    let told = true;
+    for (const pane of claudePanes) {
       const info = await herdr(['pane', 'process-info', '--pane', pane.paneId]);
-      if (succeeded(info)) for (const pid of foregroundPids(info.json)) paneByPid.set(pid, pane.paneId);
+      if (!succeeded(info)) told = false;
+      else for (const record of records) if (foregroundPids(info.json).includes(record.pid)) paneByProcess.set(processKey(record), pane.paneId);
     }
+    return told;
   };
 
   /** @returns {Promise<HerdrView>} */

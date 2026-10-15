@@ -8,10 +8,10 @@ const record = { pid: 94168, sessionId, kind: 'interactive', status: 'busy', upd
 /**
  * A fake herdr: two panes with Claude, the target one is w3D:p1 with process 94168. Records every call.
  * fail — herdr is installed but does not answer; missing — herdr is not installed at all; screens — what the pane
- * shows, one per read, the last one stays.
- * @param {{ fail?: boolean, missing?: boolean, screens?: readonly string[] }} [options]
+ * shows, one per read, the last one stays; runsIn — the pane process 94168 runs in now.
+ * @param {{ fail?: boolean, missing?: boolean, screens?: readonly string[], runsIn?: () => string }} [options]
  */
-function fakeHerdr({ fail = false, missing = false, screens = [''] } = {}) {
+function fakeHerdr({ fail = false, missing = false, screens = [''], runsIn = () => 'w3D:p1' } = {}) {
   let reads = 0;
   /** @type {string[][]} */
   const calls = [];
@@ -23,7 +23,7 @@ function fakeHerdr({ fail = false, missing = false, screens = [''] } = {}) {
     const [, command, , pane] = args;
     if (command === 'list') return { ok: true, json: { result: { panes: [{ agent: 'claude', pane_id: 'w2:p1' }, { agent: 'claude', pane_id: 'w3D:p1' }] } }, text: '' };
     if (command === 'read') return { ok: true, json: undefined, text: screens[Math.min(reads++, screens.length - 1)] ?? '' };
-    if (command === 'process-info') return { ok: true, json: { result: { process_info: { foreground_processes: [{ pid: pane === 'w3D:p1' ? 94168 : 555 }] } } }, text: '' };
+    if (command === 'process-info') return { ok: true, json: { result: { process_info: { foreground_processes: [{ pid: pane === runsIn() ? 94168 : 555 }] } } }, text: '' };
     return { ok: true, json: { result: { type: 'ok' } }, text: '' };
   };
   return { run, calls };
@@ -124,6 +124,23 @@ test('liveState_Should_SearchPanesOnlyOnceForRunningProcess', async () => {
   await composer.liveState(sessionId);
 
   assert.equal(herdr.calls.filter((call) => call[1] === 'process-info').length, 2, 'two panes with Claude — one request for each, and only the first time');
+});
+
+// A process's number goes to another once it is gone: a session of a new process under an old one's number is looked for
+// anew — its prompt goes to its own pane, not to the one the old process ran in
+test('send_Should_FindPaneAnew_When_ProcessNumberIsTakenByAnotherClaude', async () => {
+  let runsIn = 'w3D:p1';
+  let records = [{ ...record, startedAt: 1000 }];
+  const herdr = fakeHerdr({ runsIn: () => runsIn });
+  const composer = createComposer({ readRecords: async () => records, herdr: herdr.run, codexPlace: async () => ({ found: 'none' }) });
+  const later = '9b1c2d30-1111-4222-8333-944455556666';
+
+  const first = await composer.send(sessionId, 'one');
+  runsIn = 'w2:p1';
+  records = [{ ...record, sessionId: later, startedAt: 2000 }];
+  const second = await composer.send(later, 'two');
+
+  assert.deepEqual([first, second], [{ ok: true, pane: 'w3D:p1' }, { ok: true, pane: 'w2:p1' }]);
 });
 
 test('liveState_Should_ExplainWhySessionCannotReceiveText', async () => {
