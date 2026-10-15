@@ -865,6 +865,17 @@ button {
   line-height: 1;
 }
 
+/* in herdr's list of workspaces a click on the open one's icon picks another (herdr-panel.js) */
+.herdr-workspace.selected > .workspace-icon {
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.herdr-workspace.selected > .workspace-icon:hover {
+  background: var(--bg-hover);
+  box-shadow: 0 0 0 3px var(--bg-hover);
+}
+
 :is(.session-title, .herdr-chip-workspace) > .workspace-icon {
   margin-right: 6px;
   font-size: 13px;
@@ -958,6 +969,44 @@ button {
   border-color: var(--border-strong);
 }
 
+/* the folders offered under the folder's box, the latest first, to tap: a path too long for the sidebar ends in … */
+.herdr-new-folders {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.herdr-new-folders:not(:has(button:not([hidden]))) {
+  display: none;
+}
+
+.herdr-new-folders button {
+  overflow: hidden;
+  padding: 5px 9px;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.herdr-new-folders button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+@media (pointer: coarse) {
+  .herdr-new-folders button {
+    padding-block: 9px;
+    font-size: 14px;
+  }
+}
+
 .herdr-new-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1042,6 +1091,63 @@ button {
   color: var(--text-3);
 }
 
+/* Lucide's sprite in the page, out of sight: its symbols are drawn by the icons (lucide.js) */
+.lucide-sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+/* one of Lucide's icons: as big as an emoji beside it, in a colour of the palette — as light and strong as the theme
+   wants — or the colour around it; a workspace's in the workspace's own */
+.lucide-icon {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
+}
+
+.workspace-icon .lucide-icon:not([data-color]),
+.herdr-icon-color.own {
+  color: oklch(var(--mark-lightness) var(--mark-chroma) var(--workspace-hue, 250));
+}
+
+:is(.lucide-icon, .herdr-icon-color)[data-color='gray'] {
+  color: oklch(var(--mark-lightness) 0.02 250);
+}
+
+:is(.lucide-icon, .herdr-icon-color)[data-color='brown'] {
+  color: oklch(var(--mark-lightness) 0.07 55);
+}
+
+:is(.lucide-icon, .herdr-icon-color)[data-color='orange'] {
+  color: oklch(var(--mark-lightness) var(--mark-chroma) 50);
+}
+
+:is(.lucide-icon, .herdr-icon-color)[data-color='yellow'] {
+  color: oklch(var(--mark-lightness) var(--mark-chroma) 95);
+}
+
+:is(.lucide-icon, .herdr-icon-color)[data-color='green'] {
+  color: oklch(var(--mark-lightness) var(--mark-chroma) 150);
+}
+
+:is(.lucide-icon, .herdr-icon-color)[data-color='blue'] {
+  color: oklch(var(--mark-lightness) var(--mark-chroma) 250);
+}
+
+:is(.lucide-icon, .herdr-icon-color)[data-color='purple'] {
+  color: oklch(var(--mark-lightness) var(--mark-chroma) 305);
+}
+
+:is(.lucide-icon, .herdr-icon-color)[data-color='pink'] {
+  color: oklch(var(--mark-lightness) var(--mark-chroma) 350);
+}
+
+:is(.lucide-icon, .herdr-icon-color)[data-color='red'] {
+  color: oklch(var(--mark-lightness) var(--mark-chroma) 25);
+}
+
 /* fixed, placed under the button as it opens (herdr-panel.js): a row that scrolls would cut it off */
 .herdr-icon-palette {
   position: fixed;
@@ -1055,16 +1161,123 @@ button {
   border-radius: 10px;
   background: var(--bg-elev);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  /* as tall as the room it is placed in (herdr-panel.js), the rest scrolled to */
+  overflow: auto;
 }
 
 .herdr-icon-palette[hidden] {
   display: none;
 }
 
+/* focused as it opens from a workspace's icon, for its keys: no ring round all of it */
+.herdr-icon-palette:focus {
+  outline: none;
+}
+
 .herdr-icon-at-hand {
   display: flex;
   flex-wrap: wrap;
   gap: 1px;
+}
+
+/* a workspace's icon from every emoji, or from Lucide's icons: a tab each */
+.herdr-icon-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.herdr-icon-palette .herdr-icon-tab {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.herdr-icon-palette .herdr-icon-tab[aria-pressed='true'] {
+  border-color: var(--border-strong);
+  background: var(--bg-selected);
+  color: var(--text);
+}
+
+.herdr-icon-every[hidden],
+.herdr-icon-lucide[hidden] {
+  display: none;
+}
+
+/* Lucide's icons: found by name or by their words, in a colour of the palette */
+.herdr-icon-lucide {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.herdr-icon-search {
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.herdr-icon-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.herdr-icon-palette .herdr-icon-color {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: currentColor;
+  background-clip: content-box;
+  cursor: pointer;
+}
+
+.herdr-icon-palette .herdr-icon-color[aria-pressed='true'] {
+  border-color: var(--text-2);
+}
+
+.herdr-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 30px);
+  gap: 2px;
+  max-height: min(260px, 40vh);
+  overflow: auto;
+}
+
+.herdr-icon-palette .herdr-icon-grid button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.herdr-icon-palette .herdr-icon-grid button:hover {
+  background: var(--bg-hover);
+}
+
+.herdr-icon-palette .herdr-icon-grid button[hidden] {
+  display: none;
+}
+
+.herdr-icon-grid .lucide-icon {
+  width: 18px;
+  height: 18px;
 }
 
 /* every emoji: in the page's colours, as tall as a phone leaves room for */
@@ -9718,7 +9931,7 @@ a.file-link:hover {
   padding-right: 18px;
 }
 
-/* a lamp at work: lit all the while, a little brighter and dimmer at uneven moments */
+/* a lamp at work: lit all the while, a touch brighter and dimmer at uneven moments — gently, not a blink */
 @keyframes lamp-waver {
   0%,
   100% {
@@ -9727,42 +9940,42 @@ a.file-link:hover {
   }
 
   8% {
-    opacity: 0.8;
-    box-shadow: 0 0 4px 1px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
-  }
-
-  15% {
-    opacity: 0.95;
+    opacity: 0.9;
     box-shadow: 0 0 6px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
   }
 
-  29% {
-    opacity: 0.72;
-    box-shadow: 0 0 3px 1px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
-  }
-
-  36% {
-    opacity: 1;
-    box-shadow: 0 0 8px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
-  }
-
-  51% {
-    opacity: 0.86;
-    box-shadow: 0 0 5px 1px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
-  }
-
-  58% {
+  15% {
     opacity: 0.97;
     box-shadow: 0 0 7px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
   }
 
+  29% {
+    opacity: 0.86;
+    box-shadow: 0 0 5px 1px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
+  }
+
+  36% {
+    opacity: 1;
+    box-shadow: 0 0 7px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
+  }
+
+  51% {
+    opacity: 0.92;
+    box-shadow: 0 0 6px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
+  }
+
+  58% {
+    opacity: 0.98;
+    box-shadow: 0 0 7px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
+  }
+
   71% {
-    opacity: 0.76;
-    box-shadow: 0 0 4px 1px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
+    opacity: 0.88;
+    box-shadow: 0 0 5px 1px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
   }
 
   84% {
-    opacity: 0.92;
+    opacity: 0.95;
     box-shadow: 0 0 6px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
   }
 }

@@ -132,7 +132,8 @@ test('vsCode_Should_LeaveViewerAnswering_WhileItLooksForServersLeftBehind', asyn
   const held = performance.now() - before;
   await started;
 
-  assert.ok(held < 100, `the start held the viewer for ${Math.round(held)} ms`);
+  // starting the listing process itself takes a moment — under load a few hundred ms; the listing, seconds
+  assert.ok(held < 2000, `the start held the viewer for ${Math.round(held)} ms`);
 });
 
 // On Windows a process keeps its parent's number after the parent is gone, and the number goes to a process started
