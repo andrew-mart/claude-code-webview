@@ -26,6 +26,7 @@ function cardAboveBox() {
   /** @type {import('../public/model/dialog.js').DialogStep[][]} */
   const answers = [];
   const card = createDialogCard({
+    asker: 'Claude Code',
     answer: async (steps) => {
       answers.push([...steps]);
       return { ok: true };
@@ -93,4 +94,33 @@ test('dialogCard_Should_AnswerWithArrowsAndEnter_BesidePreviews', async () => {
     [{ key: 'down' }, { key: 'enter' }],
     [{ key: 'up' }, { key: 'enter' }],
   ]);
+});
+
+// What Codex asks shows under its name, and an answer goes as Codex picks: the arrows from the option under its cursor
+// to the one picked, then Enter
+test('dialogCard_Should_ShowWhatCodexAsks_AndPickWithArrows', async () => {
+  /** @type {import('../public/model/dialog.js').DialogStep[][]} */
+  const answers = [];
+  const card = createDialogCard({
+    asker: 'Codex',
+    answer: async (steps) => {
+      answers.push([...steps]);
+      return { ok: true };
+    },
+  });
+  card.show({
+    lines: ['Trust this folder?'],
+    options: [
+      { key: '1', label: 'Trust and continue', detail: undefined, checked: undefined, current: true },
+      { key: '2', label: 'Quit', detail: undefined, checked: undefined, current: false },
+    ],
+    tabs: false,
+    previews: true,
+  });
+  const quit = [...card.element.querySelectorAll('button')].find((button) => button.textContent?.includes('Quit'));
+  assert.ok(quit);
+  quit.click();
+  await settled();
+
+  assert.deepEqual({ head: card.element.querySelector('.dialog-card-head')?.textContent, answers }, { head: 'Codex asks', answers: [[{ key: 'down' }, { key: 'enter' }]] });
 });

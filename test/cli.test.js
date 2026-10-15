@@ -11,17 +11,17 @@ test('isTemporaryInstall_Should_RecognizeNpxCacheOnEverySystem', () => {
 });
 
 test('parseCommand_Should_ServeAndOpenBrowserByDefault', () => {
-  assert.deepEqual(parseCommand([]), { ok: true, command: { action: 'serve', port: 7788, open: true, startMenu: false, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', editor: undefined, vscode: undefined } });
+  assert.deepEqual(parseCommand([]), { ok: true, command: { action: 'serve', port: 7788, open: true, startMenu: false, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', codexCommand: 'codex', editor: undefined, vscode: undefined } });
 });
 
 test('parseCommand_Should_ReadActionPortAndBrowserFlag', () => {
   assert.deepEqual(parseCommand(['--background', '--port', '7800', '--no-open']), {
     ok: true,
-    command: { action: 'background', port: 7800, open: false, startMenu: false, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', editor: undefined, vscode: undefined },
+    command: { action: 'background', port: 7800, open: false, startMenu: false, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', codexCommand: 'codex', editor: undefined, vscode: undefined },
   });
   assert.deepEqual(parseCommand(['--install-shortcut', '--start-menu']), {
     ok: true,
-    command: { action: 'install-shortcut', port: 7788, open: true, startMenu: true, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', editor: undefined, vscode: undefined },
+    command: { action: 'install-shortcut', port: 7788, open: true, startMenu: true, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', codexCommand: 'codex', editor: undefined, vscode: undefined },
   });
   assert.deepEqual(
     [parseCommand(['-v']), parseCommand(['--help'])].map((parsed) => parsed.ok && parsed.command.action),
@@ -108,5 +108,17 @@ test('parseCommand_Should_ReadCommandThatStartsClaudeCode', () => {
   assert.deepEqual(
     [given.ok && given.command.claudeCommand, empty],
     ['claude-god', { ok: false, error: 'Invalid --claude-command value " ": expected the command that starts Claude Code in a terminal, such as claude.' }],
+  );
+});
+
+// Codex as well: "codex", or the command the viewer is given — with options of one's own; a command of nothing is no
+// command
+test('parseCommand_Should_ReadCommandThatStartsCodex', () => {
+  const given = parseCommand(['--codex-command', 'codex --yolo']);
+  const empty = parseCommand(['--codex-command', ' ']);
+
+  assert.deepEqual(
+    [given.ok && given.command.codexCommand, empty],
+    ['codex --yolo', { ok: false, error: 'Invalid --codex-command value " ": expected the command that starts Codex in a terminal, such as codex.' }],
   );
 });

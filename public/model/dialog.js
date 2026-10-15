@@ -1,6 +1,6 @@
 // @ts-check
-// A choice Claude Code waits for in its terminal — its AskUserQuestion dialog, a question with numbered answers — as
-// the page shows it and answers it.
+// A choice the agent waits for in its terminal — Claude Code's AskUserQuestion dialog, a question of Codex's, with
+// numbered answers — as the page shows it and answers it.
 
 /**
  * @typedef {{ key: string, label: string, detail: string | undefined, checked: boolean | undefined, current: boolean }} DialogOption
@@ -8,8 +8,8 @@
  *   is ticked; current: the terminal's cursor is on it
  * @typedef {{ lines: readonly string[], options: readonly DialogOption[], tabs: boolean, previews: boolean }} Dialog — lines:
  *   what the dialog says above its options: the tabs of its questions, the question, a review of the answers; tabs: it
- *   has several questions, ← and → go between them; previews: its answers are drawn beside previews — there a digit picks
- *   nothing, the arrows go to an answer and Enter picks it
+ *   has several questions, ← and → go between them; previews: its answers are drawn beside previews — or it is Codex's —
+ *   where a digit picks nothing: the arrows go to an answer and Enter picks it
  * @typedef {'1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | 'left' | 'right' | 'up' | 'down' | 'enter' | 'esc'} DialogKey — the keys a
  *   dialog is answered with: a choice's digit, the next or the previous question, the answer above or below, Enter, Esc
  *   to cancel it

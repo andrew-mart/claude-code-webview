@@ -239,3 +239,18 @@ test('list_Should_ListCodexSessionGoingOnInAnotherFileOnce_ReadAsItsFilesInTurn'
     },
   );
 });
+
+// A session's folder, who runs it and when it was last active, told by its id — the list not asked for first; none for
+// a session not found
+test('summaryOf_Should_TellSessionsFolderKindAndActivity_ById', async () => {
+  const codexRoot = await mkdtemp(join(tmpdir(), 'csv-codex-'));
+  const id = '01a13a06-5376-7481-9aa7-ec19297d2f7c';
+  const day = join(codexRoot, '2026', '10', '14');
+  await mkdir(day, { recursive: true });
+  const meta = line({ timestamp: at, ordinal: 0, type: 'session_meta', payload: { id, cwd: 'D:/dev/shop', source: 'cli' } });
+  const asked = line({ timestamp: at, ordinal: 1, type: 'response_item', payload: { type: 'message', id: 'msg_1', role: 'user', content: [{ type: 'input_text', text: 'Add a rate limit' }] } });
+  await writeFile(join(day, `rollout-2026-10-14T15-47-35-${id}.jsonl`), `${meta}\n${asked}\n`);
+  const index = createSessionIndex(await mkdtemp(join(tmpdir(), 'csv-')), { summaryBudgetMs: 1000, codexRoot });
+
+  assert.deepEqual([await index.summaryOf(id), await index.summaryOf('01a13a06-0000-7481-9aa7-000000000000')], [{ cwd: 'D:/dev/shop', kind: 'interactive', activeAt: Date.parse(at) }, undefined]);
+});

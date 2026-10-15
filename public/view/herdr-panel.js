@@ -13,6 +13,12 @@ import { createWorkClock } from './work-clock.js';
 import { tintByWorkspace } from './workspace-tint.js';
 import { labelWithIcon, splitTabIcon, tabIcons } from '../model/tab-icon.js';
 
+/**
+ * The icon of each thing a new tab can start with.
+ * @type {Readonly<Record<import('../model/herdr.js').TabStart, string>>}
+ */
+const startIcons = { shell: 'shell', claude: 'model', codex: 'code' };
+
 /** @type {Readonly<Record<import('../model/lamps.js').Lamp, string>>} */
 const lampNames = { working: 'Working', blocked: 'Waiting for you', ready: 'Done — its answer not seen yet', idle: 'Idle', unknown: 'No agent' };
 
@@ -307,10 +313,10 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
       button.addEventListener('click', () => void submit(start));
       return button;
     };
-    // an icon, as in a new tab's choices: the three fit on one line in a narrow sidebar
+    // an icon, as in a new tab's choices: the four fit on one line in a narrow sidebar
     const cancel = iconButton('herdr-new-cancel', 'cross', 'Cancel (Esc)');
     cancel.addEventListener('click', showButton);
-    const form = h('div', { className: 'herdr-new-workspace' }, [name, folder, choices, h('div', { className: 'herdr-new-actions' }, [choice('herdr-new-shell', 'Terminal', 'shell'), choice('herdr-new-claude', 'Claude Code', 'claude'), cancel]), error]);
+    const form = h('div', { className: 'herdr-new-workspace' }, [name, folder, choices, h('div', { className: 'herdr-new-actions' }, [choice('herdr-new-shell', 'Terminal', 'shell'), choice('herdr-new-claude', 'Claude Code', 'claude'), choice('herdr-new-codex', 'Codex', 'codex'), cancel]), error]);
     // Enter starts Claude Code there, Escape leaves the form
     form.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') showButton();
@@ -537,7 +543,7 @@ export function createTabBar({ rename, close, open, create }) {
     };
     /** @param {import('../model/herdr.js').TabStart} start @param {string} text @param {string} className */
     const choice = (start, text, className) => {
-      const made = iconButton(className, start === 'shell' ? 'shell' : 'model', text);
+      const made = iconButton(className, startIcons[start], text);
       made.addEventListener('click', () => add(start));
       return made;
     };
@@ -552,7 +558,7 @@ export function createTabBar({ rename, close, open, create }) {
     });
     const cancel = iconButton('herdr-tab-new-cancel', 'cross', 'Cancel (Esc)');
     cancel.addEventListener('click', finish);
-    const choices = h('span', { className: 'herdr-tab-confirm' }, [picker.element, name, choice('shell', 'Terminal', 'herdr-tab-new-shell'), choice('claude', 'Claude Code (Enter)', 'herdr-tab-new-claude'), cancel, message]);
+    const choices = h('span', { className: 'herdr-tab-confirm' }, [picker.element, name, choice('shell', 'Terminal', 'herdr-tab-new-shell'), choice('claude', 'Claude Code (Enter)', 'herdr-tab-new-claude'), choice('codex', 'Codex', 'herdr-tab-new-codex'), cancel, message]);
     adding.replaceWith(choices);
     name.focus();
   };

@@ -18,6 +18,7 @@ import { isRecord, text } from '../public/model/narrow.js';
 import { takenBackPrompt } from './branch.js';
 import { branchChanges, branchFileDiff } from './branch-changes.js';
 import { createCodexReading } from './codex.js';
+import { openJoined } from './joined.js';
 import { parseSteps } from '../public/model/dialog.js';
 import { assetFile, folderFileAt, sandboxPolicy } from 'file-views/server';
 import { editorImports, editorModuleFile, editorModuleFiles, editorModulesPrefix } from './editor-modules.js';
@@ -98,7 +99,7 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  */
 
 /**
- * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, seen: Seen, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, vscode?: import('./vscode.js').VsCode | undefined, codexRoot?: string | undefined }} options
+ * @param {{ index: SessionIndex, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, seen: Seen, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, vscode?: import('./vscode.js').VsCode | undefined }} options
  *   about — package name and version for /api/health; palette — the page's colours (public/model/palettes.js);
  *   publicAddresses — where else the page is opened at, answered as the local address is; herdrView — what herdr
  *   shows (herdr-view.js); terminals — herdr panes' terminals (terminal.js); usage — the account's usage (usage.js);
@@ -106,9 +107,8 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  *   if the viewer was given one; seen — the answers seen, for every device (seen.js)
  * @returns {Promise<{ port: number, close: () => void }>}
  */
-export async function startServer({ root, host, port, pollMs, composer, bookmarks, seen, uploads, about, palette, publicAddresses, herdrView, terminals, usage, isRunning, editor, vscode, codexRoot }) {
+export async function startServer({ index, host, port, pollMs, composer, bookmarks, seen, uploads, about, palette, publicAddresses, herdrView, terminals, usage, isRunning, editor, vscode }) {
   const instance = randomUUID();
-  const index = createSessionIndex(root, { summaryBudgetMs: 1500, codexRoot });
   const build = await pageBuild();
   /** Sessions this page rewound: session id → the prompt rewound to; its branch is hidden before the next prompt shows the fork. */
   /** @type {Map<string, string>} */
@@ -153,7 +153,8 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
 }
 
 /**
- * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen }} Deps
+ * @typedef {ReturnType<typeof createSessionIndex>} SessionIndex — Claude Code's sessions and Codex's (sessions.js)
+ * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen }} Deps
  *   instance: this run of the viewer, told apart from any other — see /api/machine; vscode: VS Code's web server
  *   behind /vscode/, none when the viewer runs none
  * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'renameWorkspace' | 'closeWorkspace' | 'createTab' | 'createWorkspace' | 'history' | 'reopen'>} HerdrView
@@ -188,11 +189,7 @@ async function handle(deps, request, response) {
       // This reply tells the CLI that the port is held by the viewer itself, and which process to stop.
       return sendJson(response, { ...deps.about, pid: process.pid });
     case '/api/live':
-      return withSession(url, response, async (id) => {
-        // a Codex session is shown, not typed into: the composer finds Claude Code's sessions only
-        const path = await deps.index.find(id);
-        return sendJson(response, path !== undefined && deps.index.agentOf(path) === 'codex' ? { state: 'codex' } : await deps.composer.liveState(id));
-      });
+      return withSession(url, response, async (id) => sendJson(response, await deps.composer.liveState(id)));
     case '/api/sessions': {
       // ?since=<version from the last reply> — only what changed since; an empty version — everything, with a version.
       const since = url.searchParams.get('since');
@@ -428,7 +425,7 @@ async function handleWrite(deps, url, request, response) {
         response.writeHead(400).end(attached.error);
         return;
       }
-      // Claude Code opens attached images by path; the files stay only if the terminal took the prompt.
+      // Claude Code and Codex open attached images by path; the files stay only if the terminal took the prompt.
       const paths = await deps.uploads.save(attached.images);
       const prompt = withAttachedImages(isRecord(body) && typeof body.text === 'string' ? body.text : '', paths);
       // now: what waits in Claude Code's queue goes at once, the prompt with it — Ctrl+Enter on the page
@@ -448,10 +445,11 @@ async function handleWrite(deps, url, request, response) {
       }
       return sendJson(response, await deps.composer.answer(sessionId, steps));
     }
-    // A session closed in herdr, opened there again: in its folder, which the transcript names.
+    // A session closed in herdr, opened there again: in its folder, which the transcript names, by its agent — one the
+    // list has no transcript of is known from herdr's history alone, which is Claude Code's.
     case '/api/history/reopen': {
-      const cwd = (await deps.index.list()).find((session) => session.id === sessionId)?.cwd;
-      return sendJson(response, await deps.herdrView.reopen(sessionId, cwd));
+      const session = (await deps.index.list()).find((listed) => listed.id === sessionId);
+      return sendJson(response, await deps.herdrView.reopen(sessionId, session?.cwd, session === undefined ? 'claude' : session.agent));
     }
     case '/api/btw':
       return askAside(deps, sessionId, isRecord(body) && typeof body.question === 'string' ? body.question : '', response);
@@ -557,7 +555,7 @@ async function closeTab(deps, body, response) {
  */
 async function newTab(deps, body, response) {
   const tab = tabOf(body);
-  const start = isRecord(body) && (body.start === 'shell' || body.start === 'claude') ? body.start : undefined;
+  const start = isRecord(body) ? tabStartOf(body.start) : undefined;
   if (tab === undefined || start === undefined) {
     response.writeHead(400).end('Bad new tab');
     return;
@@ -576,7 +574,7 @@ async function newWorkspace(deps, body, response) {
   const fields = isRecord(body) ? body : {};
   const label = text(fields.label);
   const folder = text(fields.folder);
-  const start = fields.start === 'shell' || fields.start === 'claude' ? fields.start : undefined;
+  const start = tabStartOf(fields.start);
   if (label === undefined || folder === undefined || start === undefined) {
     response.writeHead(400).end('Bad new workspace');
     return;
@@ -636,7 +634,11 @@ async function rewind(deps, sessionId, body, response) {
   // A message sent while Claude was working joined that turn: the menu does not list it.
   if (target === undefined) return sendJson(response, { ok: false, error: 'not-listed' }, 404);
   const reply = await deps.composer.rewind(sessionId, { ...target, action });
-  if (reply.ok && (action === 'both' || action === 'conversation')) deps.rewinds.set(sessionId, body.prompt);
+  // Claude Code's transcript keeps the branch rewound from, hidden here; Codex goes on in a file of its own, which is
+  // read in its place — and numbers what follows from where it was rewound
+  const path = await deps.index.find(sessionId);
+  const claude = path !== undefined && deps.index.agentOf(path) === 'claude';
+  if (reply.ok && claude && (action === 'both' || action === 'conversation')) deps.rewinds.set(sessionId, body.prompt);
   return sendJson(response, reply.ok ? { ok: true, ...(reply.restoredPrompt ? { prompt: target.prompt } : {}) } : reply);
 }
 
@@ -657,17 +659,32 @@ async function stop(deps, sessionId, response) {
 /**
  * @param {Deps} deps
  * @param {string} sessionId
- * @returns {Promise<readonly unknown[]>} — the session's transcript entries in file order
+ * @returns {Promise<readonly unknown[]>} — the session's transcript entries in file order — a Codex session's, from its
+ *   files in turn, as Claude Code's records
  */
 async function transcriptRecords(deps, sessionId) {
   const path = await deps.index.find(sessionId);
-  return path === undefined ? [] : (await readFile(path, 'utf8')).split('\n').flatMap((line) => {
-    try {
-      return line === '' ? [] : [JSON.parse(line)];
-    } catch {
-      return []; // a line still being written
-    }
-  });
+  if (path === undefined) return [];
+  const joined = await openJoined(await deps.index.partsOf(path));
+  /** @type {unknown[]} */
+  let raw;
+  try {
+    const buffer = Buffer.alloc(joined.size);
+    await joined.read(buffer, 0);
+    raw = buffer.toString('utf8').split('\n').flatMap((line) => {
+      try {
+        return line === '' ? [] : [JSON.parse(line)];
+      } catch {
+        return []; // a line still being written
+      }
+    });
+  } finally {
+    await joined.close();
+  }
+  // a Codex session's, as Claude Code's records
+  if (deps.index.agentOf(path) !== 'codex') return raw;
+  const codex = createCodexReading();
+  return raw.flatMap((record) => codex.translate(record));
 }
 
 /**
@@ -1102,6 +1119,15 @@ async function markSeen(deps, body, response) {
   }
   await deps.seen.mark(pane, count);
   return sendJson(response, { ok: true });
+}
+
+/**
+ * What a new tab or workspace starts with, as the page asks for it.
+ * @param {unknown} value
+ * @returns {import('../public/model/herdr.js').TabStart | undefined}
+ */
+function tabStartOf(value) {
+  return value === 'shell' || value === 'claude' || value === 'codex' ? value : undefined;
 }
 
 /** A file's text as JSON: an escaped character takes up to six bytes. */

@@ -1,5 +1,6 @@
 // @ts-check
-// Prompt input box: the contract with the server (/api/live, /api/send, /api/interrupt) and what to show the user.
+// Prompt input box: the contract with the server (/api/live, /api/send, /api/interrupt) and what to show the user —
+// for a Claude Code session and a Codex one alike.
 import { splitAttachedImages, uploadUrl } from './attachments.js';
 import { parseDialog } from './dialog.js';
 import { isRecord, text } from './narrow.js';
@@ -7,9 +8,15 @@ import { isRecord, text } from './narrow.js';
 /**
  * Whether the session can be written to: live — it runs in a herdr pane; herdr-missing — herdr is not installed,
  * sending prompts is unavailable at all; the rest — why it is not possible right now.
- * @typedef {{ state: 'herdr-missing' | 'offline' | 'codex' } | { state: 'no-herdr' | 'outside-herdr', status: string } | { state: 'live', status: string, pane: string, dialog: import('./dialog.js').Dialog | undefined }} LiveState
- *   dialog: the choice Claude Code waits for in its terminal
- * @typedef {'empty' | 'herdr-missing' | 'offline' | 'no-herdr' | 'outside-herdr' | 'send-failed'} SendRefusal
+ * @typedef {{ state: 'herdr-missing' | 'offline' } | { state: 'no-herdr' | 'outside-herdr', status: string } | { state: 'live', status: string, pane: string, dialog: import('./dialog.js').Dialog | undefined, queued: readonly string[] }} LiveState
+ *   dialog: the choice the agent waits for in its terminal; queued: what Codex queued to send next — Claude Code's queue
+ *   shows in its feed
+ * @typedef {'claude' | 'codex'} Agent — whose session: Claude Code's or Codex's
+ * @typedef {{ id: string, agent: Agent }} ComposedSession — the session the box writes to
+ * @typedef {'empty' | 'herdr-missing' | 'offline' | 'no-herdr' | 'outside-herdr' | 'asking' | 'subagent' | 'side' | 'not-taken' | 'send-failed'} SendRefusal
+ *   — asking: Codex asks something in its terminal, a picker in its box's place; subagent: Codex's terminal shows a
+ *   sub-agent's thread, which takes no input; side: it shows a side conversation (its /btw); not-taken: Codex did not
+ *   take the prompt, it was taken back out of its box
  * @typedef {{ ok: true, pane: string } | { ok: false, error: SendRefusal }} SendOutcome
  * The /api/interrupt reply. prompt — a prompt Claude had not started on, taken out of the terminal's box for the page's
  * box; box-not-cleared — it came back into the terminal's box but could not be taken out of it.
@@ -27,28 +34,51 @@ import { isRecord, text } from './narrow.js';
  * @type {Readonly<Record<Keyboard, string>>}
  */
 const keysHint = { physical: 'Enter to send, Shift+Enter for a new line.', touch: 'The ↑ button sends, Enter starts a new line.' };
-/** While Claude works a message waits in Claude Code's queue — or goes at once, past it. */
-const busyKeysHint = { physical: 'Enter queues it, Ctrl+Enter sends it now, Shift+Enter for a new line.', touch: 'The ↑ button queues it, Enter starts a new line; ⏩ on a waiting message sends the queue now.' };
+/**
+ * While the agent works a message waits in its queue — or goes at once, past it, into the turn under way. ⏩ on a
+ * waiting message is Claude Code's: the page sees its queue.
+ * @type {Readonly<Record<Agent, Readonly<Record<Keyboard, string>>>>}
+ */
+const busyKeysHint = {
+  claude: { physical: 'Enter queues it, Ctrl+Enter sends it now, Shift+Enter for a new line.', touch: 'The ↑ button queues it, Enter starts a new line; ⏩ on a waiting message sends the queue now.' },
+  codex: { physical: 'Enter queues it, Ctrl+Enter sends it now, Shift+Enter for a new line.', touch: 'The ↑ button queues it, Enter starts a new line.' },
+};
+/** @type {Readonly<Record<Agent, string>>} */
+const agentNames = { claude: 'Claude', codex: 'Codex' };
+/**
+ * The program that asks in the terminal, by name.
+ * @type {Readonly<Record<Agent, string>>}
+ */
+export const askerNames = { claude: 'Claude Code', codex: 'Codex' };
+/**
+ * What opens a closed session again in a terminal.
+ * @type {Readonly<Record<Agent, (id: string) => string>>}
+ */
+const resumeCommands = { claude: (id) => `claude --resume ${id}`, codex: (id) => `codex resume ${id}` };
 
 /**
  * @param {LiveState} live
- * @param {string} sessionId
+ * @param {ComposedSession} session
  * @param {Keyboard} keyboard
  * @returns {ComposerView}
  */
-export function composerState(live, sessionId, keyboard) {
+export function composerState(live, session, keyboard) {
   switch (live.state) {
     case 'live': {
-      // typed now, a prompt would land in Claude Code's dialog — its digits picking answers
-      if (live.dialog !== undefined) return { shown: true, enabled: false, canInterrupt: false, canReopen: false, placeholder: 'Claude Code is asking — answer above', hint: `Pick an answer above, or answer in the session's terminal (herdr pane ${live.pane}).` };
+      // typed now, a prompt would land in the agent's dialog — its keys picking answers
+      if (live.dialog !== undefined) return { shown: true, enabled: false, canInterrupt: false, canReopen: false, placeholder: `${askerNames[session.agent]} is asking — answer above`, hint: `Pick an answer above, or answer in the session's terminal (herdr pane ${live.pane}).` };
+      // Codex's terminal shows a sub-agent's thread, whose input its parent controls
+      if (live.status === 'subagent') return { shown: true, enabled: false, canInterrupt: false, canReopen: false, placeholder: 'Codex shows a sub-agent — switch its terminal to the main thread', hint: `In the session's terminal (herdr pane ${live.pane}), go back from the sub-agent to the main thread: then the box takes messages again.` };
+      // and a side conversation — its /btw — which would take a message for a follow-up question
+      if (live.status === 'side') return { shown: true, enabled: false, canInterrupt: false, canReopen: false, placeholder: 'Codex shows a side conversation — switch back with Ctrl+/', hint: `In the session's terminal (herdr pane ${live.pane}), Ctrl+/ goes back to the main thread: then the box takes messages again. A key the viewer can press there for you — such as F12, in Codex's config.toml: tui.keymap.global.toggle_side_conversation — lets it go back by itself after a side question.` };
       const busy = live.status === 'busy';
       return {
         shown: true,
         enabled: true,
         canInterrupt: busy,
         canReopen: false,
-        placeholder: busy ? 'Claude is working — your message will be queued' : 'Message Claude…',
-        hint: `${(busy ? busyKeysHint : keysHint)[keyboard]} The text goes to the session's terminal (herdr pane ${live.pane}).`,
+        placeholder: busy ? `${agentNames[session.agent]} is working — your message will be queued` : `Message ${agentNames[session.agent]}…`,
+        hint: `${(busy ? busyKeysHint[session.agent] : keysHint)[keyboard]} The text goes to the session's terminal (herdr pane ${live.pane}).`,
       };
     }
     case 'herdr-missing':
@@ -56,12 +86,9 @@ export function composerState(live, sessionId, keyboard) {
       return { ...unavailable('herdr is not installed — write prompts in the terminal.'), shown: false };
     case 'offline':
       // the page offers to open it where it ran in the box's place; the hint tells the other way
-      return { ...unavailable(`Or in a herdr pane: claude --resume ${sessionId}`), canReopen: true };
+      return { ...unavailable(`Or in a herdr pane: ${resumeCommands[session.agent](session.id)}`), canReopen: true };
     case 'outside-herdr':
       return unavailable('The session is not running in herdr — its terminal cannot receive text.');
-    case 'codex':
-      // the viewer reads Codex's sessions, it does not type into them: nothing to open again in Claude Code either
-      return { ...unavailable('A Codex session: the viewer shows it — write to it in its terminal.'), shown: false };
     case 'no-herdr':
       return unavailable('Could not reach herdr. Start the viewer from a herdr pane.');
     default:
@@ -71,10 +98,11 @@ export function composerState(live, sessionId, keyboard) {
 
 /**
  * @param {StopOutcome} outcome
+ * @param {Agent} agent
  * @returns {string}
  */
-export function stopMessage(outcome) {
-  if (outcome.ok) return outcome.prompt === undefined ? 'Esc sent — Claude will stop the current turn.' : 'Stopped before Claude started on it — the message is back in the box.';
+export function stopMessage(outcome, agent) {
+  if (outcome.ok) return outcome.prompt === undefined ? `Esc sent — ${agentNames[agent]} will stop the current turn.` : 'Stopped before Claude started on it — the message is back in the box.';
   const { error } = outcome;
   if (error === 'box-not-cleared') return 'Stopped. The message went back to the terminal’s input box and could not be moved here.';
   return outcomeMessage({ ok: false, error });
@@ -97,6 +125,14 @@ export function outcomeMessage(outcome) {
       return 'The session is not running in herdr. The text stays in the box.';
     case 'no-herdr':
       return 'Could not reach herdr. The text stays in the box.';
+    case 'asking':
+      return 'Codex is asking something in its terminal — answer it there first. The text stays in the box.';
+    case 'subagent':
+      return 'Codex’s terminal shows a sub-agent, which takes no input — switch it back to the main thread. The text stays in the box.';
+    case 'side':
+      return 'Codex’s terminal shows a side conversation — switch it back to the main thread with Ctrl+/. The text stays in the box.';
+    case 'not-taken':
+      return 'Codex did not take the message — it was taken back out of its terminal’s box. The text stays in the box.';
     case 'send-failed':
       return 'herdr did not accept the text — the pane may have closed. The text stays in the box.';
     default:
@@ -156,13 +192,12 @@ export function parseLiveState(json) {
   switch (json.state) {
     case 'herdr-missing':
     case 'offline':
-    case 'codex':
       return { state: json.state };
     case 'no-herdr':
     case 'outside-herdr':
       return status === undefined ? undefined : { state: json.state, status };
     case 'live':
-      return status === undefined || pane === undefined ? undefined : { state: 'live', status, pane, dialog: parseDialog(json.dialog) };
+      return status === undefined || pane === undefined ? undefined : { state: 'live', status, pane, dialog: parseDialog(json.dialog), queued: queuedOf(json.queued) };
     default:
       return undefined;
   }
@@ -183,6 +218,10 @@ export function parseOutcome(json) {
     case 'offline':
     case 'no-herdr':
     case 'outside-herdr':
+    case 'asking':
+    case 'subagent':
+    case 'side':
+    case 'not-taken':
     case 'send-failed':
       return { ok: false, error: json.error };
     default:
@@ -252,4 +291,13 @@ export function parseBtwReply(json) {
  */
 function isBtwRefusal(value) {
   return typeof value === 'string' && btwRefusals.has(value);
+}
+
+/**
+ * What Codex queued, as /api/live tells it: a viewer from before it tells nothing — nothing queued.
+ * @param {unknown} json
+ * @returns {readonly string[]}
+ */
+function queuedOf(json) {
+  return Array.isArray(json) ? json.flatMap((item) => (typeof item === 'string' ? [item] : [])) : [];
 }

@@ -2,7 +2,7 @@
 // Prompt box under the feed: the prompt goes to the session terminal via herdr (server: /api/send, /api/interrupt).
 // "/btw …" asks aside, as in the terminal (/api/btw): the answer shows above the box and never joins the feed. A choice
 // Claude Code waits for — its AskUserQuestion dialog — shows above the box too, and is answered from there (/api/dialog).
-import { btwMessage, composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, sideQuestionOf, stopMessage } from '../model/composer.js';
+import { askerNames, btwMessage, composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, sideQuestionOf, stopMessage } from '../model/composer.js';
 import { parseDialogReply } from '../model/dialog.js';
 import { parseNewTab } from '../model/herdr.js';
 import { answerBlocks } from '../model/side-answer.js';
@@ -25,13 +25,13 @@ const serverSilent = { shown: true, enabled: false, canInterrupt: false, canReop
 
 /**
  * @param {string} sessionId
- * @param {{ focusBox: 'when-ready' | 'no', placeOf: () => { workspace: string, tab: string | undefined } | undefined, asides: import('./aside-store.js').AsideStore }} options —
- *   focusBox when-ready: the user opened the session, so the box takes the focus once the session can be written to; no:
+ * @param {{ agent: import('../model/composer.js').Agent, focusBox: 'when-ready' | 'no', placeOf: () => { workspace: string, tab: string | undefined } | undefined, asides: import('./aside-store.js').AsideStore }} options —
+ *   agent: whose session; focusBox when-ready: the user opened the session, so the box takes the focus once the session can be written to; no:
  *   following the active session switched to it. placeOf: the herdr workspace and tab the session ran in, if known. asides:
  *   the side questions and answers of the page's sessions — one outlives the box it was asked in
  * @returns {{ element: HTMLElement, say: (message: string, tone: 'ok' | 'error') => void, fill: (text: string) => void, stop: () => boolean, sendQueue: () => void, dispose: () => void }} — stop: Claude stopped if it was working
  */
-export function createComposer(sessionId, { focusBox, placeOf, asides }) {
+export function createComposer(sessionId, { agent, focusBox, placeOf, asides }) {
   /** @type {import('../model/composer.js').Keyboard} */
   const keyboard = matchMedia('(pointer: coarse)').matches ? 'touch' : 'physical';
   const draftKey = `viewer.draft.${sessionId}`;
@@ -65,13 +65,22 @@ export function createComposer(sessionId, { focusBox, placeOf, asides }) {
   const closeAside = h('button', { className: 'icon-button side-answer-close', title: 'Close', attrs: { type: 'button', 'aria-label': 'Close' } }, [icon('cross')]);
   closeAside.addEventListener('click', () => asides.set(sessionId, undefined));
   const dialogCard = createDialogCard({
+    asker: askerNames[agent],
     answer: async (steps) => {
       const reply = parseDialogReply(await post('/api/dialog', { steps }));
       setTimeout(() => void refreshLive(), redrawMs);
       return reply;
     },
   });
-  const element = h('div', { className: 'composer' }, [dialogCard.element, aside, resume, form, h('div', { className: 'composer-footer' }, [hint, status]), attachments.input]);
+  // what Codex queued to send next — Claude Code's queue shows in the feed
+  const queuedList = h('ul', { className: 'composer-queued-items' });
+  const queued = h('section', { className: 'composer-queued', attrs: { hidden: '', 'aria-label': 'Queued' } }, [h('div', { className: 'composer-queued-note', text: 'Codex sends these next, once its turn is over.' }), queuedList]);
+  /** @param {readonly string[]} items */
+  const showQueued = (items) => {
+    queued.hidden = items.length === 0;
+    queuedList.replaceChildren(...items.map((item) => h('li', { text: item })));
+  };
+  const element = h('div', { className: 'composer' }, [dialogCard.element, aside, queued, resume, form, h('div', { className: 'composer-footer' }, [hint, status]), attachments.input]);
 
   const fit = () => {
     input.style.height = 'auto';
@@ -102,7 +111,7 @@ export function createComposer(sessionId, { focusBox, placeOf, asides }) {
   const refreshLive = async () => {
     const response = await fetch(`/api/live?session=${encodeURIComponent(sessionId)}`).catch(() => undefined);
     const live = response?.ok ? parseLiveState(await response.json().catch(() => undefined)) : undefined;
-    const view = live === undefined ? serverSilent : composerState(live, sessionId, keyboard);
+    const view = live === undefined ? serverSilent : composerState(live, { id: sessionId, agent }, keyboard);
     element.hidden = !view.shown;
     enabled = view.enabled;
     input.placeholder = view.placeholder;
@@ -116,6 +125,7 @@ export function createComposer(sessionId, { focusBox, placeOf, asides }) {
       resumeWhere.textContent = place === undefined ? 'Opens in herdr in a new workspace named after its folder' : [place.workspace, place.tab].filter((part) => part !== undefined).join(' · ');
     }
     dialogCard.show(live?.state === 'live' ? live.dialog : undefined);
+    showQueued(live?.state === 'live' ? live.queued : []);
     refreshButtons();
     if (focusPending) {
       focusPending = false;
@@ -321,7 +331,7 @@ export function createComposer(sessionId, { focusBox, placeOf, asides }) {
       const outcome = parseStopOutcome(json);
       interrupt.disabled = false;
       if (outcome?.ok === true && outcome.prompt !== undefined) fill(outcome.prompt);
-      say(outcome === undefined ? 'The viewer server did not answer.' : stopMessage(outcome), outcome?.ok === true ? 'ok' : 'error');
+      say(outcome === undefined ? 'The viewer server did not answer.' : stopMessage(outcome, agent), outcome?.ok === true ? 'ok' : 'error');
       void refreshLive();
     });
   });

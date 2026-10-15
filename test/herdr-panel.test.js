@@ -187,7 +187,7 @@ test('tabBar_Should_ShowOpenTabsButtons_OnlyWhenItIsClickedAgain', () => {
 
 // "+" opens a tab beside the open one, under the name typed for it — a terminal, or Claude Code — and the page goes to
 // it; with no name herdr numbers it; Cancel opens nothing
-test('tabBar_Should_OpenNewNamedTabWithTerminalOrClaude_And_GoToIt', async () => {
+test('tabBar_Should_OpenNewNamedTabWithTerminalClaudeOrCodex_And_GoToIt', async () => {
   const { bar, asked, click } = barAboveSession();
   /** @param {string} value */
   const name = (value) => {
@@ -206,8 +206,12 @@ test('tabBar_Should_OpenNewNamedTabWithTerminalOrClaude_And_GoToIt', async () =>
   name('');
   click('.herdr-tab-new-shell');
   await settled();
+  click('.herdr-tab-new');
+  name('review');
+  click('.herdr-tab-new-codex');
+  await settled();
 
-  assert.deepEqual(asked, [['create', 'w2:t1', 'claude', 'slow tests'], ['open', '#/pane/w2:p9'], ['create', 'w2:t1', 'shell', undefined], ['open', '#/pane/w2:p9']]);
+  assert.deepEqual(asked, [['create', 'w2:t1', 'claude', 'slow tests'], ['open', '#/pane/w2:p9'], ['create', 'w2:t1', 'shell', undefined], ['open', '#/pane/w2:p9'], ['create', 'w2:t1', 'codex', 'review'], ['open', '#/pane/w2:p9']]);
 });
 
 // A workspace's rows take its colour — its own row and the rows of the sessions running in it — set apart from another
@@ -310,10 +314,16 @@ test('herdrSidebar_Should_OpenNewWorkspace_FromItsNameAndFolder', async () => {
   fill('.herdr-new-folder', 'D:/dev/billing');
   find('.herdr-new-shell').click();
   await settle();
+  const formGone = element.querySelector('.herdr-new-workspace') === null;
+  sidebar.newButton.click();
+  fill('.herdr-new-name', 'review');
+  fill('.herdr-new-folder', 'D:/dev/review');
+  find('.herdr-new-codex').click();
+  await settle();
 
   assert.deepEqual(
-    { asked, refused, kept: kept instanceof window.HTMLInputElement ? kept.value : undefined, opened, formGone: element.querySelector('.herdr-new-workspace') === null },
-    { asked: [['billing', 'D:/nowhere', 'claude'], ['billing', 'D:/dev/billing', 'shell']], refused: 'There is no such folder.', kept: 'billing', opened: ['#/pane/w5:p1'], formGone: true },
+    { asked, refused, kept: kept instanceof window.HTMLInputElement ? kept.value : undefined, opened, formGone },
+    { asked: [['billing', 'D:/nowhere', 'claude'], ['billing', 'D:/dev/billing', 'shell'], ['review', 'D:/dev/review', 'codex']], refused: 'There is no such folder.', kept: 'billing', opened: ['#/pane/w5:p1', '#/pane/w5:p1'], formGone: true },
   );
 });
 

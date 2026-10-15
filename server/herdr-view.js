@@ -3,6 +3,7 @@
 // session list.
 //   ~/.claude/sessions/<pid>.json  → the process that has the session open
 //   herdr pane process-info        → the pane that runs that process
+//   Codex's threads open now       → the Codex pane that runs each (codex-live.js)
 //   herdr api snapshot             → workspaces, their tabs and panes
 // A session seen running keeps its workspace in a file after it ends; one never seen running is put into the workspace
 // whose panes are open in its folder, if just one workspace has panes there.
@@ -11,6 +12,8 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isRecord, text } from '../public/model/narrow.js';
+import { codexPanes } from './codex-live.js';
+import { folderKey } from './folders.js';
 import { foregroundPids, snapshotOf, succeeded } from './herdr.js';
 import { latestRecords } from './registry.js';
 import { acceptTrust } from './trust.js';
@@ -23,14 +26,18 @@ import { observed } from './session-history.js';
  * @typedef {{ snapshot: import('./herdr.js').HerdrSnapshot, sessionByPane: ReadonlyMap<string, string>, byFolder: ReadonlyMap<string, string> } | undefined} HerdrView
  *   what herdr showed, the sessions running in its panes, and the workspace of each folder; undefined: no herdr
  * @typedef {import('./herdr.js').Pane} Pane
+ * @typedef {{ found: 'pane', pane: string, working: boolean } | { found: 'elsewhere' | 'none' }} CodexPlace — where a
+ *   Codex session runs: in a herdr pane, its agent at work or not; elsewhere — Codex has it open outside herdr; none —
+ *   closed
  */
 
 /**
- * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, file: string, refreshMs: number, claudeCommand: string, trust: { looks: number, stepMs: number } }} deps
- *   readRecords — contents of ~/.claude/sessions/*.json; file — where the workspaces of sessions seen running are kept;
- *   refreshMs — herdr is asked at most this often; claudeCommand — what starts Claude Code in a new tab
+ * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, codexThreads: () => Promise<readonly import('./codex-live.js').LiveThread[]>, file: string, refreshMs: number, claudeCommand: string, codexCommand: string, trust: { looks: number, stepMs: number } }} deps
+ *   readRecords — contents of ~/.claude/sessions/*.json; codexThreads — the threads Codex has open now; file — where the
+ *   workspaces of sessions seen running are kept; refreshMs — herdr is asked at most this often; claudeCommand,
+ *   codexCommand — what starts Claude Code, and Codex, in a new tab
  */
-export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCommand, trust }) {
+export function createHerdrView({ herdr, readRecords, codexThreads, file, refreshMs, claudeCommand, codexCommand, trust }) {
   /** A process's pane does not change while it runs: process-info is asked once for each Claude process. */
   /** @type {Map<number, string>} */
   const paneByPid = new Map();
@@ -106,7 +113,10 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
     const reply = await herdr(['api', 'snapshot']);
     const snapshot = succeeded(reply) ? snapshotOf(reply.json) : undefined;
     if (snapshot === undefined) return undefined;
-    const sessionByPane = await runningSessions(snapshot.panes);
+    const claude = await runningSessions(snapshot.panes);
+    // Codex's threads are looked at only while a pane runs Codex
+    const codex = snapshot.panes.some((pane) => pane.agent === 'codex') ? codexPanes(snapshot.panes, await codexThreads()) : new Map();
+    const sessionByPane = new Map([...claude, ...codex]);
     await rememberRunning(snapshot, sessionByPane);
     return { snapshot, sessionByPane, byFolder: workspaceByFolder(snapshot.panes, workspaceLabels(snapshot)) };
   };
@@ -123,20 +133,23 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
   };
 
   /**
-   * Claude Code in a new tab's shell: its command typed once the shell shows its prompt — what is typed before it may
-   * be lost. Asked whether to trust the folder the user chose for it, it is answered yes, out of the reply's way.
+   * Claude Code, or Codex, in a new tab's shell: its command typed once the shell shows its prompt — what is typed before
+   * it may be lost. Claude Code asked whether to trust the folder the user chose for it is answered yes, out of the
+   * reply's way.
    * @param {string} pane
-   * @param {readonly string[]} options — after the command: --resume <session>
+   * @param {import('../public/model/composer.js').Agent} agent
+   * @param {string | undefined} resumed — the session it goes on with
    * @returns {Promise<boolean>} — whether herdr took the keys
    */
-  const startClaude = async (pane, options) => {
+  const startAgent = async (pane, agent, resumed) => {
     for (let look = 0; look < shellLooks; look++) {
       const screen = await herdr(['pane', 'read', pane, '--source', 'visible', '--format', 'text']);
       if (screen.ok && screen.text.trim() !== '') break;
       await delay(shellStepMs);
     }
-    const started = succeeded(await herdr(['pane', 'send-text', pane, [claudeCommand, ...options].join(' ')])) && succeeded(await herdr(['pane', 'send-keys', pane, 'enter']));
-    if (started) void acceptTrust(herdr, pane, trust).catch(() => undefined); // herdr gone meanwhile: nothing to answer
+    const command = agent === 'claude' ? [claudeCommand, ...(resumed === undefined ? [] : ['--resume', resumed])] : [codexCommand, ...(resumed === undefined ? [] : ['resume', resumed])];
+    const started = succeeded(await herdr(['pane', 'send-text', pane, command.join(' ')])) && succeeded(await herdr(['pane', 'send-keys', pane, 'enter']));
+    if (started && agent === 'claude') void acceptTrust(herdr, pane, trust).catch(() => undefined); // herdr gone meanwhile: nothing to answer
     return started;
   };
 
@@ -163,7 +176,7 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
     },
     /**
      * A new tab beside one — in its workspace, in the folder of its pane — named, or numbered by herdr, with a shell, or
-     * Claude Code started in it.
+     * Claude Code or Codex started in it.
      * @param {string} besideTab
      * @param {import('../public/model/herdr.js').TabStart} start
      * @param {string | undefined} label
@@ -180,11 +193,12 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
       const tab = succeeded(reply) ? tabOf(reply.json) : undefined;
       const name = label?.replace(/\s+/g, ' ').trim();
       if (tab !== undefined && name !== undefined && name !== '') await herdr(['tab', 'rename', tab, name]);
-      if (start === 'claude' && !(await startClaude(pane, []))) return { ok: false, error: 'failed' };
+      if (start !== 'shell' && !(await startAgent(pane, start, undefined))) return { ok: false, error: 'failed' };
       return { ok: true, target: `#/pane/${pane}` };
     },
     /**
-     * A new workspace, named on one line, in a folder — ~ for the home folder — with a shell, or Claude Code started in it.
+     * A new workspace, named on one line, in a folder — ~ for the home folder — with a shell, or Claude Code or Codex
+     * started in it.
      * @param {string} label
      * @param {string} folder
      * @param {import('../public/model/herdr.js').TabStart} start
@@ -200,7 +214,7 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
       const pane = succeeded(reply) ? rootPaneOf(reply.json) : undefined;
       if (pane === undefined) return { ok: false, error: 'failed' };
       latest = undefined;
-      if (start === 'claude' && !(await startClaude(pane, []))) return { ok: false, error: 'failed' };
+      if (start !== 'shell' && !(await startAgent(pane, start, undefined))) return { ok: false, error: 'failed' };
       return { ok: true, target: `#/pane/${pane}` };
     },
     /**
@@ -246,13 +260,14 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
     },
     /**
      * A closed session opened again where it ran: a new tab of its workspace — the workspace opened again if it is gone,
-     * or named after the folder for a session never seen in herdr — named as the tab was, in its folder, Claude Code
-     * resuming it there. The page stays on the session's feed.
+     * or named after the folder for a session never seen in herdr — named as the tab was, in its folder, Claude Code —
+     * or Codex — resuming it there. The page stays on the session's feed.
      * @param {string} sessionId
      * @param {string | undefined} cwd — the session's folder, as its transcript tells it
+     * @param {import('../public/model/composer.js').Agent} agent — whose session
      * @returns {Promise<import('../public/model/herdr.js').NewTab>}
      */
-    async reopen(sessionId, cwd) {
+    async reopen(sessionId, cwd, agent) {
       const view = await currentView();
       const place = (await keptHistory()).history[sessionId];
       const folder = place?.folder ?? cwd;
@@ -266,7 +281,7 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
       const tab = succeeded(reply) ? tabOf(reply.json) : undefined;
       // a tab nobody named went by its number, which the new tab has a new one of
       if (tab !== undefined && place?.tab !== undefined && !/^\d+$/.test(place.tab)) await herdr(['tab', 'rename', tab, place.tab]);
-      if (!(await startClaude(pane, ['--resume', sessionId]))) return { ok: false, error: 'failed' };
+      if (!(await startAgent(pane, agent, sessionId))) return { ok: false, error: 'failed' };
       return { ok: true, target: `#/${sessionId}` };
     },
     /**
@@ -279,6 +294,17 @@ export function createHerdrView({ herdr, readRecords, file, refreshMs, claudeCom
       await currentView();
       const { history } = await keptHistory();
       return Object.fromEntries(Object.entries(history).map(([session, place]) => [session, place.open ? { ...place, lastSeen: undefined } : place]));
+    },
+    /**
+     * Where a Codex session runs, for the composer to type into it.
+     * @param {string} sessionId
+     * @returns {Promise<CodexPlace>}
+     */
+    async codexPlace(sessionId) {
+      const view = await currentView();
+      const pane = view?.snapshot.panes.find((one) => view.sessionByPane.get(one.paneId) === sessionId);
+      if (pane !== undefined) return { found: 'pane', pane: pane.paneId, working: pane.status === 'working' };
+      return (await codexThreads()).some((thread) => thread.id === sessionId) ? { found: 'elsewhere' } : { found: 'none' };
     },
     /** @returns {Promise<import('../public/model/herdr.js').HerdrLayout>} */
     async layout() {
@@ -341,14 +367,6 @@ function workspaceByFolder(panes, labels) {
     byFolder.set(key, new Set([...(byFolder.get(key) ?? []), label]));
   }
   return new Map([...byFolder].flatMap(([folder, found]) => (found.size === 1 ? [...found].map((label) => /** @type {const} */ ([folder, label])) : [])));
-}
-
-/**
- * A folder as a key: the case, the kind of slashes and a trailing slash do not matter.
- * @param {string} path
- */
-function folderKey(path) {
-  return path.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
 }
 
 /**

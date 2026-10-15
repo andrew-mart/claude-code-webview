@@ -27,7 +27,7 @@ async function sendWhile(status, act) {
       return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
     },
   });
-  const composer = createComposer(sessionId, { focusBox: 'no', placeOf: () => undefined, asides: createAsideStore() });
+  const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore() });
   window.document.body.append(composer.element);
   await settle();
   const box = composer.element.querySelector('.composer-input');

@@ -842,6 +842,7 @@ button {
 
 .herdr-new-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
@@ -2714,6 +2715,30 @@ table.diff tr.gap td {
 .task-output:empty::before {
   content: "Nothing written yet";
   color: var(--text-3);
+}
+
+/* What Codex queued to send next, above the box: its follow-up inputs, quietly */
+.composer-queued {
+  margin: 0 0 6px;
+  padding: 6px 10px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+
+.composer-queued-note {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.composer-queued-items {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.composer-queued-items li::marker {
+  content: '↳ ';
 }
 
 /* What Claude Code asks in its terminal, above the box: its choices as buttons, a click is the key the terminal gets. */

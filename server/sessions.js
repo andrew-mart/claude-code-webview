@@ -202,7 +202,26 @@ export function createSessionIndex(root, { summaryBudgetMs, codexRoot }) {
     return end;
   }
 
-  return { list, changes, find, subagents, findSubagent, agentOf, partsOf };
+  /**
+   * A session's folder, who runs it and when it was last active, by its id: none for a session not found.
+   * @param {string} id
+   * @returns {Promise<{ cwd: string | undefined, kind: SessionKind, activeAt: number } | undefined>}
+   */
+  async function summaryOf(id) {
+    const path = await find(id);
+    if (path === undefined) return undefined;
+    // a session's folder and who runs it do not change: a summary made before tells them, a later file or not
+    if (!summaries.has(path)) {
+      const file = (await allFiles()).find((one) => one.path === path);
+      if (file !== undefined) await summarize(file, Date.now());
+    }
+    const known = summaries.get(path);
+    if (known === undefined) return undefined;
+    const { cwd, kind, lastActivity } = known.summary;
+    return { cwd, kind, activeAt: lastActivity === undefined ? known.modifiedAt : lastActivity };
+  }
+
+  return { list, changes, find, subagents, findSubagent, agentOf, partsOf, summaryOf };
 }
 
 /**
