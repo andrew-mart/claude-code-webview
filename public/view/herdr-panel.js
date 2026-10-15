@@ -19,6 +19,7 @@ import { workspaceIconOf } from './workspace-icon.js';
 import { lucideIcon } from './lucide.js';
 import { createWorkClock } from './work-clock.js';
 import { tintByWorkspace } from './workspace-tint.js';
+import { workspaceHue } from '../model/workspace-color.js';
 import { labelWithIcon, splitTabIcon, tabIcons, workspaceIcons } from '../model/tab-icon.js';
 
 /**
@@ -377,8 +378,47 @@ function withIcon(name, chosen) {
 }
 
 /**
+ * Opens a workspace's icons to pick from at what they are opened by, over the page: put away once one is picked, on
+ * Escape or on a press elsewhere — a press in them, a search typed, keeps them; the keys go to them, not to the page's
+ * Escape that stops Claude.
+ * @param {{ from: Element, into: Element, hue: string, rowIcon: RowIcon, onChoose: (icon: string | undefined) => void, onAway: () => void }} options
+ *   — into: what holds them; hue: the workspace's, Lucide's icons drawn in it as its row has it; onAway: put away,
+ *   nothing picked
+ */
+function openIconPalette({ from, into, hue, rowIcon, onChoose, onAway }) {
+  const putAway = () => {
+    window.document.removeEventListener('pointerdown', onPress, true);
+    palette.element.remove();
+  };
+  /** @param {Event} press */
+  const onPress = (press) => {
+    if (press.target instanceof window.Node && palette.element.contains(press.target)) return;
+    putAway();
+    onAway();
+  };
+  const palette = createIconPalette({
+    icons: rowIcon.atHand,
+    lucide: { tags: rowIcon.tags },
+    onChoose(chosen) {
+      putAway();
+      onChoose(chosen);
+    },
+    onEscape() {
+      putAway();
+      onAway();
+    },
+  });
+  palette.element.style.setProperty('--workspace-hue', hue);
+  into.append(palette.element);
+  window.document.addEventListener('pointerdown', onPress, true);
+  palette.open(from);
+  palette.element.tabIndex = -1;
+  palette.element.focus();
+}
+
+/**
  * Names a row: herdr renames it unless its name stays as it is, then the viewer keeps the icon it holds for it.
- * @param {RowSubject} subject
+ * @param {Pick<RowSubject, 'label' | 'rename' | 'icon'>} subject
  * @param {Naming} naming
  * @returns {Promise<TabChange>} — herdr's renaming
  */
@@ -568,36 +608,14 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
       event.stopPropagation();
       if (busy) return;
       busy = true;
-      const putAway = () => {
-        window.document.removeEventListener('pointerdown', onPress, true);
-        palette.element.remove();
-      };
-      /** @param {Event} press */
-      const onPress = (press) => {
-        if (press.target instanceof window.Node && palette.element.contains(press.target)) return;
-        putAway();
-        redraw();
-      };
-      const palette = createIconPalette({
-        icons: rowIcon.atHand,
-        lucide: { tags: rowIcon.tags },
-        onChoose(chosen) {
-          putAway();
-          void renameWith(subject, withIcon(splitTabIcon(subject.label).name, chosen)).then(redraw);
-        },
-        onEscape() {
-          putAway();
-          redraw();
-        },
+      openIconPalette({
+        from: shown,
+        into: element,
+        hue: row.style.getPropertyValue('--workspace-hue'),
+        rowIcon,
+        onChoose: (chosen) => void renameWith(subject, withIcon(splitTabIcon(subject.label).name, chosen)).then(redraw),
+        onAway: redraw,
       });
-      // Lucide's icons in the workspace's own colour, as its row has it
-      palette.element.style.setProperty('--workspace-hue', row.style.getPropertyValue('--workspace-hue'));
-      element.append(palette.element);
-      window.document.addEventListener('pointerdown', onPress, true);
-      palette.open(shown);
-      // the keys go to the icons: Escape puts them away, not the page's Escape that stops Claude
-      palette.element.tabIndex = -1;
-      palette.element.focus();
     });
   };
   const slot = h('div', { className: 'herdr-workspace-slot' });
@@ -783,8 +801,9 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
 }
 
 /**
- * @typedef {{ rename: (tabId: string, label: string) => Promise<import('../model/herdr.js').TabChange>, close: (tabId: string) => Promise<import('../model/herdr.js').TabChange>, open: (target: string) => void, create: (besideTab: string, start: import('../model/herdr.js').TabStart, label: string | undefined) => Promise<import('../model/herdr.js').NewTab> }} TabActions
- *   — rename, close and create resolve once the page shows the change; open goes to a page address
+ * @typedef {{ rename: (tabId: string, label: string) => Promise<import('../model/herdr.js').TabChange>, close: (tabId: string) => Promise<import('../model/herdr.js').TabChange>, open: (target: string) => void, create: (besideTab: string, start: import('../model/herdr.js').TabStart, label: string | undefined) => Promise<import('../model/herdr.js').NewTab>, renameWorkspace: (workspaceId: string, label: string) => Promise<TabChange>, setWorkspaceIcon: (workspaceId: string, icon: string | undefined) => Promise<TabChange>, iconTags: () => Promise<Readonly<Record<string, readonly string[]>>> }} TabActions
+ *   — rename, close and create resolve once the page shows the change; open goes to a page address; renameWorkspace,
+ *   setWorkspaceIcon and iconTags: the workspace's icon picked from the bar's head
  */
 
 /**
@@ -794,7 +813,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
  * a terminal, or Claude Code — and the page goes to it.
  * @param {TabActions} actions
  */
-export function createTabBar({ rename, close, open, create }) {
+export function createTabBar({ rename, close, open, create, renameWorkspace, setWorkspaceIcon, iconTags }) {
   /** How long each tab has been at work: its robots' story goes on across redrawing. */
   const clock = createWorkClock(() => Date.now());
   const element = h('nav', { className: 'herdr-tab-bar', attrs: { 'aria-label': 'herdr tabs', hidden: '' } });
@@ -823,6 +842,36 @@ export function createTabBar({ rename, close, open, create }) {
     buttonsOf = undefined;
     shown = '';
     if (given !== undefined) bar.render(given.layout, given.opened, given.seen);
+  };
+
+  /**
+   * The icon of the workspace at the head of its tabs: a press opens its icons to pick from — on a phone a press on the
+   * workspace's row in the sidebar goes to it. The bar stays as it is meanwhile.
+   * @param {import('../model/herdr.js').HerdrWorkspace} workspace
+   * @returns {HTMLButtonElement[]} — none for a workspace without an icon
+   */
+  const workspaceIconButton = (workspace) => {
+    const drawn = workspaceIconOf(workspace.icon);
+    if (drawn.length === 0) return [];
+    const button = h('button', { className: 'herdr-chip-icon', title: 'Icon of the workspace', attrs: { type: 'button', 'aria-label': 'Icon of the workspace' } }, drawn);
+    button.addEventListener('click', () => {
+      if (busy) return;
+      busy = true;
+      const subject = {
+        label: workspace.label,
+        rename: (/** @type {string} */ label) => renameWorkspace(workspace.id, label),
+        icon: { atHand: workspaceIcons, current: workspace.icon, setIcon: (/** @type {string | undefined} */ chosen) => setWorkspaceIcon(workspace.id, chosen), tags: iconTags },
+      };
+      openIconPalette({
+        from: button,
+        into: window.document.body,
+        hue: String(workspaceHue(workspace.label)),
+        rowIcon: subject.icon,
+        onChoose: (chosen) => void renameWith(subject, withIcon(splitTabIcon(workspace.label).name, chosen)).then(finish),
+        onAway: finish,
+      });
+    });
+    return [button];
   };
 
   /**
@@ -994,7 +1043,7 @@ export function createTabBar({ rename, close, open, create }) {
       });
       const adding = h('button', { className: 'icon-button herdr-tab-new', title: 'New tab', attrs: { type: 'button', 'aria-label': 'New tab' } }, [icon('plus')]);
       adding.addEventListener('click', () => startAdding(adding, place.tab));
-      element.replaceChildren(h('span', { className: 'herdr-chip-workspace' }, [...workspaceIconOf(place.workspace.icon), workspaceName(place.workspace)]), ...chips, adding);
+      element.replaceChildren(h('span', { className: 'herdr-chip-workspace' }, [...workspaceIconButton(place.workspace), workspaceName(place.workspace)]), ...chips, adding);
       element.querySelector('.herdr-chip.selected')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     },
   };
