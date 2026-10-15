@@ -3,26 +3,31 @@ import assert from 'node:assert/strict';
 import { driveBtw, sidePanel } from '../server/btw.js';
 
 /**
- * A stand-in for Claude Code's terminal with /btw. Enter on "/btw …" in the box opens the side answer over the box:
- * "Answering…" for a few looks, then the answer `height` lines at a time, indented and with a blank line above and
- * below, as Claude Code draws it; ↓ scrolls it by three lines, Esc closes it.
- * @param {{ answer: readonly string[], height?: number, answeringLooks?: number, box?: string, asks?: boolean, columns?: number }} side —
+ * A stand-in for Claude Code's terminal with /btw. Enter on "/btw …" in the box opens the side answer over the box —
+ * the side questions asked before listed over it, one line each: "Answering…" for a few looks, then the answer
+ * `height` lines at a time, indented and with a blank line above and below, as Claude Code draws it; ↓ scrolls it by three
+ * lines, Esc closes it.
+ * @param {{ answer: readonly string[], height?: number, answeringLooks?: number, box?: string, asks?: boolean, columns?: number, before?: readonly string[], open?: boolean }} side —
  *   box: text in the prompt box before the question; asks: false — Enter leaves the question in the box, as with a
- *   conversation that has nothing in it yet; columns: the terminal's width, the panel's top edge spans it
+ *   conversation that has nothing in it yet; columns: the terminal's width, the panel's top edge spans it; before: the
+ *   side questions asked before; open: the panel of the last of them left open in the terminal
  */
-function fakeClaude({ answer, height = 5, answeringLooks = 2, box = '', asks = true, columns = 80 }) {
-  /** @type {{ box: string, typed: string[], keys: string[], overlay: { question: string, looksLeft: number, scroll: number } | undefined }} */
-  const state = { box, typed: [], keys: [], overlay: undefined };
+function fakeClaude({ answer, height = 5, answeringLooks = 2, box = '', asks = true, columns = 80, before = [], open = false }) {
+  const last = before.at(-1);
+  /** @type {{ box: string, typed: string[], keys: string[], asked: string[], overlay: { question: string, looksLeft: number, scroll: number } | undefined }} */
+  const state = { box, typed: [], keys: [], asked: [...before], overlay: open && last !== undefined ? { question: last, looksLeft: 0, scroll: 0 } : undefined };
   const screen = () => {
     const above = ['● Earlier answer', '✻ Worked for 5s'];
     const overlay = state.overlay;
     if (overlay === undefined) return [...above, '─'.repeat(30), `❯ ${state.box}`, '─'.repeat(30), '  ⏵⏵ auto mode on'].join('\n');
+    const asked = state.asked.map((one) => `    /btw ${one}`);
+    const footer = state.asked.length > 1 ? '    ⇧←/→ to browse · c to copy · f to fork · x to clear history · Esc to close' : '    ↑/↓ to scroll · c to copy · f to fork · Esc to close';
     if (overlay.looksLeft > 0) {
       overlay.looksLeft--;
-      return [...above, '▔'.repeat(columns), '', `    /btw ${overlay.question}`, '      ✽ Answering…', '    Esc to close'].join('\n');
+      return [...above, '▔'.repeat(columns), '', ...asked, '      ✽ Answering…', '    Esc to close'].join('\n');
     }
     const shown = answer.slice(overlay.scroll, overlay.scroll + height).map((line) => (line === '' ? '' : `      ${line}`));
-    return [...above, '▔'.repeat(columns), '', `    /btw ${overlay.question}`, '', ...shown, '', '    ↑/↓ to scroll · c to copy · f to fork · Esc to close'].join('\n');
+    return [...above, '▔'.repeat(columns), '', ...asked, '', ...shown, '', footer].join('\n');
   };
   /** @type {import('../server/claude-screen.js').Terminal} */
   const terminal = {
@@ -37,6 +42,7 @@ function fakeClaude({ answer, height = 5, answeringLooks = 2, box = '', asks = t
         state.keys.push(key);
         if (key === 'enter' && asks && state.box.startsWith('/btw ')) {
           state.overlay = { question: state.box.slice('/btw '.length), looksLeft: answeringLooks, scroll: 0 };
+          state.asked.push(state.overlay.question);
           state.box = '';
         }
         if (key === 'down' && state.overlay !== undefined) state.overlay.scroll = Math.min(state.overlay.scroll + 3, Math.max(0, answer.length - height));
@@ -129,4 +135,29 @@ test('driveBtw_Should_JoinLinesThePanelWrapped_ButNotTableRowsOrShortLines', asy
     ok: true,
     answer: ['The queue reads the limit on start, so a restart is needed.', 'Two lines:', '┌──────┬──────┐', '│ Part │ MR   │', '└──────┴──────┘', '- one item that runs over the edge'].join('\n'),
   });
+});
+
+// Claude Code keeps the side questions asked: its panel lists the earlier ones over the latest, whose answer it shows,
+// to be browsed with ⇧←/→ — the answer read is this question's, the latest
+test('sidePanel_Should_ReadAnswerOfLatestQuestion_When_EarlierOnesAreListedOverIt', () => {
+  const top = ['● Earlier answer', '✻ Brewed for 2m'];
+  const edge = '▔'.repeat(80);
+  const asked = ['    /btw which remote does the repo have?', `    /btw ${question}`];
+  const answering = [...top, edge, '', ...asked, '      ✢ Answering…', '    Esc to close'].join('\n');
+  const answered = [...top, edge, '', ...asked, '', '      The limit is in src/config.ts.', '', '    ⇧←/→ to browse · c to copy · f to fork · x to clear history · Esc to close'].join('\n');
+
+  assert.deepEqual(
+    [sidePanel(answering, question), sidePanel(answered, question), sidePanel(answered, 'which remote does the repo have?')],
+    [{ state: 'answering' }, { state: 'answered', lines: ['The limit is in src/config.ts.'], width: 74 }, undefined],
+  );
+});
+
+// A side panel left open in the terminal — an answer read there — covers the prompt box: it is closed first, then the
+// question asked and its answer read
+test('driveBtw_Should_CloseSidePanelLeftOpen_ThenAsk', async () => {
+  const claude = fakeClaude({ answer, before: ['which remote does the repo have?'], open: true });
+
+  const outcome = await driveBtw(claude.terminal, { question, wait: noWait });
+
+  assert.deepEqual({ outcome, first: claude.state.keys[0], typed: claude.state.typed, open: claude.state.overlay !== undefined }, { outcome: { ok: true, answer: answer.join('\n') }, first: 'esc', typed: [`/btw ${question}`], open: false });
 });

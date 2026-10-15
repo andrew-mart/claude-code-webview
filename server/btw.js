@@ -2,6 +2,8 @@
 // A side question from the page, as /btw in the terminal: Claude answers from the conversation, without tools and
 // without adding to it. Claude Code shows the answer only in a panel over its prompt box — nothing is written to the
 // transcript — so it is read off the screen: scrolled through with ↓ to the end, then the panel is closed with Esc.
+// Claude Code keeps the side questions asked: its panel lists the earlier ones over the latest, whose answer it shows. A
+// panel left open in the terminal covers the prompt box: it is closed before the question is asked.
 import { inputBox, settleOn, squash } from './claude-screen.js';
 
 /**
@@ -32,7 +34,7 @@ const maxScrolls = 1000;
 export async function driveBtw(terminal, { question, wait }) {
   // the box takes one line: Enter in it would ask too early
   const asked = question.replace(/\s+/g, ' ').trim();
-  const screen = await terminal.read();
+  const screen = await withPanelClosed(terminal, wait);
   const box = screen === undefined ? undefined : inputBox(screen);
   if (box === undefined) return { ok: false, error: 'screen-unreadable' };
   // a draft typed in the terminal would run into the question
@@ -57,24 +59,59 @@ export async function driveBtw(terminal, { question, wait }) {
  */
 export function sidePanel(screen, question) {
   const lines = screen.split('\n');
-  const top = lines.findLastIndex((line) => /▔{8,}/.test(line));
-  if (top < 0) return undefined;
-  // the question as the panel repeats it, under a blank line: one line, cut with an ellipsis when the question is longer
-  const echoAt = lines.findIndex((line, index) => index > top && line.trim() !== '');
+  const panel = panelOf(lines);
+  if (panel === undefined) return undefined;
+  const { top, echoAt, bottom } = panel;
+  // the question as the panel repeats it: one line, cut with an ellipsis when the question is longer
   const echo = lines[echoAt] ?? '';
   const asked = squash(`/btw ${question}`);
   const echoed = squash(echo);
   const cut = echo.trimEnd().endsWith('…');
-  if (echoAt < 0 || !(cut ? echoed.length > '/btw'.length && asked.startsWith(echoed) : echoed === asked)) return undefined;
-  const at = echoAt + 1;
-  const bottom = lines.findIndex((line, index) => index >= at && /Esc to close\s*$/.test(line));
-  if (bottom < 0) return undefined;
-  const body = lines.slice(at, bottom);
+  if (!(cut ? echoed.length > '/btw'.length && asked.startsWith(echoed) : echoed === asked)) return undefined;
+  const body = lines.slice(echoAt + 1, bottom);
   if (body.some((line) => /^\s*\S\s+Answering…\s*$/.test(line))) return { state: 'answering' };
   // The panel pads its lines with a blank line above and below. A blank line of the answer itself at the edge of the
   // view is inside the next view: the views overlap by all but three lines.
   const width = [...(lines[top] ?? '')].length - answerIndent;
   return { state: 'answered', lines: withoutBlankEnds(body.map((line) => line.trimEnd().replace(/^ {1,6}/, ''))), width };
+}
+
+/**
+ * Where the side panel is on the screen: its top edge; the question whose answer it shows — the latest asked, under a
+ * blank line, the earlier ones listed over it a line each; its footer. None without one.
+ * @param {readonly string[]} lines
+ * @returns {{ top: number, echoAt: number, bottom: number } | undefined}
+ */
+function panelOf(lines) {
+  const top = lines.findLastIndex((line) => /▔{8,}/.test(line));
+  if (top < 0) return undefined;
+  const bottom = lines.findIndex((line, index) => index > top && /Esc to close\s*$/.test(line));
+  const first = lines.findIndex((line, index) => index > top && line.trim() !== '');
+  if (bottom < 0 || first < 0 || first >= bottom || !isAsked(lines[first])) return undefined;
+  const latest = lines.findIndex((line, index) => index >= first && !isAsked(lines[index + 1]));
+  return { top, echoAt: latest, bottom };
+}
+
+/**
+ * Whether the line is a side question as the panel lists it.
+ * @param {string | undefined} line
+ */
+function isAsked(line) {
+  return line !== undefined && line.trimStart().startsWith('/btw');
+}
+
+/**
+ * The screen once a side panel left open over the prompt box — an answer read in the terminal — is closed with Esc;
+ * with none open, Esc is not pressed: in the prompt box it would stop Claude's turn.
+ * @param {import('./claude-screen.js').Terminal} terminal
+ * @param {(ms: number) => Promise<void>} wait
+ * @returns {Promise<string | undefined>}
+ */
+async function withPanelClosed(terminal, wait) {
+  const screen = await terminal.read();
+  if (screen === undefined || panelOf(screen.split('\n')) === undefined) return screen;
+  await terminal.keys('esc');
+  return settleOn(terminal, wait, (next) => inputBox(next) !== undefined);
 }
 
 /**
