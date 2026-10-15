@@ -25,13 +25,14 @@ const serverSilent = { shown: true, enabled: false, canInterrupt: false, canReop
 
 /**
  * @param {string} sessionId
- * @param {{ agent: import('../model/composer.js').Agent, focusBox: 'when-ready' | 'no', placeOf: () => { workspace: string, tab: string | undefined } | undefined, asides: import('./aside-store.js').AsideStore }} options —
+ * @param {{ agent: import('../model/composer.js').Agent, focusBox: 'when-ready' | 'no', placeOf: () => { workspace: string, tab: string | undefined } | undefined, asides: import('./aside-store.js').AsideStore, onSent: (text: string) => void }} options —
  *   agent: whose session; focusBox when-ready: the user opened the session, so the box takes the focus once the session can be written to; no:
  *   following the active session switched to it. placeOf: the herdr workspace and tab the session ran in, if known. asides:
- *   the side questions and answers of the page's sessions — one outlives the box it was asked in
+ *   the side questions and answers of the page's sessions — one outlives the box it was asked in. onSent: a prompt the
+ *   session's terminal took — the feed shows it until Claude Code writes it down
  * @returns {{ element: HTMLElement, say: (message: string, tone: 'ok' | 'error') => void, fill: (text: string) => void, stop: () => boolean, sendQueue: () => void, dispose: () => void }} — stop: Claude stopped if it was working
  */
-export function createComposer(sessionId, { agent, focusBox, placeOf, asides }) {
+export function createComposer(sessionId, { agent, focusBox, placeOf, asides, onSent }) {
   /** @type {import('../model/composer.js').Keyboard} */
   const keyboard = matchMedia('(pointer: coarse)').matches ? 'touch' : 'physical';
   const draftKey = `viewer.draft.${sessionId}`;
@@ -102,7 +103,7 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides }) 
     input.disabled = !enabled;
     attachments.button.disabled = !enabled;
   };
-  const say = (/** @type {string} */ message, /** @type {'ok' | 'error'} */ tone) => {
+  const say = (/** @type {string} */ message, /** @type {'ok' | 'busy' | 'error'} */ tone) => {
     clearTimeout(noticeTimer);
     status.textContent = message;
     status.dataset.tone = tone;
@@ -248,11 +249,14 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides }) 
     sending = true;
     refreshButtons();
     const images = attachments.images();
-    if (images.length > 0) say(`Sending ${images.length === 1 ? 'the image' : `${images.length} images`}…`, 'ok');
-    void post('/api/send', { text: input.value, images, ...(now ? { now: true } : {}) }).then((json) => {
+    // at once: under a heavy load the terminal may take a while to take it
+    say(images.length > 0 ? `Sending ${images.length === 1 ? 'the image' : `${images.length} images`} to the terminal…` : 'Sending to the terminal…', 'busy');
+    const text = input.value;
+    void post('/api/send', { text, images, ...(now ? { now: true } : {}) }).then((json) => {
       const outcome = parseOutcome(json);
       sending = false;
       if (outcome?.ok === true) {
+        onSent(text);
         input.value = '';
         writeDraft(draftKey, '');
         attachments.clear();

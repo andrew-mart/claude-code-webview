@@ -22,7 +22,7 @@ test('composer_Should_OfferToOpenSessionAgain_InPlaceOfBox_WhenItIsNotRunning', 
       return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
     },
   });
-  const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => ({ workspace: 'trip_plans', tab: 'route planner' }), asides: createAsideStore() });
+  const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => ({ workspace: 'trip_plans', tab: 'route planner' }), asides: createAsideStore(), onSent: () => undefined });
   window.document.body.append(composer.element);
   await new Promise((resolve) => setTimeout(resolve, 20));
   const box = composer.element.querySelector('.composer-box');

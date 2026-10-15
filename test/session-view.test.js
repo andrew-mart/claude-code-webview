@@ -159,3 +159,23 @@ test('mountSession_Should_OfferAnswersBookmarkUnderItToo_BothFlagsShowingIt', as
 
   assert.deepEqual({ before, after }, { before: ['corner false', 'under false'], after: ['corner true', 'under true'] });
 });
+
+// A prompt sent from the page shows in the feed at once, as sent — the terminal took it — until Claude Code writes it
+// down: then it is the prompt itself, once
+test('mountSession_Should_ShowPromptSentFromPage_UntilClaudeWritesItDown', async () => {
+  const { view, source } = mounted(undefined);
+  source.emit('open');
+  source.emit('entries', [prompt('u1', 'Question')]);
+  source.emit('ready');
+  await settled();
+  const sentShown = () => [...view.element.querySelectorAll('.msg.user.sent .bubble-text')].map((bubble) => bubble.textContent);
+
+  view.expectPrompt('Check the  limits\nagain');
+  const meanwhile = sentShown();
+  source.emit('entries', [prompt('u2', 'Check the limits again')]);
+  await settled();
+  const after = { sent: sentShown(), prompts: [...view.element.querySelectorAll('.msg.user:not(.waiting) .bubble-text')].map((bubble) => bubble.textContent) };
+  view.dispose();
+
+  assert.deepEqual({ meanwhile, after }, { meanwhile: ['Check the  limits\nagain'], after: { sent: [], prompts: ['Question', 'Check the limits again'] } });
+});

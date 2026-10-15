@@ -102,3 +102,27 @@ test('read_Should_ReadCodexSessionGoingOnInAnotherFile_FromWhereItGoesOn_UnderNe
     { uuids: ['codex-1', 'codex-3'], generationChanged: true },
   );
 });
+
+// Two pages follow one session: the one that leaves first does not let it go from under the other — once both have,
+// reading other files pushes it out
+test('keep_Should_KeepFileRead_WhileAnyPageKeepingItHasNotLetItGo', async () => {
+  const path = await transcript();
+  const other = await transcript();
+  const cache = createTranscriptCache({ maxFiles: 1 });
+  const letGoFirst = cache.keep(path, 'main');
+  const letGoSecond = cache.keep(path, 'main');
+  const first = await cache.read(path, { scope: 'main', imageUrl });
+
+  letGoFirst();
+  letGoFirst();
+  await cache.read(other, { scope: 'main', imageUrl });
+  const keptBySecond = await cache.read(path, { scope: 'main', imageUrl });
+  letGoSecond();
+  await cache.read(other, { scope: 'main', imageUrl });
+  const letGoByBoth = await cache.read(path, { scope: 'main', imageUrl });
+
+  assert.deepEqual(
+    { keptBySecond: keptBySecond.generation === first.generation, letGoByBoth: letGoByBoth.generation === first.generation },
+    { keptBySecond: true, letGoByBoth: false },
+  );
+});
