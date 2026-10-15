@@ -692,3 +692,20 @@ test('herdrSidebar_Should_KeepNaming_When_FocusGoesIntoTheIconPicker', () => {
 
   assert.equal(element.querySelector('input.herdr-row-name'), box);
 });
+
+// Lamps at work waver each in its own time — its own pace and moment, the same for it each time it is drawn — not all
+// at once
+test('herdrSidebar_Should_GiveEachLampAtWorkItsOwnTime', () => {
+  const element = window.document.createElement('div');
+  const working = { ...web, tabs: web.tabs.map((tab) => ({ ...tab, panes: tab.panes.map((one) => ({ ...one, status: /** @type {const} */ ('working') })) })) };
+  const sidebar = createHerdrSidebar(element, noActions);
+  /** @returns {string[]} */
+  const times = () => [...element.querySelectorAll('.herdr-tab .herdr-status[data-status="working"]')].map((lamp) => (lamp instanceof window.HTMLElement ? `${lamp.style.getPropertyValue('--waver-delay')} ${lamp.style.getPropertyValue('--waver-duration')}` : ''));
+
+  sidebar.render({ herdr: true, workspaces: [working] }, undefined, '', new Map());
+  const first = times();
+  sidebar.render({ herdr: true, workspaces: [working] }, undefined, 'x', new Map());
+  sidebar.render({ herdr: true, workspaces: [working] }, undefined, '', new Map());
+
+  assert.deepEqual({ distinct: new Set(first).size, again: times(), set: first.every((time) => /^-[\d.]+s [\d.]+s$/.test(time)) }, { distinct: 3, again: first, set: true });
+});

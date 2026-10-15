@@ -396,14 +396,14 @@ button {
 }
 
 /* overspent: blue into the red about the time gone by, gently — 9px each way at least, a short line too — and straight
-   across, in OKLab: OKLCH would turn the hue through pink between them */
+   across, in OKLab: OKLCH would turn the hue through pink between them. The blend ends by the end of what is used — the
+   track past it stays the track's — and the red reaches its depth in the narrowing after: no step between */
 .usage-meter[data-gap='over'] .usage-line::before,
 .usage-meter[data-gap='over'] .usage-glow::before {
   --blend: max(3.5%, 9px);
-  /* the red's full depth after the blend, even with the time gone by close to what is used: no step between */
-  --red: max(var(--at-use), calc(var(--elapsed) * 1% + var(--blend) * 2));
-  background: linear-gradient(90deg, var(--used-start) 0%, var(--used-end) calc(var(--elapsed) * 1% - var(--blend)), var(--gap-start) calc(var(--elapsed) * 1% + var(--blend)), var(--gap-end) var(--red), var(--border) calc(var(--red) + var(--narrowing) * 0.9));
-  background: linear-gradient(in oklab 90deg, var(--used-start) 0%, var(--used-end) calc(var(--elapsed) * 1% - var(--blend)), var(--gap-start) calc(var(--elapsed) * 1% + var(--blend)), var(--gap-end) var(--red), var(--border) calc(var(--red) + var(--narrowing) * 0.9));
+  --blended: min(calc(var(--elapsed) * 1% + var(--blend)), var(--at-use));
+  background: linear-gradient(90deg, var(--used-start) 0%, var(--used-end) calc(var(--elapsed) * 1% - var(--blend)), var(--gap-start) var(--blended), var(--gap-end) calc(var(--at-use) + var(--narrowing) * 0.45), var(--border) calc(var(--at-use) + var(--narrowing) * 0.9));
+  background: linear-gradient(in oklab 90deg, var(--used-start) 0%, var(--used-end) calc(var(--elapsed) * 1% - var(--blend)), var(--gap-start) var(--blended), var(--gap-end) calc(var(--at-use) + var(--narrowing) * 0.45), var(--border) calc(var(--at-use) + var(--narrowing) * 0.9));
 }
 
 .usage-percent {
@@ -9697,9 +9697,11 @@ a.file-link:hover {
   animation: lamp 1.2s ease-in-out infinite;
 }
 
+/* each at its own pace and moment (lamp-time.js): not all together */
 :root[data-lamps="lamps"] :is(.herdr-status[data-status="working"], .session-robot) {
   --lamp: var(--lamp-busy);
-  animation: lamp-waver 3.1s linear infinite;
+  animation: lamp-waver var(--waver-duration, 3.1s) linear infinite;
+  animation-delay: var(--waver-delay, 0s);
 }
 
 :root[data-lamps="lamps"] .herdr-status[data-status="ready"] {
@@ -9762,6 +9764,23 @@ a.file-link:hover {
   84% {
     opacity: 0.92;
     box-shadow: 0 0 6px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
+  }
+}
+
+/* the edge of a row whose answer is ready blinks with its green lamp — the same time and beat, both drawn together —
+   lit and glowing, then the edge alone */
+:root[data-lamps="lamps"] .tinted:is(.herdr-workspace, .herdr-tab):has(> .herdr-status[data-status="ready"])::before {
+  animation: edge-blink 1.2s ease-in-out infinite;
+}
+
+@keyframes edge-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.1;
   }
 }
 
