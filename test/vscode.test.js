@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { tempDir } from '../test-support/temp-dir.js';
 import { createVsCode, serversOf } from '../server/vscode.js';
 
 const fakeServeWeb = join(import.meta.dirname, '..', 'test-support', 'fake-serve-web.mjs');
@@ -14,12 +14,9 @@ const fakeServeWeb = join(import.meta.dirname, '..', 'test-support', 'fake-serve
  * @param {readonly string[]} [command]
  */
 async function vsCodeOf(t, command = [process.execPath, fakeServeWeb]) {
-  const dir = await mkdtemp(join(tmpdir(), 'ccw-vscode-'));
+  const dir = tempDir('ccw-vscode-');
   const vscode = createVsCode({ command, tokenFile: join(dir, 'token') });
-  t.after(async () => {
-    vscode.close();
-    await rm(dir, { recursive: true, force: true });
-  });
+  t.after(() => vscode.close());
   return vscode;
 }
 
@@ -65,8 +62,7 @@ test('vsCode_Should_GiveNothing_When_ProgramIsMissing', async (t) => {
 // However the viewer goes — stopped by --stop, which on Windows leaves a process's children running, or fallen — the
 // VS Code it started goes too, with the server VS Code started
 test('vscodeGuard_Should_TakeServerDown_When_ViewerIsGone', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'ccw-guard-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  const dir = tempDir('ccw-guard-');
   const tokenFile = join(dir, 'token');
   await writeFile(tokenFile, 'guarded');
   const viewer = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)']);
@@ -93,8 +89,7 @@ test('vscodeGuard_Should_TakeServerDown_When_ViewerIsGone', async (t) => {
 // VS Code's server outlives the CLI that started it — on Windows out of its process tree — so it is told by the token
 // file in its command line: stopping VS Code stops it, with what it started; nothing of another viewer is touched
 test('vsCode_Should_StopItsServerOutOfTree_ByTokenFile_LeavingOthersAlone', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'ccw-leftover-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  const dir = tempDir('ccw-leftover-');
   const tokenFile = join(dir, 'vscode-token-7788');
   const lingering = (/** @type {string} */ file) => {
     const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', '--', '--connection-token-file', file], { detached: true, stdio: 'ignore' });

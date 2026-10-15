@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { tempDir } from '../test-support/temp-dir.js';
 import { createHerdrSocket, socketAddress, socketRunner } from '../server/herdr-socket.js';
 
 /**
@@ -14,7 +14,7 @@ import { createHerdrSocket, socketAddress, socketRunner } from '../server/herdr-
  *   the reply line, without the id
  */
 async function fakeHerdr(t, answer) {
-  const socketPath = join(await mkdtemp(join(tmpdir(), 'ccw-herdr-')), 'herdr.sock');
+  const socketPath = join(tempDir('ccw-herdr-'), 'herdr.sock');
   /** @type {{ method: string, params: Record<string, unknown> }[]} */
   const requests = [];
   let open = 0;

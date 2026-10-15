@@ -1,15 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { tempDir } from '../test-support/temp-dir.js';
 import { editorLaunch, parseEditorCommand } from '../server/editor.js';
 
 // The editor's command is set once, with places for the file, its line and its project — the nearest folder above
 // with a solution or a git repository (Rider takes a line only after the project); each fills one argument whatever
 // spaces it has
 test('editorLaunch_Should_FillFileLineAndProjectIntoCommand', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'editor-'));
+  const root = tempDir('editor-');
   const project = join(root, 'My App');
   await mkdir(join(project, 'src', 'Domain'), { recursive: true });
   await writeFile(join(project, 'App.sln'), '');

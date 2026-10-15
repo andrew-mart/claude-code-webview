@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { appendFile, mkdir, mkdtemp, utimes, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { appendFile, mkdir, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { tempDir } from '../test-support/temp-dir.js';
 import { createSessionIndex, summarizeSession } from '../server/sessions.js';
 
 const at = '2026-10-09T07:02:11.686Z';
@@ -60,7 +60,7 @@ test('summarizeSession_Should_TellSessionsDrivenOnlyThroughSdk', () => {
 });
 
 test('list_Should_FindLatestFolderBehindHugeLastLine', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'csv-'));
+  const root = tempDir('csv-');
   await mkdir(join(root, 'D--dev-a'));
   const filler = Array.from({ length: 400 }, (_, index) => prompt(`Question ${index} ${'x'.repeat(700)}`, 'D:\\dev\\a'));
   const screenshot = line({ type: 'user', uuid: 'img', timestamp: at, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: 'y'.repeat(300_000) }] } });
@@ -73,7 +73,7 @@ test('list_Should_FindLatestFolderBehindHugeLastLine', async () => {
 });
 
 test('list_Should_ListEverySessionAndSummarizeRestOnLaterCalls', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'csv-'));
+  const root = tempDir('csv-');
   await mkdir(join(root, 'D--dev-a'));
   for (let index = 0; index < 20; index++) {
     const id = `3f2c9a50-1111-4222-8333-${String(index).padStart(12, '0')}`;
@@ -90,7 +90,7 @@ test('list_Should_ListEverySessionAndSummarizeRestOnLaterCalls', async () => {
 });
 
 test('changes_Should_GiveOnlySessionsWrittenSinceVersionCallerHas', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'csv-'));
+  const root = tempDir('csv-');
   await mkdir(join(root, 'D--dev-a'));
   const quiet = join(root, 'D--dev-a', '3f2c9a50-1111-4222-8333-000000000001.jsonl');
   const busy = join(root, 'D--dev-a', '3f2c9a50-1111-4222-8333-000000000002.jsonl');
@@ -110,7 +110,7 @@ test('changes_Should_GiveOnlySessionsWrittenSinceVersionCallerHas', async () => 
 });
 
 test('changes_Should_BringSummariesMadeOnLaterCallsAndOnlyThem', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'csv-'));
+  const root = tempDir('csv-');
   await mkdir(join(root, 'D--dev-a'));
   for (let index = 0; index < 20; index++) {
     const id = `3f2c9a50-1111-4222-8333-${String(index).padStart(12, '0')}`;
@@ -131,7 +131,7 @@ test('changes_Should_BringSummariesMadeOnLaterCallsAndOnlyThem', async () => {
 });
 
 test('list_Should_PutSessionWithLatestMessageFirstWhateverTheFileTime', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'csv-'));
+  const root = tempDir('csv-');
   await mkdir(join(root, 'D--dev-a'));
   const message = (/** @type {string} */ text, /** @type {string} */ timestamp) => line({ type: 'user', uuid: text, timestamp, cwd: 'D:\\dev\\a', message: { role: 'user', content: text } });
   // written to today, but by service records: its last message is five days old, behind a long talk before it and a
@@ -160,10 +160,10 @@ test('list_Should_PutSessionWithLatestMessageFirstWhateverTheFileTime', async ()
 // with their title, folder and branch, told apart by their agent; a run of codex exec is one run by a program. Each is
 // found by its id, and is known for a Codex one by its file
 test('list_Should_ListCodexSessionsBesideClaudeCodesOnes_ToldApartByAgent', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'csv-'));
+  const root = tempDir('csv-');
   await mkdir(join(root, 'D--dev-a'));
   await writeFile(join(root, 'D--dev-a', '3f2c9a50-1111-4222-8333-944455556666.jsonl'), `${prompt('Claude question', 'D:\dev\a')}\n`);
-  const codexRoot = await mkdtemp(join(tmpdir(), 'csv-codex-'));
+  const codexRoot = tempDir('csv-codex-');
   const day = join(codexRoot, '2026', '10', '13');
   await mkdir(day, { recursive: true });
   /** @param {string} id @param {string} source @param {string} said */
@@ -203,8 +203,8 @@ test('list_Should_ListCodexSessionsBesideClaudeCodesOnes_ToldApartByAgent', asyn
 // the session's id and its own: one session, its title from where it began, its activity from where it goes on; it is
 // read as its files in turn, the one before up to the point the next goes on from
 test('list_Should_ListCodexSessionGoingOnInAnotherFileOnce_ReadAsItsFilesInTurn', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'csv-'));
-  const codexRoot = await mkdtemp(join(tmpdir(), 'csv-codex-'));
+  const root = tempDir('csv-');
+  const codexRoot = tempDir('csv-codex-');
   const id = '01a0d69a-fc7e-7fe1-9d40-9392029cb8a5';
   const later = '2026-10-14T08:00:00.000Z';
   /** @param {number} ordinal @param {'user' | 'assistant'} role @param {string} said @param {string} [when] */
@@ -243,14 +243,14 @@ test('list_Should_ListCodexSessionGoingOnInAnotherFileOnce_ReadAsItsFilesInTurn'
 // A session's folder, who runs it and when it was last active, told by its id — the list not asked for first; none for
 // a session not found
 test('summaryOf_Should_TellSessionsFolderKindAndActivity_ById', async () => {
-  const codexRoot = await mkdtemp(join(tmpdir(), 'csv-codex-'));
+  const codexRoot = tempDir('csv-codex-');
   const id = '01a13a06-5376-7481-9aa7-ec19297d2f7c';
   const day = join(codexRoot, '2026', '10', '14');
   await mkdir(day, { recursive: true });
   const meta = line({ timestamp: at, ordinal: 0, type: 'session_meta', payload: { id, cwd: 'D:/dev/shop', source: 'cli' } });
   const asked = line({ timestamp: at, ordinal: 1, type: 'response_item', payload: { type: 'message', id: 'msg_1', role: 'user', content: [{ type: 'input_text', text: 'Add a rate limit' }] } });
   await writeFile(join(day, `rollout-2026-10-14T15-47-35-${id}.jsonl`), `${meta}\n${asked}\n`);
-  const index = createSessionIndex(await mkdtemp(join(tmpdir(), 'csv-')), { summaryBudgetMs: 1000, missRetryMs: 0, codexRoot });
+  const index = createSessionIndex(tempDir('csv-'), { summaryBudgetMs: 1000, missRetryMs: 0, codexRoot });
 
   assert.deepEqual([await index.summaryOf(id), await index.summaryOf('01a13a06-0000-7481-9aa7-000000000000')], [{ cwd: 'D:/dev/shop', kind: 'interactive', activeAt: Date.parse(at) }, undefined]);
 });
@@ -259,7 +259,7 @@ test('summaryOf_Should_TellSessionsFolderKindAndActivity_ById', async () => {
 // among all the files at most once in a while, not on every ask, which polls it often: a transcript written meanwhile is
 // found once the while is over
 test('find_Should_LookForUnknownIdAmongTheFilesOnceInAWhile', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'csv-'));
+  const root = tempDir('csv-');
   await mkdir(join(root, 'D--dev-a'));
   const index = createSessionIndex(root, { summaryBudgetMs: 0, missRetryMs: 300 });
   const id = '3f2c9a50-1111-4222-8333-000000000009';

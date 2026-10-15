@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { tempDir } from '../test-support/temp-dir.js';
 import { createBookmarkFile } from '../server/bookmarks.js';
 
 const session = '3f2c9a50-1111-4222-8333-944455556666';
@@ -13,7 +13,7 @@ const question = { id: 'u1', kind: 'prompt', label: 'Build a viewer', at: '2026-
 const report = { id: 'a1:0', kind: 'answer', label: 'Test results', at: '2026-10-09T10:05:00.000Z' };
 
 async function tempFile() {
-  return join(await mkdtemp(join(tmpdir(), 'ccw-bookmarks-')), 'bookmarks.json');
+  return join(tempDir('ccw-bookmarks-'), 'bookmarks.json');
 }
 
 test('bookmarkFile_Should_KeepBookmarksPerSessionAcrossRestarts', async () => {

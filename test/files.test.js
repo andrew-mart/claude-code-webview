@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { chmod, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { tempDir } from '../test-support/temp-dir.js';
 import { readImageFile, readTextFile, saveTextFile } from '../server/files.js';
 
 const limits = { maxBytes: 1000, home: tmpdir() };
@@ -10,7 +11,7 @@ const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x
 
 // A picture linked from the feed opens in the panel: its bytes, with the type the browser shows it by
 test('readImageFile_Should_GiveBytesWithMediaTypeOfRasterImage', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'csv-'));
+  const dir = tempDir('csv-');
   const names = ['a.png', 'b.JPG', 'c.jpeg', 'd.gif', 'e.webp'];
   await Promise.all(names.map((name) => writeFile(join(dir, name), pngBytes)));
 
@@ -25,7 +26,7 @@ test('readImageFile_Should_GiveBytesWithMediaTypeOfRasterImage', async () => {
 
 // An SVG from the viewer's own address could run a script in its page, and other files are no pictures at all
 test('readImageFile_Should_RefuseWhatIsNotRasterImage_And_ImageOverLimit', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'csv-'));
+  const dir = tempDir('csv-');
   await writeFile(join(dir, 'logo.svg'), '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
   await writeFile(join(dir, 'notes.txt'), 'text');
   await writeFile(join(dir, 'odd.constructor'), 'text');
@@ -42,7 +43,7 @@ test('readImageFile_Should_RefuseWhatIsNotRasterImage_And_ImageOverLimit', async
 });
 
 test('readTextFile_Should_ReadPathFromHomeDirectory', async () => {
-  const home = await mkdtemp(join(tmpdir(), 'csv-home-'));
+  const home = tempDir('csv-home-');
   await writeFile(join(home, 'notes.md'), '# notes\n');
 
   const outcome = await readTextFile('~/notes.md', { maxBytes: 1000, home });
@@ -51,7 +52,7 @@ test('readTextFile_Should_ReadPathFromHomeDirectory', async () => {
 });
 
 test('readTextFile_Should_ReturnTextOfAbsolutePath', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'csv-'));
+  const dir = tempDir('csv-');
   const path = join(dir, 'a.cs');
   await writeFile(path, 'class A\n{\n}\n');
 
@@ -64,7 +65,7 @@ test('readTextFile_Should_ReturnTextOfAbsolutePath', async () => {
 // Old Russian text files are in Windows-1251, not UTF-8: read as such, they show their words; a UTF-8 mark at the head
 // is no part of the text
 test('readTextFile_Should_ReadWindows1251_When_TextIsNotUtf8_And_DropUtf8Mark', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'csv-'));
+  const dir = tempDir('csv-');
   await writeFile(join(dir, 'old.txt'), Buffer.from([0xcf, 0xf0, 0xe8, 0xe2, 0xe5, 0xf2, 0x0a]));
   await writeFile(join(dir, 'marked.md'), Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('# Привет\n')]));
 
@@ -74,7 +75,7 @@ test('readTextFile_Should_ReadWindows1251_When_TextIsNotUtf8_And_DropUtf8Mark', 
 });
 
 test('readTextFile_Should_ExplainWhyFileIsNotShown', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'csv-'));
+  const dir = tempDir('csv-');
   await writeFile(join(dir, 'big.txt'), 'x'.repeat(1001));
   await writeFile(join(dir, 'image.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]));
 
@@ -95,7 +96,7 @@ test('readTextFile_Should_ExplainWhyFileIsNotShown', async () => {
 // A file edited in the panel is saved over the one read, as UTF-8 — with the mark at its head when it had one — and
 // what is saved is the version read next
 test('saveTextFile_Should_SaveOverFileAsRead_KeepingUtf8Mark', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'csv-'));
+  const dir = tempDir('csv-');
   const path = join(dir, 'a.cs');
   await writeFile(path, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('class A\r\n{\r\n}\r\n')]));
   const read = await readTextFile(path, limits);
@@ -113,7 +114,7 @@ test('saveTextFile_Should_SaveOverFileAsRead_KeepingUtf8Mark', async () => {
 // A file written meanwhile — by the session, by another editor — is not saved over: it stays as it is, and the page
 // gets what it holds now and its version, to choose between the two
 test('saveTextFile_Should_LeaveFileChangedSinceRead_AndTellWhatItHoldsNow', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'csv-'));
+  const dir = tempDir('csv-');
   const path = join(dir, 'a.ts');
   await writeFile(path, 'const a = 1;\n');
   const read = await readTextFile(path, limits);
@@ -132,7 +133,7 @@ test('saveTextFile_Should_LeaveFileChangedSinceRead_AndTellWhatItHoldsNow', asyn
 // What a save would spoil is not saved: a file in another encoding — UTF-8 would change its every letter but Latin
 // ones — a text over the limit, a file the viewer may not write
 test('saveTextFile_Should_RefuseSaveThatWouldSpoilFile', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'csv-'));
+  const dir = tempDir('csv-');
   const files = { old: join(dir, 'old.txt'), big: join(dir, 'big.txt'), locked: join(dir, 'locked.txt') };
   await writeFile(files.old, Buffer.from([0xcf, 0xf0, 0xe8, 0xe2, 0xe5, 0xf2, 0x0a]));
   await writeFile(files.big, 'small\n');

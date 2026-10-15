@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { appendFile, mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { appendFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { tempDir } from '../test-support/temp-dir.js';
 import { isRecord } from '../public/model/narrow.js';
 import { createTranscriptCache } from '../server/transcript-cache.js';
 
@@ -13,7 +13,7 @@ const promptLine = (uuid, text) => `${JSON.stringify({ type: 'user', uuid, times
 const imageUrl = (lineStart, n) => `/api/image?at=${lineStart}&n=${n}`;
 
 async function transcript() {
-  const dir = await mkdtemp(join(tmpdir(), 'ccw-cache-'));
+  const dir = tempDir('ccw-cache-');
   const path = join(dir, 'session.jsonl');
   await writeFile(path, promptLine('u1', 'First question') + promptLine('u2', 'Second question'));
   return path;
@@ -48,7 +48,7 @@ test('read_Should_ReadRewrittenFileAgainUnderNewGeneration', async () => {
 // A Codex session's file is read as Claude Code's records — a line of it may be none, or one — in turn: a line appended
 // later reads on from where the reading of the file stopped, its folder and model carried
 test('read_Should_ReadCodexFileAsClaudeCodesRecords_LinesAppendedOnInTurn', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'ccw-cache-'));
+  const dir = tempDir('ccw-cache-');
   const path = join(dir, 'rollout-2026-10-13T21-59-41-01a13634-a2b7-7c90-ae35-9f11f984db97.jsonl');
   const codexLine = (/** @type {unknown} */ record) => `${JSON.stringify(record)}\n`;
   await writeFile(
@@ -76,7 +76,7 @@ test('read_Should_ReadCodexFileAsClaudeCodesRecords_LinesAppendedOnInTurn', asyn
 // turn: what the file before has past the point it goes on from is no longer the session, so the session read before
 // is read again under a new generation
 test('read_Should_ReadCodexSessionGoingOnInAnotherFile_FromWhereItGoesOn_UnderNewGeneration', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'ccw-cache-'));
+  const dir = tempDir('ccw-cache-');
   const id = '01a0d69a-fc7e-7fe1-9d40-9392029cb8a5';
   const first = join(dir, `rollout-2026-10-13T21-59-41-${id}.jsonl`);
   const next = join(dir, `rollout-2026-10-14T07-59-00-${id}_01a0d6a1-6035-7851-ac0d-fba569172c88.jsonl`);

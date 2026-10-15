@@ -1,8 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { tempDir } from '../test-support/temp-dir.js';
 import { createWorkspaceIcons } from '../server/workspace-icons.js';
 import { workspaceIcons } from '../public/model/tab-icon.js';
 
@@ -12,7 +11,7 @@ const iconsIn = (dir) => createWorkspaceIcons({ file: join(dir, 'workspace-icons
 // A workspace's icon is the emoji its user put ahead of its name; it is remembered for its folder, so a workspace opened
 // there later — named without one — gets it too, the folder's case and slashes aside
 test('iconsOf_Should_GiveWorkspaceTheIconAheadOfItsName_AndTheOneItsFolderHad', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'ccw-icons-'));
+  const dir = tempDir('ccw-icons-');
 
   const named = await iconsIn(dir).iconsOf([{ id: 'w1', label: '🦊 shop', folder: 'D:\\dev\\shop' }]);
   const later = await iconsIn(dir).iconsOf([{ id: 'w9', label: 'shop again', folder: 'd:/dev/shop/' }]);
@@ -22,7 +21,7 @@ test('iconsOf_Should_GiveWorkspaceTheIconAheadOfItsName_AndTheOneItsFolderHad', 
 
 // A workspace with no icon of its own nor of its folder gets one at random — one no other workspace has — and keeps it
 test('iconsOf_Should_GiveWorkspaceWithoutOneAnIconNoOtherHas_AndKeepIt', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'ccw-icons-'));
+  const dir = tempDir('ccw-icons-');
   const icons = iconsIn(dir);
   const first = workspaceIcons[0];
   const workspaces = [
@@ -39,7 +38,7 @@ test('iconsOf_Should_GiveWorkspaceWithoutOneAnIconNoOtherHas_AndKeepIt', async (
 
 // Workspaces in one folder have its one icon, from the first look at them
 test('iconsOf_Should_GiveWorkspacesOfOneFolderOneIcon_FromTheFirstLook', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'ccw-icons-'));
+  const dir = tempDir('ccw-icons-');
 
   const icons = await iconsIn(dir).iconsOf([
     { id: 'w8', label: 'bestfit', folder: 'D:/dev/bestfit' },
@@ -52,7 +51,7 @@ test('iconsOf_Should_GiveWorkspacesOfOneFolderOneIcon_FromTheFirstLook', async (
 // An icon picked by hand that a workspace's name cannot hold — one of Lucide's — is kept for its folder; taken back,
 // the folder gets one at random again
 test('setIcon_Should_KeepIconPickedByHandForFolder_AndTakeItBack', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'ccw-icons-'));
+  const dir = tempDir('ccw-icons-');
   const icons = iconsIn(dir);
   const shop = [{ id: 'w1', label: 'shop', folder: 'D:/dev/shop' }];
 
