@@ -521,6 +521,50 @@ test('herdrSidebar_Should_OfferFoldersForNewWorkspace', () => {
   assert.deepEqual([...(list?.querySelectorAll('option') ?? [])].map((option) => option.getAttribute('value')), ['D:/dev/billing', '/home/ann/notes']);
 });
 
+/**
+ * The new workspace's form, opened: its name and folder boxes, and choosing a folder as the page does — typed, or picked
+ * from those offered.
+ */
+function newWorkspaceForm() {
+  const element = window.document.createElement('div');
+  const sidebar = createHerdrSidebar(element, noActions);
+  sidebar.render({ herdr: true, workspaces: [web] }, undefined, '', new Map());
+  sidebar.newButton.click();
+  const name = element.querySelector('.herdr-new-name');
+  const folder = element.querySelector('.herdr-new-folder');
+  assert.ok(name instanceof window.HTMLInputElement && folder instanceof window.HTMLInputElement);
+  /** @param {HTMLInputElement} box @param {string} text */
+  const type = (box, text) => {
+    box.value = text;
+    box.dispatchEvent(new window.Event('input', { bubbles: true }));
+  };
+  return { name, choose: (/** @type {string} */ path) => type(folder, path), typeName: (/** @type {string} */ text) => type(name, text) };
+}
+
+// A new workspace given no name is named after its folder as the folder is chosen, however the path is written
+test('herdrSidebar_Should_NameNewWorkspaceAfterItsFolder_WhenNoNameIsGiven', () => {
+  const form = newWorkspaceForm();
+  const namedAfter = (/** @type {string} */ path) => {
+    form.choose(path);
+    return form.name.value;
+  };
+
+  assert.deepEqual([namedAfter('D:/dev/billing'), namedAfter('/home/ann/notes/'), namedAfter('D:\\dev\\shop')], ['billing', 'notes', 'shop']);
+});
+
+// A name typed for the new workspace stays as typed whatever folder is chosen; cleared, it follows the folder again
+test('herdrSidebar_Should_KeepNameTypedForNewWorkspace_WhenFolderIsChosen', () => {
+  const form = newWorkspaceForm();
+
+  form.typeName('review');
+  form.choose('D:/dev/billing');
+  const typed = form.name.value;
+  form.typeName('');
+  form.choose('D:/dev/shop');
+
+  assert.deepEqual({ typed, cleared: form.name.value }, { typed: 'review', cleared: 'shop' });
+});
+
 // An agent that finished shows its answer ready — its workspace too — until it is seen
 test('herdrSidebar_Should_LightReadyAnswer_UntilSeen', () => {
   const element = window.document.createElement('div');
