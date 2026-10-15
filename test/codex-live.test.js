@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { tempDir } from '../test-support/temp-dir.js';
 import { codexPanes, createCodexThreads } from '../server/codex-live.js';
 
 /**
@@ -55,7 +55,7 @@ test('codexPanes_Should_LeavePaneAlone_When_TheThreadLeftInItsFolderHasANameItsT
 // The threads Codex holds open — a lock it holds on each — that a person runs, with their folders and the names Codex
 // gave them last; a subagent's thread, and one no longer open — its lock file left, held by no one — are not among them
 test('codexThreads_Should_ListThreadsCodexHoldsOpen_ThatAPersonRuns_WithTheirLatestNames', async () => {
-  const home = await mkdtemp(join(tmpdir(), 'ccw-codex-home-'));
+  const home = tempDir('ccw-codex-home-');
   await mkdir(join(home, 'thread-writer-locks'));
   for (const name of ['.coordination.lock', 'shop.lock', 'helper.lock', 'closed.lock']) await writeFile(join(home, 'thread-writer-locks', name), '');
   const names = [

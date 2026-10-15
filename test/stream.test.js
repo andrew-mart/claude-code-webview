@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { appendFile, mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { appendFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { tempDir } from '../test-support/temp-dir.js';
 import { isRecord } from '../public/model/narrow.js';
 import { streamTranscript } from '../server/stream.js';
 import { createTranscriptCache } from '../server/transcript-cache.js';
@@ -15,7 +15,7 @@ const imageUrl = (lineStart, n) => `/api/image?at=${lineStart}&n=${n}`;
 
 /** A transcript of one prompt, in a folder of its own. @param {string} uuid @param {string} text */
 async function transcript(uuid, text) {
-  const path = join(await mkdtemp(join(tmpdir(), 'ccw-stream-')), 'session.jsonl');
+  const path = join(tempDir('ccw-stream-'), 'session.jsonl');
   await writeFile(path, promptLine(uuid, text));
   return path;
 }

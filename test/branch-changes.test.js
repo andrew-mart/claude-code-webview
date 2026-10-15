@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { tempDir } from '../test-support/temp-dir.js';
 import { branchChanges, branchFileDiff } from '../server/branch-changes.js';
 
 const run = promisify(execFile);
@@ -14,8 +14,7 @@ const run = promisify(execFile);
  * @param {import('node:test').TestContext} t
  */
 async function gitRepo(t) {
-  const dir = await mkdtemp(join(tmpdir(), 'ccw-git-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  const dir = tempDir('ccw-git-');
   const git = async (/** @type {string[]} */ ...args) => (await run('git', args, { cwd: dir })).stdout;
   await git('init', '-q', '-b', 'main');
   await git('config', 'user.name', 'Ann');
@@ -186,8 +185,7 @@ test('branchFileDiff_Should_GiveNewFileAsAdded_DeletedAsRemoved_AndSayBinary', a
 
 // A folder that is not in a git repository has no branch to show
 test('branchChanges_Should_SayFolderIsNotInRepository', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'ccw-plain-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  const dir = tempDir('ccw-plain-');
 
   assert.deepEqual(await branchChanges(dir, {}), { ok: false, error: 'not-a-repository' });
 });

@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { tempDir } from '../test-support/temp-dir.js';
 import { readBranch } from '../server/git.js';
 
 /**
@@ -10,7 +10,7 @@ import { readBranch } from '../server/git.js';
  * @param {string} head — the HEAD file's contents
  */
 async function repository(head) {
-  const root = await mkdtemp(join(tmpdir(), 'ccw-git-'));
+  const root = tempDir('ccw-git-');
   await mkdir(join(root, '.git'));
   await writeFile(join(root, '.git', 'HEAD'), head);
   return root;

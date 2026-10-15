@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, utimes, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { tempDir } from '../test-support/temp-dir.js';
 import { parseUsage, usageView } from '../public/model/usage.js';
 import { readUsage, usageOf } from '../server/usage.js';
 
@@ -31,7 +31,7 @@ test('usageOf_Should_ReadFiveHourAndWeeklyWindows_FromClaudeCodeState', () => {
 // Claude Code reads the usage only now and then; a statusline is given it with every reply (rate_limits) and may drop
 // it into a file. Of the two, the fresher reading is the one shown: the file's time is when it was given
 test('readUsage_Should_TakeFresherReading_OfClaudeCodeAndStatusline', async () => {
-  const folder = await mkdtemp(join(tmpdir(), 'usage-'));
+  const folder = tempDir('usage-');
   const files = { claudeState: join(folder, '.claude.json'), rateLimits: join(folder, 'rate-limits.json') };
   await writeFile(files.claudeState, JSON.stringify(claudeState));
   const cachedOnly = await readUsage(files);

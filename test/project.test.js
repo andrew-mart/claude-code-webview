@@ -1,16 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { tempDir } from '../test-support/temp-dir.js';
 import { listFolder, searchProject } from '../server/project.js';
 
 const limits = { home: tmpdir(), maxEntries: 100, maxMatches: 100, timeoutMs: 20_000 };
 
 /** A project folder of files by their paths from it. @param {Record<string, string>} files */
 async function project(files) {
-  const root = await mkdtemp(join(tmpdir(), 'csv-project-'));
+  const root = tempDir('csv-project-');
   for (const [path, text] of Object.entries(files)) {
     await mkdir(join(root, path, '..'), { recursive: true });
     await writeFile(join(root, path), text);

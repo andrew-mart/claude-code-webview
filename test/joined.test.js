@@ -1,14 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { tempDir } from '../test-support/temp-dir.js';
 import { openJoined } from '../server/joined.js';
 
 // Files read as one: a part that ends early is read up to its end, the next one right after — a read across the seam
 // gets both sides of it
 test('openJoined_Should_ReadPartsAsOneFile_EachUpToItsEnd', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'ccw-joined-'));
+  const dir = tempDir('ccw-joined-');
   await writeFile(join(dir, 'first.jsonl'), 'a1\na2\nleft\n');
   await writeFile(join(dir, 'second.jsonl'), 'b1\n');
   const joined = await openJoined([

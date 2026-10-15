@@ -2,11 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { execFile } from 'node:child_process';
-import { appendFile, mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { appendFile, mkdir, readdir, readFile, utimes, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
 import { gunzipSync } from 'node:zlib';
+import { tempDir } from '../test-support/temp-dir.js';
 import { isRecord } from '../public/model/narrow.js';
 import { palettes } from '../public/model/palettes.js';
 import { startServer } from '../server/app.js';
@@ -109,7 +109,7 @@ const webWorkspace = {
  *   thread open
  */
 async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true, editor = 'set', vscode = undefined, codexRoot = undefined, codexInUse = false } = {}) {
-  const root = await mkdtemp(join(tmpdir(), 'csv-'));
+  const root = tempDir('csv-');
   const project = join(root, 'D--dev-x');
   await mkdir(project);
   const file = join(project, `${sessionId}.jsonl`);
@@ -493,8 +493,7 @@ test('history_Should_OpenClosedSessionAgain_InItsFolder', async (t) => {
 
 // A closed Codex session is opened again by Codex
 test('history_Should_OpenClosedCodexSessionAgain_ByCodex', async (t) => {
-  const codexRoot = await mkdtemp(join(tmpdir(), 'csv-codex-'));
-  t.after(() => rm(codexRoot, { recursive: true, force: true }));
+  const codexRoot = tempDir('csv-codex-');
   const day = join(codexRoot, '2026', '10', '14');
   await mkdir(day, { recursive: true });
   const id = '01a13a06-5376-7481-9aa7-ec19297d2f7c';
@@ -976,7 +975,7 @@ test('interrupt_Should_HideStoppedPromptClaudeGaveBackFromFeedAtOnce', { timeout
 
 test('branch_Should_ReadBranchCheckedOutInSessionFolderNotOneTranscriptRecorded', async (t) => {
   const { file, base } = await withServer(t);
-  const repo = await mkdtemp(join(tmpdir(), 'csv-repo-'));
+  const repo = tempDir('csv-repo-');
   await mkdir(join(repo, '.git'));
   await writeFile(join(repo, '.git', 'HEAD'), 'ref: refs/heads/feat/header\n');
   // Claude Code records the branch it saw first; the session moved to another folder with /cd
@@ -991,8 +990,7 @@ test('branch_Should_ReadBranchCheckedOutInSessionFolderNotOneTranscriptRecorded'
 // a commit is refused — git would take "--output=…" for an order
 test('changes_Should_GiveBranchChangesInSessionFolder_AndFileDiff_RefusingBaseThatIsNotCommit', async (t) => {
   const { file, base } = await withServer(t);
-  const repo = await mkdtemp(join(tmpdir(), 'csv-repo-'));
-  t.after(() => rm(repo, { recursive: true, force: true }));
+  const repo = tempDir('csv-repo-');
   const git = (/** @type {string[]} */ ...args) => promisify(execFile)('git', ['-c', 'user.name=Ann', '-c', 'user.email=ann@example.com', ...args], { cwd: repo });
   await git('init', '-q', '-b', 'main');
   await writeFile(join(repo, 'a.txt'), 'one\n');
@@ -1240,12 +1238,9 @@ test('vendor_Should_ServeFileViewsAssets_And_NothingAboveThem', async (t) => {
  * @param {import('node:test').TestContext} t
  */
 async function withVsCode(t) {
-  const dir = await mkdtemp(join(tmpdir(), 'csv-vscode-'));
+  const dir = tempDir('csv-vscode-');
   const vscode = createVsCode({ command: [process.execPath, join(import.meta.dirname, '..', 'test-support', 'fake-serve-web.mjs')], tokenFile: join(dir, 'token') });
-  t.after(async () => {
-    vscode.close();
-    await rm(dir, { recursive: true, force: true });
-  });
+  t.after(() => vscode.close());
   const served = await withServer(t, { vscode });
   const target = await vscode.target();
   assert.ok(target !== undefined);
@@ -1330,8 +1325,7 @@ test('vscode_Should_TurnAwayAnotherSite_And_AnswerNotFoundWithoutVsCode', async 
 // command's long output — left out of the feed at first — comes whole when its row opens; whether it can be typed into
 // the composer tells, as for Claude Code's
 test('codex_Should_ListSession_And_ShowItsFeed_WithLongOutputComingWhole', async (t) => {
-  const codexRoot = await mkdtemp(join(tmpdir(), 'csv-codex-'));
-  t.after(() => rm(codexRoot, { recursive: true, force: true }));
+  const codexRoot = tempDir('csv-codex-');
   const day = join(codexRoot, '2026', '10', '13');
   await mkdir(day, { recursive: true });
   const id = '01a13634-a2b7-7c90-ae35-9f11f984db97';
@@ -1374,8 +1368,7 @@ test('codex_Should_ListSession_And_ShowItsFeed_WithLongOutputComingWhole', async
 // before up to where the session goes on from, then the next one, whose command's long output comes whole when its row
 // opens
 test('codex_Should_ShowSessionGoingOnInAnotherFileAsOne_WithLongOutputThereComingWhole', async (t) => {
-  const codexRoot = await mkdtemp(join(tmpdir(), 'csv-codex-'));
-  t.after(() => rm(codexRoot, { recursive: true, force: true }));
+  const codexRoot = tempDir('csv-codex-');
   const day = join(codexRoot, '2026', '10', '13');
   await mkdir(day, { recursive: true });
   const id = '01a0d69a-fc7e-7fe1-9d40-9392029cb8a5';
@@ -1555,8 +1548,7 @@ test('seen_Should_KeepAnswerSeenFromViewerPage_ForEveryDevice', async (t) => {
 // A Codex session is rewound as Claude Code's: its prompt found among the prompts of its transcript, counted from the
 // newest
 test('rewind_Should_FindPromptOfCodexSession_InItsTranscript', async (t) => {
-  const codexRoot = await mkdtemp(join(tmpdir(), 'csv-codex-'));
-  t.after(() => rm(codexRoot, { recursive: true, force: true }));
+  const codexRoot = tempDir('csv-codex-');
   const day = join(codexRoot, '2026', '10', '14');
   await mkdir(day, { recursive: true });
   const id = '01a13a06-5376-7481-9aa7-ec19297d2f7c';
@@ -1574,8 +1566,7 @@ test('rewind_Should_FindPromptOfCodexSession_InItsTranscript', async (t) => {
 // Codex's usage of the account comes from the session it worked in last: the latest token count there — while Codex
 // is in use, a thread of its open; none before a token count, none while Codex is not in use
 test('usage_Should_TellCodexsUsage_FromSessionItWorkedInLast_WhileCodexIsInUse', async (t) => {
-  const codexRoot = await mkdtemp(join(tmpdir(), 'csv-codex-'));
-  t.after(() => rm(codexRoot, { recursive: true, force: true }));
+  const codexRoot = tempDir('csv-codex-');
   const day = join(codexRoot, '2026', '10', '14');
   await mkdir(day, { recursive: true });
   const id = '01a13a06-5376-7481-9aa7-ec19297d2f7c';
