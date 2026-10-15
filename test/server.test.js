@@ -119,9 +119,9 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // tabs renamed and closed are recorded
   /** @type {string[][]} */
   const tabChanges = [];
-  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'renameWorkspace' | 'closeWorkspace' | 'createTab' | 'createWorkspace' | 'history' | 'reopen'>} */
+  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'createTab' | 'createWorkspace' | 'history' | 'reopen'>} */
   const herdrView = {
-    workspacesOf: async (listed) => ({ herdr: true, sessions: Object.fromEntries(listed.map(({ id }) => [id, 'web'])) }),
+    workspacesOf: async (listed) => ({ herdr: true, sessions: Object.fromEntries(listed.map(({ id }) => [id, 'web'])), icons: {} }),
     layout: async () => ({ herdr: true, workspaces: [webWorkspace] }),
     history: async () => ({ [sessionId]: closedPlace }),
     reopen: async (session, cwd, agent) => {
@@ -134,6 +134,10 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
     },
     closeTab: async (tab) => {
       tabChanges.push(['close', tab]);
+      return { ok: true };
+    },
+    setWorkspaceIcon: async (workspace, icon) => {
+      tabChanges.push(['icon', workspace, icon ?? 'none']);
       return { ok: true };
     },
     renameWorkspace: async (workspace, label) => {
@@ -267,6 +271,37 @@ test('workspaces_Should_PassRenameAndCloseFromViewerPage_And_RefuseWhatIsNoWorks
   assert.deepEqual(
     { replies: [renamed, closed].map((reply) => [reply.status, JSON.parse(reply.body)]), refused: [strange.status, nameless.status], tabChanges },
     { replies: [[200, { ok: true }], [200, { ok: true }]], refused: [400, 400], tabChanges: [['rename workspace', 'w1', 'shop'], ['close workspace', 'w1']] },
+  );
+});
+
+// A workspace's icon picked by hand on the page is kept for it — none takes it back; what is no icon is refused before
+// it is kept
+test('workspaces_Should_PassIconPickedOnViewerPage_And_RefuseWhatIsNoIcon', async (t) => {
+  const { port, tabChanges } = await withServer(t);
+
+  const picked = await post(port, '/api/workspace/icon', pageHeaders(port), JSON.stringify({ workspace: 'w1', icon: 'lucide:wallet@green' }));
+  const none = await post(port, '/api/workspace/icon', pageHeaders(port), JSON.stringify({ workspace: 'w1', icon: null }));
+  const strange = await post(port, '/api/workspace/icon', pageHeaders(port), JSON.stringify({ workspace: 'w1', icon: 'lucide:../x' }));
+
+  assert.deepEqual(
+    { replies: [picked, none].map((reply) => [reply.status, JSON.parse(reply.body)]), refused: strange.status, tabChanges },
+    { replies: [[200, { ok: true }], [200, { ok: true }]], refused: 400, tabChanges: [['icon', 'w1', 'lucide:wallet@green'], ['icon', 'w1', 'none']] },
+  );
+});
+
+// Lucide's icons to pick a workspace's from come from the viewer itself: the sprite they are drawn from, the words they
+// are found by
+test('page_Should_GetLucideIconsAndTheirWords_FromTheViewer', async (t) => {
+  const { port } = await withServer(t);
+
+  const sprite = await rawGet(port, '/vendor/lucide/sprite.svg', {});
+  const tags = await rawGet(port, '/vendor/lucide/tags.json', {});
+
+  /** @type {unknown} */
+  const words = tags.status === 200 ? JSON.parse(tags.body.toString('utf8')) : undefined;
+  assert.deepEqual(
+    { statuses: [sprite.status, tags.status], wallet: /<symbol[^>]*id="wallet"/.test(sprite.body.toString('utf8')), finance: typeof words === 'object' && words !== null && 'wallet' in words && Array.isArray(words.wallet) && words.wallet.includes('finance') },
+    { statuses: [200, 200], wallet: true, finance: true },
   );
 });
 
@@ -1045,7 +1080,7 @@ test('workspaces_Should_ServeWorkspacesOfListedSessions_And_AnswerUnchangedReply
   const again = await rawGet(port, '/api/workspaces', { 'if-none-match': String(first.headers.etag) });
 
   assert.equal(first.status, 200);
-  assert.deepEqual({ reply: JSON.parse(first.body.toString('utf8')), again: again.status }, { reply: { herdr: true, sessions: { [sessionId]: 'web' } }, again: 304 });
+  assert.deepEqual({ reply: JSON.parse(first.body.toString('utf8')), again: again.status }, { reply: { herdr: true, sessions: { [sessionId]: 'web' }, icons: {} }, again: 304 });
 });
 
 // herdr as it is — workspaces, tabs, panes — for the sidebar and the tabs in the session header; asked every few seconds
@@ -1116,6 +1151,23 @@ test('page_Should_GetTerminalLibraryAsModuleItCanImport', async (t) => {
 
   assert.equal(library.status, 200);
   assert.match(library.body.toString('utf8'), /export\s*\{[^}]*\bas Terminal\b/);
+});
+
+// The icon picker's full choice of emoji comes from the viewer itself, not the network: the picker's module, the
+// database module it imports beside it, and the emoji's data
+test('page_Should_GetEmojiPickerAndItsData_FromTheViewer', async (t) => {
+  const { port } = await withServer(t);
+
+  const picker = await rawGet(port, '/vendor/emoji-picker/picker.js', {});
+  const database = await rawGet(port, '/vendor/emoji-picker/database.js', {});
+  const data = await rawGet(port, '/vendor/emoji-picker/data.json', {});
+
+  /** @type {unknown} */
+  const emoji = data.status === 200 ? JSON.parse(data.body.toString('utf8')) : undefined;
+  assert.deepEqual(
+    { statuses: [picker.status, database.status, data.status], imports: /from '\.\/database\.js'/.test(picker.body.toString('utf8')), fox: Array.isArray(emoji) && emoji.some((one) => typeof one === 'object' && one !== null && 'emoji' in one && one.emoji === '🦊') },
+    { statuses: [200, 200, 200], imports: true, fox: true },
+  );
 });
 
 // A page drawn in the panel comes from its folder by the folder's name in the address, so what it loads beside it —

@@ -5,6 +5,7 @@
 import { workspaceNameOf } from '../model/folders.js';
 import { placeOf, searchLayout, sessionsByActivity, tabTarget } from '../model/herdr.js';
 import { groupLamp, paneLamp } from '../model/lamps.js';
+import { isRecord } from '../model/narrow.js';
 import { jokeAt, storyAt } from '../model/stories.js';
 import { agentMark } from './agent-marks.js';
 import { h } from './dom.js';
@@ -14,7 +15,7 @@ import { workingRobots } from './robot.js';
 import { unpluggedRobot } from './unplugged.js';
 import { createWorkClock } from './work-clock.js';
 import { tintByWorkspace } from './workspace-tint.js';
-import { labelWithIcon, splitTabIcon, tabIcons } from '../model/tab-icon.js';
+import { labelWithIcon, splitTabIcon, tabIcons, workspaceIcons } from '../model/tab-icon.js';
 
 /**
  * What a new tab can start with, drawn: a terminal by its icon, the agents by their own marks — as in the usage rows.
@@ -100,17 +101,30 @@ function tabName(tab) {
   return tab.label === String(tab.number) ? tab.label : `${tab.number} ${tab.label}`;
 }
 
+/** Every emoji to pick an icon from (emoji-picker-element), from the viewer itself (server/app.js: vendor). */
+const everyEmoji = { picker: new URL('../vendor/emoji-picker/picker.js', import.meta.url).href, data: new URL('../vendor/emoji-picker/data.json', import.meta.url).href };
+
 /**
- * The button that picks a tab's icon — an emoji kept ahead of its name — and the row of emoji it opens beside it; ✕ there
- * leaves the tab without one. The name's box keeps the focus meanwhile: pressing here is no click elsewhere, which ends
- * the naming.
+ * The button that picks a tab's or a workspace's icon — an emoji kept ahead of its name — and what it opens under it:
+ * the usual emoji at hand, ✕ for none, and every emoji, found by its name or among its kind, the latest picked first —
+ * as md-keeper picks them — loaded the first time it opens; out of the viewer's reach, the ones at hand only.
+ * Picking one at hand keeps the name's box focused: pressing there is no click elsewhere, which ends the naming; the
+ * search of every emoji takes the focus — holds tells it, for the naming to go on — and the focus going out of the
+ * picker elsewhere ends the naming as the box's would (onLeave).
  * @param {string | undefined} initial
  * @param {HTMLElement} nameBox
+ * @param {{ icons: readonly string[], title: string, onLeave: () => void }} options — the emoji at hand; the button's
+ *   name; what the focus going elsewhere does
  */
-function createIconPicker(initial, nameBox) {
+function createIconPicker(initial, nameBox, { icons, title, onLeave }) {
   let icon = initial;
-  const button = h('button', { className: 'herdr-tab-icon', title: 'Icon of the tab', attrs: { type: 'button', 'aria-label': 'Icon of the tab' } });
-  const palette = h('span', { className: 'herdr-icon-palette', attrs: { hidden: '' } });
+  const button = h('button', { className: 'herdr-tab-icon', title, attrs: { type: 'button', 'aria-label': title } });
+  const atHand = h('span', { className: 'herdr-icon-at-hand' });
+  const every = h('span', { className: 'herdr-icon-every' });
+  const palette = h('span', { className: 'herdr-icon-palette', attrs: { hidden: '' } }, [atHand, every]);
+  const element = h('span', { className: 'herdr-icon-picker' }, [button, palette]);
+  /** @param {EventTarget | null} target */
+  const holds = (target) => target instanceof window.Node && element.contains(target);
   const show = () => {
     button.textContent = icon ?? '☺';
     button.classList.toggle('empty', icon === undefined);
@@ -122,8 +136,8 @@ function createIconPicker(initial, nameBox) {
     palette.hidden = true;
     nameBox.focus();
   };
-  palette.append(
-    ...tabIcons.map((emoji) => {
+  atHand.append(
+    ...icons.map((emoji) => {
       const made = h('button', { text: emoji, attrs: { type: 'button' } });
       made.addEventListener('click', () => choose(emoji));
       return made;
@@ -134,13 +148,76 @@ function createIconPicker(initial, nameBox) {
       return none;
     })(),
   );
+  /** @type {Promise<void> | undefined} */
+  let loading;
+  const loadEvery = () => {
+    loading ??= import(everyEmoji.picker).then(
+      () => {
+        const picker = document.createElement('emoji-picker');
+        picker.setAttribute('data-source', everyEmoji.data);
+        picker.addEventListener('emoji-click', (event) => {
+          const detail = event instanceof window.CustomEvent ? event.detail : undefined;
+          if (isRecord(detail) && typeof detail.unicode === 'string') choose(detail.unicode);
+        });
+        every.replaceChildren(picker);
+        paint();
+      },
+      () => undefined, // out of the viewer's reach: the ones at hand only
+    );
+  };
+  /** Every emoji in the page's theme: the picker's own colours otherwise follow the system's. */
+  const paint = () => {
+    const dark = document.documentElement.dataset.theme === 'dark' || (document.documentElement.dataset.theme !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    for (const picker of every.children) {
+      picker.classList.toggle('dark', dark);
+      picker.classList.toggle('light', !dark);
+    }
+  };
+  /** Under the button, kept on the screen: fixed — a row that scrolls would cut it off. */
+  const place = () => {
+    const at = button.getBoundingClientRect();
+    const width = Math.min(352, window.innerWidth - 16);
+    palette.style.left = `${Math.max(8, Math.min(at.left, window.innerWidth - width - 8))}px`;
+    palette.style.top = `${at.bottom + 4}px`;
+    paint();
+  };
   button.addEventListener('click', () => {
     palette.hidden = !palette.hidden;
+    if (!palette.hidden) {
+      place();
+      loadEvery();
+    }
     nameBox.focus();
   });
-  for (const part of [button, palette]) part.addEventListener('mousedown', (event) => event.preventDefault());
+  palette.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    event.stopPropagation();
+    palette.hidden = true;
+    nameBox.focus();
+  });
+  element.addEventListener('focusout', (event) => {
+    if (!holds(event.relatedTarget) && event.relatedTarget !== nameBox) onLeave();
+  });
+  for (const part of [button, atHand]) part.addEventListener('mousedown', (event) => event.preventDefault());
   show();
-  return { element: h('span', { className: 'herdr-icon-picker' }, [button, palette]), icon: () => icon };
+  return { element, icon: () => icon, holds };
+}
+
+/**
+ * A workspace's icon (server/workspace-icons.js), as its rows show it left of their names; none without one.
+ * @param {import('../model/herdr.js').HerdrWorkspace} workspace
+ * @returns {HTMLElement[]}
+ */
+function workspaceIconOf(workspace) {
+  return workspace.icon === undefined ? [] : [h('span', { className: 'workspace-icon', text: workspace.icon, attrs: { 'aria-hidden': 'true' } })];
+}
+
+/**
+ * A workspace's name without the emoji its user put ahead of it: that is shown as its icon.
+ * @param {import('../model/herdr.js').HerdrWorkspace} workspace
+ */
+function workspaceName(workspace) {
+  return splitTabIcon(workspace.label).name;
 }
 
 /**
@@ -180,8 +257,9 @@ function link(target, className, children) {
  * @typedef {{ createWorkspace: (label: string, folder: string, start: import('../model/herdr.js').TabStart) => Promise<import('../model/herdr.js').NewWorkspace>, open: (target: string) => void, folders: () => readonly string[], renameWorkspace: (workspaceId: string, label: string) => Promise<TabChange>, closeWorkspace: (workspaceId: string) => Promise<TabChange>, renameTab: (tabId: string, label: string) => Promise<TabChange>, closeTab: (tabId: string) => Promise<TabChange> }} SidebarActions
  *   — createWorkspace, and the renames and closings, resolve once the page shows the change; open goes to a page address;
  *   folders: the folders to offer for a new workspace — typed before, where sessions ran
- * @typedef {{ label: string, rename: (label: string) => Promise<TabChange>, close: () => Promise<TabChange>, names: string, closes: string }} RowSubject
- *   — what a row stands for, to name and close: its name now, how to change it, the buttons' titles
+ * @typedef {{ label: string, icons: readonly string[] | undefined, rename: (label: string) => Promise<TabChange>, close: () => Promise<TabChange>, names: string, closes: string }} RowSubject
+ *   — what a row stands for, to name and close: its name now, the emoji its icon is picked from as it is named — none:
+ *   no icon to pick — how to change it, the buttons' titles
  */
 
 /** Why a workspace was not opened. */
@@ -226,7 +304,11 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
   const startNaming = (dressed, text, subject) => {
     busy = true;
     const box = h('input', { className: 'herdr-row-name', attrs: { type: 'text', maxlength: '60', 'aria-label': subject.names } });
-    box.value = subject.label;
+    // the icon ahead of the name picked beside it
+    const named = subject.icons === undefined ? { icon: undefined, name: subject.label } : splitTabIcon(subject.label);
+    box.value = named.name;
+    const picker = subject.icons === undefined ? undefined : createIconPicker(named.icon, box, { icons: subject.icons, title: 'Icon of the workspace', onLeave: () => leave() });
+    const typed = () => (picker === undefined ? box.value : labelWithIcon(picker.icon(), box.value));
     let sending = false;
     box.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
@@ -236,10 +318,10 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
       }
       if (event.key !== 'Enter' || sending) return;
       event.preventDefault();
-      if (box.value.trim() === '' || box.value === subject.label) return redraw(); // nothing new: the name stays
+      if (box.value.trim() === '' || typed() === subject.label) return redraw(); // nothing new: the name stays
       sending = true;
       box.disabled = true;
-      void subject.rename(box.value).then((outcome) => {
+      void subject.rename(typed()).then((outcome) => {
         sending = false;
         if (outcome.ok) return redraw();
         box.disabled = false;
@@ -248,10 +330,14 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
         box.focus();
       });
     });
-    box.addEventListener('blur', () => {
+    // clicking elsewhere leaves the name as it was; into the icon picker, the naming goes on
+    const leave = () => {
       if (busy && !sending && box.isConnected) redraw();
+    };
+    box.addEventListener('blur', (event) => {
+      if (!(picker?.holds(event.relatedTarget) ?? false)) leave();
     });
-    text.replaceWith(box);
+    text.replaceWith(...(picker === undefined ? [] : [picker.element]), box);
     dressed.querySelector('.herdr-row-actions')?.remove();
     box.focus();
     box.select();
@@ -401,13 +487,15 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
         const active = workspace.tabs.find((tab) => tab.id === workspace.activeTab) ?? workspace.tabs[0];
         const row = link(active === undefined ? undefined : tabTarget(active), 'herdr-workspace', [
           h('span', { className: 'herdr-number', text: String(workspace.number) }),
-          h('span', { className: 'herdr-name', text: workspace.label }),
+          ...workspaceIconOf(workspace),
+          h('span', { className: 'herdr-name', text: workspaceName(workspace) }),
           lampOf(clock, workspace.id, workspace.number, groupLamp(workspace.status, workspace.tabs.flatMap((tab) => tab.panes), seen)),
         ]);
         row.classList.toggle('selected', workspace.id === place?.workspace.id);
         tintByWorkspace(row, workspace.label);
         offerChanges(row, '.herdr-name', {
           label: workspace.label,
+          icons: workspaceIcons,
           rename: (label) => renameWorkspace(workspace.id, label),
           close: () => closeWorkspace(workspace.id),
           names: 'Name this workspace',
@@ -420,9 +508,10 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
         const title = pane.title === '' ? undefined : pane.title;
         // the status on the right, as the workspaces have it
         const row = link(pane.session === undefined ? `#/pane/${pane.id}` : `#/${pane.session}`, 'herdr-tab', [
+          ...workspaceIconOf(workspace),
           h('span', { className: 'herdr-tab-text' }, [
             h('span', { className: 'herdr-tab-title', text: title === undefined ? tabName(tab) : title }),
-            h('span', { className: 'herdr-tab-where', text: [workspace.label, title === undefined ? undefined : tabName(tab), what].filter((part) => part !== undefined).join(' · ') }),
+            h('span', { className: 'herdr-tab-where', text: [workspaceName(workspace), title === undefined ? undefined : tabName(tab), what].filter((part) => part !== undefined).join(' · ') }),
           ]),
           lampOf(clock, pane.id, workspace.number, paneLamp(pane, seen)),
         ]);
@@ -431,6 +520,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
         offerChanges(row, '.herdr-tab-text', {
           // a tab herdr numbers has no name of its own to start from
           label: tab.label === String(tab.number) ? '' : tab.label,
+          icons: undefined,
           rename: (label) => renameTab(tab.id, label),
           close: () => closeTab(tab.id),
           names: 'Name its tab',
@@ -500,7 +590,7 @@ export function createTabBar({ rename, close, open, create }) {
     const box = h('input', { className: 'herdr-tab-name', attrs: { type: 'text', maxlength: '60', placeholder: 'Tab name', 'aria-label': `Name of tab ${tab.number}` } });
     const named = splitTabIcon(tab.label === String(tab.number) ? '' : tab.label);
     box.value = named.name;
-    const picker = createIconPicker(named.icon, box);
+    const picker = createIconPicker(named.icon, box, { icons: tabIcons, title: 'Icon of the tab', onLeave: () => leave() });
     let sending = false;
     box.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
@@ -523,9 +613,12 @@ export function createTabBar({ rename, close, open, create }) {
         box.focus();
       });
     });
-    // clicking elsewhere leaves the name as it was
-    box.addEventListener('blur', () => {
+    // clicking elsewhere leaves the name as it was; into the icon picker, the naming goes on
+    const leave = () => {
       if (busy && !sending && box.isConnected) finish();
+    };
+    box.addEventListener('blur', (event) => {
+      if (!picker.holds(event.relatedTarget)) leave();
     });
     chip.replaceWith(picker.element, box);
     actions.hidden = true;
@@ -575,7 +668,8 @@ export function createTabBar({ rename, close, open, create }) {
     busy = true;
     const message = h('span', { className: 'herdr-tab-new-failed', attrs: { hidden: '' } });
     const name = h('input', { className: 'herdr-tab-name herdr-tab-new-name', attrs: { type: 'text', maxlength: '60', placeholder: 'New tab name', 'aria-label': 'Name of the new tab' } });
-    const picker = createIconPicker(undefined, name);
+    // the new tab's choices stay while the focus is elsewhere
+    const picker = createIconPicker(undefined, name, { icons: tabIcons, title: 'Icon of the tab', onLeave: () => undefined });
     /** @param {import('../model/herdr.js').TabStart} start */
     const add = (start) => {
       for (const button of choices.querySelectorAll('button')) button.disabled = true;
@@ -654,7 +748,7 @@ export function createTabBar({ rename, close, open, create }) {
       });
       const adding = h('button', { className: 'icon-button herdr-tab-new', title: 'New tab', attrs: { type: 'button', 'aria-label': 'New tab' } }, [icon('plus')]);
       adding.addEventListener('click', () => startAdding(adding, place.tab));
-      element.replaceChildren(h('span', { className: 'herdr-chip-workspace', text: place.workspace.label }), ...chips, adding);
+      element.replaceChildren(h('span', { className: 'herdr-chip-workspace' }, [...workspaceIconOf(place.workspace), workspaceName(place.workspace)]), ...chips, adding);
       element.querySelector('.herdr-chip.selected')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     },
   };

@@ -46,6 +46,8 @@ const jobSearch = {
   panes: [{ pane_id: 'w2:p1', workspace_id: 'w2', cwd: 'D:\\job_search', agent: 'claude', pid: 101 }],
 };
 const runningRecord = { pid: 101, sessionId: running, kind: 'interactive', status: 'idle', updatedAt: 1 };
+/** Workspaces with no icons: their own test gives them some. */
+const noIcons = { iconsOf: async () => new Map(), setIcon: async () => undefined };
 
 /**
  * @param {import('node:test').TestContext} t
@@ -55,13 +57,13 @@ const runningRecord = { pid: 101, sessionId: running, kind: 'interactive', statu
  */
 async function workspacesOf(t, { herdr, records, dir, codex = [] }) {
   const folder = dir ?? (await mkdtemp(join(tmpdir(), 'ccw-workspaces-')));
-  return createHerdrView({ herdr, readRecords: async () => records, codexThreads: async () => codex, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+  return createHerdrView({ herdr, readRecords: async () => records, codexThreads: async () => codex, icons: noIcons, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
 }
 
 test('workspaces_Should_PutRunningSessionIntoWorkspaceOfItsPane', async (t) => {
   const workspaces = await workspacesOf(t, { herdr: fakeHerdr(jobSearch), records: [runningRecord] });
 
-  assert.deepEqual(await workspaces.workspacesOf([{ id: running, cwd: 'D:\\elsewhere' }]), { herdr: true, sessions: { [running]: 'job_search' } });
+  assert.deepEqual(await workspaces.workspacesOf([{ id: running, cwd: 'D:\\elsewhere' }]), { herdr: true, sessions: { [running]: 'job_search' }, icons: {} });
 });
 
 // Once seen running, a session stays in its workspace after it ends — the pane closed, the viewer restarted
@@ -71,7 +73,7 @@ test('workspaces_Should_KeepWorkspaceOfSessionSeenRunning_AfterItEnds', async (t
 
   const afterRestart = await workspacesOf(t, { herdr: fakeHerdr({ workspaces: jobSearch.workspaces }), records: [], dir });
 
-  assert.deepEqual(await afterRestart.workspacesOf([{ id: running, cwd: 'D:\\elsewhere' }]), { herdr: true, sessions: { [running]: 'job_search' } });
+  assert.deepEqual(await afterRestart.workspacesOf([{ id: running, cwd: 'D:\\elsewhere' }]), { herdr: true, sessions: { [running]: 'job_search' }, icons: {} });
 });
 
 // A session never seen running belongs to the workspace whose panes are open in its folder — when there is just one
@@ -98,7 +100,7 @@ test('workspaces_Should_PutOldSessionIntoTheOnlyWorkspaceWithPaneInItsFolder', a
     { id: 'nowhere', cwd: undefined },
   ]);
 
-  assert.deepEqual(found, { herdr: true, sessions: { [running]: 'job_search', old: 'expenses' } });
+  assert.deepEqual(found, { herdr: true, sessions: { [running]: 'job_search', old: 'expenses' }, icons: {} });
 });
 
 // Without herdr the page shows no workspaces at all
@@ -110,8 +112,8 @@ test('workspaces_Should_TellThereIsNoHerdr_When_ItIsNotInstalledOrDoesNotAnswer'
   );
 
   assert.deepEqual(replies, [
-    { herdr: false, sessions: {} },
-    { herdr: false, sessions: {} },
+    { herdr: false, sessions: {}, icons: {} },
+    { herdr: false, sessions: {}, icons: {} },
   ]);
 });
 
@@ -126,7 +128,7 @@ test('workspaces_Should_AskHerdrAtMostOncePerRefreshPeriod', async (t) => {
     return herdr(args);
   };
   const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
-  const workspaces = createHerdrView({ herdr: counting, readRecords: async () => [runningRecord], codexThreads: async () => [], file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+  const workspaces = createHerdrView({ herdr: counting, readRecords: async () => [runningRecord], codexThreads: async () => [], icons: noIcons, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
 
   await Promise.all([workspaces.workspacesOf([]), workspaces.workspacesOf([])]);
   await workspaces.workspacesOf([{ id: running, cwd: undefined }]);
@@ -199,13 +201,100 @@ test('herdrView_Should_LookForPaneOfProcessOnce_WhenItRunsOutsideHerdr', async (
   };
   const outside = { pid: 777, sessionId: '0b1c2d3e-4444-4555-8666-977788899900', kind: 'interactive', status: 'idle', updatedAt: 2 };
   const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
-  const view = createHerdrView({ herdr: counting, codexThreads: async () => [], readRecords: async () => [runningRecord, outside], file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+  const view = createHerdrView({ herdr: counting, codexThreads: async () => [], readRecords: async () => [runningRecord, outside], icons: noIcons, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
 
   await view.workspacesOf([]);
   await view.workspacesOf([]);
   await view.workspacesOf([]);
 
   assert.equal(asked.filter((call) => call === 'pane process-info').length, 1);
+});
+
+// Each workspace has its icon (workspace-icons.js), told its name and folder — its first tab's pane's: in herdr's layout,
+// and in the session list by each session of it
+test('herdrView_Should_GiveEachWorkspaceItsIcon_InTheLayoutAndBySessionsOfIt', async (t) => {
+  /** @type {import('../server/workspace-icons.js').IconedWorkspace[][]} */
+  const asked = [];
+  const icons = {
+    /** @param {readonly import('../server/workspace-icons.js').IconedWorkspace[]} workspaces */
+    iconsOf: async (workspaces) => {
+      asked.push([...workspaces]);
+      return new Map(workspaces.map((workspace, at) => [workspace.id, at === 0 ? '🦊' : '🐙']));
+    },
+    setIcon: async () => undefined,
+  };
+  const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
+  const view = createHerdrView({ herdr: fakeHerdr(jobSearch), readRecords: async () => [runningRecord], codexThreads: async () => [], icons, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+
+  const layout = await view.layout();
+  const listed = await view.workspacesOf([{ id: running, cwd: 'D:\\elsewhere' }]);
+
+  assert.deepEqual(
+    { told: asked[0], layout: layout.workspaces.map((workspace) => [workspace.label, workspace.icon]), listed: listed.icons },
+    {
+      told: [
+        { id: 'w2', label: 'job_search', folder: 'D:\\job_search' },
+        { id: 'w3', label: 'expenses', folder: undefined },
+      ],
+      layout: [['job_search', '🦊'], ['expenses', '🐙']],
+      listed: { [running]: '🦊' },
+    },
+  );
+});
+
+// A workspace's folder, which its icon is remembered for, is the one most of its panes are in — not its first tab's,
+// opened elsewhere by the way; even, its first tab's
+test('herdrView_Should_TellIconsTheFolderMostOfAWorkspacesPanesAreIn', async (t) => {
+  /** @type {string[]} */
+  const told = [];
+  const icons = {
+    /** @param {readonly import('../server/workspace-icons.js').IconedWorkspace[]} workspaces */
+    iconsOf: async (workspaces) => {
+      told.push(...workspaces.map((workspace) => `${workspace.label}: ${workspace.folder}`));
+      return new Map();
+    },
+    setIcon: async () => undefined,
+  };
+  const herdr = fakeHerdr({
+    workspaces: [
+      { workspace_id: 'w1', label: 'webview' },
+      { workspace_id: 'w2', label: 'even' },
+    ],
+    tabs: [
+      { tab_id: 'w1:t1', workspace_id: 'w1', number: 1, label: '1', agent_status: 'idle' },
+      { tab_id: 'w1:t4', workspace_id: 'w1', number: 4, label: '4', agent_status: 'idle' },
+      { tab_id: 'w1:t6', workspace_id: 'w1', number: 6, label: '6', agent_status: 'idle' },
+      { tab_id: 'w2:t2', workspace_id: 'w2', number: 2, label: '2', agent_status: 'idle' },
+      { tab_id: 'w2:t1', workspace_id: 'w2', number: 1, label: '1', agent_status: 'idle' },
+    ],
+    panes: [
+      { pane_id: 'w1:p1', workspace_id: 'w1', tab_id: 'w1:t1', cwd: 'D:\\dev\\sorm' },
+      { pane_id: 'w1:p4', workspace_id: 'w1', tab_id: 'w1:t4', cwd: 'D:\\dev\\webview' },
+      { pane_id: 'w1:p6', workspace_id: 'w1', tab_id: 'w1:t6', cwd: 'd:/dev/webview/' },
+      { pane_id: 'w2:p2', workspace_id: 'w2', tab_id: 'w2:t2', cwd: 'D:\\dev\\b' },
+      { pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:\\dev\\a' },
+    ],
+  });
+  const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
+  const view = createHerdrView({ herdr, readRecords: async () => [], codexThreads: async () => [], icons, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+
+  await view.layout();
+
+  assert.deepEqual(told, ['webview: D:\\dev\\webview', 'even: D:\\dev\\a']);
+});
+
+// An icon picked by hand for a workspace — one its name cannot hold — is kept for the workspace's folder; for no
+// workspace herdr has, nothing is kept
+test('setWorkspaceIcon_Should_KeepIconForWorkspacesFolder', async (t) => {
+  /** @type {string[]} */
+  const kept = [];
+  const icons = { iconsOf: async () => new Map(), setIcon: async (/** @type {string} */ folder, /** @type {string | undefined} */ icon) => void kept.push(`${folder}: ${icon}`) };
+  const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
+  const view = createHerdrView({ herdr: fakeHerdr(jobSearch), readRecords: async () => [], codexThreads: async () => [], icons, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+
+  const outcomes = [await view.setWorkspaceIcon('w2', 'lucide:wallet@green'), await view.setWorkspaceIcon('w2', undefined), await view.setWorkspaceIcon('w9', 'lucide:wallet')];
+
+  assert.deepEqual({ outcomes, kept }, { outcomes: [{ ok: true }, { ok: true }, { ok: false, error: 'failed' }], kept: ['D:\\job_search: lucide:wallet@green', 'D:\\job_search: undefined'] });
 });
 
 // A Claude Code process looked for before herdr tells its pane for Claude's is found once herdr does: it is not taken
@@ -220,7 +309,7 @@ test('workspaces_Should_FindPaneOfSession_When_HerdrTellsItsAgentAfterTheFirstLo
   pane.agent = 'claude';
   const after = await view.workspacesOf(sessions);
 
-  assert.deepEqual([before, after], [{ herdr: true, sessions: {} }, { herdr: true, sessions: { [running]: 'job_search' } }]);
+  assert.deepEqual([before, after], [{ herdr: true, sessions: {}, icons: {} }, { herdr: true, sessions: { [running]: 'job_search' }, icons: {} }]);
 });
 
 // A process's number goes to another once it is gone: a new Claude under an old one's number is looked for anew, its
@@ -239,7 +328,7 @@ test('workspaces_Should_FindPaneAnew_When_ProcessNumberIsTakenByAnotherClaude', 
   panes.splice(0, 2, { ...jobs, pid: 202 }, { ...expenses, pid: 101 });
   records.splice(0, 1, { ...runningRecord, sessionId: later, startedAt: 2000 });
 
-  assert.deepEqual(await view.workspacesOf([{ id: later, cwd: 'D:\\elsewhere' }]), { herdr: true, sessions: { [later]: 'expenses' } });
+  assert.deepEqual(await view.workspacesOf([{ id: later, cwd: 'D:\\elsewhere' }]), { herdr: true, sessions: { [later]: 'expenses' }, icons: {} });
 });
 
 /**
@@ -296,7 +385,7 @@ function tabsHerdr({ fails = false, screens = ['PS D:\\shop> '] } = {}) {
  */
 async function tabsView(herdr, claudeCommand = 'claude') {
   const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
-  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand, codexCommand: 'codex-yolo' });
+  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand, codexCommand: 'codex-yolo' });
 }
 
 /** @param {import('../public/model/herdr.js').HerdrLayout} layout */
@@ -430,7 +519,7 @@ async function viewWithHistory(herdr, closed) {
   const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
   const kept = Object.fromEntries(Object.entries(closed).map(([session, place]) => [session, { earlierTabs: [], open: false, firstSeen: 1, lastSeen: 2, ...place }]));
   await writeFile(join(folder, 'workspaces.json'), JSON.stringify(kept));
-  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-god', codexCommand: 'codex-yolo' });
+  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-god', codexCommand: 'codex-yolo' });
 }
 
 // A closed session opens where it was: a new tab of its workspace, named as before, in its folder, Claude Code resuming
@@ -538,7 +627,7 @@ test('herdrView_Should_ShowCodexPaneAsItsThread_AndTellWhereCodexSessionRuns', a
     },
     {
       session: decompile,
-      workspaces: { herdr: true, sessions: { [decompile]: 'ipatool' } },
+      workspaces: { herdr: true, sessions: { [decompile]: 'ipatool' }, icons: {} },
       places: [{ found: 'pane', pane: 'w4:p1', working: true }, { found: 'elsewhere' }, { found: 'none' }],
     },
   );

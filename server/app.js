@@ -14,6 +14,7 @@ import { promisify } from 'node:util';
 import { constants as zlibConstants, createGzip, gzip } from 'node:zlib';
 import { withAttachedImages } from '../public/model/attachments.js';
 import { parseBookmarkChange } from '../public/model/bookmarks.js';
+import { iconValue, parseIcon } from '../public/model/icon-choice.js';
 import { isRecord, text } from '../public/model/narrow.js';
 import { takenBackPrompt } from './branch.js';
 import { branchChanges, branchFileDiff } from './branch-changes.js';
@@ -52,6 +53,13 @@ const vendor = new Map([
   // the ES module: the package's main file is the CommonJS one, which a browser cannot import from
   ['/vendor/xterm.js', fileURLToPath(import.meta.resolve('@xterm/xterm/lib/xterm.mjs'))],
   ['/vendor/xterm.css', fileURLToPath(import.meta.resolve('@xterm/xterm/css/xterm.css'))],
+  // the icon picker's full choice of emoji: the picker, the database module it imports beside it, the emoji's data
+  ['/vendor/emoji-picker/picker.js', fileURLToPath(import.meta.resolve('emoji-picker-element/picker.js'))],
+  ['/vendor/emoji-picker/database.js', fileURLToPath(import.meta.resolve('emoji-picker-element/database.js'))],
+  ['/vendor/emoji-picker/data.json', fileURLToPath(import.meta.resolve('emoji-picker-element-data/en/emojibase/data.json'))],
+  // Lucide's icons for a workspace's: the sprite they are drawn from, the words they are found by
+  ['/vendor/lucide/sprite.svg', fileURLToPath(import.meta.resolve('lucide-static/sprite.svg'))],
+  ['/vendor/lucide/tags.json', fileURLToPath(import.meta.resolve('lucide-static/tags.json'))],
 ]);
 
 /** The file panel's views (file-views): the bundle, its styles, and what they load as they go — pdf.js, mermaid. */
@@ -159,7 +167,7 @@ export async function startServer({ index, host, port, pollMs, composer, bookmar
  * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, codexInUse: () => Promise<boolean> }} Deps
  *   instance: this run of the viewer, told apart from any other — see /api/machine; vscode: VS Code's web server
  *   behind /vscode/, none when the viewer runs none
- * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'renameWorkspace' | 'closeWorkspace' | 'createTab' | 'createWorkspace' | 'history' | 'reopen'>} HerdrView
+ * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'createTab' | 'createWorkspace' | 'history' | 'reopen'>} HerdrView
  * @typedef {Pick<ReturnType<typeof import('./terminal.js').createTerminals>, 'stream' | 'type'>} Terminals
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
  * @typedef {{ origin: string, host: string }} PublicAddress — where the page is opened from outside, behind a tunnel:
@@ -416,6 +424,7 @@ async function handleWrite(deps, url, request, response) {
   if (url.pathname === '/api/tab/new') return newTab(deps, body, response);
   if (url.pathname === '/api/workspace/new') return newWorkspace(deps, body, response);
   if (url.pathname === '/api/workspace/rename') return renameWorkspace(deps, body, response);
+  if (url.pathname === '/api/workspace/icon') return setWorkspaceIcon(deps, body, response);
   if (url.pathname === '/api/workspace/close') return closeWorkspace(deps, body, response);
   if (url.pathname === '/api/open-in-editor') return openFile(deps, body, response);
   const sessionId = isRecord(body) && typeof body.session === 'string' && sessionIdPattern.test(body.session) ? body.session : undefined;
@@ -520,6 +529,22 @@ async function renameWorkspace(deps, body, response) {
     return;
   }
   return sendJson(response, await deps.herdrView.renameWorkspace(workspace, body.label));
+}
+
+/**
+ * A herdr workspace's icon picked by hand on the page — one its name cannot hold, Lucide's — or taken back: null.
+ * @param {Deps} deps
+ * @param {unknown} body — { workspace, icon }
+ * @param {http.ServerResponse} response
+ */
+async function setWorkspaceIcon(deps, body, response) {
+  const workspace = workspaceOf(body);
+  const icon = isRecord(body) && typeof body.icon === 'string' ? parseIcon(body.icon) : undefined;
+  if (workspace === undefined || !isRecord(body) || (body.icon !== null && icon === undefined)) {
+    response.writeHead(400).end('Bad workspace icon');
+    return;
+  }
+  return sendJson(response, await deps.herdrView.setWorkspaceIcon(workspace, icon === undefined ? undefined : iconValue(icon)));
 }
 
 /**

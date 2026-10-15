@@ -21,10 +21,12 @@ import { parseHistory } from '../public/model/history.js';
 import { observed } from './session-history.js';
 
 /**
- * @typedef {{ herdr: boolean, sessions: Record<string, string> }} SessionWorkspaces — the /api/workspaces reply.
+ * @typedef {{ herdr: boolean, sessions: Record<string, string>, icons: Record<string, string> }} SessionWorkspaces — the
+ *   /api/workspaces reply.
  *   herdr: whether herdr answers; without it the page shows no workspaces. sessions: the workspace's name, by session id
- * @typedef {{ snapshot: import('./herdr.js').HerdrSnapshot, sessionByPane: ReadonlyMap<string, string>, byFolder: ReadonlyMap<string, string> } | undefined} HerdrView
- *   what herdr showed, the sessions running in its panes, and the workspace of each folder; undefined: no herdr
+ * @typedef {{ snapshot: import('./herdr.js').HerdrSnapshot, sessionByPane: ReadonlyMap<string, string>, byFolder: ReadonlyMap<string, string>, icons: ReadonlyMap<string, string> } | undefined} HerdrView
+ *   what herdr showed, the sessions running in its panes, the workspace of each folder, and each workspace's icon by
+ *   its id; undefined: no herdr
  * @typedef {import('./herdr.js').Pane} Pane
  * @typedef {{ found: 'pane', pane: string, working: boolean } | { found: 'elsewhere' | 'none' }} CodexPlace — where a
  *   Codex session runs: in a herdr pane, its agent at work or not; elsewhere — Codex has it open outside herdr; none —
@@ -32,12 +34,13 @@ import { observed } from './session-history.js';
  */
 
 /**
- * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, codexThreads: () => Promise<readonly import('./codex-live.js').LiveThread[]>, file: string, refreshMs: number, claudeCommand: string, codexCommand: string, trust: { looks: number, stepMs: number } }} deps
- *   readRecords — contents of ~/.claude/sessions/*.json; codexThreads — the threads Codex has open now; file — where the
+ * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, codexThreads: () => Promise<readonly import('./codex-live.js').LiveThread[]>, icons: { iconsOf: (workspaces: readonly import('./workspace-icons.js').IconedWorkspace[]) => Promise<ReadonlyMap<string, string>>, setIcon: (folder: string, icon: string | undefined) => Promise<void> }, file: string, refreshMs: number, claudeCommand: string, codexCommand: string, trust: { looks: number, stepMs: number } }} deps
+ *   readRecords — contents of ~/.claude/sessions/*.json; codexThreads — the threads Codex has open now; icons — each
+ *   workspace's (workspace-icons.js); file — where the
  *   workspaces of sessions seen running are kept; refreshMs — herdr is asked at most this often; claudeCommand,
  *   codexCommand — what starts Claude Code, and Codex, in a new tab
  */
-export function createHerdrView({ herdr, readRecords, codexThreads, file, refreshMs, claudeCommand, codexCommand, trust }) {
+export function createHerdrView({ herdr, readRecords, codexThreads, icons, file, refreshMs, claudeCommand, codexCommand, trust }) {
   /**
    * A process's pane does not change while it runs: process-info is asked once for each Claude process — by its key
    * (registry.js): the number goes to another process once it is gone.
@@ -133,7 +136,8 @@ export function createHerdrView({ herdr, readRecords, codexThreads, file, refres
     const codex = snapshot.panes.some((pane) => pane.agent === 'codex') ? codexPanes(snapshot.panes, await codexThreads()) : new Map();
     const sessionByPane = new Map([...claude, ...codex]);
     await rememberRunning(snapshot, sessionByPane);
-    return { snapshot, sessionByPane, byFolder: workspaceByFolder(snapshot.panes, workspaceLabels(snapshot)) };
+    const iconed = await icons.iconsOf(snapshot.workspaces.map((workspace) => ({ id: workspace.id, label: workspace.label, folder: workspaceFolder(snapshot, workspace.id) })));
+    return { snapshot, sessionByPane, byFolder: workspaceByFolder(snapshot.panes, workspaceLabels(snapshot)), icons: iconed };
   };
 
   /**
@@ -181,13 +185,22 @@ export function createHerdrView({ herdr, readRecords, codexThreads, file, refres
      */
     async workspacesOf(sessions) {
       const view = await currentView();
-      if (view === undefined) return { herdr: false, sessions: {} };
+      if (view === undefined) return { herdr: false, sessions: {}, icons: {} };
       const { history } = await keptHistory();
       const found = sessions.flatMap(({ id, cwd }) => {
         const label = history[id]?.workspace ?? (cwd === undefined ? undefined : view.byFolder.get(folderKey(cwd)));
-        return label === undefined ? [] : [[id, label]];
+        return label === undefined ? [] : [/** @type {const} */ ([id, label])];
       });
-      return { herdr: true, sessions: Object.fromEntries(found) };
+      // a session's icon is its workspace's, while the workspace is open
+      const iconByLabel = new Map(view.snapshot.workspaces.flatMap((workspace) => {
+        const icon = view.icons.get(workspace.id);
+        return icon === undefined ? [] : [/** @type {const} */ ([workspace.label, icon])];
+      }));
+      const iconed = found.flatMap(([id, label]) => {
+        const icon = iconByLabel.get(label);
+        return icon === undefined ? [] : [/** @type {const} */ ([id, icon])];
+      });
+      return { herdr: true, sessions: Object.fromEntries(found), icons: Object.fromEntries(iconed) };
     },
     /**
      * A new tab beside one — in its workspace, in the folder of its pane — named, or numbered by herdr, with a shell, or
@@ -257,6 +270,20 @@ export function createHerdrView({ herdr, readRecords, codexThreads, file, refres
       return changed(await herdr(['workspace', 'rename', workspaceId, name]));
     },
     /**
+     * A workspace's icon picked by hand — one its name cannot hold, Lucide's — kept for its folder, or taken back.
+     * @param {string} workspaceId
+     * @param {string | undefined} icon — as kept (model/icon-choice.js); none: one at random again
+     * @returns {Promise<import('../public/model/herdr.js').TabChange>}
+     */
+    async setWorkspaceIcon(workspaceId, icon) {
+      const view = await currentView();
+      const folder = view === undefined ? undefined : workspaceFolder(view.snapshot, workspaceId);
+      if (folder === undefined) return { ok: false, error: 'failed' };
+      await icons.setIcon(folder, icon);
+      latest = undefined;
+      return { ok: true };
+    },
+    /**
      * Closes a workspace with its tabs: what runs in them stops — Claude Code sessions can be resumed, their
      * transcripts stay.
      * @param {string} workspaceId
@@ -324,7 +351,7 @@ export function createHerdrView({ herdr, readRecords, codexThreads, file, refres
     /** @returns {Promise<import('../public/model/herdr.js').HerdrLayout>} */
     async layout() {
       const view = await currentView();
-      return view === undefined ? { herdr: false, workspaces: [] } : { herdr: true, workspaces: layoutOf(view.snapshot, view.sessionByPane) };
+      return view === undefined ? { herdr: false, workspaces: [] } : { herdr: true, workspaces: layoutOf(view.snapshot, view.sessionByPane, view.icons) };
     },
   };
 }
@@ -333,14 +360,16 @@ export function createHerdrView({ herdr, readRecords, codexThreads, file, refres
  * herdr's workspaces and tabs in its own order — by their numbers — with the panes in each tab.
  * @param {import('./herdr.js').HerdrSnapshot} snapshot
  * @param {ReadonlyMap<string, string>} sessionByPane
+ * @param {ReadonlyMap<string, string>} icons — by workspace id
  * @returns {import('../public/model/herdr.js').HerdrWorkspace[]}
  */
-function layoutOf(snapshot, sessionByPane) {
+function layoutOf(snapshot, sessionByPane, icons) {
   const byNumber = (/** @type {{ number: number }} */ a, /** @type {{ number: number }} */ b) => a.number - b.number;
   return [...snapshot.workspaces].sort(byNumber).map((workspace) => ({
     id: workspace.id,
     number: workspace.number,
     label: workspace.label,
+    ...(icons.has(workspace.id) ? { icon: icons.get(workspace.id) } : {}),
     status: workspace.status,
     activeTab: workspace.activeTab,
     tabs: snapshot.tabs
@@ -356,6 +385,30 @@ function layoutOf(snapshot, sessionByPane) {
           .map((pane) => ({ id: pane.paneId, agent: pane.agent, status: pane.status, title: pane.title, session: sessionByPane.get(pane.paneId), size: pane.size, activity: pane.activity })),
       })),
   }));
+}
+
+/**
+ * A workspace's folder: the one most of its panes are in — a tab may be opened elsewhere by the way — as its first such
+ * pane writes it; even, the one its first tab's pane is in, panes of no tab after; none without a pane.
+ * @param {import('./herdr.js').HerdrSnapshot} snapshot
+ * @param {string} workspaceId
+ * @returns {string | undefined}
+ */
+function workspaceFolder(snapshot, workspaceId) {
+  const tabNumbers = new Map(snapshot.tabs.map((tab) => [tab.id, tab.number]));
+  const order = (/** @type {Pane} */ pane) => (pane.tabId === undefined ? Infinity : (tabNumbers.get(pane.tabId) ?? Infinity));
+  const panes = snapshot.panes.filter((pane) => pane.workspaceId === workspaceId && pane.cwd !== undefined).sort((a, b) => order(a) - order(b));
+  /** @type {Map<string, { cwd: string, count: number }>} — in the order first met */
+  const byFolder = new Map();
+  for (const pane of panes) {
+    if (pane.cwd === undefined) continue;
+    const key = folderKey(pane.cwd);
+    const known = byFolder.get(key);
+    byFolder.set(key, { cwd: known?.cwd ?? pane.cwd, count: (known?.count ?? 0) + 1 });
+  }
+  let most;
+  for (const folder of byFolder.values()) if (most === undefined || folder.count > most.count) most = folder;
+  return most?.cwd;
 }
 
 /**
