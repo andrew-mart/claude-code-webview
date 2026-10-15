@@ -3,21 +3,42 @@
 // its agent's status, the latest active first; above the open session or terminal, the tabs of its workspace to switch
 // between, the open one to name or close.
 import { placeOf, searchLayout, sessionsByActivity, tabTarget } from '../model/herdr.js';
+import { groupLamp, paneLamp } from '../model/lamps.js';
+import { jokeAt, storyAt } from '../model/stories.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
+import { restingRobot } from './rest.js';
+import { workingRobots } from './robot.js';
+import { createWorkClock } from './work-clock.js';
 import { tintByWorkspace } from './workspace-tint.js';
 import { labelWithIcon, splitTabIcon, tabIcons } from '../model/tab-icon.js';
 
-/** @type {Readonly<Record<import('../model/herdr.js').AgentStatus, string>>} */
-const statusNames = { working: 'Working', blocked: 'Waiting for you', done: 'Done', idle: 'Idle', unknown: 'No agent' };
+/** @type {Readonly<Record<import('../model/lamps.js').Lamp, string>>} */
+const lampNames = { working: 'Working', blocked: 'Waiting for you', ready: 'Done — its answer not seen yet', idle: 'Idle', unknown: 'No agent' };
 
 /**
- * @param {import('../model/herdr.js').AgentStatus} status
+ * The lamp beside an agent: its robots' story while it works, a robot at rest with a joke once its answer is ready
+ * and not seen — its workspace's story and joke: its agents all show them, telling the project.
+ * @param {import('../model/lamps.js').Lamp} lamp
+ * @param {number} workspace — its workspace's number
+ * @param {number} elapsed — how long it has been at work, for the robots' story to go on from
  * @returns {HTMLElement}
  */
-function statusDot(status) {
+function statusDot(lamp, workspace, elapsed) {
   // an attribute, not a class: .working is the feed's own "Working…" line
-  return h('span', { className: 'herdr-status', title: statusNames[status], attrs: { 'data-status': status } });
+  const scene = lamp === 'working' ? [workingRobots(storyAt(workspace), elapsed)] : lamp === 'ready' ? [restingRobot(jokeAt(workspace))] : [];
+  return h('span', { className: 'herdr-status', title: lampNames[lamp], attrs: { 'data-status': lamp } }, scene);
+}
+
+/**
+ * A lamp whose robots go on with their story from when the clock first saw it at work.
+ * @param {ReturnType<typeof createWorkClock>} clock
+ * @param {string} key — the agent's, the tab's, the workspace's id: how long it has been at work
+ * @param {number} workspace — its workspace's number: whose story and joke it shows
+ * @param {import('../model/lamps.js').Lamp} lamp
+ */
+function lampOf(clock, key, workspace, lamp) {
+  return statusDot(lamp, workspace, clock.elapsed(key, lamp === 'working'));
 }
 
 /**
@@ -132,9 +153,11 @@ const newWorkspaceRefusals = {
  * @param {SidebarActions} actions
  */
 export function createHerdrSidebar(element, { createWorkspace, open, folders, renameWorkspace, closeWorkspace, renameTab, closeTab }) {
+  /** How long each workspace and agent has been at work: their robots' story goes on across redrawing. */
+  const clock = createWorkClock(() => Date.now());
   let shown = '';
   /** What the sidebar was given last: drawn again once a name is typed or a closing answered. */
-  /** @type {{ layout: import('../model/herdr.js').HerdrLayout, opened: import('../model/herdr.js').Opened | undefined, search: string } | undefined} */
+  /** @type {{ layout: import('../model/herdr.js').HerdrLayout, opened: import('../model/herdr.js').Opened | undefined, search: string, seen: import('../model/lamps.js').SeenPanes } | undefined} */
   let given;
   /** While a row is being named or closed the lists stay as they are: a look at herdr every few seconds would undo the
    * typing. */
@@ -142,7 +165,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
   const redraw = () => {
     busy = false;
     shown = '';
-    if (given !== undefined) sidebar.render(given.layout, given.opened, given.search);
+    if (given !== undefined) sidebar.render(given.layout, given.opened, given.search, given.seen);
   };
 
   /**
@@ -307,14 +330,15 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
      * @param {import('../model/herdr.js').HerdrLayout} layout
      * @param {import('../model/herdr.js').Opened | undefined} opened
      * @param {string} search — the search box text
+     * @param {import('../model/lamps.js').SeenPanes} seen — the answers seen, the lamps out
      */
-    render(layout, opened, search) {
-      given = { layout, opened, search };
+    render(layout, opened, search, seen) {
+      given = { layout, opened, search, seen };
       if (busy) return;
       const workspaces = searchLayout(layout.workspaces, search);
       const sessions = sessionsByActivity(layout.workspaces, search);
       const place = opened === undefined ? undefined : placeOf(layout, opened);
-      const look = JSON.stringify([workspaces, sessions.map(({ pane }) => pane.id), place?.tab.id, opened]);
+      const look = JSON.stringify([workspaces, sessions.map(({ pane }) => pane.id), place?.tab.id, opened, [...seen]]);
       if (look === shown) return;
       shown = look;
       const list = workspaces.map((workspace) => {
@@ -322,7 +346,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
         const row = link(active === undefined ? undefined : tabTarget(active), 'herdr-workspace', [
           h('span', { className: 'herdr-number', text: String(workspace.number) }),
           h('span', { className: 'herdr-name', text: workspace.label }),
-          statusDot(workspace.status),
+          lampOf(clock, workspace.id, workspace.number, groupLamp(workspace.status, workspace.tabs.flatMap((tab) => tab.panes), seen)),
         ]);
         row.classList.toggle('selected', workspace.id === place?.workspace.id);
         tintByWorkspace(row, workspace.label);
@@ -344,7 +368,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
             h('span', { className: 'herdr-tab-title', text: title === undefined ? tabName(tab) : title }),
             h('span', { className: 'herdr-tab-where', text: [workspace.label, title === undefined ? undefined : tabName(tab), what].filter((part) => part !== undefined).join(' · ') }),
           ]),
-          statusDot(pane.status),
+          lampOf(clock, pane.id, workspace.number, paneLamp(pane, seen)),
         ]);
         row.classList.toggle('selected', opened !== undefined && (opened.kind === 'session' ? pane.session === opened.id : pane.id === opened.id));
         tintByWorkspace(row, workspace.label);
@@ -379,6 +403,8 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
  * @param {TabActions} actions
  */
 export function createTabBar({ rename, close, open, create }) {
+  /** How long each tab has been at work: its robots' story goes on across redrawing. */
+  const clock = createWorkClock(() => Date.now());
   const element = h('nav', { className: 'herdr-tab-bar', attrs: { 'aria-label': 'herdr tabs', hidden: '' } });
   // tabs that do not fit scroll sideways under the mouse wheel; tabs that fit leave the wheel to the page
   element.addEventListener(
@@ -392,7 +418,7 @@ export function createTabBar({ rename, close, open, create }) {
   );
   let shown = '';
   /** What the bar was given last: shown once naming or closing is over. */
-  /** @type {{ layout: import('../model/herdr.js').HerdrLayout, opened: import('../model/herdr.js').Opened | undefined } | undefined} */
+  /** @type {{ layout: import('../model/herdr.js').HerdrLayout, opened: import('../model/herdr.js').Opened | undefined, seen: import('../model/lamps.js').SeenPanes } | undefined} */
   let given;
   /** While the open tab is being named or closed the bar stays as it is: a look at herdr every few seconds would undo the typing. */
   let busy = false;
@@ -404,7 +430,7 @@ export function createTabBar({ rename, close, open, create }) {
     busy = false;
     buttonsOf = undefined;
     shown = '';
-    if (given !== undefined) bar.render(given.layout, given.opened);
+    if (given !== undefined) bar.render(given.layout, given.opened, given.seen);
   };
 
   /**
@@ -536,12 +562,13 @@ export function createTabBar({ rename, close, open, create }) {
     /**
      * @param {import('../model/herdr.js').HerdrLayout} layout
      * @param {import('../model/herdr.js').Opened | undefined} opened
+     * @param {import('../model/lamps.js').SeenPanes} seen — the answers seen, the lamps out
      */
-    render(layout, opened) {
-      given = { layout, opened };
+    render(layout, opened, seen) {
+      given = { layout, opened, seen };
       if (busy) return;
       const place = opened === undefined ? undefined : placeOf(layout, opened);
-      const look = JSON.stringify([place?.workspace, place?.tab.id]);
+      const look = JSON.stringify([place?.workspace, place?.tab.id, [...seen]]);
       if (look === shown) return;
       shown = look;
       element.hidden = place === undefined;
@@ -551,7 +578,7 @@ export function createTabBar({ rename, close, open, create }) {
       }
       if (buttonsOf !== place.tab.id) buttonsOf = undefined;
       const chips = place.workspace.tabs.flatMap((tab) => {
-        const chip = link(tabTarget(tab), 'herdr-chip', [statusDot(tab.status), h('span', { text: tabName(tab) })]);
+        const chip = link(tabTarget(tab), 'herdr-chip', [lampOf(clock, tab.id, place.workspace.number, groupLamp(tab.status, tab.panes, seen)), h('span', { text: tabName(tab) })]);
         chip.title = tabContent(tab);
         chip.classList.toggle('selected', tab.id === place.tab.id);
         if (tab.id !== place.tab.id) return [chip];

@@ -11,6 +11,7 @@ import { isRecord } from '../public/model/narrow.js';
 import { palettes } from '../public/model/palettes.js';
 import { startServer } from '../server/app.js';
 import { createBookmarkFile } from '../server/bookmarks.js';
+import { createSeenFile } from '../server/seen.js';
 import { createUploads } from '../server/uploads.js';
 import { createVsCode } from '../server/vscode.js';
 import net from 'node:net';
@@ -173,7 +174,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
     opened.push([path, line]);
     return { ok: true };
   };
-  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, vscode, codexRoot });
+  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, vscode, codexRoot });
   t.after(() => server.close());
   return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls, typed, tabChanges, opened };
 }
@@ -1440,4 +1441,16 @@ test('fileIcons_Should_ServeThemeAndItsIcons_AndNothingElse', async (t) => {
     },
     { ts: 'typescript', src: 'folder-src', icon: [200, 'image/svg+xml', true], others: [404, 404, 404] },
   );
+});
+
+// An answer seen on one device counts on every one: the page tells the viewer, which keeps it for the others; another
+// site cannot
+test('seen_Should_KeepAnswerSeenFromViewerPage_ForEveryDevice', async (t) => {
+  const { base, port } = await withServer(t);
+
+  const elsewhere = await post(port, '/api/seen', { ...pageHeaders(port), origin: 'https://evil.example' }, JSON.stringify({ pane: 'w1:p1', count: 5 }));
+  const marked = await post(port, '/api/seen', pageHeaders(port), JSON.stringify({ pane: 'w1:p2', count: 7 }));
+  const seen = await (await fetch(`${base}/api/seen`)).json();
+
+  assert.deepEqual({ elsewhere: elsewhere.status, marked: marked.status, seen }, { elsewhere: 403, marked: 200, seen: { 'w1:p2': 7 } });
 });
