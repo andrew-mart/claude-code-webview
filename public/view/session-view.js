@@ -11,7 +11,7 @@ import { icon } from './icons.js';
 import { renderMarkdown } from './markdown.js';
 import { feedToKeep, keptEntries } from '../model/offline.js';
 import { queueAfter, waitingPrompts } from '../model/queue.js';
-import { waitingBubble } from './waiting-bubble.js';
+import { sentBubble, waitingBubble } from './waiting-bubble.js';
 import { createToolRow } from './tool-view.js';
 
 /**
@@ -22,7 +22,8 @@ import { createToolRow } from './tool-view.js';
  * @typedef {{ onMeta: (meta: SessionMeta) => void, onStatus: (status: SessionStatus) => void, onPrompt: (prompt: Anchor) => void, onReset: () => void }} SessionListener
  * @typedef {{ anchor: (anchor: Anchor, content: HTMLElement) => HTMLElement, onPrompt: (prompt: Anchor) => void, loadEntry: import('./tool-view.js').LoadEntry, sendQueueNow: (() => void) | undefined }} FeedHooks — sendQueueNow:
  *   what waits in Claude Code's queue, sent now; none where nothing can be sent
- * @typedef {{ element: HTMLElement, dispose: () => void, scrollToAnchor: (id: string) => boolean, promptElements: () => readonly HTMLElement[], place: () => ReadingPlace, hasEarlier: () => boolean, loadEarlier: () => Promise<void>, keepPlace: (change: () => void) => void }} MountedSession
+ * @typedef {{ element: HTMLElement, dispose: () => void, scrollToAnchor: (id: string) => boolean, promptElements: () => readonly HTMLElement[], place: () => ReadingPlace, hasEarlier: () => boolean, loadEarlier: () => Promise<void>, keepPlace: (change: () => void) => void, expectPrompt: (text: string) => void }} MountedSession
+ * expectPrompt — a prompt sent from the page: shown, as sent, until Claude Code writes it down;
  * hasEarlier — the session opened with its latest part, the rest is not loaded; loadEarlier loads it;
  * keepPlace — runs a change that resizes the feed (a font, wide tables) keeping the reader at the same message
  * Where the reader is in the feed: at the bottom, following new messages, or at a message — the one at the top of the
@@ -374,6 +375,9 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     promptElements: () => prompts,
     hasEarlier: () => !earlier.hidden,
     loadEarlier,
+    expectPrompt(text) {
+      feed.expect(text);
+    },
     keepPlace(change) {
       // At the bottom the feed keeps following it by itself.
       if (!ready || stuck) {
@@ -471,15 +475,31 @@ function createAnchors(bookmarks, onRewind) {
 function createFeed({ thread, waitingBox }, sessionId, hooks) {
   /** @type {import('../model/queue.js').Queue} */
   let queue = [];
+  /** Prompts sent from the page that Claude Code has not written down yet: each goes once it does. */
+  /** @type {string[]} */
+  const sent = [];
   /** The waiting prompts on screen, to redraw them only when they change — entries come every few seconds. */
   let shownWaiting = '[]';
   const showWaiting = () => {
     const waiting = waitingPrompts(queue);
-    const key = JSON.stringify(waiting);
+    // a sent one Claude Code queued shows as queued
+    const queued = waiting.map(spaced);
+    const unwritten = sent.filter((text) => {
+      const at = queued.indexOf(spaced(text));
+      if (at === -1) return true;
+      queued.splice(at, 1);
+      return false;
+    });
+    const key = JSON.stringify([waiting, unwritten]);
     if (key === shownWaiting) return;
     shownWaiting = key;
-    waitingBox.replaceChildren(...waiting.map((prompt) => waitingBubble(prompt, hooks.sendQueueNow)));
-    waitingBox.hidden = waiting.length === 0;
+    waitingBox.replaceChildren(...waiting.map((prompt) => waitingBubble(prompt, hooks.sendQueueNow)), ...unwritten.map(sentBubble));
+    waitingBox.hidden = waiting.length + unwritten.length === 0;
+  };
+  /** A sent prompt written down: it goes from the sent ones. @param {string} text */
+  const written = (text) => {
+    const at = sent.findIndex((one) => spaced(one) === spaced(text));
+    if (at !== -1) sent.splice(at, 1);
   };
   /** A call row and the group it sits in: the result arrives later and changes the group layout. */
   /** @type {Map<string, { row: import('./tool-view.js').ToolRow, group: ActivityGroup }>} */
@@ -533,6 +553,7 @@ function createFeed({ thread, waitingBox }, sessionId, hooks) {
         const prompt = { id: event.id, kind: 'prompt', label: anchorLabel(event.text), at: event.at };
         top(hooks.anchor(prompt, promptBubble(event)));
         hooks.onPrompt(prompt);
+        written(event.text);
         working = true;
         break;
       }
@@ -665,7 +686,20 @@ function createFeed({ thread, waitingBox }, sessionId, hooks) {
     },
     isWorking: () => working,
     lastActivity: () => lastActivity,
+    /** A prompt sent from the page, shown until Claude Code writes it down. @param {string} text */
+    expect(text) {
+      sent.push(text);
+      showWaiting();
+    },
   };
+}
+
+/**
+ * A prompt's text as it is compared: its spaces and line breaks as one space, none at its ends.
+ * @param {string} text
+ */
+function spaced(text) {
+  return text.replace(/\s+/g, ' ').trim();
 }
 
 /**

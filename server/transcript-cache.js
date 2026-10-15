@@ -29,13 +29,17 @@ const chunkBytes = 4 * 1024 * 1024;
 
 /**
  * @param {{ maxFiles: number, agentOf?: (path: string) => import('./sessions.js').Agent, partsOf?: PartsOf }} options —
- *   maxFiles: how many transcripts stay read, the one opened longest ago goes first; agentOf: whose session a file is —
+ *   maxFiles: how many transcripts stay read, the one opened longest ago goes first — but not one a page keeps (keep);
+ *   agentOf: whose session a file is —
  *   Claude Code's when not told; partsOf: the files a session's transcript is read from — the file alone when not told
  */
 export function createTranscriptCache({ maxFiles, agentOf = () => 'claude', partsOf = async (path) => [{ path, end: undefined }] }) {
   /** Insertion order is the order of use: the first key is the one used longest ago. */
   /** @type {Map<string, FileState>} */
   const files = new Map();
+  /** One for every page keeping a file read: the file's key. */
+  /** @type {Set<{ key: string }>} */
+  const keepers = new Set();
   let generations = 0;
 
   /**
@@ -50,7 +54,7 @@ export function createTranscriptCache({ maxFiles, agentOf = () => 'claude', part
     files.set(key, state);
     for (const oldest of files.keys()) {
       if (files.size <= maxFiles) break;
-      files.delete(oldest);
+      if (![...keepers].some(({ key }) => key === oldest)) files.delete(oldest);
     }
     return state;
   };
@@ -72,6 +76,21 @@ export function createTranscriptCache({ maxFiles, agentOf = () => 'claude', part
       const update = state.queue.then(async () => catchUp(await partsOf(path), state, reading, () => ++generations, () => codexReadingOf(path)));
       state.queue = update.catch(() => undefined);
       return update;
+    },
+
+    /**
+     * Keeps the file read while a page follows it: reading others does not push it out, however many. Kept while any
+     * page that kept it has not let it go.
+     * @param {string} path
+     * @param {Reading['scope']} scope
+     * @returns {() => void} lets the file go
+     */
+    keep(path, scope) {
+      const keeper = { key: `${scope}:${path}` };
+      keepers.add(keeper);
+      return () => {
+        keepers.delete(keeper);
+      };
     },
   };
 }

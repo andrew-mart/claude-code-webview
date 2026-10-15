@@ -16,7 +16,7 @@ test('composer_Should_FoldTallBox_ToReadConversation', async () => {
     matchMedia: () => ({ matches: false }),
     fetch: async () => new Response(JSON.stringify({ state: 'live', status: 'idle', pane: 'w1:p1' }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
   });
-  const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore() });
+  const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined });
   window.document.body.append(composer.element);
   await new Promise((resolve) => setTimeout(resolve, 20));
   const box = composer.element.querySelector('.composer-input');

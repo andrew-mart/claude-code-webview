@@ -1859,6 +1859,25 @@ input.herdr-row-name.failed {
   color: var(--text-2);
 }
 
+/* sent from the page, not written down by Claude Code yet: the user's own colour, faint, its note breathing */
+.msg.user.waiting.sent .bubble {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.msg.user.waiting.sent .queued {
+  animation: sent-waiting 1.6s ease-in-out infinite alternate;
+}
+
+@keyframes sent-waiting {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0.45;
+  }
+}
+
 .slash-command {
   max-width: 85%;
   padding: 6px 12px;
@@ -3585,6 +3604,12 @@ table.diff tr.gap td {
 
 .composer-status[data-tone="error"] {
   color: var(--danger);
+}
+
+/* sending: said at once and kept until the terminal takes it, faint and breathing */
+.composer-status[data-tone="busy"] {
+  color: var(--text-3);
+  animation: sent-waiting 1.6s ease-in-out infinite alternate;
 }
 
 /* ---------- Outline and bookmarks ---------- */

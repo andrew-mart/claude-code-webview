@@ -25,7 +25,7 @@ test('composer_Should_KeepSideAnswer_AcrossSwitchingSessions', async () => {
   });
   const asides = createAsideStore();
   const open = async () => {
-    const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides });
+    const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides, onSent: () => undefined });
     window.document.body.append(composer.element);
     await settle();
     return composer;
@@ -93,7 +93,7 @@ test('composer_Should_ClearBoxWhenAskingAside_AndPutQuestionBackWhenNotAnswered'
         return new Response(JSON.stringify({ state: 'live', status: 'idle', pane: 'w1:p1' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       },
     });
-    const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore() });
+    const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined });
     window.document.body.append(composer.element);
     await settle();
     const box = composer.element.querySelector('.composer-input');
@@ -130,7 +130,7 @@ test('composer_Should_AskBtwAsSideQuestion_InCodexSession', async () => {
       return new Response(JSON.stringify(reply), { status: 200, headers: { 'Content-Type': 'application/json' } });
     },
   });
-  const composer = createComposer(sessionId, { agent: 'codex', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore() });
+  const composer = createComposer(sessionId, { agent: 'codex', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined });
   window.document.body.append(composer.element);
   await settle();
   const box = composer.element.querySelector('.composer-input');
@@ -154,7 +154,7 @@ test('composer_Should_ShowWhatCodexQueued_AboveTheBox', async () => {
       matchMedia: () => ({ matches: false }),
       fetch: async () => new Response(JSON.stringify({ state: 'live', status: 'busy', pane: 'w4:p1', queued }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
     });
-    const composer = createComposer(sessionId, { agent: 'codex', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore() });
+    const composer = createComposer(sessionId, { agent: 'codex', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined });
     window.document.body.append(composer.element);
     await settle();
     const list = composer.element.querySelector('.composer-queued');

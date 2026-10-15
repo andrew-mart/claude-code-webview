@@ -523,6 +523,8 @@ function createPage() {
       agent,
       focusBox: followedTo === id ? 'no' : 'when-ready',
       asides,
+      // a prompt the terminal took shows in the feed at once, until Claude Code writes it down
+      onSent: (text) => view?.expectPrompt(text),
       // a tab numbered by herdr says little: only a named one is told
       placeOf: () => {
         const place = history[id];

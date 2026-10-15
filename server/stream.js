@@ -33,41 +33,52 @@ export async function streamTranscript({ locate, scope, imageUrl, rewoundAt, sen
   /** @type {Set<string>} */
   let promptParents = new Set();
   let point = rewoundAt();
+  /** The file followed, kept read while the page follows it: reading other sessions does not push it out. */
+  /** @type {{ path: string, letGo: () => void } | undefined} */
+  let kept;
   const restart = () => {
     sent = 0;
     promptParents = new Set();
     send('reset', null);
   };
-  while (!signal.aborted) {
-    const path = await locate();
-    const read = path === undefined ? undefined : await transcripts.read(path, { scope, imageUrl }).catch(() => undefined);
-    if (read === undefined) {
-      if (!missingSaid) send('missing', null);
-      missingSaid = true;
-    } else {
-      const nextPoint = rewoundAt();
-      // The file was rewritten, or the page rewound the session: the feed starts over.
-      if ((generation !== undefined && read.generation !== generation) || (nextPoint !== point && sent > 0)) restart();
-      generation = read.generation;
-      point = nextPoint;
-      if (read.entries.length > sent) {
-        const fresh = read.entries.slice(sent);
-        // A prompt from an entry that already had one, whose branch the page has already shown: rebuild the feed.
-        if (fresh.some(({ link }) => link.turn && link.parent !== undefined && promptParents.has(link.parent))) {
-          restart();
-          continue;
-        }
-        for (const { link } of fresh) if (link.turn && link.parent !== undefined) promptParents.add(link.parent);
-        // A long session opens with its latest entries; the page asks for the rest when the reader wants it.
-        const part = sent === 0 ? openingPart(read.entries, point, tail) : { earlier: 0, entries: shownEntries(fresh, rewoundEntries(read.entries.map(({ link }) => link), point)) };
-        if (part.earlier > 0) send('earlier', { count: part.earlier });
-        sendBatches(part.entries, send);
-        sent = read.entries.length;
+  try {
+    while (!signal.aborted) {
+      const path = await locate();
+      if (path !== kept?.path) {
+        kept?.letGo();
+        kept = path === undefined ? undefined : { path, letGo: transcripts.keep(path, scope) };
       }
-      if (!readySaid) send('ready', null);
-      readySaid = true;
+      const read = path === undefined ? undefined : await transcripts.read(path, { scope, imageUrl }).catch(() => undefined);
+      if (read === undefined) {
+        if (!missingSaid) send('missing', null);
+        missingSaid = true;
+      } else {
+        const nextPoint = rewoundAt();
+        // The file was rewritten, or the page rewound the session: the feed starts over.
+        if ((generation !== undefined && read.generation !== generation) || (nextPoint !== point && sent > 0)) restart();
+        generation = read.generation;
+        point = nextPoint;
+        if (read.entries.length > sent) {
+          const fresh = read.entries.slice(sent);
+          // A prompt from an entry that already had one, whose branch the page has already shown: rebuild the feed.
+          if (fresh.some(({ link }) => link.turn && link.parent !== undefined && promptParents.has(link.parent))) {
+            restart();
+            continue;
+          }
+          for (const { link } of fresh) if (link.turn && link.parent !== undefined) promptParents.add(link.parent);
+          // A long session opens with its latest entries; the page asks for the rest when the reader wants it.
+          const part = sent === 0 ? openingPart(read.entries, point, tail) : { earlier: 0, entries: shownEntries(fresh, rewoundEntries(read.entries.map(({ link }) => link), point)) };
+          if (part.earlier > 0) send('earlier', { count: part.earlier });
+          sendBatches(part.entries, send);
+          sent = read.entries.length;
+        }
+        if (!readySaid) send('ready', null);
+        readySaid = true;
+      }
+      await delay(pollMs, undefined, { signal }).catch(() => undefined);
     }
-    await delay(pollMs, undefined, { signal }).catch(() => undefined);
+  } finally {
+    kept?.letGo();
   }
 }
 
