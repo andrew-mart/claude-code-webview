@@ -12,6 +12,7 @@ import { h } from './dom.js';
 import { icon } from './icons.js';
 import { restingRobot } from './rest.js';
 import { workingRobots } from './robot.js';
+import { waverInOwnTime } from './lamp-time.js';
 import { unpluggedRobot } from './unplugged.js';
 import { createWorkClock } from './work-clock.js';
 import { tintByWorkspace } from './workspace-tint.js';
@@ -77,7 +78,10 @@ function sceneOf(lamp, workspace, elapsed) {
  * @param {import('../model/lamps.js').Lamp} lamp
  */
 function lampOf(clock, key, workspace, lamp) {
-  return statusDot(lamp, workspace, clock.elapsed(key, lamp === 'working'));
+  const dot = statusDot(lamp, workspace, clock.elapsed(key, lamp === 'working'));
+  // a lamp at work wavers in its own time, not with the others
+  if (lamp === 'working') waverInOwnTime(dot, key);
+  return dot;
 }
 
 /**

@@ -37,6 +37,7 @@ import { parseFileLinks, parseFolderListing, parseSearchFound, projectOfFile } f
 import { createFileIcons } from './view/file-icons.js';
 import { parseMachine } from './model/machine.js';
 import { splitTabIcon } from './model/tab-icon.js';
+import { waverInOwnTime } from './view/lamp-time.js';
 import { vscodeAddress } from './model/vscode.js';
 import { createEditorOpener } from './view/editor-opener.js';
 import { relabelTables } from './view/markdown.js';
@@ -343,7 +344,12 @@ function createPage() {
     ]);
     // being written to: a robot putting itself together
     const elapsed = workClock.elapsed(session.id, active);
-    if (active) link.append(h('span', { className: 'session-robot', title: 'Being written to' }, [workingRobots(storyOfSession(tint, folder), elapsed)]));
+    if (active) {
+      const robot = h('span', { className: 'session-robot', title: 'Being written to' }, [workingRobots(storyOfSession(tint, folder), elapsed)]);
+      // as a lamp, it wavers in its own time
+      waverInOwnTime(robot, session.id);
+      link.append(robot);
+    }
     // what the session is for, in the user's words: on hover — the search finds it too
     if (note !== '') link.title = `${title}\n${note}`;
     link.classList.toggle('active', active);
