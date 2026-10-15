@@ -16,11 +16,12 @@ const keptKey = 'viewer.editorReach';
  *   reach: what is known without asking the user; check: asks the viewer at 127.0.0.1, the browser may ask the user first
  */
 
-/** @returns {EditorOpener} */
-export function createEditorOpener() {
-  const own = fetch('/api/machine')
-    .then((response) => (response.ok ? response.json() : undefined))
-    .then(parseMachine, () => undefined);
+/**
+ * @param {Promise<import('../model/machine.js').Machine | undefined>} own — what the viewer that served the page says of
+ *   itself
+ * @returns {EditorOpener}
+ */
+export function createEditorOpener(own) {
   /** What the viewer at 127.0.0.1 said, once asked. */
   /** @type {Promise<EditorReach> | undefined} */
   let checked;

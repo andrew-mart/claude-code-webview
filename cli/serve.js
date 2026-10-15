@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { createVsCode } from '../server/vscode.js';
 import { startServer } from '../server/app.js';
 import { createBookmarkFile } from '../server/bookmarks.js';
 import { createUploads } from '../server/uploads.js';
@@ -53,10 +54,10 @@ const herdrRefreshMs = 3_000;
 const claudeTrustPace = { looks: 60, stepMs: 500 };
 
 /**
- * @param {{ port: number, about: import('../server/app.js').About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[], herdr: 'on' | 'off', claudeCommand: string, editor: import('../server/editor.js').EditorCommand | undefined }} options
+ * @param {{ port: number, about: import('../server/app.js').About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[], herdr: 'on' | 'off', claudeCommand: string, editor: import('../server/editor.js').EditorCommand | undefined, vscode: string | undefined }} options
  * @returns {Promise<{ url: string, close: () => void }>}
  */
-export async function serve({ port, about, palette, publicAddresses, herdr, claudeCommand, editor }) {
+export async function serve({ port, about, palette, publicAddresses, herdr, claudeCommand, editor, vscode }) {
   await mkdir(stateDir, { recursive: true });
   const { run, via, note } = await herdrToUse(herdr);
   const claude = claudeDir(process.env);
@@ -67,13 +68,23 @@ export async function serve({ port, about, palette, publicAddresses, herdr, clau
   // A terminal on the page: through herdr's socket a screen is read in a millisecond or two, so it is read every 40 ms
   // while typing; through the herdr program every call starts a process, a tenth of a second.
   const terminals = createTerminals({ io: paneIoOf(run), quickMs: via === 'socket' ? 40 : 200, slowMs: via === 'socket' ? 500 : 1000, quickForMs: 4000 });
-  const server = await startServer({ root: join(claude, 'projects'), host: '127.0.0.1', port, pollMs: 400, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), uploads: createUploads(join(stateDir, 'uploads')), about, palette, publicAddresses, herdrView, terminals, usage: () => readUsage(usageFiles), isRunning: async (id) => latestRecords(await readRecords()).has(id), editor: editor === undefined ? undefined : (path, line) => openInEditor(editor, path, line) });
+  // VS Code in the browser, its token kept beside the viewer's other files — named by the port: another viewer on this
+  // computer has a VS Code of its own
+  const vscodeServer = vscode === undefined ? undefined : createVsCode({ command: [vscode], tokenFile: join(stateDir, `vscode-token-${port}`) });
+  const server = await startServer({ root: join(claude, 'projects'), host: '127.0.0.1', port, pollMs: 400, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), uploads: createUploads(join(stateDir, 'uploads')), about, palette, publicAddresses, herdrView, terminals, usage: () => readUsage(usageFiles), isRunning: async (id) => latestRecords(await readRecords()).has(id), editor: editor === undefined ? undefined : (path, line) => openInEditor(editor, path, line), vscode: vscodeServer });
   const url = `http://127.0.0.1:${server.port}/`;
   console.log(`Claude Code Webview ${about.version}: ${url}`);
   for (const publicAddress of publicAddresses) console.log(`Also answers at ${publicAddress.origin}/ — keep it behind a login such as Cloudflare Access`);
   console.log(`Sessions: ${join(claude, 'projects')}`);
   console.log(note);
-  return { url, close: server.close };
+  if (vscode !== undefined) console.log(`VS Code: ${vscode} — in the browser at ${url}vscode/ once a page asks for it.`);
+  return {
+    url,
+    close: () => {
+      vscodeServer?.close();
+      server.close();
+    },
+  };
 }
 
 /**

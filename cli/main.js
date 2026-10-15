@@ -40,6 +40,9 @@ Usage: claude-code-webview [options]
                         opens a file of the file panel in an editor of this computer, from a browser
                         on it: {path}, {line} and {project} (the nearest folder above with a .sln
                         or .git) are filled in, e.g. "code --goto {path}:{line}"
+      --vscode <program>  run VS Code in the browser at /vscode/ — a button over a session opens it in
+                        the session's folder: the VS Code CLI, code-tunnel.exe of VS Code on Windows
+                        (…/Microsoft VS Code/bin/code-tunnel.exe), code elsewhere
       --install-shortcut  create a desktop shortcut that starts the viewer (Windows);
                         add --start-menu to put it into the Start menu instead
   -h, --help            show this help
@@ -102,7 +105,7 @@ async function serveHere(command, about) {
     return 0;
   }
   if (found.kind === 'other') return portTaken(command.port);
-  const server = await serve({ port: command.port, about, palette: command.palette, publicAddresses: command.publicAddresses, herdr: command.herdr, claudeCommand: command.claudeCommand, editor: command.editor?.command });
+  const server = await serve({ port: command.port, about, palette: command.palette, publicAddresses: command.publicAddresses, herdr: command.herdr, claudeCommand: command.claudeCommand, editor: command.editor?.command, vscode: command.vscode });
   if (command.open) openBrowser(server.url);
   console.log('Press Ctrl+C to stop.');
   const shutdown = () => {
@@ -127,7 +130,7 @@ async function startInBackground(command) {
     await mkdir(stateDir, { recursive: true });
     const log = await open(logFile, 'a');
     const publicUrls = command.publicAddresses.flatMap((publicAddress) => ['--public-url', publicAddress.origin]);
-    const child = spawn(process.execPath, [binPath, '--port', String(command.port), '--palette', command.palette, ...publicUrls, ...(command.herdr === 'off' ? ['--no-herdr'] : []), '--claude-command', command.claudeCommand, ...(command.editor === undefined ? [] : ['--editor-command', command.editor.text]), '--no-open'], {
+    const child = spawn(process.execPath, [binPath, '--port', String(command.port), '--palette', command.palette, ...publicUrls, ...(command.herdr === 'off' ? ['--no-herdr'] : []), '--claude-command', command.claudeCommand, ...(command.editor === undefined ? [] : ['--editor-command', command.editor.text]), ...(command.vscode === undefined ? [] : ['--vscode', command.vscode]), '--no-open'], {
       cwd: homedir(),
       detached: true,
       windowsHide: true,

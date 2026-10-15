@@ -11,6 +11,8 @@ import { palettes } from '../public/model/palettes.js';
 import { startServer } from '../server/app.js';
 import { createBookmarkFile } from '../server/bookmarks.js';
 import { createUploads } from '../server/uploads.js';
+import { createVsCode } from '../server/vscode.js';
+import net from 'node:net';
 
 const sessionId = '3f2c9a50-1111-4222-8333-944455556666';
 const at = '2026-10-09T07:02:11.686Z';
@@ -97,11 +99,12 @@ const webWorkspace = {
 
 /**
  * @param {import('node:test').TestContext} t
- * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[], sessionRunning?: boolean, editor?: 'set' | 'none' }} [options] - takenBack: see
+ * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[], sessionRunning?: boolean, editor?: 'set' | 'none', vscode?: import('../server/vscode.js').VsCode | undefined }} [options] - takenBack: see
  *   fakeComposer; palette, publicAddresses: what the viewer is started with; sessionRunning: whether Claude Code has the
- *   session open; editor: whether the viewer opens files in an editor — the files it is asked to open are recorded
+ *   session open; editor: whether the viewer opens files in an editor — the files it is asked to open are recorded;
+ *   vscode: VS Code's web server behind /vscode/
  */
-async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true, editor = 'set' } = {}) {
+async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true, editor = 'set', vscode = undefined } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'csv-'));
   const project = join(root, 'D--dev-x');
   await mkdir(project);
@@ -169,7 +172,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
     opened.push([path, line]);
     return { ok: true };
   };
-  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined });
+  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, vscode });
   t.after(() => server.close());
   return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls, typed, tabChanges, opened };
 }
@@ -387,7 +390,7 @@ test('machine_Should_NameViewerInstance_ToItsOwnPagesOnly', async (t) => {
   const told = JSON.parse(own.body.toString());
   assert.deepEqual(
     { told, sameAgain: JSON.parse(again.body.toString()).instance === told.instance, allowed: own.headers['access-control-allow-origin'], foreign: foreign.headers['access-control-allow-origin'], plain: JSON.parse(plain.body.toString()).editor },
-    { told: { instance: told.instance, port, editor: true }, sameAgain: true, allowed: 'https://viewer.example.com', foreign: undefined, plain: false },
+    { told: { instance: told.instance, port, editor: true, vscode: false }, sameAgain: true, allowed: 'https://viewer.example.com', foreign: undefined, plain: false },
   );
   assert.match(told.instance, /^[0-9a-f-]{36}$/);
 });
@@ -1132,4 +1135,95 @@ test('vendor_Should_ServeFileViewsAssets_And_NothingAboveThem', async (t) => {
     { bundle: [bundle.status, bundle.headers.get('content-type')], map: map.status, decoder: [decoder.status, decoder.headers.get('content-type')], above: above.status },
     { bundle: [200, 'text/javascript; charset=utf-8'], map: 200, decoder: [200, 'application/wasm'], above: 404 },
   );
+});
+
+/**
+ * The viewer with VS Code's web server — the stand-in of test-support — behind it at /vscode/.
+ * @param {import('node:test').TestContext} t
+ */
+async function withVsCode(t) {
+  const dir = await mkdtemp(join(tmpdir(), 'csv-vscode-'));
+  const vscode = createVsCode({ command: [process.execPath, join(import.meta.dirname, '..', 'test-support', 'fake-serve-web.mjs')], tokenFile: join(dir, 'token') });
+  t.after(async () => {
+    vscode.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+  const served = await withServer(t, { vscode });
+  const target = await vscode.target();
+  assert.ok(target !== undefined);
+  return { ...served, target };
+}
+
+/**
+ * A WebSocket upgrade asked of the viewer by hand: the status line of its answer, and what comes back of a line sent.
+ * @param {number} port
+ * @param {string | undefined} origin
+ */
+function upgradeAt(port, origin) {
+  return new Promise((resolve) => {
+    const socket = net.connect(port, '127.0.0.1', () => {
+      socket.write(`GET /vscode/socket HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n${origin === undefined ? '' : `Origin: ${origin}\r\n`}\r\n`);
+    });
+    let got = '';
+    socket.on('data', (chunk) => {
+      got += String(chunk);
+      if (got.includes('\r\n\r\n') && !got.includes('ping')) socket.write('ping');
+      if (got.includes('ping')) {
+        socket.destroy();
+        resolve({ status: got.split('\r\n')[0], echoed: true, origin: /X-Seen-Origin: (\S+)/.exec(got)?.[1] });
+      }
+    });
+    socket.on('close', () => resolve({ status: got.split('\r\n')[0] ?? '', echoed: false, origin: undefined }));
+    socket.on('error', () => resolve({ status: '', echoed: false, origin: undefined }));
+  });
+}
+
+// VS Code's server is reached through the viewer at /vscode/: a request goes on with VS Code's token — which the page
+// never gets — and as if the server's own page sent it; a WebSocket from the viewer's page is passed through
+test('vscode_Should_PassPageRequestsOnWithItsToken_AsSentToItsOwnAddress', async (t) => {
+  const { base, port, target } = await withVsCode(t);
+  const own = `http://127.0.0.1:${target.port}`;
+
+  const get = await (await fetch(`${base}/vscode/workbench`, { headers: { 'Sec-Fetch-Site': 'same-origin' } })).json();
+  const posted = await post(port, '/vscode/files', { origin: base, 'content-type': 'text/plain' }, 'saved text');
+  const socket = await upgradeAt(port, base);
+
+  assert.deepEqual(
+    { get, posted: JSON.parse(posted.body), socket },
+    {
+      get: { method: 'GET', url: '/vscode/workbench', host: `127.0.0.1:${target.port}`, body: '' },
+      posted: { method: 'POST', url: '/vscode/files', host: `127.0.0.1:${target.port}`, origin: own, body: 'saved text' },
+      socket: { status: 'HTTP/1.1 101 Switching Protocols', echoed: true, origin: own },
+    },
+  );
+});
+
+// VS Code's page is told to connect where the browser reached the viewer — the viewer's own address, or the public one
+// a gate in front of it names — not to VS Code's own; it keeps the cookies VS Code leaves: its client reads its token
+// from one of them to open its connection
+test('vscode_Should_TellPageAddressBrowserAskedAt_AndLeaveItsCookies', async (t) => {
+  const { base, port, target } = await withVsCode(t);
+
+  const local = await fetch(`${base}/vscode/page`, { headers: { 'Sec-Fetch-Site': 'same-origin' } });
+  const gated = await fetch(`${base}/vscode/page`, { headers: { 'Sec-Fetch-Site': 'same-origin', 'X-Forwarded-Host': 'viewer.example.com' } });
+
+  assert.deepEqual(
+    { local: (await local.json()).remoteAuthority, gated: (await gated.json()).remoteAuthority, cookies: local.headers.getSetCookie() },
+    { local: `127.0.0.1:${port}`, gated: 'viewer.example.com', cookies: [`vscode-tkn=${target.token}; Max-Age=604800; SameSite=Lax`, 'vscode-secret-key-path=/vscode/_vscode-cli/mint-key; SameSite=Strict; Path=/'] },
+  );
+});
+
+// Another site cannot reach VS Code through the browser of the viewer's user: its requests — a picture, a form, a
+// WebSocket — are turned away; nor can anything when the viewer runs no VS Code
+test('vscode_Should_TurnAwayAnotherSite_And_AnswerNotFoundWithoutVsCode', async (t) => {
+  const { base, port } = await withVsCode(t);
+  const plain = await withServer(t);
+
+  const embedded = await fetch(`${base}/vscode/vscode-remote-resource?path=C:/secret.png`, { headers: { 'Sec-Fetch-Site': 'cross-site' } });
+  const form = await post(port, '/vscode/files', { origin: 'https://evil.example', 'content-type': 'text/plain' }, 'x');
+  const socket = await upgradeAt(port, 'https://evil.example');
+  const noOrigin = await upgradeAt(port, undefined);
+  const none = await fetch(`${plain.base}/vscode/`);
+
+  assert.deepEqual({ embedded: embedded.status, form: form.status, socket: socket.echoed, noOrigin: noOrigin.echoed, none: none.status }, { embedded: 403, form: 403, socket: false, noOrigin: false, none: 404 });
 });

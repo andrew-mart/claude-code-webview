@@ -6,6 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import http from 'node:http';
+import net from 'node:net';
 import { homedir } from 'node:os';
 import { extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,6 +30,7 @@ import { readLineAt } from './tail.js';
 import { createTranscriptCache } from './transcript-cache.js';
 import { readTaskOutput, seenTasks } from './tasks.js';
 import { parseImages } from './uploads.js';
+import { vscodeBasePath } from './vscode.js';
 
 const publicDir = fileURLToPath(new URL('../public', import.meta.url));
 
@@ -82,7 +84,7 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  */
 
 /**
- * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined }} options
+ * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, vscode?: import('./vscode.js').VsCode | undefined }} options
  *   about — package name and version for /api/health; palette — the page's colours (public/model/palettes.js);
  *   publicAddresses — where else the page is opened at, answered as the local address is; herdrView — what herdr
  *   shows (herdr-view.js); terminals — herdr panes' terminals (terminal.js); usage — the account's usage (usage.js);
@@ -90,7 +92,7 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  *   if the viewer was given one
  * @returns {Promise<{ port: number, close: () => void }>}
  */
-export async function startServer({ root, host, port, pollMs, composer, bookmarks, uploads, about, palette, publicAddresses, herdrView, terminals, usage, isRunning, editor }) {
+export async function startServer({ root, host, port, pollMs, composer, bookmarks, uploads, about, palette, publicAddresses, herdrView, terminals, usage, isRunning, editor, vscode }) {
   const instance = randomUUID();
   const index = createSessionIndex(root, { summaryBudgetMs: 1500 });
   const build = await pageBuild();
@@ -102,12 +104,18 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
   const allowedHosts = new Set();
   /** @type {Set<string>} */
   const allowedOrigins = new Set();
+  /** @type {Deps} */
+  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, uploads, about, build, rewinds, transcripts, palette, herdrView, terminals, usage, isRunning, editor, vscode, instance };
   const server = http.createServer((request, response) => {
-    handle({ index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, uploads, about, build, rewinds, transcripts, palette, herdrView, terminals, usage, isRunning, editor, instance }, request, response).catch((error) => {
+    handle(deps, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
       if (!response.headersSent) response.writeHead(500).end();
       else response.end();
     });
+  });
+  // a WebSocket is VS Code's only: the viewer's own streams are server-sent events
+  server.on('upgrade', (request, socket, head) => {
+    upgradeToVsCode(deps, request, socket, head).catch(() => socket.destroy());
   });
   await new Promise((done) => server.listen(port, host, () => done(undefined)));
   const address = server.address();
@@ -130,8 +138,9 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
 }
 
 /**
- * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, instance: string }} Deps
- *   instance: this run of the viewer, told apart from any other — see /api/machine
+ * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, vscode: import('./vscode.js').VsCode | undefined, instance: string }} Deps
+ *   instance: this run of the viewer, told apart from any other — see /api/machine; vscode: VS Code's web server
+ *   behind /vscode/, none when the viewer runs none
  * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'renameWorkspace' | 'closeWorkspace' | 'createTab' | 'createWorkspace' | 'history' | 'reopen'>} HerdrView
  * @typedef {Pick<ReturnType<typeof import('./terminal.js').createTerminals>, 'stream' | 'type'>} Terminals
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
@@ -152,6 +161,7 @@ async function handle(deps, request, response) {
   // An open page compares this with the build it was loaded from and offers to reload after an update.
   response.setHeader('X-Viewer-Build', deps.build);
   const url = new URL(request.url ?? '/', 'http://localhost');
+  if (isVsCodePath(url.pathname)) return passToVsCode(deps, request, response);
   if (request.method === 'POST') return handleWrite(deps, url, request, response);
   if (request.method !== 'GET') {
     response.writeHead(405).end();
@@ -234,6 +244,118 @@ async function handle(deps, request, response) {
       if (url.pathname.startsWith(folderPrefix)) return sendFolderFile(url, response);
       return servePage(deps.build, deps.palette, url.pathname, response);
   }
+}
+
+/** @param {string} pathname */
+function isVsCodePath(pathname) {
+  return pathname === vscodeBasePath || pathname.startsWith(`${vscodeBasePath}/`);
+}
+
+/**
+ * Whether a request to VS Code comes from a page of the viewer — VS Code's own included — not from another site in the
+ * browser: VS Code would read and write any file for it. A browser tells the site a request comes from (Sec-Fetch-Site:
+ * a link followed, an address typed — "none") and the origin of what it sends; a program that is no browser tells
+ * neither, and is no other site's page.
+ * @param {Deps} deps
+ * @param {http.IncomingMessage} request
+ * @param {'request' | 'socket'} kind — a WebSocket is sent by a page always, with its origin
+ */
+function fromViewerPages(deps, request, kind) {
+  const site = request.headers['sec-fetch-site'];
+  if (site !== undefined && site !== 'same-origin' && site !== 'none') return false;
+  const origin = request.headers.origin;
+  if (origin === undefined) return kind === 'request';
+  return deps.allowedOrigins.has(origin);
+}
+
+/**
+ * A request's headers as VS Code's server is to get them: to its own address, from its own page, with its token.
+ * @param {http.IncomingHttpHeaders} headers
+ * @param {import('./vscode.js').VsCodeTarget} target
+ * @returns {http.OutgoingHttpHeaders}
+ */
+function vscodeHeaders(headers, target) {
+  const own = `127.0.0.1:${target.port}`;
+  const cookies = (headers.cookie ?? '')
+    .split(';')
+    .map((cookie) => cookie.trim())
+    .filter((cookie) => cookie !== '' && !cookie.startsWith('vscode-tkn='));
+  return {
+    ...headers,
+    host: own,
+    // where the browser reached the viewer — or the public address a gate in front of it names: VS Code's page connects
+    // there, not to VS Code's own address, which a browser elsewhere cannot reach
+    ...(headers.host === undefined ? {} : { 'x-forwarded-host': headers['x-forwarded-host'] ?? headers.host }),
+    ...(headers.origin === undefined ? {} : { origin: `http://${own}` }),
+    cookie: [...cookies, `vscode-tkn=${target.token}`].join('; '),
+  };
+}
+
+
+/**
+ * A request under /vscode/ passed on to VS Code's server, and its answer back.
+ * @param {Deps} deps
+ * @param {http.IncomingMessage} request
+ * @param {http.ServerResponse} response
+ */
+async function passToVsCode(deps, request, response) {
+  if (deps.vscode === undefined) {
+    response.writeHead(404).end('The viewer runs no VS Code: start it with --vscode');
+    return;
+  }
+  if (!fromViewerPages(deps, request, 'request')) {
+    response.writeHead(403).end('Forbidden: VS Code is reached from the viewer only');
+    return;
+  }
+  const target = await deps.vscode.target();
+  if (target === undefined) {
+    response.writeHead(503).end('VS Code did not start');
+    return;
+  }
+  const upstream = http.request({ host: '127.0.0.1', port: target.port, method: request.method, path: request.url, headers: vscodeHeaders(request.headers, target) }, (reply) => {
+    response.writeHead(reply.statusCode ?? 502, reply.headers);
+    reply.pipe(response);
+  });
+  upstream.on('error', () => {
+    if (!response.headersSent) response.writeHead(502).end('VS Code did not answer');
+    else response.end();
+  });
+  request.pipe(upstream);
+}
+
+/**
+ * A WebSocket to VS Code's server — its page's connection to it — passed through as it is, once asked for from a page
+ * of the viewer; any other upgrade is refused.
+ * @param {Deps} deps
+ * @param {http.IncomingMessage} request
+ * @param {import('node:stream').Duplex} socket
+ * @param {Buffer} head
+ */
+async function upgradeToVsCode(deps, request, socket, head) {
+  const path = new URL(request.url ?? '/', 'http://localhost').pathname;
+  const allowed = deps.allowedHosts.has(request.headers.host ?? '') && isVsCodePath(path) && deps.vscode !== undefined && fromViewerPages(deps, request, 'socket');
+  const target = allowed && deps.vscode !== undefined ? await deps.vscode.target() : undefined;
+  if (target === undefined) {
+    socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+    return;
+  }
+  const upstream = net.connect(target.port, '127.0.0.1', () => {
+    const lines = Object.entries(vscodeHeaders(request.headers, target)).flatMap(([name, value]) => (value === undefined ? [] : (Array.isArray(value) ? value : [String(value)]).map((one) => `${name}: ${one}`)));
+    upstream.write(`${request.method} ${request.url} HTTP/1.1\r\n${lines.join('\r\n')}\r\n\r\n`);
+    if (head.length > 0) upstream.write(head);
+    upstream.pipe(socket);
+    socket.pipe(upstream);
+  });
+  // either side ended or gone — a tab closed, the server stopped — takes the other along: an upgraded socket stays
+  // half-open after its end, and a pipe passes the end on without closing anything
+  const takes = (/** @type {import('node:stream').Duplex} */ one, /** @type {import('node:stream').Duplex} */ other) => {
+    one.on('end', () => other.destroy());
+    one.on('close', () => other.destroy());
+  };
+  takes(upstream, socket);
+  takes(socket, upstream);
+  upstream.on('error', () => socket.destroy());
+  socket.on('error', () => upstream.destroy());
 }
 
 /**
@@ -803,7 +925,7 @@ function sendMachine(deps, request, response) {
   const origin = request.headers.origin;
   if (origin !== undefined && deps.allowedOrigins.has(origin)) response.setHeader('Access-Control-Allow-Origin', origin);
   response.setHeader('Vary', 'Origin');
-  return sendJson(response, { instance: deps.instance, port: request.socket.localPort, editor: deps.editor !== undefined });
+  return sendJson(response, { instance: deps.instance, port: request.socket.localPort, editor: deps.editor !== undefined, vscode: deps.vscode !== undefined });
 }
 
 /**

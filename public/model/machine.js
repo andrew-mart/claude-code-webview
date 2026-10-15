@@ -6,8 +6,8 @@ import { isRecord } from './narrow.js';
 const loopbackHosts = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
 
 /**
- * @typedef {{ instance: string, port: number, editor: boolean }} Machine — the viewer's /api/machine reply: the run of the
- *   viewer, its port, whether it has an editor
+ * @typedef {{ instance: string, port: number, editor: boolean, vscode: boolean }} Machine — the viewer's /api/machine
+ *   reply: the run of the viewer, its port, whether it has an editor, whether it runs VS Code in the browser
  * @typedef {'same' | 'elsewhere' | 'unknown' | 'none'} EditorReach
  */
 
@@ -17,7 +17,8 @@ const loopbackHosts = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
  */
 export function parseMachine(json) {
   if (!isRecord(json) || typeof json.instance !== 'string' || typeof json.port !== 'number' || typeof json.editor !== 'boolean') return undefined;
-  return { instance: json.instance, port: json.port, editor: json.editor };
+  // a viewer from before VS Code in the browser says nothing of it: it runs none
+  return { instance: json.instance, port: json.port, editor: json.editor, vscode: json.vscode === true };
 }
 
 /**
