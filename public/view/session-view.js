@@ -396,12 +396,13 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
 }
 
 /**
- * Messages one can come back to: each has a bookmark flag, and its element can be found by id.
+ * Messages one can come back to: each has a bookmark flag — an answer one under it as well, where it is read to its
+ * end — and its element can be found by id.
  * @param {import('./bookmark-store.js').BookmarkStore | undefined} bookmarks
  * @param {((prompt: Anchor) => void) | undefined} onRewind — offers to rewind to a prompt; undefined in a subagent feed
  */
 function createAnchors(bookmarks, onRewind) {
-  /** @type {Map<string, { element: HTMLElement, button: HTMLButtonElement | undefined }>} */
+  /** @type {Map<string, { element: HTMLElement, buttons: readonly HTMLButtonElement[] }>} */
   const registry = new Map();
   const press = (/** @type {HTMLButtonElement} */ button, /** @type {boolean} */ on) => {
     button.classList.toggle('on', on);
@@ -420,17 +421,23 @@ function createAnchors(bookmarks, onRewind) {
       const holder = anchor.kind === 'prompt' ? content : h('div', { className: 'anchored' }, [content]);
       holder.classList.add('anchor');
       holder.dataset.anchor = anchor.id;
-      /** @type {HTMLButtonElement | undefined} */
-      let button;
+      /** @type {HTMLButtonElement[]} */
+      const buttons = [];
       if (bookmarks !== undefined) {
         const store = bookmarks;
-        button = h('button', { className: 'bookmark-toggle', attrs: { type: 'button' } }, [icon('bookmark')]);
-        button.addEventListener('click', (event) => {
-          event.stopPropagation();
-          store.toggle(anchor);
-        });
-        press(button, store.has(anchor.id));
-        holder.prepend(button);
+        /** @param {string} className */
+        const flag = (className) => {
+          const button = h('button', { className, attrs: { type: 'button' } }, [icon('bookmark')]);
+          button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            store.toggle(anchor);
+          });
+          press(button, store.has(anchor.id));
+          buttons.push(button);
+          return button;
+        };
+        holder.prepend(flag('bookmark-toggle'));
+        if (anchor.kind === 'answer') holder.append(flag('bookmark-toggle bookmark-under'));
       }
       // A prompt can be rewound to, as with Esc Esc in the terminal.
       if (anchor.kind === 'prompt' && onRewind !== undefined) {
@@ -441,11 +448,11 @@ function createAnchors(bookmarks, onRewind) {
         });
         holder.prepend(rewind);
       }
-      registry.set(anchor.id, { element: holder, button });
+      registry.set(anchor.id, { element: holder, buttons });
       return holder;
     },
     refresh() {
-      for (const [id, { button }] of registry) if (button !== undefined && bookmarks !== undefined) press(button, bookmarks.has(id));
+      for (const [id, { buttons }] of registry) for (const button of buttons) if (bookmarks !== undefined) press(button, bookmarks.has(id));
     },
     /** @param {string} id */
     find: (id) => registry.get(id)?.element,
