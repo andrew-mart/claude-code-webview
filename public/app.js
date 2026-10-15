@@ -6,6 +6,7 @@ import { currentIndex, stepTarget } from './model/outline.js';
 import { feedToKeep, keptEntries, sessionsToSave } from './model/offline.js';
 import { groupedSessions, listedSessions, mergeSessions } from './model/session-list.js';
 import { actionLabel, choices, nextChoice } from './model/view-settings.js';
+import { agentMark } from './view/agent-marks.js';
 import { createBookmarkStore, moveLocalBookmarksToServer } from './view/bookmark-store.js';
 import { createComposer } from './view/composer-view.js';
 import { createAsideStore } from './view/aside-store.js';
@@ -81,6 +82,7 @@ const herdrPanel = byId('herdr-panel', HTMLElement);
 const main = byId('main', HTMLElement);
 const emptyState = byId('empty-state', HTMLElement);
 const usageBadge = byId('usage', HTMLElement);
+const codexUsageBadge = byId('usage-codex', HTMLElement);
 const updateNotice = createUpdateNotice();
 // Out of the viewer's reach — the computer is off — the page shows what it saved: the session list and the sessions'
 // feeds (view/offline-store.js); it reconnects by itself.
@@ -961,18 +963,50 @@ async function keepPageForOffline() {
 }
 
 /**
- * The account's usage beside the viewer's name: the 5-hour window and the week, when each resets on hover. Hidden
- * until Claude Code or a statusline has read it; kept as it is while the viewer is out of reach.
+ * The account's usage beside the viewer's name: the 5-hour window and the week, when each resets on hover — Claude's,
+ * and Codex's under it while Codex is in use, each row marked with its agent's mark then. Hidden until read; kept as it
+ * is while the viewer is out of reach.
  */
 async function refreshUsage() {
-  const response = await fetch('/api/usage').catch(() => undefined);
-  if (response === undefined || !response.ok) return;
-  const usage = parseUsage(await response.json().catch(() => undefined));
-  usageBadge.hidden = usage === undefined;
+  const [claude, codex] = await Promise.all([readUsageAt('/api/usage'), readUsageAt('/api/usage/codex')]);
+  if (claude !== 'unreachable') showUsage(usageBadge, claude, codex !== 'unreachable' && codex !== undefined ? 'claude' : undefined);
+  if (codex !== 'unreachable') showUsage(codexUsageBadge, codex, 'codex');
+}
+
+/** Each agent's name, in the title of its row of usage. */
+const usageAgents = /** @type {const} */ ({ claude: 'Claude', codex: 'Codex' });
+
+/**
+ * @param {string} path
+ * @returns {Promise<import('./model/usage.js').Usage | undefined | 'unreachable'>}
+ */
+async function readUsageAt(path) {
+  const response = await fetch(path).catch(() => undefined);
+  if (response === undefined || !response.ok) return 'unreachable';
+  return parseUsage(await response.json().catch(() => undefined));
+}
+
+/**
+ * A row of meters: a window its agent does not have — Codex's plans may count the week alone — is left out.
+ * @param {HTMLElement} badge
+ * @param {import('./model/usage.js').Usage | undefined} usage
+ * @param {import('./model/composer.js').Agent | undefined} agent — whose, when two rows show
+ */
+function showUsage(badge, usage, agent) {
+  badge.hidden = usage === undefined;
   if (usage === undefined) return;
   const shown = usageView(usage, Date.now());
-  usageBadge.replaceChildren(...shown.meters.map(usageMeter));
-  usageBadge.title = shown.title;
+  const counted = (/** @type {string} */ window) => window !== '5h' || usage.fiveHour !== undefined;
+  const title = shown.title.split('\n').filter((line) => counted(line.startsWith('5-hour window') ? '5h' : '')).join('\n');
+  const named = agent === undefined ? undefined : usageAgents[agent];
+  // a window not counted keeps its place, unseen: the rows' windows stand one above the other
+  const meters = shown.meters.map((meter) => {
+    const element = usageMeter(meter);
+    element.classList.toggle('usage-absent', !counted(meter.name));
+    return element;
+  });
+  badge.replaceChildren(...(agent === undefined ? [] : [h('span', { className: 'usage-agent' }, [agentMark(agent)])]), ...meters);
+  badge.title = named === undefined ? title : `${named}\n${title}`;
 }
 
 /**
@@ -985,7 +1019,8 @@ function usageMeter(meter) {
   const said = meter.percent === undefined ? '—' : `${Math.round(meter.percent)}%`;
   const element = h('span', { className: 'usage-meter', attrs: { 'data-gap': meter.gap?.kind ?? 'none' } }, [
     h('span', { className: 'usage-name', text: meter.name }),
-    h('span', { className: 'usage-line' }),
+    // the line's glow: its own copy, blurred, under it
+    h('span', { className: 'usage-line' }, [h('span', { className: 'usage-glow', attrs: { 'aria-hidden': 'true' } })]),
     h('span', { className: 'usage-percent', text: said }),
   ]);
   if (meter.percent !== undefined) {

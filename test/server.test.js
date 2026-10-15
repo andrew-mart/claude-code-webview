@@ -102,12 +102,13 @@ const webWorkspace = {
 
 /**
  * @param {import('node:test').TestContext} t
- * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[], sessionRunning?: boolean, editor?: 'set' | 'none', vscode?: import('../server/vscode.js').VsCode | undefined, codexRoot?: string | undefined }} [options] - takenBack: see
+ * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[], sessionRunning?: boolean, editor?: 'set' | 'none', vscode?: import('../server/vscode.js').VsCode | undefined, codexRoot?: string | undefined, codexInUse?: boolean }} [options] - takenBack: see
  *   fakeComposer; palette, publicAddresses: what the viewer is started with; sessionRunning: whether Claude Code has the
  *   session open; editor: whether the viewer opens files in an editor — the files it is asked to open are recorded;
- *   vscode: VS Code's web server behind /vscode/; codexRoot: Codex's sessions folder
+ *   vscode: VS Code's web server behind /vscode/; codexRoot: Codex's sessions folder; codexInUse: whether Codex has a
+ *   thread open
  */
-async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true, editor = 'set', vscode = undefined, codexRoot = undefined } = {}) {
+async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true, editor = 'set', vscode = undefined, codexRoot = undefined, codexInUse = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'csv-'));
   const project = join(root, 'D--dev-x');
   await mkdir(project);
@@ -175,7 +176,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
     opened.push([path, line]);
     return { ok: true };
   };
-  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, vscode });
+  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, vscode, codexInUse: async () => codexInUse });
   t.after(() => server.close());
   return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls, typed, tabChanges, opened };
 }
@@ -1493,4 +1494,27 @@ test('rewind_Should_FindPromptOfCodexSession_InItsTranscript', async (t) => {
   const response = await post(port, '/api/rewind', pageHeaders(port), JSON.stringify({ session: id, prompt: 'codex-1', action: 'conversation' }));
 
   assert.deepEqual({ status: response.status, calls: calls.filter((call) => call[0] === 'rewind') }, { status: 200, calls: [['rewind', id, JSON.stringify({ stepsUp: 2, prompt: 'Redraw the old map', action: 'conversation' })]] });
+});
+
+// Codex's usage of the account comes from the session it worked in last: the latest token count there — while Codex
+// is in use, a thread of its open; none before a token count, none while Codex is not in use
+test('usage_Should_TellCodexsUsage_FromSessionItWorkedInLast_WhileCodexIsInUse', async (t) => {
+  const codexRoot = await mkdtemp(join(tmpdir(), 'csv-codex-'));
+  t.after(() => rm(codexRoot, { recursive: true, force: true }));
+  const day = join(codexRoot, '2026', '10', '14');
+  await mkdir(day, { recursive: true });
+  const id = '01a13a06-5376-7481-9aa7-ec19297d2f7c';
+  const records = [
+    { timestamp: at, ordinal: 0, type: 'session_meta', payload: { id, cwd: 'D:/gits/maptool', source: 'cli' } },
+    { timestamp: at, ordinal: 1, type: 'response_item', payload: { type: 'message', id: 'msg_1', role: 'user', content: [{ type: 'input_text', text: 'Redraw the old map' }] } },
+    { timestamp: '2026-10-14T10:02:00.000Z', ordinal: 2, type: 'event_msg', payload: { type: 'token_count', info: null, rate_limits: { limit_id: 'codex', primary: { used_percent: 39, window_minutes: 10080, resets_at: 1792491476 }, secondary: null } } },
+  ];
+  const { base: none } = await withServer(t, { codexInUse: true });
+  await writeFile(join(day, `rollout-2026-10-14T15-47-35-${id}.jsonl`), records.map((record) => `${JSON.stringify(record)}\n`).join(''));
+  const { base } = await withServer(t, { codexRoot, codexInUse: true });
+  const { base: unused } = await withServer(t, { codexRoot, codexInUse: false });
+  /** @param {string} at */
+  const usageAt = async (at) => (await fetch(`${at}/api/usage/codex`)).json();
+
+  assert.deepEqual([await usageAt(base), await usageAt(none), await usageAt(unused)], [{ sevenDay: { percent: 39, resetsAt: 1792491476000 }, readAt: Date.parse('2026-10-14T10:02:00.000Z') }, {}, {}]);
 });

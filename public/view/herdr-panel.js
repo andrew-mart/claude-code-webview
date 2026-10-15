@@ -6,20 +6,24 @@ import { workspaceNameOf } from '../model/folders.js';
 import { placeOf, searchLayout, sessionsByActivity, tabTarget } from '../model/herdr.js';
 import { groupLamp, paneLamp } from '../model/lamps.js';
 import { jokeAt, storyAt } from '../model/stories.js';
+import { agentMark } from './agent-marks.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
 import { restingRobot } from './rest.js';
 import { workingRobots } from './robot.js';
-import { createWorkClock } from './work-clock.js';
 import { unpluggedRobot } from './unplugged.js';
+import { createWorkClock } from './work-clock.js';
 import { tintByWorkspace } from './workspace-tint.js';
 import { labelWithIcon, splitTabIcon, tabIcons } from '../model/tab-icon.js';
 
 /**
- * The icon of each thing a new tab can start with.
- * @type {Readonly<Record<import('../model/herdr.js').TabStart, string>>}
+ * What a new tab can start with, drawn: a terminal by its icon, the agents by their own marks — as in the usage rows.
+ * @param {import('../model/herdr.js').TabStart} start
+ * @returns {Element}
  */
-const startIcons = { shell: 'shell', claude: 'model', codex: 'code' };
+function startMark(start) {
+  return start === 'shell' ? icon('shell') : agentMark(start);
+}
 
 /** @type {Readonly<Record<import('../model/lamps.js').Lamp, string>>} */
 const lampNames = { working: 'Working', blocked: 'Waiting for you', ready: 'Done — its answer not seen yet', idle: 'Idle', unknown: 'No agent' };
@@ -147,7 +151,18 @@ function createIconPicker(initial, nameBox) {
  * @returns {HTMLButtonElement}
  */
 function iconButton(className, iconName, name) {
-  return h('button', { className: `icon-button ${className}`, title: name, attrs: { type: 'button', 'aria-label': name } }, [icon(iconName)]);
+  return drawnButton(className, icon(iconName), name);
+}
+
+/**
+ * A button that is a drawing — an icon, a mark — named on hover and to a screen reader.
+ * @param {string} className
+ * @param {Element} drawing
+ * @param {string} name
+ * @returns {HTMLButtonElement}
+ */
+function drawnButton(className, drawing, name) {
+  return h('button', { className: `icon-button ${className}`, title: name, attrs: { type: 'button', 'aria-label': name } }, [drawing]);
 }
 
 /**
@@ -578,7 +593,7 @@ export function createTabBar({ rename, close, open, create }) {
     };
     /** @param {import('../model/herdr.js').TabStart} start @param {string} text @param {string} className */
     const choice = (start, text, className) => {
-      const made = iconButton(className, startIcons[start], text);
+      const made = drawnButton(className, startMark(start), text);
       made.addEventListener('click', () => add(start));
       return made;
     };
