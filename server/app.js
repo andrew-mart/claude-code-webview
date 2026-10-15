@@ -20,7 +20,11 @@ import { branchChanges, branchFileDiff } from './branch-changes.js';
 import { createCodexReading } from './codex.js';
 import { parseSteps } from '../public/model/dialog.js';
 import { assetFile, folderFileAt, sandboxPolicy } from 'file-views/server';
-import { readImageFile, readTextFile } from './files.js';
+import { editorImports, editorModuleFile, editorModuleFiles, editorModulesPrefix } from './editor-modules.js';
+import { createFileIcons, fileIconAnswer, fileIconsManifest, fileIconsPrefix } from './file-icons.js';
+import { readImageFile, readTextFile, saveTextFile } from './files.js';
+import { fileLinks } from './links.js';
+import { listFolder, searchProject, searchTimeoutMs } from './project.js';
 import { readBranch } from './git.js';
 import { readImage } from './images.js';
 import { rewindTarget } from './rewind.js';
@@ -57,6 +61,14 @@ const fileViewsPrefix = '/vendor/file-views/';
  */
 function fileViewsFile(pathname) {
   return pathname.startsWith(fileViewsPrefix) ? assetFile(decodeURIComponent(pathname.slice(fileViewsPrefix.length))) : undefined;
+}
+
+/**
+ * @param {string} pathname
+ * @returns {string | undefined}
+ */
+function editorFile(pathname) {
+  return pathname.startsWith(editorModulesPrefix) ? editorModuleFile(decodeURIComponent(pathname.slice(editorModulesPrefix.length))) : undefined;
 }
 
 /** @type {Readonly<Record<string, string>>} */
@@ -105,8 +117,9 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
   const allowedHosts = new Set();
   /** @type {Set<string>} */
   const allowedOrigins = new Set();
+  const fileIcons = createFileIcons();
   /** @type {Deps} */
-  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, uploads, about, build, rewinds, transcripts, palette, herdrView, terminals, usage, isRunning, editor, vscode, instance };
+  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, uploads, about, build, rewinds, transcripts, palette, herdrView, terminals, usage, isRunning, editor, vscode, instance, fileIcons };
   const server = http.createServer((request, response) => {
     handle(deps, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
@@ -139,7 +152,7 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
 }
 
 /**
- * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, vscode: import('./vscode.js').VsCode | undefined, instance: string }} Deps
+ * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons> }} Deps
  *   instance: this run of the viewer, told apart from any other — see /api/machine; vscode: VS Code's web server
  *   behind /vscode/, none when the viewer runs none
  * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'renameWorkspace' | 'closeWorkspace' | 'createTab' | 'createWorkspace' | 'history' | 'reopen'>} HerdrView
@@ -239,6 +252,12 @@ async function handle(deps, request, response) {
       return sendFile(url, response);
     case '/api/file/image':
       return sendFileImage(url, response);
+    case '/api/dir':
+      return sendFolder(url, response);
+    case '/api/search':
+      return sendSearch(url, response);
+    case '/api/links':
+      return sendLinks(url, response);
     case '/api/image':
       return withSession(url, response, async (id) => sendImage(deps, url, id, response));
     case '/api/entry':
@@ -247,7 +266,7 @@ async function handle(deps, request, response) {
       return withSession(url, response, async (id) => sendSnapshot(deps, url, id, response));
     default:
       if (url.pathname.startsWith(folderPrefix)) return sendFolderFile(url, response);
-      return servePage(deps.build, deps.palette, url.pathname, response);
+      return servePage(deps, url.pathname, response);
   }
 }
 
@@ -382,7 +401,8 @@ async function handleWrite(deps, url, request, response) {
     response.writeHead(403).end('Forbidden: request did not come from the viewer page');
     return;
   }
-  const body = await readJsonBody(request, url.pathname === '/api/send' ? maxSendBytes : maxBodyBytes);
+  const body = await readJsonBody(request, url.pathname === '/api/send' ? maxSendBytes : url.pathname === '/api/file/save' ? maxSaveBytes : maxBodyBytes);
+  if (url.pathname === '/api/file/save') return saveFile(body, response);
   if (url.pathname === '/api/pane/input') return typeIntoPane(deps, body, response);
   if (url.pathname === '/api/tab/rename') return renameTab(deps, body, response);
   if (url.pathname === '/api/tab/close') return closeTab(deps, body, response);
@@ -1015,6 +1035,75 @@ async function sendFile(url, response) {
 /** @type {Readonly<Record<import('./files.js').FileRefusal, number>>} */
 const refusalStatus = { 'not-absolute': 400, 'not-a-file': 400, 'not-found': 404, 'too-large': 413, binary: 415 };
 const maxFileBytes = 2 * 1024 * 1024;
+/**
+ * A project's folder for the file panel: its folders, then its files.
+ * @param {URL} url — ?path=<the folder>
+ * @param {http.ServerResponse} response
+ */
+async function sendFolder(url, response) {
+  const listing = await listFolder(url.searchParams.get('path') ?? '', { home: homedir(), maxEntries: maxFolderEntries });
+  return sendJson(response, listing, listing.ok ? 200 : folderRefusalStatus[listing.error]);
+}
+
+/**
+ * A project's text searched, for the file panel.
+ * @param {URL} url — ?root=<the project's folder>&q=<what>&mode=text|regex&case=1&word=1
+ * @param {http.ServerResponse} response
+ */
+async function sendSearch(url, response) {
+  const text = url.searchParams.get('q') ?? '';
+  if (text === '' || text.length > maxSearchChars) {
+    response.writeHead(400).end('Bad search');
+    return;
+  }
+  const query = { text, mode: url.searchParams.get('mode') === 'regex' ? /** @type {const} */ ('regex') : /** @type {const} */ ('text'), caseSensitive: url.searchParams.get('case') === '1', wholeWord: url.searchParams.get('word') === '1' };
+  const found = await searchProject(url.searchParams.get('root') ?? '', query, { home: homedir(), maxMatches: maxSearchMatches, timeoutMs: searchTimeoutMs });
+  return sendJson(response, found, found.ok ? 200 : searchRefusalStatus[found.error]);
+}
+
+/**
+ * A file's links in its project: what it imports, and what imports it.
+ * @param {URL} url — ?path=<the file>&root=<its project's folder>
+ * @param {http.ServerResponse} response
+ */
+async function sendLinks(url, response) {
+  const links = await fileLinks(url.searchParams.get('path') ?? '', url.searchParams.get('root') ?? '', { home: homedir(), maxMatches: maxSearchMatches, maxBytes: maxFileBytes });
+  return sendJson(response, links, links.ok ? 200 : linksRefusalStatus[links.error]);
+}
+
+/** @type {Readonly<Record<'not-absolute' | 'not-found' | 'too-large' | 'not-a-folder', number>>} */
+const linksRefusalStatus = { 'not-absolute': 400, 'not-found': 404, 'too-large': 413, 'not-a-folder': 400 };
+
+const maxFolderEntries = 5000;
+const maxSearchMatches = 1000;
+const maxSearchChars = 1000;
+/** @type {Readonly<Record<import('./project.js').FolderRefusal, number>>} */
+const folderRefusalStatus = { 'not-absolute': 400, 'not-found': 404, 'not-a-folder': 400 };
+/** @type {Readonly<Record<import('./project.js').FolderRefusal | 'bad-pattern' | 'no-git', number>>} */
+const searchRefusalStatus = { ...folderRefusalStatus, 'bad-pattern': 400, 'no-git': 501 };
+
+/** A file's text as JSON: an escaped character takes up to six bytes. */
+const maxSaveBytes = maxFileBytes * 6 + 64 * 1024;
+
+/**
+ * A text edited in the panel, saved over its file while the file is the one read; else what the file holds now.
+ * @param {unknown} body — { path, content, version }
+ * @param {http.ServerResponse} response
+ */
+async function saveFile(body, response) {
+  const path = isRecord(body) ? text(body.path) : undefined;
+  const content = isRecord(body) ? text(body.content) : undefined;
+  const version = isRecord(body) ? text(body.version) : undefined;
+  if (path === undefined || content === undefined || version === undefined) {
+    response.writeHead(400).end('Bad file save');
+    return;
+  }
+  const outcome = await saveTextFile(path, { content, version }, { maxBytes: maxFileBytes, home: homedir() });
+  return sendJson(response, outcome, outcome.ok ? 200 : saveRefusalStatus[outcome.error]);
+}
+
+/** @type {Readonly<Record<import('./files.js').SaveRefusal | 'changed', number>>} */
+const saveRefusalStatus = { 'not-absolute': 400, 'not-a-file': 400, 'not-found': 404, 'too-large': 413, binary: 415, 'not-utf8': 415, 'read-only': 403, changed: 409 };
 
 /**
  * A picture for the right-hand panel's <img>, from any absolute path as the file text is. The file may change, so
@@ -1142,19 +1231,41 @@ const buildPath = /^\/b\/[0-9a-f]{1,64}(\/.+)$/;
 /**
  * The page links its files under the current build path, so after an update they have new URLs and no cache —
  * the browser's or a proxy's — can serve the old ones; under such a URL a file never changes and may be kept.
- * @param {string} build
- * @param {import('../public/model/palettes.js').Palette} palette — the page's colours and tab icon
+ * @param {Pick<Deps, 'build' | 'palette' | 'fileIcons'>} deps — palette: the page's colours and tab icon
  * @param {string} pathname
  * @param {http.ServerResponse} response
  */
-async function servePage(build, palette, pathname, response) {
+async function servePage({ build, palette, fileIcons }, pathname, response) {
   if (pathname === '/' || pathname === '/index.html') {
-    const html = (await readFile(join(publicDir, 'index.html'), 'utf8')).replaceAll('{{assets}}', `/b/${build}`).replaceAll('{{palette}}', palette);
+    const assets = `/b/${build}`;
+    // CodeMirror's modules, for the file panel's editor: the import map names each
+    const editor = Object.entries(editorImports(assets)).map(([name, address]) => `,
+        ${JSON.stringify(name)}: ${JSON.stringify(address)}`).join('');
+    const html = (await readFile(join(publicDir, 'index.html'), 'utf8')).replaceAll('{{editorImports}}', editor).replaceAll('{{assets}}', assets).replaceAll('{{palette}}', palette);
     return sendBody(response, 200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }, Buffer.from(html));
   }
   const built = buildPath.exec(pathname)?.[1];
-  if (built !== undefined) return serveFile(built, response, 'private, max-age=31536000, immutable');
-  return serveFile(pathname, response, 'no-cache');
+  const file = built ?? pathname;
+  const cacheControl = built === undefined ? 'no-cache' : 'private, max-age=31536000, immutable';
+  if (file.startsWith(fileIconsPrefix)) return serveFileIcon(fileIcons, file.slice(fileIconsPrefix.length), response, cacheControl);
+  return serveFile(file, response, cacheControl);
+}
+
+/**
+ * The icon theme's choices, or one of its icons.
+ * @param {Deps['fileIcons']} fileIcons
+ * @param {string} rest — the address past the prefix
+ * @param {http.ServerResponse} response
+ * @param {string} cacheControl
+ */
+async function serveFileIcon(fileIcons, rest, response, cacheControl) {
+  const answer = await fileIconAnswer(fileIcons, decodeURIComponent(rest));
+  if (answer === undefined) {
+    response.writeHead(404).end('Not found');
+    return;
+  }
+  if (answer.kind === 'theme') return sendBody(response, 200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': cacheControl }, Buffer.from(answer.json));
+  return sendBody(response, 200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': cacheControl, 'X-Content-Type-Options': 'nosniff' }, await readFile(answer.file));
 }
 
 /**
@@ -1164,7 +1275,7 @@ async function servePage(build, palette, pathname, response) {
 async function pageBuild() {
   const names = await readdir(publicDir, { recursive: true });
   const views = ['file-views.js', 'file-views.css'].flatMap((name) => assetFile(name) ?? []);
-  const files = [...names.map((name) => join(publicDir, name)), ...vendor.values(), ...views].sort();
+  const files = [...names.map((name) => join(publicDir, name)), ...vendor.values(), ...views, ...editorModuleFiles(), fileIconsManifest].sort();
   const hash = createHash('sha256');
   for (const file of files) {
     const info = await stat(file).catch(() => undefined);
@@ -1179,7 +1290,7 @@ async function pageBuild() {
  * @param {string} cacheControl
  */
 async function serveFile(pathname, response, cacheControl) {
-  const file = vendor.get(pathname) ?? fileViewsFile(pathname) ?? publicFile(pathname === '/' ? '/index.html' : pathname);
+  const file = vendor.get(pathname) ?? fileViewsFile(pathname) ?? editorFile(pathname) ?? publicFile(pathname === '/' ? '/index.html' : pathname);
   const info = file === undefined ? undefined : await stat(file).catch(() => undefined);
   if (file === undefined || info === undefined || !info.isFile()) {
     response.writeHead(404).end('Not found');

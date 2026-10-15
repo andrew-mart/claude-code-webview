@@ -3490,11 +3490,76 @@ a.file-link:hover {
 .file-panel {
   position: relative;
   display: flex;
-  flex-direction: column;
   min-width: 0;
   min-height: 0;
   border-left: 1px solid var(--border);
   background: var(--bg-elev);
+  /* beside the project's files only when there is room for both */
+  container-type: inline-size;
+}
+
+/* the file — its head, its body */
+.panel-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* the project's files on the left of the file opened from them */
+.panel-side {
+  flex: none;
+  width: clamp(170px, 32%, 300px);
+  min-height: 0;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+}
+
+/* side by side, the files are there: no way back to them needed */
+.file-panel.split .panel-back {
+  display: none;
+}
+
+/* the files hidden beside the file, which takes the whole panel: the way back to them there again */
+.file-panel.split.tree-hidden .panel-side {
+  display: none;
+}
+
+.file-panel.split.tree-hidden .panel-back:not([hidden]) {
+  display: inline-block;
+}
+
+/* the button that hides them only where they could show beside the file */
+@container (max-width: 560px) {
+  .file-panel .panel-tree {
+    display: none;
+  }
+}
+
+/* too narrow for both — a phone, a narrow panel — one at a time, the way back to the files kept */
+@container (max-width: 560px) {
+  .file-panel.split .panel-side {
+    display: none;
+  }
+
+  .file-panel.split .panel-back:not([hidden]) {
+    display: inline-block;
+  }
+}
+
+/* too narrow for the file's name beside the buttons — a phone, a narrow panel — the name has a line of its own over
+   them: beside them it was cut to a few letters */
+@container (max-width: 560px) {
+  .file-panel .panel-head {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .file-panel .panel-title {
+    flex-basis: 100%;
+    order: -1;
+  }
 }
 
 /* Handles on the inner edges of the side panels: drag to resize, double-click for the default width. */
@@ -3634,13 +3699,407 @@ a.file-link:hover {
   background: var(--bg);
 }
 
+/* A document's table narrows its columns down to whole words, not further — file-views lets its text break anywhere,
+   a letter a line on a phone — and, wider than the panel, scrolls sideways. A path or code in a cell still wraps
+   anywhere, but not down to a few letters a line: as the feed's tables do. */
+.fv-markdown :is(th, td) {
+  overflow-wrap: break-word;
+}
+
+.fv-markdown :is(th, td) :is(code, a) {
+  overflow-wrap: anywhere;
+}
+
+.fv-markdown :is(th, td):has(code, a) {
+  min-width: 10ch;
+}
+
 .panel-body:has(> .fv-document > .fv-frame) {
   overflow: hidden;
+}
+
+/* ---------- The file's text edited in the panel (file-editor.js, code-editor.js) ---------- */
+
+/* the editor scrolls itself, the panel holds it */
+.panel-body.editing {
+  overflow: hidden;
+}
+
+/* editing: the button lit */
+.panel-edit.on {
+  color: var(--accent);
+}
+
+/* a document drawn, or its text: the two named side by side, the one shown lit (file-panel.js) */
+.panel-view {
+  display: inline-flex;
+  flex: none;
+  margin: 0 4px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.panel-view button {
+  padding: 2px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.panel-view button[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.code-edit {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.code-edit-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+
+.code-edit-save {
+  margin-right: 6px;
+  padding: 5px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.code-edit-save:disabled {
+  border-color: var(--border-strong);
+  background: transparent;
+  color: var(--text-4);
+  cursor: default;
+}
+
+.code-edit-status {
+  margin-left: auto;
+  padding: 0 4px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.code-edit-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--warning) 10%, var(--bg-elev));
+  color: var(--text);
+  font-size: 13px;
+}
+
+.code-edit-note[hidden] {
+  display: none;
+}
+
+.code-edit-choice {
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.code-edit-host {
+  flex: 1;
+  min-height: 0;
 }
 
 /* the page's scripts running: the button lit */
 .panel-scripts.on {
   color: var(--accent);
+}
+
+/* ---------- Files' icons — Material Icon Theme's (file-icons.js) ---------- */
+
+.file-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  vertical-align: -3px;
+}
+
+/* the panel's title: the file's icon, or the list's */
+.panel-icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.panel-icon .file-icon {
+  margin-right: 0;
+}
+
+/* ---------- The project's files in the side panel (project-view.js) ---------- */
+
+.project {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  font-size: 13.5px;
+}
+
+/* the search over the tree, staying in view as the tree scrolls */
+.project-search {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+
+.project-query {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  /* 16px: a phone does not zoom the page into the field */
+  font-size: max(13.5px, min(16px, 4vw));
+}
+
+.project-toggle {
+  flex: none;
+  min-width: 30px;
+  padding: 5px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-3);
+  font: 12.5px var(--font-mono);
+  cursor: pointer;
+}
+
+.project-toggle[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+.project-tree {
+  margin: 0;
+  padding: 6px 6px 24px;
+  list-style: none;
+}
+
+/* a folder or a file: indented by its depth, a folder marked open or closed */
+.project-entry {
+  display: block;
+  width: 100%;
+  padding: 4px 8px 4px calc(8px + var(--depth, 0) * 16px);
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.project-entry:hover {
+  background: var(--bg-hover);
+}
+
+/* the file shown beside the tree */
+.project-entry.selected {
+  background: var(--bg-selected);
+  color: var(--text);
+}
+
+.project-entry[data-kind="folder"]::before {
+  content: "▸";
+  display: inline-block;
+  width: 14px;
+  color: var(--text-4);
+}
+
+.project-entry[data-kind="folder"].open::before {
+  content: "▾";
+}
+
+.project-entry[data-kind="file"] {
+  padding-left: calc(22px + var(--depth, 0) * 16px);
+  color: var(--text-2);
+}
+
+.project-note {
+  padding: 8px 12px;
+  color: var(--text-3);
+  font-size: 12.5px;
+  list-style: none;
+}
+
+.project-results {
+  padding: 4px 6px 24px;
+}
+
+.project-found {
+  padding: 6px 8px;
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
+.project-file {
+  margin-top: 8px;
+}
+
+/* a file's links: what it imports, what imports it (links-view.js) */
+.links {
+  padding: 8px 6px 24px;
+  font-size: 13px;
+}
+
+.links-section + .links-section {
+  margin-top: 16px;
+}
+
+.links-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-2);
+  font: 12.5px/1.5 var(--font-mono);
+  text-align: left;
+  cursor: pointer;
+}
+
+.links-row:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.links-row:disabled {
+  cursor: default;
+}
+
+.links-spec,
+.links-file {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.links-target {
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+.links-target.none {
+  color: var(--text-4);
+}
+
+.links-text {
+  flex-basis: 100%;
+  padding-left: 4ch;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+
+/* a name's definitions, then its uses */
+.project-section + .project-section {
+  margin-top: 14px;
+}
+
+.project-section-title {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.project-file-name {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: 600 12.5px var(--font-mono);
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.project-match {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  padding: 3px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-2);
+  font: 12.5px/1.5 var(--font-mono);
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-file-name:hover,
+.project-match:hover {
+  background: var(--bg-hover);
+}
+
+.project-line {
+  flex: none;
+  min-width: 3ch;
+  color: var(--text-4);
+  text-align: right;
+}
+
+.project-text {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.project-text mark {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: inherit;
 }
 
 /* ---------- The branch's changes in the side panel ---------- */
