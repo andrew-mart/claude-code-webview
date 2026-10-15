@@ -10,6 +10,7 @@ import { gunzipSync } from 'node:zlib';
 import { isRecord } from '../public/model/narrow.js';
 import { palettes } from '../public/model/palettes.js';
 import { startServer } from '../server/app.js';
+import { createSessionIndex } from '../server/sessions.js';
 import { createBookmarkFile } from '../server/bookmarks.js';
 import { createSeenFile } from '../server/seen.js';
 import { createUploads } from '../server/uploads.js';
@@ -35,7 +36,7 @@ function fakeComposer(takenBack) {
       /** @param {string} id @returns {Promise<import('../server/composer.js').LiveState>} */
       liveState: async (id) => {
         calls.push(['liveState', id]);
-        return { state: 'live', status: 'idle', pane: 'w3D:p1', dialog: undefined };
+        return { state: 'live', status: 'idle', pane: 'w3D:p1', dialog: undefined, queued: [] };
       },
       /** @param {string} id @param {string} text @returns {Promise<import('../server/composer.js').SendOutcome>} */
       send: async (id, text) => {
@@ -122,8 +123,8 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
     workspacesOf: async (listed) => ({ herdr: true, sessions: Object.fromEntries(listed.map(({ id }) => [id, 'web'])) }),
     layout: async () => ({ herdr: true, workspaces: [webWorkspace] }),
     history: async () => ({ [sessionId]: closedPlace }),
-    reopen: async (session, cwd) => {
-      tabChanges.push(['reopen', session, String(cwd)]);
+    reopen: async (session, cwd, agent) => {
+      tabChanges.push(['reopen', session, String(cwd), agent]);
       return { ok: true, target: `#/${session}` };
     },
     renameTab: async (tab, label) => {
@@ -174,7 +175,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
     opened.push([path, line]);
     return { ok: true };
   };
-  const server = await startServer({ root, host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, vscode, codexRoot });
+  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, vscode });
   t.after(() => server.close());
   return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls, typed, tabChanges, opened };
 }
@@ -303,17 +304,19 @@ test('workspaces_Should_OpenNewWorkspace_And_RefuseUnknownStart', async (t) => {
   );
 });
 
-// A new tab is asked for beside the open one, under a name or none, with a shell or Claude Code in it; anything else is refused before herdr
+// A new tab is asked for beside the open one, under a name or none, with a shell, Claude Code or Codex in it; anything
+// else is refused before herdr
 test('tabs_Should_OpenNewTabBesideOne_And_RefuseUnknownStart', async (t) => {
   const { port, tabChanges } = await withServer(t);
 
   const opened = await post(port, '/api/tab/new', pageHeaders(port), JSON.stringify({ tab: 'w1:t1', start: 'claude', label: 'api' }));
   const unnamed = await post(port, '/api/tab/new', pageHeaders(port), JSON.stringify({ tab: 'w1:t1', start: 'shell' }));
+  const codex = await post(port, '/api/tab/new', pageHeaders(port), JSON.stringify({ tab: 'w1:t1', start: 'codex' }));
   const strange = await post(port, '/api/tab/new', pageHeaders(port), JSON.stringify({ tab: 'w1:t1', start: 'rm -rf' }));
 
   assert.deepEqual(
-    { opened: [opened.status, JSON.parse(opened.body)], unnamed: unnamed.status, strange: strange.status, tabChanges },
-    { opened: [200, { ok: true, target: '#/pane/w1:p2' }], unnamed: 200, strange: 400, tabChanges: [['create', 'w1:t1', 'claude', 'api'], ['create', 'w1:t1', 'shell', 'undefined']] },
+    { opened: [opened.status, JSON.parse(opened.body)], unnamed: unnamed.status, codex: codex.status, strange: strange.status, tabChanges },
+    { opened: [200, { ok: true, target: '#/pane/w1:p2' }], unnamed: 200, codex: 200, strange: 400, tabChanges: [['create', 'w1:t1', 'claude', 'api'], ['create', 'w1:t1', 'shell', 'undefined'], ['create', 'w1:t1', 'codex', 'undefined']] },
   );
 });
 
@@ -426,7 +429,24 @@ test('history_Should_OpenClosedSessionAgain_InItsFolder', async (t) => {
 
   const reply = await post(port, '/api/history/reopen', pageHeaders(port), JSON.stringify({ session: sessionId }));
 
-  assert.deepEqual({ status: reply.status, body: JSON.parse(reply.body), tabChanges }, { status: 200, body: { ok: true, target: `#/${sessionId}` }, tabChanges: [['reopen', sessionId, 'D:\\dev\\x']] });
+  assert.deepEqual({ status: reply.status, body: JSON.parse(reply.body), tabChanges }, { status: 200, body: { ok: true, target: `#/${sessionId}` }, tabChanges: [['reopen', sessionId, 'D:\\dev\\x', 'claude']] });
+});
+
+// A closed Codex session is opened again by Codex
+test('history_Should_OpenClosedCodexSessionAgain_ByCodex', async (t) => {
+  const codexRoot = await mkdtemp(join(tmpdir(), 'csv-codex-'));
+  t.after(() => rm(codexRoot, { recursive: true, force: true }));
+  const day = join(codexRoot, '2026', '10', '14');
+  await mkdir(day, { recursive: true });
+  const id = '01a13a06-5376-7481-9aa7-ec19297d2f7c';
+  const meta = { timestamp: at, ordinal: 0, type: 'session_meta', payload: { id, cwd: 'D:/gits/ipatool', source: 'cli' } };
+  const asked = { timestamp: at, ordinal: 1, type: 'response_item', payload: { type: 'message', id: 'msg_1', role: 'user', content: [{ type: 'input_text', text: 'Decompile the game' }] } };
+  await writeFile(join(day, `rollout-2026-10-14T15-47-35-${id}.jsonl`), `${JSON.stringify(meta)}\n${JSON.stringify(asked)}\n`);
+  const { port, tabChanges } = await withServer(t, { codexRoot });
+
+  await post(port, '/api/history/reopen', pageHeaders(port), JSON.stringify({ session: id }));
+
+  assert.deepEqual(tabChanges, [['reopen', id, 'D:/gits/ipatool', 'codex']]);
 });
 
 test('send_Should_RejectRequestsThatOtherSitesCouldForge', async (t) => {
@@ -458,7 +478,7 @@ test('live_Should_ReportWhetherSessionCanReceiveText', async (t) => {
 
   const response = await fetch(`${base}/api/live?session=${sessionId}`);
 
-  assert.deepEqual(await response.json(), { state: 'live', status: 'idle', pane: 'w3D:p1' });
+  assert.deepEqual(await response.json(), { state: 'live', status: 'idle', pane: 'w3D:p1', queued: [] });
 });
 
 /**
@@ -1231,7 +1251,8 @@ test('vscode_Should_TurnAwayAnotherSite_And_AnswerNotFoundWithoutVsCode', async 
 });
 
 // A Codex session is listed beside Claude Code's and shows as they do: its feed comes as Claude Code's records, and a
-// command's long output — left out of the feed at first — comes whole when its row opens; it is shown, not typed into
+// command's long output — left out of the feed at first — comes whole when its row opens; whether it can be typed into
+// the composer tells, as for Claude Code's
 test('codex_Should_ListSession_And_ShowItsFeed_WithLongOutputComingWhole', async (t) => {
   const codexRoot = await mkdtemp(join(tmpdir(), 'csv-codex-'));
   t.after(() => rm(codexRoot, { recursive: true, force: true }));
@@ -1269,7 +1290,7 @@ test('codex_Should_ListSession_And_ShowItsFeed_WithLongOutputComingWhole', async
       whole: whole.message.content[0].content.length,
       live,
     },
-    { listed: { agent: 'codex', title: 'Show the log', cwd: 'D:\\dev\\shop' }, feed: ['user', 'assistant', 'user'], deferred: 'number', whole: output.length, live: { state: 'codex' } },
+    { listed: { agent: 'codex', title: 'Show the log', cwd: 'D:\\dev\\shop' }, feed: ['user', 'assistant', 'user'], deferred: 'number', whole: output.length, live: { state: 'live', status: 'idle', pane: 'w3D:p1', queued: [] } },
   );
 });
 
@@ -1453,4 +1474,23 @@ test('seen_Should_KeepAnswerSeenFromViewerPage_ForEveryDevice', async (t) => {
   const seen = await (await fetch(`${base}/api/seen`)).json();
 
   assert.deepEqual({ elsewhere: elsewhere.status, marked: marked.status, seen }, { elsewhere: 403, marked: 200, seen: { 'w1:p2': 7 } });
+});
+
+// A Codex session is rewound as Claude Code's: its prompt found among the prompts of its transcript, counted from the
+// newest
+test('rewind_Should_FindPromptOfCodexSession_InItsTranscript', async (t) => {
+  const codexRoot = await mkdtemp(join(tmpdir(), 'csv-codex-'));
+  t.after(() => rm(codexRoot, { recursive: true, force: true }));
+  const day = join(codexRoot, '2026', '10', '14');
+  await mkdir(day, { recursive: true });
+  const id = '01a13a06-5376-7481-9aa7-ec19297d2f7c';
+  /** @param {number} ordinal @param {'user' | 'assistant'} role @param {string} said */
+  const said = (ordinal, role, said) => ({ timestamp: at, ordinal, type: 'response_item', payload: { type: 'message', id: `msg_${ordinal}`, role, content: [{ type: role === 'user' ? 'input_text' : 'output_text', text: said }] } });
+  const records = [{ timestamp: at, ordinal: 0, type: 'session_meta', payload: { id, cwd: 'D:/gits/ipatool', source: 'cli' } }, said(1, 'user', 'Decompile the game'), said(2, 'assistant', 'Done.'), said(3, 'user', 'Now the levels'), said(4, 'assistant', 'Done too.')];
+  await writeFile(join(day, `rollout-2026-10-14T15-47-35-${id}.jsonl`), records.map((record) => `${JSON.stringify(record)}\n`).join(''));
+  const { port, calls } = await withServer(t, { codexRoot });
+
+  const response = await post(port, '/api/rewind', pageHeaders(port), JSON.stringify({ session: id, prompt: 'codex-1', action: 'conversation' }));
+
+  assert.deepEqual({ status: response.status, calls: calls.filter((call) => call[0] === 'rewind') }, { status: 200, calls: [['rewind', id, JSON.stringify({ stepsUp: 2, prompt: 'Decompile the game', action: 'conversation' })]] });
 });

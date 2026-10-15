@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import { composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, sideQuestionOf } from '../public/model/composer.js';
 
 const sessionId = '3f2c9a50-1111-4222-8333-944455556666';
+/** @type {{ id: string, agent: 'claude' }} */
+const claudeSession = { id: sessionId, agent: 'claude' };
 
 test('composerState_Should_EnableInputOnlyForSessionRunningInHerdr', () => {
-  assert.deepEqual(composerState({ state: 'live', status: 'idle', pane: 'w3D:p1', dialog: undefined }, sessionId, 'physical'), {
+  assert.deepEqual(composerState({ state: 'live', status: 'idle', pane: 'w3D:p1', dialog: undefined, queued: [] }, claudeSession, 'physical'), {
     shown: true,
     enabled: true,
     canInterrupt: false,
@@ -13,7 +15,7 @@ test('composerState_Should_EnableInputOnlyForSessionRunningInHerdr', () => {
     placeholder: 'Message Claude…',
     hint: "Enter to send, Shift+Enter for a new line. The text goes to the session's terminal (herdr pane w3D:p1).",
   });
-  assert.deepEqual(composerState({ state: 'live', status: 'busy', pane: 'w3D:p1', dialog: undefined }, sessionId, 'physical'), {
+  assert.deepEqual(composerState({ state: 'live', status: 'busy', pane: 'w3D:p1', dialog: undefined, queued: [] }, claudeSession, 'physical'), {
     shown: true,
     enabled: true,
     canInterrupt: true,
@@ -27,17 +29,17 @@ test('composerState_Should_EnableInputOnlyForSessionRunningInHerdr', () => {
 test('composerState_Should_ExplainSendingByButtonOnTouchKeyboard', () => {
   // a phone keyboard has no Shift+Enter: Enter starts a new line, the button sends
   assert.equal(
-    composerState({ state: 'live', status: 'idle', pane: 'w3D:p1', dialog: undefined }, sessionId, 'touch').hint,
+    composerState({ state: 'live', status: 'idle', pane: 'w3D:p1', dialog: undefined, queued: [] }, claudeSession, 'touch').hint,
     "The ↑ button sends, Enter starts a new line. The text goes to the session's terminal (herdr pane w3D:p1).",
   );
   assert.equal(
-    composerState({ state: 'live', status: 'busy', pane: 'w3D:p1', dialog: undefined }, sessionId, 'touch').hint,
+    composerState({ state: 'live', status: 'busy', pane: 'w3D:p1', dialog: undefined, queued: [] }, claudeSession, 'touch').hint,
     "The ↑ button queues it, Enter starts a new line; ⏩ on a waiting message sends the queue now. The text goes to the session's terminal (herdr pane w3D:p1).",
   );
 });
 
 test('composerState_Should_HideInputWhenHerdrIsNotInstalled', () => {
-  const view = composerState({ state: 'herdr-missing' }, sessionId, 'physical');
+  const view = composerState({ state: 'herdr-missing' }, claudeSession, 'physical');
 
   assert.equal(view.shown, false);
   assert.equal(view.enabled, false);
@@ -49,7 +51,7 @@ test('composerState_Should_ExplainWhyInputIsUnavailable', () => {
 
   assert.deepEqual(
     states.map((live) => {
-      const view = composerState(live, sessionId, 'physical');
+      const view = composerState(live, claudeSession, 'physical');
       return [view.enabled, view.hint];
     }),
     [
@@ -67,7 +69,7 @@ test('outcomeMessage_Should_SayWhatHappenedToSentText', () => {
 });
 
 test('parseLiveState_Should_AcceptOnlyKnownServerReplies', () => {
-  assert.deepEqual(parseLiveState({ state: 'live', status: 'idle', pane: 'w3D:p1' }), { state: 'live', status: 'idle', pane: 'w3D:p1', dialog: undefined });
+  assert.deepEqual(parseLiveState({ state: 'live', status: 'idle', pane: 'w3D:p1' }), { state: 'live', status: 'idle', pane: 'w3D:p1', dialog: undefined, queued: [] });
   assert.deepEqual(parseLiveState({ state: 'offline' }), { state: 'offline' });
   assert.deepEqual(parseLiveState({ state: 'herdr-missing' }), { state: 'herdr-missing' });
   assert.deepEqual(parseLiveState({ state: 'no-herdr', status: 'busy' }), { state: 'no-herdr', status: 'busy' });
@@ -132,34 +134,64 @@ const asking = {
 // The page learns of a choice Claude Code waits for; a dialog it cannot read is no reason to lose the rest of the state
 test('parseLiveState_Should_TakeChoiceClaudeCodeWaitsFor_And_LeaveOutOneItCannotRead', () => {
   assert.deepEqual(
-    [{ state: 'live', status: 'busy', pane: 'w3D:p1', dialog: asking }, { state: 'live', status: 'busy', pane: 'w3D:p1', dialog: { lines: 'Which?' } }].map(parseLiveState),
+    [{ state: 'live', status: 'busy', pane: 'w3D:p1', dialog: asking, queued: [] }, { state: 'live', status: 'busy', pane: 'w3D:p1', dialog: { lines: 'Which?' } }].map(parseLiveState),
     [
-      { state: 'live', status: 'busy', pane: 'w3D:p1', dialog: asking },
-      { state: 'live', status: 'busy', pane: 'w3D:p1', dialog: undefined },
+      { state: 'live', status: 'busy', pane: 'w3D:p1', dialog: asking, queued: [] },
+      { state: 'live', status: 'busy', pane: 'w3D:p1', dialog: undefined, queued: [] },
     ],
   );
 });
 
 // Typed while Claude Code asks, a prompt would land in its dialog — its digits picking answers: the box waits
 test('composerState_Should_HoldBox_WhileClaudeCodeAsks', () => {
-  const view = composerState({ state: 'live', status: 'busy', pane: 'w3D:p1', dialog: asking }, sessionId, 'physical');
+  const view = composerState({ state: 'live', status: 'busy', pane: 'w3D:p1', dialog: asking, queued: [] }, claudeSession, 'physical');
 
   assert.deepEqual({ enabled: view.enabled, canInterrupt: view.canInterrupt, placeholder: view.placeholder }, { enabled: false, canInterrupt: false, placeholder: 'Claude Code is asking — answer above' });
+});
+
+// Codex asking holds the box as well, under its own name
+test('composerState_Should_HoldBox_WhileCodexAsks', () => {
+  const view = composerState({ state: 'live', status: 'idle', pane: 'w4:p1', dialog: asking, queued: [] }, { id: sessionId, agent: 'codex' }, 'physical');
+
+  assert.deepEqual({ enabled: view.enabled, placeholder: view.placeholder }, { enabled: false, placeholder: 'Codex is asking — answer above' });
 });
 
 // A session that is not running can be opened again in herdr from the page — where it ran, or by its folder
 test('composerState_Should_OfferToOpenSessionAgain_OnlyWhenItIsNotRunning', () => {
   /** @type {readonly import('../public/model/composer.js').LiveState[]} */
-  const states = [{ state: 'offline' }, { state: 'live', status: 'idle', pane: 'w3D:p1', dialog: undefined }, { state: 'herdr-missing' }, { state: 'no-herdr', status: 'idle' }];
+  const states = [{ state: 'offline' }, { state: 'live', status: 'idle', pane: 'w3D:p1', dialog: undefined, queued: [] }, { state: 'herdr-missing' }, { state: 'no-herdr', status: 'idle' }];
 
-  assert.deepEqual(states.map((live) => composerState(live, sessionId, 'physical').canReopen), [true, false, false, false]);
+  assert.deepEqual(states.map((live) => composerState(live, claudeSession, 'physical').canReopen), [true, false, false, false]);
 });
 
-// A Codex session is shown, not written to: no box, nothing to open again in Claude Code — its own terminal takes text
-test('composerState_Should_OfferNothingForCodexSession_ButItsTerminal', () => {
-  const live = parseLiveState({ state: 'codex' });
-  assert.ok(live !== undefined);
-  const view = composerState(live, sessionId, 'physical');
+// A Codex session is written to as Claude Code's is: its box asks for a message to Codex, a message while Codex works
+// is queued — ⏩ is Claude Code's alone — and a closed one is opened again with codex resume
+test('composerState_Should_WriteToCodexSession_AndOpenItAgainWithCodexResume', () => {
+  /** @type {{ id: string, agent: 'codex' }} */
+  const codex = { id: sessionId, agent: 'codex' };
+  /** @type {readonly import('../public/model/composer.js').LiveState[]} */
+  const states = [
+    { state: 'live', status: 'idle', pane: 'w4:p1', dialog: undefined, queued: [] },
+    { state: 'live', status: 'busy', pane: 'w4:p1', dialog: undefined, queued: [] },
+    { state: 'offline' },
+  ];
 
-  assert.deepEqual({ shown: view.shown, enabled: view.enabled, canReopen: view.canReopen, hint: view.hint }, { shown: false, enabled: false, canReopen: false, hint: 'A Codex session: the viewer shows it — write to it in its terminal.' });
+  assert.deepEqual(
+    states.map((live) => {
+      const view = composerState(live, codex, 'touch');
+      return [view.placeholder, view.hint, view.canReopen];
+    }),
+    [
+      ['Message Codex…', "The ↑ button sends, Enter starts a new line. The text goes to the session's terminal (herdr pane w4:p1).", false],
+      ['Codex is working — your message will be queued', "The ↑ button queues it, Enter starts a new line. The text goes to the session's terminal (herdr pane w4:p1).", false],
+      ['Sending is unavailable', `Or in a herdr pane: codex resume ${sessionId}`, true],
+    ],
+  );
+});
+
+// While Codex's terminal shows a sub-agent's thread, which takes no input, the box waits for the main thread
+test('composerState_Should_HoldBox_WhileCodexShowsSubagent', () => {
+  const view = composerState({ state: 'live', status: 'subagent', pane: 'w4:p1', dialog: undefined, queued: [] }, { id: sessionId, agent: 'codex' }, 'physical');
+
+  assert.deepEqual({ enabled: view.enabled, canInterrupt: view.canInterrupt, placeholder: view.placeholder }, { enabled: false, canInterrupt: false, placeholder: 'Codex shows a sub-agent — switch its terminal to the main thread' });
 });

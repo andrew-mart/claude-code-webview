@@ -28,7 +28,11 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   Sessions that a program drives (`claude -p`, the Agent SDK) are hidden until you tick "Show SDK sessions".
 - **Codex sessions** beside Claude Code's, marked `codex`: prompts, answers, reasoning summaries, commands with their
   output, patches by the files they change, plans as task lists. `codex exec` runs and subagents count as driven by a
-  program. They are read-only: the input box stays closed — write to Codex in its own terminal.
+  program. A Codex session running in herdr is written to from the page as Claude Code's is: Enter sends, and while
+  Codex works Enter queues the message (Codex's Tab) and Ctrl+Enter puts it into the turn under way (Codex's Enter);
+  Stop is Esc. While Codex asks something in its terminal — trusting a folder, an update — nothing is typed: its picker
+  would take the Enter. A closed Codex session opens again with `codex resume`. Side questions (`/btw`) and rewinding
+  stay Claude Code's.
 - **The feed**:
   - prompts with images, slash commands and `!` shell commands with their output;
   - answers in markdown with syntax highlighting, a line break kept as a line break, as in the terminal;
@@ -126,15 +130,17 @@ The sidebar switches between "herdr" and "Sessions". In "herdr" it shows herdr's
 with its agents' status — working, waiting for you, done, idle — and under them, as herdr lists its agents, every
 session of every workspace: Claude Code, Codex and other agents, the one whose agent changed state last first. Above an
 open session — or terminal — the tabs of its workspace sit in a row, as in herdr, to switch between them. A session or
-tab with Claude Code opens its feed; any other tab — a shell, nvim, another agent — opens its terminal. The search finds
+tab with Claude Code or Codex opens its feed; any other tab — a shell, nvim, another agent — opens its terminal. Codex
+keeps no record of its processes: a Codex pane shows the thread Codex holds open in the pane's folder, and when a folder
+has more than one, the one whose name Codex put in the pane's title. The search finds
 workspaces and sessions by name and by what runs in them.
 
 A second click on the open tab shows its buttons: ✎ names it, × closes it (after asking with ✓ and ✕ — what runs in it
 stops), and the page moves to the tab next to it. A tab can have an emoji icon: picked from a row beside its name as it
 is named, it is kept ahead of the name in herdr's label, so herdr shows it too. **+** at the end of the row opens a tab
 beside the open one, in its folder and under the name (and icon) you give it: a terminal, or Claude Code started in it
-with `claude` — or with the command given by `--claude-command`, a wrapper of your own; the page goes from the new tab's
-terminal to its session as soon as Claude Code starts there. When Claude Code started from the page — in a new tab or
+with `claude` — or with the command given by `--claude-command`, a wrapper of your own — or Codex, with `codex` or
+`--codex-command`; the page goes from the new tab's terminal to its session as soon as the agent's session starts there. When Claude Code started from the page — in a new tab or
 workspace, or resuming a session — asks whether to trust its folder, the viewer answers yes: the folder is the one
 you chose, and the dialog's arrows and Enter are out of reach on a phone. Tabs that do not fit the row scroll sideways
 under the mouse wheel.
@@ -261,6 +267,7 @@ Several computers? Give each its own tunnel, hostname and `--palette`, and the p
 | `node bin/claude-code-webview.js --no-open` | do not open the browser |
 | `node bin/claude-code-webview.js --no-herdr` | do not use herdr even if it is found: the page only reads sessions |
 | `node bin/claude-code-webview.js --claude-command my-claude` | start Claude Code with this command in a tab opened from the page (default: `claude`) |
+| `node bin/claude-code-webview.js --codex-command "codex --full-auto"` | start Codex with this command in a tab opened from the page, and `<command> resume <id>` to open a closed Codex session again (default: `codex`) |
 | `node bin/claude-code-webview.js --editor-command "code --goto {path}:{line}"` | open a file of the file panel in an editor of this computer; `{path}`, `{line}` and `{project}` — the nearest folder above the file with a `.sln`, `.slnx` or `.git` — are filled in; the program is started directly, not through a shell — on Windows name its `.exe`. Rider: `"C:/Program Files/JetBrains/Rider/bin/rider64.exe" {project} --line {line} {path}` |
 | `node bin/claude-code-webview.js --vscode "C:/Users/ann/AppData/Local/Programs/Microsoft VS Code/bin/code-tunnel.exe"` | run VS Code in the browser at `/vscode/`, opened from a button over a session: the VS Code CLI — `code-tunnel.exe` of VS Code on Windows, `code` elsewhere |
 | `node bin/claude-code-webview.js --install-shortcut` | Windows: desktop shortcut that starts the viewer in the background (`--start-menu` for the Start menu) |
@@ -269,7 +276,8 @@ Several computers? Give each its own tunnel, hostname and `--palette`, and the p
 
 `--stop` only stops a process that answers on the port as this viewer; another program on the port is left alone.
 Sessions are read from `~/.claude/projects`; if you moved the Claude Code folder, `CLAUDE_CONFIG_DIR` is respected.
-Codex sessions are read from `~/.codex/sessions`, or from `sessions` under `CODEX_HOME` when it is set.
+Codex sessions are read from `~/.codex/sessions`, or from `sessions` under `CODEX_HOME` when it is set; the threads it has
+open, from its `thread-writer-locks`, and their names, from its `session_index.jsonl`.
 
 The desktop shortcut starts the viewer from the folder it was created in: after moving the folder, create it again.
 

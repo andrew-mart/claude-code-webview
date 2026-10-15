@@ -18,6 +18,7 @@ const refusals = {
   'message-not-found': 'The rewind menu does not show this message — rewind in the terminal.',
   'not-listed': 'The rewind menu does not list this message: it was sent while Claude was working.',
   'screen-unreadable': 'The terminal shows a dialog — answer it there, then rewind.',
+  subagent: 'Codex’s terminal shows a sub-agent — switch it to the main thread, then rewind.',
 };
 
 /**

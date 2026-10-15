@@ -30,12 +30,12 @@ function fakeHerdr({ fail = false, missing = false, screens = [''] } = {}) {
 }
 
 /** @param {readonly unknown[]} records @param {ReturnType<typeof fakeHerdr>} herdr */
-const composerOf = (records, herdr) => createComposer({ readRecords: async () => records, herdr: herdr.run });
+const composerOf = (records, herdr) => createComposer({ readRecords: async () => records, herdr: herdr.run, codexPlace: async () => ({ found: 'none' }) });
 
 test('liveState_Should_FindPaneWhereSessionRuns', async () => {
   const herdr = fakeHerdr();
 
-  assert.deepEqual(await composerOf([record], herdr).liveState(sessionId), { state: 'live', status: 'busy', pane: 'w3D:p1', dialog: undefined });
+  assert.deepEqual(await composerOf([record], herdr).liveState(sessionId), { state: 'live', status: 'busy', pane: 'w3D:p1', dialog: undefined, queued: [] });
 });
 
 test('liveState_Should_ReportHerdrNotInstalledWhetherSessionRunsOrNot', async () => {
@@ -138,7 +138,7 @@ test('liveState_Should_TreatHerdrErrorReplyAsUnavailable', async () => {
   // This is how herdr replies when the client is older than the running server.
   /** @returns {Promise<import('../server/composer.js').HerdrReply>} */
   const mismatch = async () => ({ ok: true, json: { id: 'cli:pane:list', error: { code: 'protocol_mismatch', message: 'upgrade the Herdr client' } }, text: '' });
-  const composer = createComposer({ readRecords: async () => [record], herdr: mismatch });
+  const composer = createComposer({ readRecords: async () => [record], herdr: mismatch, codexPlace: async () => ({ found: 'none' }) });
 
   assert.deepEqual(await composer.liveState(sessionId), { state: 'no-herdr', status: 'busy' });
 });
@@ -227,6 +227,7 @@ test('liveState_Should_TellChoiceClaudeCodeWaitsFor', async () => {
       tabs: false,
       previews: false,
     },
+    queued: [],
   });
 });
 

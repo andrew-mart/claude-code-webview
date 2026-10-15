@@ -1,6 +1,7 @@
 // @ts-check
 // Images attached to a prompt from the page. The server saves them as files and lists their paths at the end of the
-// prompt — Claude Code opens them with its Read tool; the feed shows that list as pictures again.
+// prompt — Claude Code opens them with its Read tool, Codex with its view_image; the feed shows that list as pictures
+// again.
 
 const heading = 'Attached images:';
 /** A file the viewer saved: …/.claude-code-webview/uploads/<name>; the name is the server's own, never a user's. */

@@ -1,17 +1,18 @@
 // @ts-check
-// What Claude Code asks in its terminal — its AskUserQuestion dialog — above the box: the question, its choices as
-// buttons, an answer of one's own, ← and → between several questions, Esc. A click is the key the terminal would get.
+// What the agent asks in its terminal — Claude Code's AskUserQuestion dialog, a question of Codex's — above the box: the
+// question, its choices as buttons, an answer of one's own, ← and → between several questions, Esc. A click is the key
+// the terminal would get.
 import { h } from './dom.js';
 
 /** The choice Claude Code's dialog opens a line of words with. */
 const ownWords = /^Type something/;
 
 /**
- * @param {{ answer: (steps: readonly import('../model/dialog.js').DialogStep[]) => Promise<import('../model/dialog.js').DialogReply> }} actions —
- *   answer resolves once the terminal has the keys
+ * @param {{ asker: string, answer: (steps: readonly import('../model/dialog.js').DialogStep[]) => Promise<import('../model/dialog.js').DialogReply> }} actions —
+ *   asker: the agent that asks, by name; answer resolves once the terminal has the keys
  */
-export function createDialogCard({ answer }) {
-  const element = h('section', { className: 'dialog-card', attrs: { hidden: '', 'aria-label': 'Claude Code asks', 'aria-live': 'polite' } });
+export function createDialogCard({ asker, answer }) {
+  const element = h('section', { className: 'dialog-card', attrs: { hidden: '', 'aria-label': `${asker} asks`, 'aria-live': 'polite' } });
   let shown = '';
   const status = h('div', { className: 'dialog-card-status', attrs: { role: 'status' } });
 
@@ -84,7 +85,7 @@ export function createDialogCard({ answer }) {
       const own = dialog.options.find((option) => ownWords.test(option.label) && option.checked === undefined);
       const choices = dialog.options.filter((option) => option !== own);
       element.replaceChildren(
-        h('header', { className: 'dialog-card-head', text: 'Claude Code asks' }),
+        h('header', { className: 'dialog-card-head', text: `${asker} asks` }),
         ...dialog.lines.map((line) => h('p', { className: 'dialog-line', text: line })),
         h('div', { className: 'dialog-options' }, choices.map((option) => choice(option, dialog))),
         ...(own === undefined ? [] : [ownAnswer(own)]),

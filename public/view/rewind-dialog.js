@@ -1,5 +1,6 @@
 // @ts-check
-// The rewind dialog: the same choices as Esc Esc in the terminal, for one of the user's messages.
+// The rewind dialog: the same choices as Esc Esc in the terminal, for one of the user's messages — Claude Code's all of
+// them, Codex's its one: the conversation, its files staying as they are.
 import { parseRewindReply, rewindMessage } from '../model/rewind.js';
 import { h } from './dom.js';
 
@@ -17,6 +18,9 @@ const actions = /** @type {const} */ ([
   ['summarize-up-to', 'Summarize up to here', 'Compress everything before this message into a summary'],
 ]);
 
+/** What the note under the choices says, by whose session it is. */
+const notes = /** @type {const} */ ({ claude: 'Edits made by shell commands are not restored.', codex: 'Codex rewinds the conversation alone: files stay as they are.' });
+
 /**
  * @param {{ onDone: (reply: RewindReply & { ok: true }) => void }} hooks — after a rewind went through
  */
@@ -25,6 +29,7 @@ export function createRewindDialog({ onDone }) {
   const status = h('div', { className: 'rewind-status', attrs: { role: 'status' } });
   // The dialog opens with the harmless choice focused: a stray Enter must not restore anything.
   const cancel = h('button', { className: 'rewind-cancel', text: 'Never mind', attrs: { type: 'button', autofocus: '' } });
+  const note = h('span', { className: 'rewind-note' });
   const choices = actions.map(([action, label, detail]) => {
     const button = h('button', { className: 'rewind-choice', attrs: { type: 'button' } }, [h('span', { className: 'rewind-label', text: label }), h('span', { className: 'rewind-detail', text: detail })]);
     button.dataset.action = action;
@@ -35,7 +40,7 @@ export function createRewindDialog({ onDone }) {
     quote,
     h('div', { className: 'rewind-choices' }, choices),
     status,
-    h('div', { className: 'rewind-foot' }, [h('span', { className: 'rewind-note', text: 'Edits made by shell commands are not restored.' }), cancel]),
+    h('div', { className: 'rewind-foot' }, [note, cancel]),
   ]);
   document.body.append(dialog);
   /** @type {{ sessionId: string, prompt: Anchor } | undefined} */
@@ -71,10 +76,13 @@ export function createRewindDialog({ onDone }) {
     /**
      * @param {string} sessionId
      * @param {Anchor} prompt
+     * @param {import('../model/composer.js').Agent} agent — whose session: Codex rewinds its conversation alone
      */
-    open(sessionId, prompt) {
+    open(sessionId, prompt, agent) {
       target = { sessionId, prompt };
       quote.textContent = prompt.label;
+      note.textContent = notes[agent];
+      for (const button of choices) button.hidden = agent === 'codex' && button.dataset.action !== 'conversation';
       status.textContent = '';
       setBusy(false);
       dialog.showModal();

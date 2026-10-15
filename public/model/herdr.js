@@ -14,7 +14,7 @@ import { isRecord, text } from './narrow.js';
  * @typedef {{ id: string, number: number, label: string, status: AgentStatus, activeTab: string | undefined, tabs: readonly HerdrTab[] }} HerdrWorkspace
  * @typedef {{ herdr: boolean, workspaces: readonly HerdrWorkspace[] }} HerdrLayout — herdr: whether it answers
  * @typedef {{ ok: true, target: string } | { ok: false, error: 'failed' }} NewTab — a tab opened from the page; target: its page address
- * @typedef {'shell' | 'claude' } TabStart — what a new tab starts with: a shell, or Claude Code in it
+ * @typedef {'shell' | 'claude' | 'codex'} TabStart — what a new tab starts with: a shell, or Claude Code or Codex in it
  * @typedef {{ ok: true, target: string } | { ok: false, error: 'empty' | 'no-folder' | 'failed' }} NewWorkspace — a
  *   workspace opened from the page; target: its first pane's page address; no-folder: the folder is not there
  * @typedef {{ ok: true } | { ok: false, error: 'empty' | 'failed' }} TabChange — a tab renamed or closed from the page; empty: a name of

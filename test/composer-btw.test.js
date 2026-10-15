@@ -25,7 +25,7 @@ test('composer_Should_KeepSideAnswer_AcrossSwitchingSessions', async () => {
   });
   const asides = createAsideStore();
   const open = async () => {
-    const composer = createComposer(sessionId, { focusBox: 'no', placeOf: () => undefined, asides });
+    const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides });
     window.document.body.append(composer.element);
     await settle();
     return composer;
@@ -93,7 +93,7 @@ test('composer_Should_ClearBoxWhenAskingAside_AndPutQuestionBackWhenNotAnswered'
         return new Response(JSON.stringify({ state: 'live', status: 'idle', pane: 'w1:p1' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       },
     });
-    const composer = createComposer(sessionId, { focusBox: 'no', placeOf: () => undefined, asides: createAsideStore() });
+    const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore() });
     window.document.body.append(composer.element);
     await settle();
     const box = composer.element.querySelector('.composer-input');
@@ -116,4 +116,53 @@ test('composer_Should_ClearBoxWhenAskingAside_AndPutQuestionBackWhenNotAnswered'
     { answered: await ask({ ok: true, answer: 'In src/config.ts.' }), refused: await ask({ ok: false, error: 'no-answer' }) },
     { answered: { whileAnswering: '', after: '' }, refused: { whileAnswering: '', after: '/btw where is the config?' } },
   );
+});
+
+// Codex has its side questions as well: in its session "/btw …" is asked as one, not sent as a message
+test('composer_Should_AskBtwAsSideQuestion_InCodexSession', async () => {
+  /** @type {string[]} */
+  const posted = [];
+  Object.assign(globalThis, {
+    matchMedia: () => ({ matches: false }),
+    fetch: async (/** @type {string} */ path, /** @type {RequestInit | undefined} */ init) => {
+      if (init?.method === 'POST') posted.push(`${path} ${String(init.body)}`);
+      const reply = path === '/api/send' ? { ok: true, pane: 'w4:p1' } : { state: 'live', status: 'idle', pane: 'w4:p1' };
+      return new Response(JSON.stringify(reply), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    },
+  });
+  const composer = createComposer(sessionId, { agent: 'codex', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore() });
+  window.document.body.append(composer.element);
+  await settle();
+  const box = composer.element.querySelector('.composer-input');
+  const form = composer.element.querySelector('.composer-box');
+  assert.ok(box instanceof window.HTMLTextAreaElement && form instanceof window.HTMLElement);
+  box.value = '/btw where is the config?';
+  box.dispatchEvent(new window.Event('input', { bubbles: true }));
+  form.dispatchEvent(new window.Event('submit', { cancelable: true }));
+  await settle();
+  composer.dispose();
+  composer.element.remove();
+
+  assert.deepEqual(posted, [`/api/btw {"session":"${sessionId}","question":"where is the config?"}`]);
+});
+
+// What Codex queued to send next shows above the box, sent once its turn is over; nothing queued, nothing shown
+test('composer_Should_ShowWhatCodexQueued_AboveTheBox', async () => {
+  /** @param {readonly string[]} queued */
+  const open = async (queued) => {
+    Object.assign(globalThis, {
+      matchMedia: () => ({ matches: false }),
+      fetch: async () => new Response(JSON.stringify({ state: 'live', status: 'busy', pane: 'w4:p1', queued }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    });
+    const composer = createComposer(sessionId, { agent: 'codex', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore() });
+    window.document.body.append(composer.element);
+    await settle();
+    const list = composer.element.querySelector('.composer-queued');
+    const shown = { items: list instanceof window.HTMLElement && !list.hidden ? [...list.querySelectorAll('li')].map((item) => item.textContent) : [], note: list?.querySelector('.composer-queued-note')?.textContent };
+    composer.dispose();
+    composer.element.remove();
+    return shown;
+  };
+
+  assert.deepEqual([await open(['Then update the docs.', 'And the changelog.']), (await open([])).items], [{ items: ['Then update the docs.', 'And the changelog.'], note: 'Codex sends these next, once its turn is over.' }, []]);
 });

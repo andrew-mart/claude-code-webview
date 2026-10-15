@@ -49,12 +49,13 @@ const runningRecord = { pid: 101, sessionId: running, kind: 'interactive', statu
 
 /**
  * @param {import('node:test').TestContext} t
- * @param {{ herdr: ReturnType<typeof fakeHerdr>, records: readonly unknown[], dir?: string }} setup — dir: where the
- *   remembered workspaces are kept, to share it between two viewer runs
+ * @param {{ herdr: ReturnType<typeof fakeHerdr>, records: readonly unknown[], dir?: string, codex?: readonly import('../server/codex-live.js').LiveThread[] }} setup
+ *   — dir: where the remembered workspaces are kept, to share it between two viewer runs; codex: the threads Codex has
+ *   open
  */
-async function workspacesOf(t, { herdr, records, dir }) {
+async function workspacesOf(t, { herdr, records, dir, codex = [] }) {
   const folder = dir ?? (await mkdtemp(join(tmpdir(), 'ccw-workspaces-')));
-  return createHerdrView({ herdr, readRecords: async () => records, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude' });
+  return createHerdrView({ herdr, readRecords: async () => records, codexThreads: async () => codex, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
 }
 
 test('workspaces_Should_PutRunningSessionIntoWorkspaceOfItsPane', async (t) => {
@@ -125,7 +126,7 @@ test('workspaces_Should_AskHerdrAtMostOncePerRefreshPeriod', async (t) => {
     return herdr(args);
   };
   const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
-  const workspaces = createHerdrView({ herdr: counting, readRecords: async () => [runningRecord], file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude' });
+  const workspaces = createHerdrView({ herdr: counting, readRecords: async () => [runningRecord], codexThreads: async () => [], file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
 
   await Promise.all([workspaces.workspacesOf([]), workspaces.workspacesOf([])]);
   await workspaces.workspacesOf([{ id: running, cwd: undefined }]);
@@ -198,7 +199,7 @@ test('herdrView_Should_LookForPaneOfProcessOnce_WhenItRunsOutsideHerdr', async (
   };
   const outside = { pid: 777, sessionId: '0b1c2d3e-4444-4555-8666-977788899900', kind: 'interactive', status: 'idle', updatedAt: 2 };
   const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
-  const view = createHerdrView({ herdr: counting, readRecords: async () => [runningRecord, outside], file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude' });
+  const view = createHerdrView({ herdr: counting, codexThreads: async () => [], readRecords: async () => [runningRecord, outside], file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
 
   await view.workspacesOf([]);
   await view.workspacesOf([]);
@@ -261,7 +262,7 @@ function tabsHerdr({ fails = false, screens = ['PS D:\\shop> '] } = {}) {
  */
 async function tabsView(herdr, claudeCommand = 'claude') {
   const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
-  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand });
+  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand, codexCommand: 'codex-yolo' });
 }
 
 /** @param {import('../public/model/herdr.js').HerdrLayout} layout */
@@ -395,7 +396,7 @@ async function viewWithHistory(herdr, closed) {
   const folder = await mkdtemp(join(tmpdir(), 'ccw-workspaces-'));
   const kept = Object.fromEntries(Object.entries(closed).map(([session, place]) => [session, { earlierTabs: [], open: false, firstSeen: 1, lastSeen: 2, ...place }]));
   await writeFile(join(folder, 'workspaces.json'), JSON.stringify(kept));
-  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-god' });
+  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-god', codexCommand: 'codex-yolo' });
 }
 
 // A closed session opens where it was: a new tab of its workspace, named as before, in its folder, Claude Code resuming
@@ -404,12 +405,33 @@ test('reopen_Should_OpenSessionInItsWorkspace_InTabNamedAsBefore', async () => {
   const herdr = tabsHerdr();
   const view = await viewWithHistory(herdr, { s9: { workspace: 'web', tab: 'checkout fix', folder: 'D:/web' } });
 
-  const outcome = await view.reopen('s9', 'D:/elsewhere');
+  const outcome = await view.reopen('s9', 'D:/elsewhere', 'claude');
 
   assert.deepEqual({ outcome, changes: herdr.changes }, {
     outcome: { ok: true, target: '#/s9' },
     changes: ['tab create --workspace w2 --cwd D:/web', 'tab rename w2:t3 checkout fix', 'pane send-text w2:p3 claude-god --resume s9', 'pane send-keys w2:p3 enter'],
   });
+});
+
+// Codex as Claude Code: a new tab starts it with the command the viewer was told to start it with, and a closed Codex
+// session opens where it ran, Codex resuming it
+test('createTab_And_reopen_Should_StartCodexWithItsCommand_AndResumeCodexSession', async () => {
+  const herdr = tabsHerdr();
+  const view = await viewWithHistory(herdr, { t1: { workspace: 'web', tab: 'limits', folder: 'D:/web' } });
+  await view.layout();
+
+  const outcomes = [await view.createTab('w2:t1', 'codex', undefined), await view.reopen('t1', 'D:/web', 'codex')];
+
+  assert.deepEqual(
+    { outcomes, changes: herdr.changes },
+    {
+      outcomes: [
+        { ok: true, target: '#/pane/w2:p3' },
+        { ok: true, target: '#/t1' },
+      ],
+      changes: ['tab create --workspace w2 --cwd D:/shop', 'pane send-text w2:p3 codex-yolo', 'pane send-keys w2:p3 enter', 'tab create --workspace w2 --cwd D:/web', 'tab rename w2:t4 limits', 'pane send-text w2:p4 codex-yolo resume t1', 'pane send-keys w2:p4 enter'],
+    },
+  );
 });
 
 // Its workspace closed meanwhile — or the session never ran in herdr — it gets its workspace again, named as before or
@@ -418,7 +440,7 @@ test('reopen_Should_OpenWorkspaceAgain_When_ItIsGone', async () => {
   const herdr = tabsHerdr();
   const view = await viewWithHistory(herdr, { s8: { workspace: 'billing' } });
 
-  const outcomes = [await view.reopen('s8', 'D:/dev/billing'), await view.reopen('s7', 'D:/dev/reports')];
+  const outcomes = [await view.reopen('s8', 'D:/dev/billing', 'claude'), await view.reopen('s7', 'D:/dev/reports', 'claude')];
 
   assert.deepEqual({ outcomes, changes: herdr.changes }, {
     outcomes: [{ ok: true, target: '#/s8' }, { ok: true, target: '#/s7' }],
@@ -452,6 +474,38 @@ test('createWorkspace_Should_OpenWorkspaceInFolder_And_StartClaudeOnRequest', as
     {
       outcomes: [{ ok: true, target: '#/pane/w5:p1' }, { ok: true, target: '#/pane/w5:p1' }, { ok: false, error: 'no-folder' }, { ok: false, error: 'empty' }],
       changes: [`workspace create --label billing api --cwd ${folder}`, 'pane send-text w5:p1 claude-god', 'pane send-keys w5:p1 enter', `workspace create --label notes --cwd ${folder}`],
+    },
+  );
+});
+
+// A pane with Codex runs the Codex thread open in its folder: herdr shows it as that session — its feed, not a
+// terminal — the session goes into the pane's workspace, and the composer finds it there, at work or not; a thread
+// Codex has open outside herdr is elsewhere, one it has not, nowhere
+test('herdrView_Should_ShowCodexPaneAsItsThread_AndTellWhereCodexSessionRuns', async (t) => {
+  const decompile = '01a13a06-5376-7481-9aa7-ec19297d2f7c';
+  const outside = '01a13a0c-abb5-7b01-9fd2-27db36461cc1';
+  const herdr = fakeHerdr({
+    workspaces: [{ workspace_id: 'w4', label: 'ipatool', active_tab_id: 'w4:t1' }],
+    tabs: [{ tab_id: 'w4:t1', workspace_id: 'w4', number: 1, label: 'game', agent_status: 'working' }],
+    panes: [{ pane_id: 'w4:p1', workspace_id: 'w4', tab_id: 'w4:t1', cwd: 'D:/gits/ipatool', agent: 'codex', agent_status: 'working', terminal_title_stripped: 'Decompile the game | ipatool', state_change_seq: 9 }],
+  });
+  const codex = [
+    { id: decompile, cwd: 'D:/gits/ipatool', name: 'Decompile the game', activeAt: 2 },
+    { id: outside, cwd: 'D:/gits/other', name: undefined, activeAt: 1 },
+  ];
+  const view = await workspacesOf(t, { herdr, records: [], codex });
+
+  const layout = await view.layout();
+  assert.deepEqual(
+    {
+      session: layout.workspaces[0]?.tabs[0]?.panes[0]?.session,
+      workspaces: await view.workspacesOf([{ id: decompile, cwd: 'D:/gits/ipatool' }]),
+      places: [await view.codexPlace(decompile), await view.codexPlace(outside), await view.codexPlace('01a13a19-7468-7bc1-ae3c-7dcdcbdb008d')],
+    },
+    {
+      session: decompile,
+      workspaces: { herdr: true, sessions: { [decompile]: 'ipatool' } },
+      places: [{ found: 'pane', pane: 'w4:p1', working: true }, { found: 'elsewhere' }, { found: 'none' }],
     },
   );
 });

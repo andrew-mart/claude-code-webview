@@ -206,7 +206,8 @@ function createPage() {
   /** @type {number | undefined} */
   let listVersion;
   let listMinute = 0;
-  /** @type {{ id: string, dispose: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, keepPlace: (change: () => void) => void, rewound: (reply: import('./model/rewind.js').RewindReply) => void, stop: () => boolean } | undefined} */
+  /** agent: whose the session was taken for when it was opened */
+  /** @type {{ id: string, agent: SessionInfo['agent'], dispose: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, keepPlace: (change: () => void) => void, rewound: (reply: import('./model/rewind.js').RewindReply) => void, stop: () => boolean } | undefined} */
   let current;
   /** How long each session has been written to: its robots' story goes on as its row is drawn again. */
   const workClock = createWorkClock(() => Date.now());
@@ -436,6 +437,8 @@ function createPage() {
     if (current !== undefined) places.set(current.id, current.place());
     current?.dispose();
     const info = sessions.find((session) => session.id === id);
+    // a session the list does not have yet is taken for Claude Code's, the viewer's own
+    const agent = info === undefined ? 'claude' : info.agent;
     const tables = sessionTables(id, (change) => (current === undefined ? change() : current.keepPlace(change)));
     tables.apply();
     const header = createSessionHeader({ place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation: [vscodeButton(() => sessions.find((session) => session.id === id)?.cwd), filesButton(() => sessions.find((session) => session.id === id)?.cwd), changesButton(id), drawerButton('outline', 'list', 'Outline')], tools: settings.buttons() });
@@ -465,7 +468,7 @@ function createPage() {
       sessionId: id,
       agentId: undefined,
       bookmarks,
-      onRewind: (prompt) => rewindDialog.open(id, prompt),
+      onRewind: (prompt) => rewindDialog.open(id, prompt, agent),
       // ⏩ on a message waiting in Claude Code's queue: the box below sends the queue now
       sendQueueNow: () => composer.sendQueue(),
       startAt: places.get(id),
@@ -494,6 +497,7 @@ function createPage() {
     });
     scroller.append(view.element);
     const composer = createComposer(id, {
+      agent,
       focusBox: followedTo === id ? 'no' : 'when-ready',
       asides,
       // a tab numbered by herdr says little: only a named one is told
@@ -525,6 +529,7 @@ function createPage() {
     const mounted = view;
     current = {
       id,
+      agent,
       header,
       place: () => mounted.place(),
       keepPlace: (change) => mounted.keepPlace(change),
@@ -549,6 +554,16 @@ function createPage() {
       },
     };
     renderList();
+  };
+
+  /** Opens the open session anew: its box, rewinds and hints as whose the list tells it is now. */
+  const openAgain = () => {
+    if (current === undefined) return;
+    const { id } = current;
+    places.set(id, current.place());
+    current.dispose();
+    current = undefined;
+    open(id);
   };
 
   return {
@@ -594,7 +609,10 @@ function createPage() {
       void offline.saveList(sessions);
       void keepRecent();
       const info = sessions.find((session) => session.id === current?.id);
-      if (info !== undefined) current?.header.updatePlace(info);
+      // a session opened before the list had it was taken for Claude Code's: once the list tells it is Codex's, it is
+      // opened again as Codex's
+      if (info !== undefined && info.agent !== current?.agent) openAgain();
+      else if (info !== undefined) current?.header.updatePlace(info);
       this.followLatest();
     },
     /** The herdr workspaces of the sessions: they group the list and are searched by. */
