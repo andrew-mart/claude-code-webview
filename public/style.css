@@ -19,6 +19,8 @@
   --usage-room-lightness: 1;
   --usage-room-chroma: 1;
   --usage-room-alpha: 0.35;
+  /* how strongly a usage meter's line glows */
+  --usage-glow: 0.7;
   /* a table's columns in the file panel (file-views, --fv-csv-…): their colours this light and strong */
   --csv-lightness: 0.5;
   --csv-chroma: 0.15;
@@ -82,6 +84,7 @@
     --usage-room-lightness: 0.75;
     --usage-room-chroma: 0.7;
     --usage-room-alpha: 0.45;
+    --usage-glow: 1;
     --csv-lightness: 0.8;
     --csv-chroma: 0.12;
     --bg-code: #1e1d1c;
@@ -131,6 +134,7 @@
   --usage-room-lightness: 0.75;
   --usage-room-chroma: 0.7;
   --usage-room-alpha: 0.45;
+  --usage-glow: 1;
   --csv-lightness: 0.8;
   --csv-chroma: 0.12;
   --bg-code: #1e1d1c;
@@ -267,6 +271,35 @@ button {
   cursor: default;
 }
 
+/* whose usage a row is, when Claude's and Codex's both show: their marks, Claude's in its own orange */
+.usage-agent {
+  display: flex;
+  flex: none;
+  justify-content: center;
+  width: 18px;
+}
+
+.agent-mark {
+  width: 13px;
+  height: 13px;
+  color: var(--text-2);
+}
+
+.agent-mark[data-agent='claude'] {
+  color: #d97757;
+}
+
+/* a window the agent does not count keeps its place: the windows of the two rows stand one above the other */
+.usage-meter.usage-absent {
+  visibility: hidden;
+}
+
+/* the window's name, as wide on every row */
+.usage-name {
+  flex: none;
+  width: 1.5em;
+}
+
 .usage-meter {
   display: flex;
   flex: 1;
@@ -300,40 +333,77 @@ button {
   --gap-end: color-mix(in oklch, #dc2626 calc(var(--redness) * 100%), #eab308);
 }
 
-/* The line's shape is a mask over its colours: thick (10px) to the use — a pixel past it, no seam where the narrowing
+/* The line's shape is a mask over its colours: thick (9px) to the use — a pixel past it, no seam where the narrowing
    joins — narrowing over a quarter of the line — a curve that leaves the
    thick part and meets the thin one level with each — to the thin line (6px) running on to the end; the ends rounded.
+   The spare green ends round where the time gone by is (::after).
    A little used is the narrowing alone, cut short; none — the thin line alone. The colours flow along it in OKLCH: blue
    into the spare green as the line narrows, the green into the track past the time gone by; blue into the overspent
-   red at the time gone by, the red into the track as it narrows. A browser that cannot blend in OKLCH takes the first. */
+   red about the time gone by — in OKLab — the red into the track as it narrows. A browser that cannot blend so takes
+   the first. */
 .usage-line {
   position: relative;
   flex: 1;
   min-width: 32px;
-  height: 10px;
+  height: 9px;
   /* the narrowing is placed in the line's own width: cqw */
   container-type: inline-size;
 }
 
+/* the glow: a copy of the line, blurred — a blur on the line itself would be cut off by its mask — under the line */
+.usage-glow {
+  position: absolute;
+  inset: 0;
+  filter: blur(4px) saturate(1.4);
+  opacity: var(--usage-glow);
+  pointer-events: none;
+}
+
 .usage-line::before {
+  z-index: 1;
+}
+
+.usage-line::before,
+.usage-glow::before {
   content: '';
   position: absolute;
   inset: 0;
-  border-radius: 5px;
+  border-radius: 4.5px;
   --at-use: calc(var(--used) * 1%);
   /* a quarter of the line, 34px at most; none used: no narrowing, the green from the start */
   --narrowing: calc(min(34px, 25cqw) * min(1, var(--used)));
-  background: linear-gradient(90deg, var(--used-start) 0%, var(--used-end) var(--at-use), var(--gap-start) calc(var(--at-use) + var(--narrowing) * 0.8), var(--gap-end) max(calc(var(--at-use) + var(--narrowing)), calc(var(--elapsed) * 1% - 2%)), var(--border) max(calc(var(--at-use) + var(--narrowing) + 8px), calc(var(--elapsed) * 1% + 4%)));
-  background: linear-gradient(in oklch 90deg, var(--used-start) 0%, var(--used-end) var(--at-use), var(--gap-start) calc(var(--at-use) + var(--narrowing) * 0.8), var(--gap-end) max(calc(var(--at-use) + var(--narrowing)), calc(var(--elapsed) * 1% - 2%)), var(--border) max(calc(var(--at-use) + var(--narrowing) + 8px), calc(var(--elapsed) * 1% + 4%)));
+  /* the green stops short of the time gone by by the cap's width: the cap ends it there, round */
+  --at-time: max(calc(var(--at-use) + var(--narrowing)), calc(var(--elapsed) * 1% - 3px));
+  background: linear-gradient(90deg, var(--used-start) 0%, var(--used-end) var(--at-use), var(--gap-start) calc(var(--at-use) + var(--narrowing) * 0.8), var(--gap-end) var(--at-time), var(--border) var(--at-time));
+  background: linear-gradient(in oklch 90deg, var(--used-start) 0%, var(--used-end) var(--at-use), var(--gap-start) calc(var(--at-use) + var(--narrowing) * 0.8), var(--gap-end) var(--at-time), var(--border) var(--at-time));
   mask:
     linear-gradient(#000 0 0) 0 0 / calc(var(--at-use) + 1px) 100% no-repeat,
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 10' preserveAspectRatio='none'%3E%3Cpath d='M0 0C17 0 17 2 34 2V8C17 8 17 10 0 10Z'/%3E%3C/svg%3E") calc(var(--used) * 1cqw) 0 / var(--narrowing) 100% no-repeat,
-    linear-gradient(transparent 2px, #000 2px 8px, transparent 8px);
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 9' preserveAspectRatio='none'%3E%3Cpath d='M0 0C17 0 17 1.5 34 1.5V7.5C17 7.5 17 9 0 9Z'/%3E%3C/svg%3E") calc(var(--used) * 1cqw) 0 / var(--narrowing) 100% no-repeat,
+    linear-gradient(transparent 1.5px, #000 1.5px 7.5px, transparent 7.5px);
 }
 
-.usage-meter[data-gap='over'] .usage-line::before {
-  background: linear-gradient(90deg, var(--used-start) 0%, var(--used-end) calc(var(--elapsed) * 1% - 3.5%), var(--gap-start) calc(var(--elapsed) * 1% + 3.5%), var(--gap-end) var(--at-use), var(--border) calc(var(--at-use) + var(--narrowing) * 0.9));
-  background: linear-gradient(in oklch 90deg, var(--used-start) 0%, var(--used-end) calc(var(--elapsed) * 1% - 3.5%), var(--gap-start) calc(var(--elapsed) * 1% + 3.5%), var(--gap-end) var(--at-use), var(--border) calc(var(--at-use) + var(--narrowing) * 0.9));
+/* the spare green's end at the time gone by: half a circle of the thin line's height */
+.usage-meter[data-gap='spare'] .usage-line::after {
+  content: '';
+  position: absolute;
+  z-index: 2;
+  top: 1.5px;
+  left: max(calc(var(--used) * 1% + min(34px, 25cqw) * min(1, var(--used))), calc(var(--elapsed) * 1% - 3px));
+  width: 3px;
+  height: 6px;
+  border-radius: 0 3px 3px 0;
+  background: var(--gap-end);
+}
+
+/* overspent: blue into the red about the time gone by, gently — 9px each way at least, a short line too — and straight
+   across, in OKLab: OKLCH would turn the hue through pink between them */
+.usage-meter[data-gap='over'] .usage-line::before,
+.usage-meter[data-gap='over'] .usage-glow::before {
+  --blend: max(3.5%, 9px);
+  /* the red's full depth after the blend, even with the time gone by close to what is used: no step between */
+  --red: max(var(--at-use), calc(var(--elapsed) * 1% + var(--blend) * 2));
+  background: linear-gradient(90deg, var(--used-start) 0%, var(--used-end) calc(var(--elapsed) * 1% - var(--blend)), var(--gap-start) calc(var(--elapsed) * 1% + var(--blend)), var(--gap-end) var(--red), var(--border) calc(var(--red) + var(--narrowing) * 0.9));
+  background: linear-gradient(in oklab 90deg, var(--used-start) 0%, var(--used-end) calc(var(--elapsed) * 1% - var(--blend)), var(--gap-start) calc(var(--elapsed) * 1% + var(--blend)), var(--gap-end) var(--red), var(--border) calc(var(--red) + var(--narrowing) * 0.9));
 }
 
 .usage-percent {
@@ -1094,11 +1164,15 @@ input.herdr-row-name.failed {
   background: var(--danger);
 }
 
-/* a new tab's choices: a terminal, Claude Code — the accent, Enter picks it — or nothing */
+/* a new tab's choices: a terminal, Claude Code — the accent, Enter picks it, its mark white on it — Codex, or nothing */
 .herdr-tab-confirm .icon-button.herdr-tab-new-claude {
   border-color: transparent;
   background: var(--accent);
   color: #fff;
+}
+
+.herdr-tab-new-claude .agent-mark {
+  color: inherit;
 }
 
 /* A herdr pane's terminal: dark, as terminal programs draw for. Its top row — the sidebar's button — on a phone only. */
@@ -2737,7 +2811,7 @@ table.diff tr.gap td {
   padding: 8px 10px;
   border-radius: 8px;
   background: var(--bg-code);
-  font-family: var(--font-mono, ui-monospace, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
   white-space: pre-wrap;
   word-break: break-word;

@@ -345,21 +345,24 @@ test('tabBar_Should_ScrollTabsSideways_WithMouseWheel_WhenTheyDoNotFit', () => {
   ]);
 });
 
-// What a new tab starts with is chosen with icons — a terminal, Claude Code, cancel — each named on hover
-test('tabBar_Should_OfferNewTabChoices_AsIconsNamedOnHover', () => {
+// What a new tab starts with is chosen with icons — a terminal; Claude Code and Codex by their own marks, as in the usage
+// rows; cancel — each named on hover
+test('tabBar_Should_OfferNewTabChoices_AsIconsNamedOnHover_TheAgentsByTheirMarks', () => {
   const { bar, click } = barAboveSession();
 
   click('.herdr-tab-new');
 
   assert.deepEqual(
-    ['.herdr-tab-new-shell', '.herdr-tab-new-claude', '.herdr-tab-new-cancel'].map((selector) => {
+    ['.herdr-tab-new-shell', '.herdr-tab-new-claude', '.herdr-tab-new-codex', '.herdr-tab-new-cancel'].map((selector) => {
       const button = bar.element.querySelector(selector);
-      return { text: button?.textContent, icon: button?.querySelector('svg') !== null, title: button?.getAttribute('title') };
+      const drawn = button?.querySelector('svg');
+      return { text: button?.textContent, drawn: drawn === null || drawn === undefined ? 'nothing' : (drawn.getAttribute('data-agent') ?? 'icon'), title: button?.getAttribute('title') };
     }),
     [
-      { text: '', icon: true, title: 'Terminal' },
-      { text: '', icon: true, title: 'Claude Code (Enter)' },
-      { text: '', icon: true, title: 'Cancel (Esc)' },
+      { text: '', drawn: 'icon', title: 'Terminal' },
+      { text: '', drawn: 'claude', title: 'Claude Code (Enter)' },
+      { text: '', drawn: 'codex', title: 'Codex' },
+      { text: '', drawn: 'icon', title: 'Cancel (Esc)' },
     ],
   );
 });
