@@ -36,7 +36,7 @@ const noActions = { createWorkspace: async () => ({ ok: false, error: 'failed' }
 test('herdrSidebar_Should_LeadSessionRowWithItsTitle_And_TellWorkspaceAndTabUnderIt', () => {
   const element = window.document.createElement('div');
 
-  createHerdrSidebar(element, noActions).render({ herdr: true, workspaces: [web] }, undefined, '');
+  createHerdrSidebar(element, noActions).render({ herdr: true, workspaces: [web] }, undefined, '', new Map());
 
   assert.deepEqual(
     [...element.querySelectorAll('.herdr-tabs .herdr-tab-text')].map((text) => [...text.children].map((line) => line.textContent)),
@@ -52,7 +52,7 @@ test('herdrSidebar_Should_LeadSessionRowWithItsTitle_And_TellWorkspaceAndTabUnde
 test('tabBar_Should_NameUnnamedTabByItsNumberOnce', () => {
   const { bar } = barAboveSession();
 
-  bar.render({ herdr: true, workspaces: [web] }, { kind: 'session', id: 's1' });
+  bar.render({ herdr: true, workspaces: [web] }, { kind: 'session', id: 's1' }, new Map());
 
   assert.deepEqual(
     [...bar.element.querySelectorAll('.herdr-chip')].map((chip) => chip.textContent),
@@ -85,7 +85,7 @@ function barAboveSession(session = 's1') {
       return { ok: true };
     },
   });
-  bar.render({ herdr: true, workspaces: [web] }, { kind: 'session', id: session });
+  bar.render({ herdr: true, workspaces: [web] }, { kind: 'session', id: session }, new Map());
   /** @param {string} selector */
   const click = (selector) => {
     const button = bar.element.querySelector(selector);
@@ -145,7 +145,7 @@ test('tabBar_Should_KeepNameBeingTyped_When_TabsComeAgain', async () => {
   assert.ok(box instanceof window.HTMLInputElement);
   box.value = 'check';
 
-  bar.render({ herdr: true, workspaces: [{ ...web, status: 'working' }] }, { kind: 'session', id: 's1' });
+  bar.render({ herdr: true, workspaces: [{ ...web, status: 'working' }] }, { kind: 'session', id: 's1' }, new Map());
   const stillShown = bar.element.contains(box);
   box.value += 'out';
   box.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter' }));
@@ -216,7 +216,7 @@ test('herdrSidebar_Should_TintWorkspaceAndItsSessions_WithWorkspaceColour', () =
   const element = window.document.createElement('div');
   const api = { ...web, id: 'w3', number: 3, label: 'api', activeTab: 'w3:t1', tabs: [{ id: 'w3:t1', number: 1, label: '1', status: /** @type {const} */ ('idle'), panes: [paneOf({ id: 'w3:p1', title: 'Add the endpoint', session: 's9', activity: 3 })] }] };
 
-  createHerdrSidebar(element, noActions).render({ herdr: true, workspaces: [web, api] }, undefined, '');
+  createHerdrSidebar(element, noActions).render({ herdr: true, workspaces: [web, api] }, undefined, '', new Map());
 
   /** @param {Element} row */
   const hueOf = (row) => (row instanceof window.HTMLElement ? row.style.getPropertyValue('--workspace-hue') : '');
@@ -230,7 +230,7 @@ test('herdrSidebar_Should_TintWorkspaceAndItsSessions_WithWorkspaceColour', () =
 test('herdrSidebar_Should_OpenNewWorkspaceForm_AboveWorkspaces_FromIconBesideSearch', () => {
   const element = window.document.createElement('div');
   const sidebar = createHerdrSidebar(element, noActions);
-  sidebar.render({ herdr: true, workspaces: [web] }, undefined, '');
+  sidebar.render({ herdr: true, workspaces: [web] }, undefined, '', new Map());
   const form = () => element.querySelector('.herdr-new-workspace');
   const before = { panel: element.textContent?.includes('New workspace'), expanded: sidebar.newButton.getAttribute('aria-expanded') };
 
@@ -249,7 +249,7 @@ test('herdrSidebar_Should_OpenNewWorkspaceForm_AboveWorkspaces_FromIconBesideSea
 test('herdrSidebar_Should_CancelNewWorkspace_WithIconNamedOnHover', () => {
   const element = window.document.createElement('div');
   const sidebar = createHerdrSidebar(element, noActions);
-  sidebar.render({ herdr: true, workspaces: [web] }, undefined, '');
+  sidebar.render({ herdr: true, workspaces: [web] }, undefined, '', new Map());
   sidebar.newButton.click();
   const cancel = element.querySelector('.herdr-new-cancel');
   assert.ok(cancel instanceof window.HTMLButtonElement);
@@ -284,7 +284,7 @@ test('herdrSidebar_Should_OpenNewWorkspace_FromItsNameAndFolder', async () => {
     closeTab: async () => ({ ok: false, error: 'failed' }),
   });
   const layout = { herdr: true, workspaces: [web] };
-  sidebar.render(layout, undefined, '');
+  sidebar.render(layout, undefined, '', new Map());
   /** @param {string} selector */
   const find = (selector) => {
     const found = element.querySelector(selector);
@@ -305,7 +305,7 @@ test('herdrSidebar_Should_OpenNewWorkspace_FromItsNameAndFolder', async () => {
   find('.herdr-new-claude').click();
   await settle();
   const refused = find('.herdr-new-error').textContent;
-  sidebar.render({ herdr: true, workspaces: [{ ...web, status: 'working' }] }, undefined, '');
+  sidebar.render({ herdr: true, workspaces: [{ ...web, status: 'working' }] }, undefined, '', new Map());
   const kept = find('.herdr-new-name');
   fill('.herdr-new-folder', 'D:/dev/billing');
   find('.herdr-new-shell').click();
@@ -409,7 +409,7 @@ function changingSidebar() {
     renameTab: (tab, label) => done(['rename tab', tab, label]),
     closeTab: (tab) => done(['close tab', tab]),
   });
-  sidebar.render({ herdr: true, workspaces: [web] }, undefined, '');
+  sidebar.render({ herdr: true, workspaces: [web] }, undefined, '', new Map());
   return { element, sidebar, changes };
 }
 
@@ -450,7 +450,7 @@ const clickOn = (/** @type {HTMLElement} */ element, /** @type {string} */ selec
 test('herdrSidebar_Should_NameAndCloseOpenWorkspaceAndSession_FromButtonsShownOnSecondClick', async () => {
   const { element, sidebar, changes } = changingSidebar();
   const settle = () => new Promise((done) => setTimeout(done, 0));
-  sidebar.render({ herdr: true, workspaces: [web] }, { kind: 'session', id: 's1' }, '');
+  sidebar.render({ herdr: true, workspaces: [web] }, { kind: 'session', id: 's1' }, '', new Map());
   const elsewhere = { stays: clickOn(element, '.herdr-tab:not(.selected)'), buttons: element.querySelector('.herdr-row-actions') !== null };
 
   const stays = clickOn(element, '.herdr-workspace.selected');
@@ -483,14 +483,14 @@ test('herdrSidebar_Should_NameAndCloseOpenWorkspaceAndSession_FromButtonsShownOn
 // is; Escape leaves the name as it was
 test('herdrSidebar_Should_HideButtonsOnClick_And_KeepNameBox_WhileHerdrIsLookedAtAgain', () => {
   const { element, sidebar, changes } = changingSidebar();
-  sidebar.render({ herdr: true, workspaces: [web] }, { kind: 'session', id: 's1' }, '');
+  sidebar.render({ herdr: true, workspaces: [web] }, { kind: 'session', id: 's1' }, '', new Map());
   clickOn(element, '.herdr-workspace.selected');
   clickOn(element, '.herdr-workspace.selected');
   const hidden = element.querySelector('.herdr-row-actions') === null;
   clickOn(element, '.herdr-workspace.selected');
   pressIn(element, '.herdr-row-rename');
 
-  sidebar.render({ herdr: true, workspaces: [{ ...web, status: 'working' }] }, { kind: 'session', id: 's1' }, '');
+  sidebar.render({ herdr: true, workspaces: [{ ...web, status: 'working' }] }, { kind: 'session', id: 's1' }, '', new Map());
   const kept = element.querySelector('input.herdr-row-name') !== null;
   element.querySelector('input.herdr-row-name')?.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 
@@ -502,11 +502,75 @@ test('herdrSidebar_Should_OfferFoldersForNewWorkspace', () => {
   const element = window.document.createElement('div');
   window.document.body.append(element);
   const sidebar = createHerdrSidebar(element, { ...noActions, folders: () => ['D:/dev/billing', '/home/ann/notes'] });
-  sidebar.render({ herdr: true, workspaces: [web] }, undefined, '');
+  sidebar.render({ herdr: true, workspaces: [web] }, undefined, '', new Map());
 
   sidebar.newButton.click();
 
   const box = element.querySelector('.herdr-new-folder');
   const list = box === null ? null : element.querySelector(`datalist#${box.getAttribute('list')}`);
   assert.deepEqual([...(list?.querySelectorAll('option') ?? [])].map((option) => option.getAttribute('value')), ['D:/dev/billing', '/home/ann/notes']);
+});
+
+// An agent that finished shows its answer ready — its workspace too — until it is seen
+test('herdrSidebar_Should_LightReadyAnswer_UntilSeen', () => {
+  const element = window.document.createElement('div');
+  const finished = { ...web, status: /** @type {const} */ ('done'), tabs: web.tabs.map((tab, index) => (index === 0 ? { ...tab, status: /** @type {const} */ ('done'), panes: tab.panes.map((one) => ({ ...one, status: /** @type {const} */ ('done') })) } : tab)) };
+  const sidebar = createHerdrSidebar(element, noActions);
+  const lamps = () => [...element.querySelectorAll('.herdr-status')].map((lamp) => lamp.getAttribute('data-status'));
+
+  sidebar.render({ herdr: true, workspaces: [finished] }, undefined, '', new Map());
+  const unseen = lamps();
+  sidebar.render({ herdr: true, workspaces: [finished] }, undefined, '', new Map([['w2:p1', 5]]));
+
+  assert.deepEqual({ unseen, seen: lamps() }, { unseen: ['ready', 'idle', 'ready', 'idle'], seen: ['idle', 'idle', 'idle', 'idle'] });
+});
+
+// An agent at work shows its robots' story, not a lamp
+test('herdrSidebar_Should_ShowRobotsStoryAtWork', () => {
+  const element = window.document.createElement('div');
+  const busy = { ...web, tabs: web.tabs.map((tab, index) => (index === 1 ? { ...tab, panes: tab.panes.map((one) => ({ ...one, status: /** @type {const} */ ('working') })) } : tab)) };
+
+  createHerdrSidebar(element, noActions).render({ herdr: true, workspaces: [busy] }, undefined, '', new Map());
+
+  assert.deepEqual(
+    [...element.querySelectorAll('.herdr-tabs .herdr-status')].map((lamp) => `${lamp.getAttribute('data-status')}:${lamp.querySelector('svg.robots') === null ? 'lamp' : 'robot'}`),
+    ['working:robot', 'idle:lamp', 'idle:lamp'],
+  );
+});
+
+// A workspace's agents at work all show its story — the workspace's own, by its name — so a session tells its project
+test('herdrSidebar_Should_ShowWorkspacesOwnStoryForEachOfItsAgents', () => {
+  const element = window.document.createElement('div');
+  const busy = { ...web, status: /** @type {const} */ ('working'), tabs: web.tabs.map((tab) => ({ ...tab, status: /** @type {const} */ ('working'), panes: tab.panes.map((one) => ({ ...one, status: /** @type {const} */ ('working') })) })) };
+
+  createHerdrSidebar(element, noActions).render({ herdr: true, workspaces: [busy] }, undefined, '', new Map());
+
+  const stories = [...element.querySelectorAll('svg.robots')].map((robots) => [...robots.classList].find((name) => name.startsWith('story-')));
+  assert.deepEqual({ count: stories.length, distinct: [...new Set(stories)].length }, { count: 4, distinct: 1 });
+});
+
+// An agent that finished, its answer not seen, shows a robot at rest rather than a lamp
+test('herdrSidebar_Should_ShowRobotAtRest_WhenAnswerIsReady', () => {
+  const element = window.document.createElement('div');
+  const finished = { ...web, tabs: web.tabs.map((tab, index) => (index === 0 ? { ...tab, panes: tab.panes.map((one) => ({ ...one, status: /** @type {const} */ ('done') })) } : tab)) };
+
+  createHerdrSidebar(element, noActions).render({ herdr: true, workspaces: [finished] }, undefined, '', new Map());
+
+  assert.deepEqual(
+    [...element.querySelectorAll('.herdr-tabs .herdr-status')].map((lamp) => `${lamp.getAttribute('data-status')}:${lamp.querySelector('svg.rests') === null ? 'lamp' : 'rest'}`),
+    ['idle:lamp', 'ready:rest', 'idle:lamp'],
+  );
+});
+
+// A finished agent's face has its workspace's joke beside it, by the workspace's number: the second's is a joint
+test('herdrSidebar_Should_ShowWorkspacesJokeBesideFaceAtRest', () => {
+  const element = window.document.createElement('div');
+  /** @param {import('../public/model/herdr.js').HerdrWorkspace} workspace */
+  const done = (workspace) => ({ ...workspace, status: /** @type {const} */ ('done'), tabs: workspace.tabs.map((tab) => ({ ...tab, status: /** @type {const} */ ('done'), panes: tab.panes.map((one) => ({ ...one, status: /** @type {const} */ ('done') })) })) });
+  const fourth = { ...web, id: 'w4', number: 4, label: 'api', tabs: web.tabs.map((tab) => ({ ...tab, id: tab.id.replace('w2', 'w4'), panes: tab.panes.map((one) => ({ ...one, id: one.id.replace('w2', 'w4'), session: undefined })) })) };
+
+  createHerdrSidebar(element, noActions).render({ herdr: true, workspaces: [done(web), done(fourth)] }, undefined, '', new Map());
+
+  const jokes = [...element.querySelectorAll('.herdr-workspace svg.rests')].map((face) => [...face.classList].find((name) => name.startsWith('joke-')));
+  assert.deepEqual(jokes, ['joke-joint', 'joke-popper']);
 });

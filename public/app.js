@@ -17,6 +17,11 @@ import { folderChoices, rememberFolder } from './model/folders.js';
 import { parseHistory } from './model/history.js';
 import { parseUsage, usageView } from './model/usage.js';
 import { createHerdrSidebar, createTabBar } from './view/herdr-panel.js';
+import { mergeSeen, parseSeen, seeOpened } from './model/lamps.js';
+import { createSeenStore, tellSeen } from './view/seen-store.js';
+import { workingRobots } from './view/robot.js';
+import { storyAt, storyOf } from './model/stories.js';
+import { createWorkClock } from './view/work-clock.js';
 import { tintByWorkspace } from './view/workspace-tint.js';
 import { mountTerminal } from './view/terminal-view.js';
 import { openOfflineStore } from './view/offline-store.js';
@@ -89,6 +94,9 @@ const connection = createConnection((online) => {
 const drawers = createDrawers({ root: document.documentElement, backdrop: byId('drawer-backdrop', HTMLElement), history });
 // A view setting that resizes the feed keeps the reader at the message they were at.
 const settings = createSettings((change) => page.keepPlace(change));
+/** The answers seen: herdr's finished agents' lamps put out. */
+const seenAnswers = createSeenStore(storageOrNone());
+
 const page = createPage();
 const layout = byId('layout', HTMLElement);
 /** What the viewer says of itself: whether it has an editor, whether it runs VS Code in the browser. */
@@ -182,6 +190,15 @@ if ('serviceWorker' in navigator) {
 }
 void navigator.storage?.persist?.().catch(() => false);
 
+/** @returns {Storage | undefined} */
+function storageOrNone() {
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined; // the browser keeps nothing for the page
+  }
+}
+
 function createPage() {
   /** @type {readonly SessionInfo[]} */
   let sessions = [];
@@ -191,6 +208,8 @@ function createPage() {
   let listMinute = 0;
   /** @type {{ id: string, dispose: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, keepPlace: (change: () => void) => void, rewound: (reply: import('./model/rewind.js').RewindReply) => void, stop: () => boolean } | undefined} */
   let current;
+  /** How long each session has been written to: its robots' story goes on as its row is drawn again. */
+  const workClock = createWorkClock(() => Date.now());
   /** Where the reader left each session opened in this tab: coming back returns there. */
   /** @type {Map<string, import('./view/session-view.js').ReadingPlace>} */
   const places = new Map();
@@ -273,6 +292,16 @@ function createPage() {
   /** @type {Map<string, { look: string, element: HTMLElement }>} */
   const groupHeads = new Map();
   /**
+   * A session's robots' story: its herdr workspace's, by the workspace's number — else by its workspace's name or its
+   * folder.
+   * @param {string | undefined} workspace
+   * @param {string} folder
+   */
+  const storyOfSession = (workspace, folder) => {
+    const known = workspace === undefined ? undefined : herdrLayout.workspaces.find((one) => one.label === workspace);
+    return known === undefined ? storyOf(workspace ?? folder) : storyAt(known.number);
+  };
+  /**
    * @param {SessionInfo} session
    * @param {number} now
    * @param {string | undefined} workspace — shown under the title; none in a grouped list, whose group heads name it
@@ -306,6 +335,9 @@ function createPage() {
       h('span', { className: 'session-title', text: title }),
       h('span', { className: 'session-sub' }, [where, h('span', { text: closed ? `closed · ${ago}` : ago })]),
     ]);
+    // being written to: a robot putting itself together
+    const elapsed = workClock.elapsed(session.id, active);
+    if (active) link.append(h('span', { className: 'session-robot', title: 'Being written to' }, [workingRobots(storyOfSession(tint, folder), elapsed)]));
     // what the session is for, in the user's words: on hover — the search finds it too
     if (note !== '') link.title = `${title}\n${note}`;
     link.classList.toggle('active', active);
@@ -619,8 +651,14 @@ function createPage() {
       if (mode === 'herdr') search.placeholder = 'Search workspaces, sessions';
       else search.placeholder = workspaces.herdr ? 'Search by title, folder or workspace' : 'Search by title or folder';
       const opened = openedAt(location.hash);
-      if (mode === 'herdr') herdrSidebar.render(herdrLayout, opened, search.value);
-      tabBar.render(herdrLayout, opened);
+      // what the page shows, the reader sees: its finished agent's lamp goes out — herdr gone quiet changes nothing
+      if (herdrLayout.herdr) {
+        const seen = seeOpened(herdrLayout, document.visibilityState === 'visible' ? opened : undefined, seenAnswers.get());
+        tellSeen(seenAnswers.get(), seen);
+        seenAnswers.set(seen);
+      }
+      if (mode === 'herdr') herdrSidebar.render(herdrLayout, opened, search.value, seenAnswers.get());
+      tabBar.render(herdrLayout, opened, seenAnswers.get());
       // A terminal opened before the page heard from herdr takes its pane's size and name now.
       if (currentPane === undefined) return;
       const size = paneSize(currentPane.id);
@@ -629,6 +667,7 @@ function createPage() {
     },
     /** What herdr shows now: its workspaces, tabs, panes and their agents' status. */
     async refreshHerdr() {
+      void this.refreshSeen();
       const reply = await pollReply('/api/herdr');
       // Out of the viewer's reach the page keeps what it knew.
       if (reply === undefined) return;
@@ -640,6 +679,14 @@ function createPage() {
       const started = currentPane === undefined ? undefined : paneSession(herdrLayout, currentPane.id, currentPane.sessionWhenOpened);
       if (started !== undefined) location.hash = `#/${started}`;
       this.renderHerdr();
+    },
+    /** The answers seen on the other devices: their lamps go out here too. */
+    async refreshSeen() {
+      const reply = await pollReply('/api/seen');
+      if (reply === undefined) return;
+      const known = seenAnswers.get();
+      seenAnswers.set(mergeSeen(known, parseSeen(reply)));
+      if (seenAnswers.get() !== known) this.renderHerdr();
     },
   };
 }
@@ -698,6 +745,7 @@ const headerSettings = [
   ['tables', 'table'],
   ['width', 'widen'],
   ['copy', 'copy'],
+  ['lamps', 'agent'],
 ];
 
 /**
@@ -728,6 +776,7 @@ function createSettings(keepPlace) {
     root.dataset.outline = get('outline');
     root.dataset.tables = get('tables');
     root.dataset.width = get('width');
+    root.dataset.lamps = get('lamps');
     relabelTables(document);
     const activity = get('activity');
     const edits = get('edits');
@@ -785,6 +834,7 @@ function settingKeyOf(value) {
     case 'tables':
     case 'width':
     case 'copy':
+    case 'lamps':
       return value;
     default:
       return undefined;

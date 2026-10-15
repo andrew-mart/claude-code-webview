@@ -21,6 +21,8 @@ const labels = [
   ['width', 'full', 'Show the conversation in a column'],
   ['copy', 'markdown', 'Ctrl+C copies selections as plain text — Ctrl+Shift+C as markdown'],
   ['copy', 'plain', 'Ctrl+C copies selections as markdown, as Ctrl+Shift+C does'],
+  ['lamps', 'robots', 'Show lamps instead of robots'],
+  ['lamps', 'lamps', 'Show robots at work and at rest'],
 ];
 
 for (const [key, current, expected] of labels) {

@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { createVsCode } from '../server/vscode.js';
 import { startServer } from '../server/app.js';
 import { createBookmarkFile } from '../server/bookmarks.js';
+import { createSeenFile } from '../server/seen.js';
 import { createUploads } from '../server/uploads.js';
 import { createComposer } from '../server/composer.js';
 import { latestRecords, readSessionRecords } from '../server/registry.js';
@@ -73,7 +74,7 @@ export async function serve({ port, about, palette, publicAddresses, herdr, clau
   const vscodeServer = vscode === undefined ? undefined : createVsCode({ command: [vscode], tokenFile: join(stateDir, `vscode-token-${port}`) });
   // Codex's sessions beside Claude Code's: none while it has never run here
   const codexRoot = join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'sessions');
-  const server = await startServer({ codexRoot, root: join(claude, 'projects'), host: '127.0.0.1', port, pollMs: 400, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), uploads: createUploads(join(stateDir, 'uploads')), about, palette, publicAddresses, herdrView, terminals, usage: () => readUsage(usageFiles), isRunning: async (id) => latestRecords(await readRecords()).has(id), editor: editor === undefined ? undefined : (path, line) => openInEditor(editor, path, line), vscode: vscodeServer });
+  const server = await startServer({ codexRoot, root: join(claude, 'projects'), host: '127.0.0.1', port, pollMs: 400, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), seen: createSeenFile(join(stateDir, 'seen.json'), { limit: 500 }), uploads: createUploads(join(stateDir, 'uploads')), about, palette, publicAddresses, herdrView, terminals, usage: () => readUsage(usageFiles), isRunning: async (id) => latestRecords(await readRecords()).has(id), editor: editor === undefined ? undefined : (path, line) => openInEditor(editor, path, line), vscode: vscodeServer });
   const url = `http://127.0.0.1:${server.port}/`;
   console.log(`Claude Code Webview ${about.version}: ${url}`);
   for (const publicAddress of publicAddresses) console.log(`Also answers at ${publicAddress.origin}/ — keep it behind a login such as Cloudflare Access`);

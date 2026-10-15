@@ -94,18 +94,19 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  * @typedef {() => Promise<import('../public/model/usage.js').Usage | undefined>} ReadUsage — none until Claude Code has read it
  * @typedef {(sessionId: string) => Promise<boolean>} IsRunning
  * @typedef {(path: string, line: number) => Promise<import('./editor.js').EditorOutcome>} OpenEditor
+ * @typedef {ReturnType<typeof import('./seen.js').createSeenFile>} Seen
  */
 
 /**
- * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, vscode?: import('./vscode.js').VsCode | undefined, codexRoot?: string | undefined }} options
+ * @param {{ root: string, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, seen: Seen, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, vscode?: import('./vscode.js').VsCode | undefined, codexRoot?: string | undefined }} options
  *   about — package name and version for /api/health; palette — the page's colours (public/model/palettes.js);
  *   publicAddresses — where else the page is opened at, answered as the local address is; herdrView — what herdr
  *   shows (herdr-view.js); terminals — herdr panes' terminals (terminal.js); usage — the account's usage (usage.js);
  *   isRunning — whether Claude Code has a session open; editor — opens a file at a line in the editor of this computer,
- *   if the viewer was given one
+ *   if the viewer was given one; seen — the answers seen, for every device (seen.js)
  * @returns {Promise<{ port: number, close: () => void }>}
  */
-export async function startServer({ root, host, port, pollMs, composer, bookmarks, uploads, about, palette, publicAddresses, herdrView, terminals, usage, isRunning, editor, vscode, codexRoot }) {
+export async function startServer({ root, host, port, pollMs, composer, bookmarks, seen, uploads, about, palette, publicAddresses, herdrView, terminals, usage, isRunning, editor, vscode, codexRoot }) {
   const instance = randomUUID();
   const index = createSessionIndex(root, { summaryBudgetMs: 1500, codexRoot });
   const build = await pageBuild();
@@ -119,7 +120,7 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
   const allowedOrigins = new Set();
   const fileIcons = createFileIcons();
   /** @type {Deps} */
-  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, uploads, about, build, rewinds, transcripts, palette, herdrView, terminals, usage, isRunning, editor, vscode, instance, fileIcons };
+  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, seen, uploads, about, build, rewinds, transcripts, palette, herdrView, terminals, usage, isRunning, editor, vscode, instance, fileIcons };
   const server = http.createServer((request, response) => {
     handle(deps, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
@@ -152,7 +153,7 @@ export async function startServer({ root, host, port, pollMs, composer, bookmark
 }
 
 /**
- * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons> }} Deps
+ * @typedef {{ index: ReturnType<typeof createSessionIndex>, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen }} Deps
  *   instance: this run of the viewer, told apart from any other — see /api/machine; vscode: VS Code's web server
  *   behind /vscode/, none when the viewer runs none
  * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'renameWorkspace' | 'closeWorkspace' | 'createTab' | 'createWorkspace' | 'history' | 'reopen'>} HerdrView
@@ -229,6 +230,9 @@ async function handle(deps, request, response) {
       return sendRevalidated(response, await deps.herdrView.workspacesOf(await deps.index.list()));
     case '/api/herdr':
       return sendRevalidated(response, await deps.herdrView.layout());
+    // the answers seen on any device: the green lamps out on every one
+    case '/api/seen':
+      return sendRevalidated(response, await deps.seen.all());
     // Where sessions ran in herdr, closed ones included: the session list finds them by workspace and tab.
     case '/api/machine':
       return sendMachine(deps, request, response);
@@ -403,6 +407,7 @@ async function handleWrite(deps, url, request, response) {
   }
   const body = await readJsonBody(request, url.pathname === '/api/send' ? maxSendBytes : url.pathname === '/api/file/save' ? maxSaveBytes : maxBodyBytes);
   if (url.pathname === '/api/file/save') return saveFile(body, response);
+  if (url.pathname === '/api/seen') return markSeen(deps, body, response);
   if (url.pathname === '/api/pane/input') return typeIntoPane(deps, body, response);
   if (url.pathname === '/api/tab/rename') return renameTab(deps, body, response);
   if (url.pathname === '/api/tab/close') return closeTab(deps, body, response);
@@ -1081,6 +1086,23 @@ const maxSearchChars = 1000;
 const folderRefusalStatus = { 'not-absolute': 400, 'not-found': 404, 'not-a-folder': 400 };
 /** @type {Readonly<Record<import('./project.js').FolderRefusal | 'bad-pattern' | 'no-git', number>>} */
 const searchRefusalStatus = { ...folderRefusalStatus, 'bad-pattern': 400, 'no-git': 501 };
+
+/**
+ * An answer seen in a page, kept for every device.
+ * @param {Deps} deps
+ * @param {unknown} body — { pane, count }: herdr's pane, its count of changes when its answer was seen
+ * @param {http.ServerResponse} response
+ */
+async function markSeen(deps, body, response) {
+  const pane = isRecord(body) ? text(body.pane) : undefined;
+  const count = isRecord(body) && typeof body.count === 'number' && Number.isSafeInteger(body.count) ? body.count : undefined;
+  if (pane === undefined || pane.length > 100 || count === undefined) {
+    response.writeHead(400).end('Bad answer seen');
+    return;
+  }
+  await deps.seen.mark(pane, count);
+  return sendJson(response, { ok: true });
+}
 
 /** A file's text as JSON: an escaped character takes up to six bytes. */
 const maxSaveBytes = maxFileBytes * 6 + 64 * 1024;
