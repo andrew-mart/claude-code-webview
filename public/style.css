@@ -928,6 +928,11 @@ button {
   line-height: 1;
 }
 
+/* in the lists — herdr's workspaces and sessions, the session list — a little larger than the text beside it */
+:is(.herdr-workspace, .herdr-tab) > .workspace-icon {
+  font-size: 17px;
+}
+
 /* in herdr's list of workspaces a click on the open one's icon picks another (herdr-panel.js) */
 .herdr-workspace.selected > .workspace-icon {
   border-radius: 6px;
@@ -942,6 +947,31 @@ button {
 :is(.session-title, .herdr-chip-workspace) > .workspace-icon {
   margin-right: 6px;
   font-size: 13px;
+}
+
+.session-title > .workspace-icon {
+  font-size: 15px;
+}
+
+/* the workspace's icon at the head of its tabs: a press picks another — room enough for a finger */
+.herdr-chip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 28px;
+  margin: -6px 2px -6px -6px;
+  padding: 0 4px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font-size: 13px;
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.herdr-chip-icon:hover {
+  background: var(--bg-hover);
 }
 
 .herdr-chip {

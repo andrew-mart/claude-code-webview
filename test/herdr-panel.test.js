@@ -66,11 +66,12 @@ test('tabBar_Should_NameUnnamedTabByItsNumberOnce', () => {
 });
 
 /**
- * The tab bar above a session of web — s1, the unnamed tab 1, unless told — with naming, closing, opening tabs and the
- * addresses it goes to recorded; each succeeds, a new tab opens as w2:p9.
+ * The tab bar above a session of web — s1, the unnamed tab 1, unless told — with naming, closing, opening tabs, the
+ * workspace's naming and icon, and the addresses it goes to recorded; each succeeds, a new tab opens as w2:p9.
  * @param {string} [session]
+ * @param {import('../public/model/herdr.js').HerdrWorkspace} [workspace]
  */
-function barAboveSession(session = 's1') {
+function barAboveSession(session = 's1', workspace = web) {
   /** @type {(string | undefined)[][]} */
   const asked = [];
   const bar = createTabBar({
@@ -89,8 +90,17 @@ function barAboveSession(session = 's1') {
       asked.push(['close', tab]);
       return { ok: true };
     },
+    renameWorkspace: async (id, label) => {
+      asked.push(['rename workspace', id, label]);
+      return { ok: true };
+    },
+    setWorkspaceIcon: async (id, icon) => {
+      asked.push(['icon', id, icon ?? 'none']);
+      return { ok: true };
+    },
+    iconTags: async () => lucideTags,
   });
-  bar.render({ herdr: true, workspaces: [web] }, { kind: 'session', id: session }, new Map());
+  bar.render({ herdr: true, workspaces: [workspace] }, { kind: 'session', id: session }, new Map());
   /** @param {string} selector */
   const click = (selector) => {
     const button = bar.element.querySelector(selector);
@@ -842,4 +852,23 @@ test('herdrSidebar_Should_LeaveHiddenSessionsOut_And_ShowThemAgainFromListsHead'
   await new Promise((done) => setTimeout(done, 0));
 
   assert.deepEqual({ noneHidden, listed, shown, changes }, { noneHidden: true, listed: ['#/pane/w2:p2', '#/s1'], shown: '1 hidden', changes: [['show hidden']] });
+});
+
+// On a phone a press on a workspace's row in the sidebar goes to the workspace: its icon is picked from the icon at the
+// head of its tabs, over the open session — a press opens the icons, the one picked is the workspace's at once: an emoji
+// goes ahead of its name in herdr; a press elsewhere puts them away, nothing picked
+test('tabBar_Should_PickWorkspacesIcon_FromItsIconAtTheHeadOfItsTabs', async () => {
+  const { bar, asked, click } = barAboveSession('s1', webWithIcon);
+  window.document.body.append(bar.element);
+
+  click('.herdr-chip-icon');
+  const opened = window.document.querySelector('.herdr-icon-palette') !== null;
+  window.document.body.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true }));
+  const away = window.document.querySelector('.herdr-icon-palette') === null;
+  click('.herdr-chip-icon');
+  window.document.querySelector('.herdr-icon-at-hand > button')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await settled();
+  bar.element.remove();
+
+  assert.deepEqual({ opened, away, asked, left: window.document.querySelector('.herdr-icon-palette') === null }, { opened: true, away: true, asked: [['rename workspace', 'w2', '🦊 web']], left: true });
 });

@@ -278,6 +278,9 @@ function createPage() {
       location.hash = target;
     },
     create: (tab, start, label) => newTab(tab, start, label),
+    renameWorkspace: (workspace, label) => changeTab('/api/workspace/rename', { workspace, label }),
+    setWorkspaceIcon: (workspace, icon) => changeTab('/api/workspace/icon', { workspace, icon: icon === undefined ? null : icon }),
+    iconTags: lucideTags,
   });
   /** The side questions (/btw) of the sessions opened: an answer outlives the session's box. */
   const asides = createAsideStore();
