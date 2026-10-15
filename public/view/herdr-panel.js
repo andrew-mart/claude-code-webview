@@ -2,6 +2,7 @@
 // herdr as herdr itself lays it out: in the sidebar its workspaces, and under them every session of every workspace with
 // its agent's status, the latest active first; above the open session or terminal, the tabs of its workspace to switch
 // between, the open one to name or close.
+import { workspaceNameOf } from '../model/folders.js';
 import { placeOf, searchLayout, sessionsByActivity, tabTarget } from '../model/herdr.js';
 import { groupLamp, paneLamp } from '../model/lamps.js';
 import { jokeAt, storyAt } from '../model/stories.js';
@@ -288,6 +289,13 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
     // the folder chosen from those the page offers, or typed
     const choices = h('datalist', { attrs: { id: 'herdr-new-folders' } }, folders().map((choice) => h('option', { attrs: { value: choice } })));
     const folder = h('input', { className: 'herdr-new-folder', attrs: { type: 'text', placeholder: 'Folder: D:/dev/app or ~/app', spellcheck: 'false', autocomplete: 'off', list: 'herdr-new-folders', 'aria-label': 'Folder of the new workspace' } });
+    // no name given — or only the one the folder gave — follows the folder chosen
+    let fromFolder = '';
+    folder.addEventListener('input', () => {
+      if (name.value !== '' && name.value !== fromFolder) return;
+      fromFolder = workspaceNameOf(folder.value);
+      name.value = fromFolder;
+    });
     const error = h('div', { className: 'herdr-new-error', attrs: { role: 'alert' } });
     let sending = false;
     /** @param {import('../model/herdr.js').TabStart} start */

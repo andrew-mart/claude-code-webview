@@ -45,6 +45,15 @@ export function folderChoices(remembered, history) {
 }
 
 /**
+ * The name a new workspace in this folder is given when none is: the folder's own — the last part of its path.
+ * @param {string} folder — as typed: either slashes, a slash at the end or not
+ * @returns {string} — empty for no folder
+ */
+export function workspaceNameOf(folder) {
+  return folder.split(/[\\/]/).map((part) => part.trim()).filter((part) => part !== '').at(-1) ?? '';
+}
+
+/**
  * The typed folders with this one put first; nothing typed changes nothing.
  * @param {readonly string[]} remembered
  * @param {string} folder
