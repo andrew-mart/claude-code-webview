@@ -36,6 +36,7 @@ import { parseBranchChanges, parseFileDiff } from './model/branch-changes.js';
 import { parseFileLinks, parseFolderListing, parseSearchFound, projectOfFile } from './model/project.js';
 import { createFileIcons } from './view/file-icons.js';
 import { parseMachine } from './model/machine.js';
+import { splitTabIcon } from './model/tab-icon.js';
 import { vscodeAddress } from './model/vscode.js';
 import { createEditorOpener } from './view/editor-opener.js';
 import { relabelTables } from './view/markdown.js';
@@ -220,7 +221,7 @@ function createPage() {
 
   /** The herdr workspace of each session (server/workspaces.js); none while herdr is not used or does not answer. */
   /** @type {Workspaces} */
-  let workspaces = { herdr: false, of: new Map() };
+  let workspaces = { herdr: false, of: new Map(), icons: new Map() };
   let workspacesKnown = '';
   /** Where sessions ran in herdr, closed ones included: the list tells their tab and finds them by it. */
   /** @type {import('./model/history.js').History} */
@@ -326,16 +327,18 @@ function createPage() {
     const note = place?.note ?? '';
     // the workspace it runs or ran in colours the row, named on it or not
     const tint = workspaces.of.get(session.id) ?? place?.workspace;
-    const look = [session.agent, title, folder, named, tab, closed, note, ago, active, selected, unavailable, tint].join('\u0000');
+    // its workspace's icon, left of its title, while the workspace is open
+    const icon = workspaces.icons.get(session.id);
+    const look = [session.agent, title, folder, named, tab, closed, note, ago, active, selected, unavailable, tint, icon].join('\u0000');
     const known = items.get(session.id);
     if (known !== undefined && known.look === look) return known.element;
     const where = h('span', { className: 'session-place' }, [h('span', { className: 'session-folder', text: folder })]);
     if (tab !== '') where.prepend(h('span', { className: 'session-tab', text: tab }));
-    if (named !== '') where.prepend(h('span', { className: 'session-workspace', text: named }));
+    if (named !== '') where.prepend(h('span', { className: 'session-workspace', text: splitTabIcon(named).name }));
     // Codex's sessions among Claude Code's
     if (session.agent === 'codex') where.prepend(h('span', { className: 'session-agent', text: 'codex' }));
     const link = h('a', { className: 'session-item', attrs: { href: `#/${session.id}` } }, [
-      h('span', { className: 'session-title', text: title }),
+      h('span', { className: 'session-title' }, [...(icon === undefined ? [] : [h('span', { className: 'workspace-icon', text: icon, attrs: { 'aria-hidden': 'true' } })]), title]),
       h('span', { className: 'session-sub' }, [where, h('span', { text: closed ? `closed · ${ago}` : ago })]),
     ]);
     // being written to: a robot putting itself together
@@ -624,7 +627,7 @@ function createPage() {
       // Out of the viewer's reach the page keeps what it knew.
       if (reply === undefined) return;
       const next = parseWorkspaces(reply);
-      const known = JSON.stringify([next.herdr, [...next.of]]);
+      const known = JSON.stringify([next.herdr, [...next.of], [...next.icons]]);
       if (known === workspacesKnown) return;
       workspacesKnown = known;
       workspaces = next;
@@ -1185,8 +1188,9 @@ function iconButton(iconName) {
 }
 
 /**
- * @typedef {{ herdr: boolean, of: ReadonlyMap<string, string> }} Workspaces — herdr: whether the viewer reaches herdr;
- *   of: the workspace of each session, by its id
+ * @typedef {{ herdr: boolean, of: ReadonlyMap<string, string>, icons: ReadonlyMap<string, string> }} Workspaces — herdr:
+ *   whether the viewer reaches herdr; of: the workspace of each session, by its id; icons: each session's workspace's
+ *   icon, by its id, while the workspace is open
  */
 
 /**
@@ -1194,8 +1198,10 @@ function iconButton(iconName) {
  * @returns {Workspaces}
  */
 function parseWorkspaces(json) {
-  if (!isRecord(json) || json.herdr !== true || !isRecord(json.sessions)) return { herdr: false, of: new Map() };
-  return { herdr: true, of: new Map(Object.entries(json.sessions).flatMap(([id, label]) => (typeof label === 'string' ? [/** @type {const} */ ([id, label])] : []))) };
+  if (!isRecord(json) || json.herdr !== true || !isRecord(json.sessions)) return { herdr: false, of: new Map(), icons: new Map() };
+  /** @param {unknown} record */
+  const texts = (record) => new Map(isRecord(record) ? Object.entries(record).flatMap(([id, value]) => (typeof value === 'string' ? [/** @type {const} */ ([id, value])] : [])) : []);
+  return { herdr: true, of: texts(json.sessions), icons: texts(json.icons) };
 }
 
 /**

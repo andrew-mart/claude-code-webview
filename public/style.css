@@ -858,6 +858,18 @@ button {
   font-weight: 600;
 }
 
+/* A workspace's icon (workspace-icons.js), left of its name and of its sessions' titles: in its own colours. */
+.workspace-icon {
+  flex: none;
+  font-size: 14px;
+  line-height: 1;
+}
+
+:is(.session-title, .herdr-chip-workspace) > .workspace-icon {
+  margin-right: 6px;
+  font-size: 13px;
+}
+
 .herdr-chip {
   display: flex;
   flex: none;
@@ -1005,8 +1017,8 @@ button {
   display: none;
 }
 
-/* A tab's icon, picked as it is named or opened: the button shows the icon — a faint face while there is none — and
-   opens a row of emoji beside it. */
+/* A tab's or a workspace's icon, picked as it is named or opened: the button shows the icon — a faint face while there
+   is none — and opens under it the emoji at hand, ✕ for none, and every emoji to find (emoji-picker-element). */
 .herdr-icon-picker {
   display: inline-flex;
   flex: none;
@@ -1030,16 +1042,53 @@ button {
   color: var(--text-3);
 }
 
+/* fixed, placed under the button as it opens (herdr-panel.js): a row that scrolls would cut it off */
 .herdr-icon-palette {
-  display: inline-flex;
-  gap: 1px;
-  padding: 1px 4px;
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(352px, calc(100vw - 16px));
+  padding: 6px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--bg-elev);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
 }
 
-.herdr-icon-palette button {
+.herdr-icon-palette[hidden] {
+  display: none;
+}
+
+.herdr-icon-at-hand {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px;
+}
+
+/* every emoji: in the page's colours, as tall as a phone leaves room for */
+.herdr-icon-every:empty {
+  display: none;
+}
+
+.herdr-icon-every emoji-picker {
+  width: 100%;
+  height: min(320px, 50vh);
+  --background: var(--bg-elev);
+  --border-color: var(--border);
+  --input-border-color: var(--border-strong);
+  --input-font-color: var(--text);
+  --input-placeholder-color: var(--text-4);
+  --category-font-color: var(--text-3);
+  --button-hover-background: var(--bg-hover);
+  --button-active-background: var(--bg-selected);
+  --indicator-color: var(--accent);
+  --outline-color: var(--accent);
+  --emoji-size: 1.3rem;
+}
+
+.herdr-icon-palette .herdr-icon-at-hand button {
   width: 24px;
   height: 24px;
   padding: 0;
@@ -1051,11 +1100,11 @@ button {
   cursor: pointer;
 }
 
-.herdr-icon-palette button:hover {
+.herdr-icon-palette .herdr-icon-at-hand button:hover {
   background: var(--bg-hover);
 }
 
-.herdr-icon-palette .herdr-icon-none svg {
+.herdr-icon-at-hand .herdr-icon-none svg {
   width: 13px;
   height: 13px;
   color: var(--text-3);

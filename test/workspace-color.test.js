@@ -13,3 +13,8 @@ test('workspaceHue_Should_FollowFromWorkspaceNameAlone', () => {
     { again: hues, hues: true, apart: names.length },
   );
 });
+
+// An icon put ahead of a workspace's name by hand does not change its colour: the colour is the name's
+test('workspaceHue_Should_BeTheSame_WithAnIconAheadOfTheName', () => {
+  assert.equal(workspaceHue('🦊 web'), workspaceHue('web'));
+});

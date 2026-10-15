@@ -6,6 +6,7 @@ const { window } = new JSDOM('<!doctype html><html><body></body></html>');
 // The icons are drawn when their module loads: the DOM is set up before it.
 Object.assign(globalThis, { window, document: window.document });
 const { createHerdrSidebar, createTabBar } = await import('../public/view/herdr-panel.js');
+const { workspaceIcons } = await import('../public/model/tab-icon.js');
 // jsdom lays nothing out, so it has no scrolling; the tab bar scrolls the open tab into view
 window.HTMLElement.prototype.scrollIntoView = () => undefined;
 
@@ -641,4 +642,53 @@ test('herdrSidebar_Should_ShowWorkspacesJokeBesideFaceAtRest', () => {
 
   const jokes = [...element.querySelectorAll('.herdr-workspace svg.rests')].map((face) => [...face.classList].find((name) => name.startsWith('joke-')));
   assert.deepEqual(jokes, ['joke-joint', 'joke-popper']);
+});
+
+// A workspace's icon is shown left of its name — the name without the emoji its user put ahead of it — and left of each
+// session of it
+test('herdrSidebar_Should_ShowWorkspacesIcon_LeftOfItsNameAndOfItsSessions', () => {
+  const element = window.document.createElement('div');
+
+  createHerdrSidebar(element, noActions).render({ herdr: true, workspaces: [{ ...web, label: '🦊 web', icon: '🦊' }] }, undefined, '', new Map());
+
+  assert.deepEqual(
+    {
+      workspace: [...(element.querySelector('.herdr-workspace')?.children ?? [])].slice(0, 3).map((part) => part.textContent),
+      sessions: [...element.querySelectorAll('.herdr-tab')].map((row) => row.firstElementChild?.textContent),
+      where: element.querySelector('.herdr-tab-where')?.textContent?.split(' · ')[0],
+    },
+    { workspace: ['2', '🦊', 'web'], sessions: ['🦊', '🦊', '🦊'], where: 'web' },
+  );
+});
+
+// A workspace's icon is picked by hand as it is named: kept ahead of its name in herdr
+test('herdrSidebar_Should_PickWorkspacesIconByHand_AsItIsNamed', async () => {
+  const { element, sidebar, changes } = changingSidebar();
+  sidebar.render({ herdr: true, workspaces: [web] }, { kind: 'session', id: 's1' }, '', new Map());
+
+  clickOn(element, '.herdr-workspace.selected');
+  pressIn(element, '.herdr-row-rename');
+  pressIn(element, '.herdr-icon-picker > button');
+  pressIn(element, '.herdr-icon-at-hand > button');
+  nameIn(element, 'shop');
+  await new Promise((done) => setTimeout(done, 0));
+
+  assert.deepEqual(changes, [['rename workspace', 'w2', `${workspaceIcons[0]} shop`]]);
+});
+
+// The icon picker has a search of its own: the focus going there from the name's box does not end the naming
+test('herdrSidebar_Should_KeepNaming_When_FocusGoesIntoTheIconPicker', () => {
+  const { element, sidebar } = changingSidebar();
+  // in the page: a box out of it is let go of without a look
+  window.document.body.append(element);
+  sidebar.render({ herdr: true, workspaces: [web] }, { kind: 'session', id: 's1' }, '', new Map());
+  clickOn(element, '.herdr-workspace.selected');
+  pressIn(element, '.herdr-row-rename');
+  pressIn(element, '.herdr-icon-picker > button');
+  const box = element.querySelector('input.herdr-row-name');
+  const palette = element.querySelector('.herdr-icon-palette');
+
+  box?.dispatchEvent(new window.FocusEvent('blur', { relatedTarget: palette }));
+
+  assert.equal(element.querySelector('input.herdr-row-name'), box);
 });

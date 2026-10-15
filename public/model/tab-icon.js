@@ -4,6 +4,9 @@
 /** The emoji a tab's icon is picked from. */
 export const tabIcons = /** @type {const} */ (['🚀', '🐞', '🧪', '🔧', '📝', '📚', '💡', '🔥', '⭐', '✅', '🎨', '📦', '🔒', '🌐', '🤖', '📊', '🗂\uFE0F', '⚙\uFE0F', '🧹', '💬']);
 
+/** The emoji a workspace's icon is picked from — by hand, or at random for one without. */
+export const workspaceIcons = /** @type {const} */ (['🦊', '🐙', '🦉', '🐳', '🦄', '🐝', '🌵', '🍀', '🌻', '🍄', '🌙', '⚡', '🔮', '🎯', '🧭', '🪐', '🌊', '🍉', '🎲', '🧩', '🐢', '🦋', '🍒', '🏝️']);
+
 /**
  * An emoji leading a label: a picture, its variation and skin tone, and the pictures joined to it — a person at a
  * laptop is a person, a joiner and a laptop.

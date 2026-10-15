@@ -15,6 +15,7 @@ import { createHerdrRunner, herdrTurnedOff, paneIoOf, readSavedHerdr, resolveHer
 import { createHerdrSocket, socketRunner } from '../server/herdr-socket.js';
 import { createHerdrView } from '../server/herdr-view.js';
 import { createCodexThreads, lockHeld } from '../server/codex-live.js';
+import { createWorkspaceIcons } from '../server/workspace-icons.js';
 import { createSessionIndex } from '../server/sessions.js';
 import { createTerminals } from '../server/terminal.js';
 import { readUsage } from '../server/usage.js';
@@ -70,7 +71,8 @@ export async function serve({ port, about, palette, publicAddresses, herdr, clau
   const codexHome = process.env.CODEX_HOME ?? join(homedir(), '.codex');
   const index = createSessionIndex(join(claude, 'projects'), { summaryBudgetMs: 1500, missRetryMs: 2000, codexRoot: join(codexHome, 'sessions') });
   const codexThreads = createCodexThreads({ home: codexHome, summaryOf: index.summaryOf, held: lockHeld });
-  const herdrView = createHerdrView({ herdr: run, readRecords, codexThreads: codexThreads.open, file: join(stateDir, 'workspaces.json'), refreshMs: herdrRefreshMs, trust: claudeTrustPace, claudeCommand, codexCommand });
+  const icons = createWorkspaceIcons({ file: join(stateDir, 'workspace-icons.json'), random: Math.random });
+  const herdrView = createHerdrView({ herdr: run, readRecords, codexThreads: codexThreads.open, icons, file: join(stateDir, 'workspaces.json'), refreshMs: herdrRefreshMs, trust: claudeTrustPace, claudeCommand, codexCommand });
   const composer = createComposer({ readRecords, herdr: run, codexPlace: herdrView.codexPlace });
   // A terminal on the page: through herdr's socket a screen is read in a millisecond or two, so it is read every 40 ms
   // while typing; through the herdr program every call starts a process, a tenth of a second.

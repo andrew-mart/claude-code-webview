@@ -11,7 +11,8 @@ import { isRecord, text } from './narrow.js';
  *   size: its terminal's, in columns and rows; activity: when its agent changed state last, in herdr's count — the
  *   larger, the more recent
  * @typedef {{ id: string, number: number, label: string, status: AgentStatus, panes: readonly HerdrPane[] }} HerdrTab
- * @typedef {{ id: string, number: number, label: string, status: AgentStatus, activeTab: string | undefined, tabs: readonly HerdrTab[] }} HerdrWorkspace
+ * @typedef {{ id: string, number: number, label: string, icon?: string | undefined, status: AgentStatus, activeTab: string | undefined, tabs: readonly HerdrTab[] }} HerdrWorkspace
+ *   icon: the emoji it is marked with (server/workspace-icons.js)
  * @typedef {{ herdr: boolean, workspaces: readonly HerdrWorkspace[] }} HerdrLayout — herdr: whether it answers
  * @typedef {{ ok: true, target: string } | { ok: false, error: 'failed' }} NewTab — a tab opened from the page; target: its page address
  * @typedef {'shell' | 'claude' | 'codex'} TabStart — what a new tab starts with: a shell, or Claude Code or Codex in it
@@ -113,7 +114,8 @@ function parseWorkspace(raw) {
   const label = text(raw.label);
   const status = statuses.find((known) => known === raw.status);
   if (id === undefined || label === undefined || typeof raw.number !== 'number' || status === undefined || !Array.isArray(raw.tabs)) return [];
-  return [{ id, number: raw.number, label, status, activeTab: text(raw.activeTab), tabs: raw.tabs.filter(isRecord).flatMap(parseTab) }];
+  const icon = text(raw.icon);
+  return [{ id, number: raw.number, label, ...(icon === undefined ? {} : { icon }), status, activeTab: text(raw.activeTab), tabs: raw.tabs.filter(isRecord).flatMap(parseTab) }];
 }
 
 /**
