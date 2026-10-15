@@ -38,6 +38,7 @@ import { createFileIcons } from './view/file-icons.js';
 import { parseMachine } from './model/machine.js';
 import { splitTabIcon } from './model/tab-icon.js';
 import { waverInOwnTime } from './view/lamp-time.js';
+import { workspaceIconOf } from './view/workspace-icon.js';
 import { vscodeAddress } from './model/vscode.js';
 import { createEditorOpener } from './view/editor-opener.js';
 import { relabelTables } from './view/markdown.js';
@@ -232,6 +233,15 @@ function createPage() {
   /** @type {import('./model/herdr.js').HerdrLayout} */
   let herdrLayout = { herdr: false, workspaces: [] };
   let herdrKnown = '';
+  /** The words Lucide's icons are found by: asked for the first time its icons are, once. */
+  /** @type {Promise<Readonly<Record<string, readonly string[]>>> | undefined} */
+  let lucideWords;
+  const lucideTags = () => {
+    lucideWords ??= fetch(new URL('vendor/lucide/tags.json', document.baseURI).href)
+      .then((reply) => (reply.ok ? reply.json() : {}))
+      .then(parseLucideTags);
+    return lucideWords;
+  };
   const herdrSidebar = createHerdrSidebar(herdrPanel, {
     createWorkspace: async (label, folder, start) => {
       const outcome = await newWorkspace(label, folder, start);
@@ -244,6 +254,8 @@ function createPage() {
     folders: () => folderChoices(typedFolders(), history),
     renameWorkspace: (workspace, label) => changeTab('/api/workspace/rename', { workspace, label }),
     closeWorkspace: (workspace) => changeTab('/api/workspace/close', { workspace }),
+    setWorkspaceIcon: (workspace, icon) => changeTab('/api/workspace/icon', { workspace, icon: icon === undefined ? null : icon }),
+    iconTags: lucideTags,
     renameTab: (tab, label) => changeTab('/api/tab/rename', { tab, label }),
     closeTab: (tab) => changeTab('/api/tab/close', { tab }),
   });
@@ -339,7 +351,7 @@ function createPage() {
     // Codex's sessions among Claude Code's
     if (session.agent === 'codex') where.prepend(h('span', { className: 'session-agent', text: 'codex' }));
     const link = h('a', { className: 'session-item', attrs: { href: `#/${session.id}` } }, [
-      h('span', { className: 'session-title' }, [...(icon === undefined ? [] : [h('span', { className: 'workspace-icon', text: icon, attrs: { 'aria-hidden': 'true' } })]), title]),
+      h('span', { className: 'session-title' }, [...workspaceIconOf(icon), title]),
       h('span', { className: 'session-sub' }, [where, h('span', { text: closed ? `closed · ${ago}` : ago })]),
     ]);
     // being written to: a robot putting itself together
@@ -1200,6 +1212,16 @@ function iconButton(iconName) {
  */
 
 /**
+ * The words each of Lucide's icons is found by, by its name; none for what is not so.
+ * @param {unknown} json — Lucide's tags.json
+ * @returns {Readonly<Record<string, readonly string[]>>}
+ */
+function parseLucideTags(json) {
+  if (!isRecord(json)) return {};
+  return Object.fromEntries(Object.entries(json).flatMap(([name, words]) => (Array.isArray(words) ? [[name, words.filter((word) => typeof word === 'string')]] : [])));
+}
+
+/**
  * @param {unknown} json — the /api/workspaces reply
  * @returns {Workspaces}
  */
@@ -1323,10 +1345,11 @@ function typedFolders() {
 }
 
 /**
- * A herdr tab or workspace named or closed from the tab bar or the sidebar; once herdr has done it the page looks at
- * herdr again, so the change shows at once.
- * @param {'/api/tab/rename' | '/api/tab/close' | '/api/workspace/rename' | '/api/workspace/close'} path
- * @param {{ tab: string, label?: string } | { workspace: string, label?: string }} change
+ * A herdr tab or workspace named or closed — or a workspace's icon picked — from the tab bar or the sidebar; once done
+ * the page looks at herdr again, so the change shows at once.
+ * @param {'/api/tab/rename' | '/api/tab/close' | '/api/workspace/rename' | '/api/workspace/close' | '/api/workspace/icon'} path
+ * @param {{ tab: string, label?: string } | { workspace: string, label?: string } | { workspace: string, icon: string | null }} change
+ *   — an icon: one of Lucide's, kept for the workspace; null: none
  * @returns {Promise<import('./model/herdr.js').TabChange>}
  */
 async function changeTab(path, change) {

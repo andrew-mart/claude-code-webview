@@ -9,6 +9,8 @@ const { createHerdrSidebar, createTabBar } = await import('../public/view/herdr-
 const { workspaceIcons } = await import('../public/model/tab-icon.js');
 // jsdom lays nothing out, so it has no scrolling; the tab bar scrolls the open tab into view
 window.HTMLElement.prototype.scrollIntoView = () => undefined;
+// nor media queries; the icon picker paints every emoji in the page's theme as it opens
+window.matchMedia = () => /** @type {MediaQueryList} */ (/** @type {unknown} */ ({ matches: false }));
 
 /**
  * @param {Partial<import('../public/model/herdr.js').HerdrPane> & { id: string }} pane
@@ -31,7 +33,9 @@ const web = {
 };
 
 /** A sidebar nobody opens a workspace from. @type {import('../public/view/herdr-panel.js').SidebarActions} */
-const noActions = { createWorkspace: async () => ({ ok: false, error: 'failed' }), open: () => undefined, folders: () => [], renameWorkspace: async () => ({ ok: false, error: 'failed' }), closeWorkspace: async () => ({ ok: false, error: 'failed' }), renameTab: async () => ({ ok: false, error: 'failed' }), closeTab: async () => ({ ok: false, error: 'failed' }) };
+const noActions = { createWorkspace: async () => ({ ok: false, error: 'failed' }), open: () => undefined, folders: () => [], renameWorkspace: async () => ({ ok: false, error: 'failed' }), closeWorkspace: async () => ({ ok: false, error: 'failed' }), setWorkspaceIcon: async () => ({ ok: false, error: 'failed' }), iconTags: async () => ({}), renameTab: async () => ({ ok: false, error: 'failed' }), closeTab: async () => ({ ok: false, error: 'failed' }) };
+/** Lucide's icons a test picks from, with the words they are found by. */
+const lucideTags = { star: ['favorite'], wallet: ['money', 'finance'], coins: ['finance'] };
 
 // Many tabs are never named, so a session is told by its title: it is the row's first line, where it runs comes under it
 test('herdrSidebar_Should_LeadSessionRowWithItsTitle_And_TellWorkspaceAndTabUnderIt', () => {
@@ -285,6 +289,8 @@ test('herdrSidebar_Should_OpenNewWorkspace_FromItsNameAndFolder', async () => {
     folders: () => [],
     renameWorkspace: async () => ({ ok: false, error: 'failed' }),
     closeWorkspace: async () => ({ ok: false, error: 'failed' }),
+    setWorkspaceIcon: async () => ({ ok: false, error: 'failed' }),
+    iconTags: async () => ({}),
     renameTab: async () => ({ ok: false, error: 'failed' }),
     closeTab: async () => ({ ok: false, error: 'failed' }),
   });
@@ -420,6 +426,8 @@ function changingSidebar() {
     ...noActions,
     renameWorkspace: (workspace, label) => done(['rename workspace', workspace, label]),
     closeWorkspace: (workspace) => done(['close workspace', workspace]),
+    setWorkspaceIcon: (workspace, icon) => done(['icon', workspace, icon ?? 'none']),
+    iconTags: async () => lucideTags,
     renameTab: (tab, label) => done(['rename tab', tab, label]),
     closeTab: (tab) => done(['close tab', tab]),
   });
@@ -511,18 +519,29 @@ test('herdrSidebar_Should_HideButtonsOnClick_And_KeepNameBox_WhileHerdrIsLookedA
   assert.deepEqual({ hidden, kept, after: element.querySelector('input.herdr-row-name'), changes }, { hidden: true, kept: true, after: null, changes: [] });
 });
 
-// The folder of a new workspace is chosen from those the page offers — typed before, where sessions ran — or typed
-test('herdrSidebar_Should_OfferFoldersForNewWorkspace', () => {
+// The folder of a new workspace is picked from those the page offers — typed before, where sessions ran, the latest
+// first — listed under its box, to tap on a phone too; what is typed there narrows them, however its slashes lean. A
+// folder picked goes into the box, names the workspace while it has no name of its own, and leaves nothing more offered
+test('herdrSidebar_Should_OfferFoldersForNewWorkspace_ListedUnderItsBox', () => {
   const element = window.document.createElement('div');
-  window.document.body.append(element);
-  const sidebar = createHerdrSidebar(element, { ...noActions, folders: () => ['D:/dev/billing', '/home/ann/notes'] });
+  const sidebar = createHerdrSidebar(element, { ...noActions, folders: () => ['D:/dev/billing', '/home/ann/notes', 'D:/dev/shop'] });
   sidebar.render({ herdr: true, workspaces: [web] }, undefined, '', new Map());
-
   sidebar.newButton.click();
+  const folder = element.querySelector('.herdr-new-folder');
+  const name = element.querySelector('.herdr-new-name');
+  assert.ok(folder instanceof window.HTMLInputElement && name instanceof window.HTMLInputElement);
+  const offered = () => [...element.querySelectorAll('.herdr-new-folders button:not([hidden])')].map((one) => one.textContent);
 
-  const box = element.querySelector('.herdr-new-folder');
-  const list = box === null ? null : element.querySelector(`datalist#${box.getAttribute('list')}`);
-  assert.deepEqual([...(list?.querySelectorAll('option') ?? [])].map((option) => option.getAttribute('value')), ['D:/dev/billing', '/home/ann/notes']);
+  const all = offered();
+  folder.value = 'd:\\DEV';
+  folder.dispatchEvent(new window.Event('input', { bubbles: true }));
+  const narrowed = offered();
+  [...element.querySelectorAll('.herdr-new-folders button')].find((one) => one.textContent === 'D:/dev/shop')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+
+  assert.deepEqual(
+    { all, narrowed, picked: { folder: folder.value, name: name.value }, after: offered() },
+    { all: ['D:/dev/billing', '/home/ann/notes', 'D:/dev/shop'], narrowed: ['D:/dev/billing', 'D:/dev/shop'], picked: { folder: 'D:/dev/shop', name: 'shop' }, after: [] },
+  );
 });
 
 /**
@@ -676,6 +695,48 @@ test('herdrSidebar_Should_PickWorkspacesIconByHand_AsItIsNamed', async () => {
   assert.deepEqual(changes, [['rename workspace', 'w2', `${workspaceIcons[0]} shop`]]);
 });
 
+/** The workspace web with an icon of its own, ahead of its name. */
+const webWithIcon = { ...web, label: '🐙 web', icon: '🐙' };
+
+// A click on the open workspace's icon — a second click, the first opened it — opens the icon picker at once, no naming
+// first, the page staying where it is; the icon picked there is the workspace's: an emoji goes ahead of its name in herdr
+test('herdrSidebar_Should_PickOpenWorkspacesIcon_FromClickOnIt', async () => {
+  const { element, sidebar, changes } = changingSidebar();
+  sidebar.render({ herdr: true, workspaces: [webWithIcon] }, undefined, '', new Map());
+  const first = { stays: clickOn(element, '.herdr-workspace .workspace-icon'), picker: element.querySelector('.herdr-icon-palette') !== null };
+  sidebar.render({ herdr: true, workspaces: [webWithIcon] }, { kind: 'session', id: 's1' }, '', new Map());
+
+  const stays = clickOn(element, '.herdr-workspace.selected .workspace-icon');
+  pressIn(element, '.herdr-icon-at-hand > button');
+  await new Promise((done) => setTimeout(done, 0));
+
+  assert.deepEqual({ first, stays, changes }, { first: { stays: false, picker: false }, stays: true, changes: [['rename workspace', 'w2', '🦊 web']] });
+});
+
+// The icons opened from a workspace's icon go away on Escape or on a press elsewhere, the workspace as it was; a press in
+// them — a search being typed — keeps them
+test('herdrSidebar_Should_PutIconsOpenedFromWorkspacesIconAway_OnEscapeOrPressElsewhere', () => {
+  const { element, sidebar, changes } = changingSidebar();
+  // in the page: a press is heard by the page around the sidebar
+  window.document.body.append(element);
+  sidebar.render({ herdr: true, workspaces: [webWithIcon] }, { kind: 'session', id: 's1' }, '', new Map());
+  const opened = () => element.querySelector('.herdr-icon-palette:not([hidden])') !== null;
+  const press = (/** @type {Element | null} */ target) => target?.dispatchEvent(new window.Event('pointerdown', { bubbles: true }));
+
+  clickOn(element, '.herdr-workspace.selected .workspace-icon');
+  // Escape where the focus is, as a keyboard presses it
+  window.document.activeElement?.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  const afterEscape = opened();
+  clickOn(element, '.herdr-workspace.selected .workspace-icon');
+  press(element.querySelector('.herdr-icon-at-hand'));
+  const afterPressIn = opened();
+  press(window.document.body);
+  const afterPressElsewhere = opened();
+  element.remove();
+
+  assert.deepEqual({ afterEscape, afterPressIn, afterPressElsewhere, changes }, { afterEscape: false, afterPressIn: true, afterPressElsewhere: false, changes: [] });
+});
+
 // The icon picker has a search of its own: the focus going there from the name's box does not end the naming
 test('herdrSidebar_Should_KeepNaming_When_FocusGoesIntoTheIconPicker', () => {
   const { element, sidebar } = changingSidebar();
@@ -708,4 +769,38 @@ test('herdrSidebar_Should_GiveEachLampAtWorkItsOwnTime', () => {
   sidebar.render({ herdr: true, workspaces: [working] }, undefined, '', new Map());
 
   assert.deepEqual({ distinct: new Set(first).size, again: times(), set: first.every((time) => /^-[\d.]+s [\d.]+s$/.test(time)) }, { distinct: 3, again: first, set: true });
+});
+
+// A workspace's icon from Lucide is drawn from Lucide's sprite, in its colour
+test('herdrSidebar_Should_DrawWorkspacesLucideIcon_InItsColour', () => {
+  const element = window.document.createElement('div');
+
+  createHerdrSidebar(element, noActions).render({ herdr: true, workspaces: [{ ...web, icon: 'lucide:wallet@green' }] }, undefined, '', new Map());
+
+  const drawn = element.querySelector('.herdr-workspace .workspace-icon svg.lucide-icon');
+  assert.deepEqual({ use: drawn?.querySelector('use')?.getAttribute('href'), color: drawn?.getAttribute('data-color') }, { use: '#lucide-wallet', color: 'green' });
+});
+
+// One of Lucide's icons is picked for a workspace as it is named, found by its words — "finance" finds a wallet — and
+// kept for it by the viewer: herdr's name of it holds no emoji then
+test('herdrSidebar_Should_PickLucideIconForWorkspace_FoundByItsWords', async () => {
+  const { element, sidebar, changes } = changingSidebar();
+  const settle = () => new Promise((done) => setTimeout(done, 0));
+  sidebar.render({ herdr: true, workspaces: [{ ...web, label: '🦊 web', icon: '🦊' }] }, { kind: 'session', id: 's1' }, '', new Map());
+
+  clickOn(element, '.herdr-workspace.selected');
+  pressIn(element, '.herdr-row-rename');
+  pressIn(element, '.herdr-icon-picker > button');
+  pressIn(element, '.herdr-icon-tab[data-tab="icons"]');
+  await settle();
+  const search = element.querySelector('.herdr-icon-search');
+  assert.ok(search instanceof window.HTMLInputElement);
+  search.value = 'finance';
+  search.dispatchEvent(new window.Event('input', { bubbles: true }));
+  const found = [...element.querySelectorAll('.herdr-icon-grid > button')].filter((one) => !one.hasAttribute('hidden')).map((one) => one.getAttribute('data-name'));
+  pressIn(element, '.herdr-icon-grid > button:not([hidden])');
+  nameIn(element, 'shop');
+  await settle();
+
+  assert.deepEqual({ found, changes }, { found: ['wallet', 'coins'], changes: [['rename workspace', 'w2', 'shop'], ['icon', 'w2', 'lucide:wallet']] });
 });

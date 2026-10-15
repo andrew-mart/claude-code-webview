@@ -3,6 +3,7 @@
 // its agent's status, the latest active first; above the open session or terminal, the tabs of its workspace to switch
 // between, the open one to name or close.
 import { workspaceNameOf } from '../model/folders.js';
+import { iconColors, iconValue, parseIcon, searchIcons } from '../model/icon-choice.js';
 import { placeOf, searchLayout, sessionsByActivity, tabTarget } from '../model/herdr.js';
 import { groupLamp, paneLamp } from '../model/lamps.js';
 import { isRecord } from '../model/narrow.js';
@@ -14,6 +15,8 @@ import { restingRobot } from './rest.js';
 import { workingRobots } from './robot.js';
 import { waverInOwnTime } from './lamp-time.js';
 import { unpluggedRobot } from './unplugged.js';
+import { workspaceIconOf } from './workspace-icon.js';
+import { lucideIcon } from './lucide.js';
 import { createWorkClock } from './work-clock.js';
 import { tintByWorkspace } from './workspace-tint.js';
 import { labelWithIcon, splitTabIcon, tabIcons, workspaceIcons } from '../model/tab-icon.js';
@@ -106,62 +109,50 @@ function tabName(tab) {
 }
 
 /** Every emoji to pick an icon from (emoji-picker-element), from the viewer itself (server/app.js: vendor). */
+/** How tall the icon picker grows with all it holds: placed where there is room for it. */
+const pickerHeight = 480;
 const everyEmoji = { picker: new URL('../vendor/emoji-picker/picker.js', import.meta.url).href, data: new URL('../vendor/emoji-picker/data.json', import.meta.url).href };
 
 /**
- * The button that picks a tab's or a workspace's icon — an emoji kept ahead of its name — and what it opens under it:
- * the usual emoji at hand, ✕ for none, and every emoji, found by its name or among its kind, the latest picked first —
- * as md-keeper picks them — loaded the first time it opens; out of the viewer's reach, the ones at hand only.
- * Picking one at hand keeps the name's box focused: pressing there is no click elsewhere, which ends the naming; the
- * search of every emoji takes the focus — holds tells it, for the naming to go on — and the focus going out of the
- * picker elsewhere ends the naming as the box's would (onLeave).
- * @param {string | undefined} initial
- * @param {HTMLElement} nameBox
- * @param {{ icons: readonly string[], title: string, onLeave: () => void }} options — the emoji at hand; the button's
- *   name; what the focus going elsewhere does
+ * What a tab's or a workspace's icon is picked from: the usual emoji at hand, ✕ for none, and every emoji, found by its
+ * name or among its kind, the latest picked first — as md-keeper picks them — loaded the first time it opens; out of the
+ * viewer's reach, the ones at hand only. A workspace's icon may be one of Lucide's too — a tab of its own beside the
+ * emoji: found by name or by its words, in a colour of the palette, or the workspace's own. It opens from what it is
+ * opened by — under it, or over it where there is more room — and is put away by its user.
+ * Pressing one at hand moves no focus: a name's box being typed in stays focused.
+ * @param {{ icons: readonly string[], lucide: { tags: () => Promise<Readonly<Record<string, readonly string[]>>> } | undefined, onChoose: (icon: string | undefined) => void, onEscape: () => void }} options
+ *   — the emoji at hand; Lucide's icons — their words — or none; what an icon picked does — none: no icon — and Escape
  */
-function createIconPicker(initial, nameBox, { icons, title, onLeave }) {
-  let icon = initial;
-  const button = h('button', { className: 'herdr-tab-icon', title, attrs: { type: 'button', 'aria-label': title } });
+function createIconPalette({ icons, lucide, onChoose, onEscape }) {
   const atHand = h('span', { className: 'herdr-icon-at-hand' });
   const every = h('span', { className: 'herdr-icon-every' });
-  const palette = h('span', { className: 'herdr-icon-palette', attrs: { hidden: '' } }, [atHand, every]);
-  const element = h('span', { className: 'herdr-icon-picker' }, [button, palette]);
-  /** @param {EventTarget | null} target */
-  const holds = (target) => target instanceof window.Node && element.contains(target);
-  const show = () => {
-    button.textContent = icon ?? '☺';
-    button.classList.toggle('empty', icon === undefined);
-  };
-  /** @param {string | undefined} next */
-  const choose = (next) => {
-    icon = next;
-    show();
-    palette.hidden = true;
-    nameBox.focus();
-  };
+  const lucidePane = h('span', { className: 'herdr-icon-lucide', attrs: { hidden: '' } });
+  /** @param {'emoji' | 'icons'} which @param {string} label */
+  const tab = (which, label) => h('button', { className: 'herdr-icon-tab', text: label, attrs: { type: 'button', 'data-tab': which, 'aria-pressed': String(which === 'emoji') } });
+  const tabs = lucide === undefined ? [] : [tab('emoji', 'Emoji'), tab('icons', 'Icons')];
+  const palette = h('span', { className: 'herdr-icon-palette', attrs: { hidden: '' } }, [atHand, ...(tabs.length === 0 ? [] : [h('span', { className: 'herdr-icon-tabs' }, tabs)]), every, lucidePane]);
   atHand.append(
     ...icons.map((emoji) => {
       const made = h('button', { text: emoji, attrs: { type: 'button' } });
-      made.addEventListener('click', () => choose(emoji));
+      made.addEventListener('click', () => onChoose(emoji));
       return made;
     }),
     (() => {
       const none = iconButton('herdr-icon-none', 'cross', 'No icon');
-      none.addEventListener('click', () => choose(undefined));
+      none.addEventListener('click', () => onChoose(undefined));
       return none;
     })(),
   );
   /** @type {Promise<void> | undefined} */
-  let loading;
+  let loadingEmoji;
   const loadEvery = () => {
-    loading ??= import(everyEmoji.picker).then(
+    loadingEmoji ??= import(everyEmoji.picker).then(
       () => {
         const picker = document.createElement('emoji-picker');
         picker.setAttribute('data-source', everyEmoji.data);
         picker.addEventListener('emoji-click', (event) => {
           const detail = event instanceof window.CustomEvent ? event.detail : undefined;
-          if (isRecord(detail) && typeof detail.unicode === 'string') choose(detail.unicode);
+          if (isRecord(detail) && typeof detail.unicode === 'string') onChoose(detail.unicode);
         });
         every.replaceChildren(picker);
         paint();
@@ -169,6 +160,60 @@ function createIconPicker(initial, nameBox, { icons, title, onLeave }) {
       () => undefined, // out of the viewer's reach: the ones at hand only
     );
   };
+  /** Lucide's icons, built the first time their tab opens; found by name and words; in the colour picked. */
+  /** @type {Promise<void> | undefined} */
+  let loadingIcons;
+  /** @type {(typeof iconColors)[number] | undefined} */
+  let color;
+  const loadIcons = () => {
+    if (lucide === undefined) return Promise.resolve();
+    loadingIcons ??= lucide.tags().then(
+      (tags) => {
+        const search = h('input', { className: 'herdr-icon-search', attrs: { type: 'search', placeholder: 'Search icons — finance, chart…', 'aria-label': 'Search icons', spellcheck: 'false', autocomplete: 'off' } });
+        const grid = h('span', { className: 'herdr-icon-grid' });
+        const buttons = new Map(
+          Object.keys(tags).map((name) => {
+            const made = h('button', { title: name, attrs: { type: 'button', 'data-name': name } }, [lucideIcon(name, color)]);
+            made.addEventListener('click', () => onChoose(iconValue({ kind: 'lucide', name, color })));
+            return [name, made];
+          }),
+        );
+        grid.append(...buttons.values());
+        const own = h('button', { className: 'herdr-icon-color own', title: "The workspace's colour", attrs: { type: 'button', 'aria-pressed': 'true' } });
+        const swatches = [own, ...iconColors.map((key) => h('button', { className: 'herdr-icon-color', title: key, attrs: { type: 'button', 'data-color': key, 'aria-pressed': 'false' } }))];
+        for (const swatch of swatches) {
+          swatch.addEventListener('click', () => {
+            const key = iconColors.find((one) => one === swatch.getAttribute('data-color'));
+            color = key;
+            for (const other of swatches) other.setAttribute('aria-pressed', String(other === swatch));
+            for (const drawn of grid.querySelectorAll('svg.lucide-icon')) {
+              if (key === undefined) drawn.removeAttribute('data-color');
+              else drawn.setAttribute('data-color', key);
+            }
+          });
+        }
+        // the ones found, the nearest first; the others hidden
+        search.addEventListener('input', () => {
+          const found = searchIcons(tags, search.value);
+          const shown = new Set(found);
+          for (const [name, made] of buttons) made.hidden = !shown.has(name);
+          grid.append(...found.flatMap((name) => buttons.get(name) ?? []));
+        });
+        lucidePane.replaceChildren(search, h('span', { className: 'herdr-icon-colors' }, swatches), grid);
+      },
+      () => undefined, // out of the viewer's reach: no icons of Lucide's
+    );
+    return loadingIcons;
+  };
+  for (const made of tabs) {
+    made.addEventListener('click', () => {
+      const icons = made.getAttribute('data-tab') === 'icons';
+      for (const other of tabs) other.setAttribute('aria-pressed', String(other === made));
+      every.hidden = icons;
+      lucidePane.hidden = !icons;
+      if (icons) void loadIcons();
+    });
+  }
   /** Every emoji in the page's theme: the picker's own colours otherwise follow the system's. */
   const paint = () => {
     const dark = document.documentElement.dataset.theme === 'dark' || (document.documentElement.dataset.theme !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -177,43 +222,92 @@ function createIconPicker(initial, nameBox, { icons, title, onLeave }) {
       picker.classList.toggle('light', !dark);
     }
   };
-  /** Under the button, kept on the screen: fixed — a row that scrolls would cut it off. */
-  const place = () => {
-    const at = button.getBoundingClientRect();
+  /**
+   * Under what opened it, kept on the screen: fixed — a row that scrolls would cut it off.
+   * @param {Element} from
+   */
+  const place = (from) => {
+    const at = from.getBoundingClientRect();
     const width = Math.min(352, window.innerWidth - 16);
     palette.style.left = `${Math.max(8, Math.min(at.left, window.innerWidth - width - 8))}px`;
-    palette.style.top = `${at.bottom + 4}px`;
+    // under it, or over it when there is more room there than under it for all it holds; as tall as the room
+    const below = window.innerHeight - at.bottom - 12;
+    const above = at.top - 12;
+    const over = below < pickerHeight && above > below;
+    palette.style.top = over ? '' : `${at.bottom + 4}px`;
+    palette.style.bottom = over ? `${window.innerHeight - at.top + 4}px` : '';
+    palette.style.maxHeight = `${Math.max(160, over ? above : below)}px`;
     paint();
   };
-  button.addEventListener('click', () => {
-    palette.hidden = !palette.hidden;
-    if (!palette.hidden) {
-      place();
-      loadEvery();
-    }
-    nameBox.focus();
-  });
   palette.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
     event.stopPropagation();
-    palette.hidden = true;
+    onEscape();
+  });
+  atHand.addEventListener('mousedown', (event) => event.preventDefault());
+  return {
+    element: palette,
+    /** @param {Element} from */
+    open(from) {
+      palette.hidden = false;
+      place(from);
+      loadEvery();
+    },
+    close() {
+      palette.hidden = true;
+    },
+    isOpen: () => !palette.hidden,
+  };
+}
+
+/**
+ * The button that picks a tab's or a workspace's icon as it is named — an emoji kept ahead of its name — and the icons
+ * it opens under it (createIconPalette). Picking one keeps the name's box focused: pressing there is no click elsewhere,
+ * which ends the naming; a search takes the focus — holds tells it, for the naming to go on — and the focus going out of
+ * the picker elsewhere ends the naming as the box's would (onLeave).
+ * @param {string | undefined} initial — as kept (model/icon-choice.js)
+ * @param {HTMLElement} nameBox
+ * @param {{ icons: readonly string[], title: string, onLeave: () => void, lucide: { tags: () => Promise<Readonly<Record<string, readonly string[]>>> } | undefined }} options
+ *   — the emoji at hand; the button's name; what the focus going elsewhere does; Lucide's icons — their words — or none
+ */
+function createIconPicker(initial, nameBox, { icons, title, onLeave, lucide }) {
+  let icon = initial;
+  let picked = false;
+  const button = h('button', { className: 'herdr-tab-icon', title, attrs: { type: 'button', 'aria-label': title } });
+  const show = () => {
+    const shown = icon === undefined ? undefined : parseIcon(icon);
+    button.replaceChildren(shown === undefined ? '☺' : shown.kind === 'emoji' ? shown.emoji : lucideIcon(shown.name, shown.color));
+    button.classList.toggle('empty', icon === undefined);
+  };
+  const palette = createIconPalette({
+    icons,
+    lucide,
+    onChoose(next) {
+      icon = next;
+      picked = true;
+      show();
+      palette.close();
+      nameBox.focus();
+    },
+    onEscape() {
+      palette.close();
+      nameBox.focus();
+    },
+  });
+  const element = h('span', { className: 'herdr-icon-picker' }, [button, palette.element]);
+  /** @param {EventTarget | null} target */
+  const holds = (target) => target instanceof window.Node && element.contains(target);
+  button.addEventListener('click', () => {
+    if (palette.isOpen()) palette.close();
+    else palette.open(button);
     nameBox.focus();
   });
   element.addEventListener('focusout', (event) => {
     if (!holds(event.relatedTarget) && event.relatedTarget !== nameBox) onLeave();
   });
-  for (const part of [button, atHand]) part.addEventListener('mousedown', (event) => event.preventDefault());
+  button.addEventListener('mousedown', (event) => event.preventDefault());
   show();
-  return { element, icon: () => icon, holds };
-}
-
-/**
- * A workspace's icon (server/workspace-icons.js), as its rows show it left of their names; none without one.
- * @param {import('../model/herdr.js').HerdrWorkspace} workspace
- * @returns {HTMLElement[]}
- */
-function workspaceIconOf(workspace) {
-  return workspace.icon === undefined ? [] : [h('span', { className: 'workspace-icon', text: workspace.icon, attrs: { 'aria-hidden': 'true' } })];
+  return { element, icon: () => icon, picked: () => picked, holds };
 }
 
 /**
@@ -258,13 +352,52 @@ function link(target, className, children) {
 
 /**
  * @typedef {import('../model/herdr.js').TabChange} TabChange
- * @typedef {{ createWorkspace: (label: string, folder: string, start: import('../model/herdr.js').TabStart) => Promise<import('../model/herdr.js').NewWorkspace>, open: (target: string) => void, folders: () => readonly string[], renameWorkspace: (workspaceId: string, label: string) => Promise<TabChange>, closeWorkspace: (workspaceId: string) => Promise<TabChange>, renameTab: (tabId: string, label: string) => Promise<TabChange>, closeTab: (tabId: string) => Promise<TabChange> }} SidebarActions
+ * @typedef {{ createWorkspace: (label: string, folder: string, start: import('../model/herdr.js').TabStart) => Promise<import('../model/herdr.js').NewWorkspace>, open: (target: string) => void, folders: () => readonly string[], renameWorkspace: (workspaceId: string, label: string) => Promise<TabChange>, closeWorkspace: (workspaceId: string) => Promise<TabChange>, setWorkspaceIcon: (workspaceId: string, icon: string | undefined) => Promise<TabChange>, iconTags: () => Promise<Readonly<Record<string, readonly string[]>>>, renameTab: (tabId: string, label: string) => Promise<TabChange>, closeTab: (tabId: string) => Promise<TabChange> }} SidebarActions
  *   — createWorkspace, and the renames and closings, resolve once the page shows the change; open goes to a page address;
  *   folders: the folders to offer for a new workspace — typed before, where sessions ran
- * @typedef {{ label: string, icons: readonly string[] | undefined, rename: (label: string) => Promise<TabChange>, close: () => Promise<TabChange>, names: string, closes: string }} RowSubject
- *   — what a row stands for, to name and close: its name now, the emoji its icon is picked from as it is named — none:
- *   no icon to pick — how to change it, the buttons' titles
+ * @typedef {{ atHand: readonly string[], current: string | undefined, setIcon: (icon: string | undefined) => Promise<TabChange>, tags: () => Promise<Readonly<Record<string, readonly string[]>>> }} RowIcon
+ *   — a row's icon, picked as it is named: the emoji at hand; the icon now; how one its name cannot hold — Lucide's — is
+ *   kept, or taken back; the words Lucide's icons are found by
+ * @typedef {{ label: string, icon: RowIcon | undefined, rename: (label: string) => Promise<TabChange>, close: () => Promise<TabChange>, names: string, closes: string }} RowSubject
+ *   — what a row stands for, to name and close: its name now, its icon — none: no icon to pick — how to change it, the
+ *   buttons' titles
+ * @typedef {{ label: string, keeps: boolean, icon: string | undefined }} Naming
+ *   — a row's name as herdr is to hold it, and whether the viewer keeps an icon for it: which — none: no icon
  */
+
+/**
+ * A row's name in herdr and the icon the viewer keeps for it with an icon picked: an emoji goes ahead of the name; one
+ * of Lucide's — or none — is kept by the viewer, the name holding no emoji then.
+ * @param {string} name — without an emoji ahead of it
+ * @param {string | undefined} chosen — as kept (model/icon-choice.js); none: no icon
+ * @returns {Naming}
+ */
+function withIcon(name, chosen) {
+  return chosen !== undefined && parseIcon(chosen)?.kind === 'emoji' ? { label: labelWithIcon(chosen, name), keeps: false, icon: undefined } : { label: labelWithIcon(undefined, name), keeps: true, icon: chosen };
+}
+
+/**
+ * Names a row: herdr renames it unless its name stays as it is, then the viewer keeps the icon it holds for it.
+ * @param {RowSubject} subject
+ * @param {Naming} naming
+ * @returns {Promise<TabChange>} — herdr's renaming
+ */
+async function renameWith(subject, naming) {
+  const outcome = naming.label === subject.label ? /** @type {TabChange} */ ({ ok: true }) : await subject.rename(naming.label);
+  if (outcome.ok && naming.keeps && subject.icon !== undefined) await subject.icon.setIcon(naming.icon);
+  return outcome;
+}
+
+/** How many of the folders offered for a new workspace are listed at once: the rest are found by typing. */
+const offeredFolders = 8;
+
+/**
+ * A folder's path as typed or offered, to compare whatever its case and however its slashes lean.
+ * @param {string} path
+ */
+function comparablePath(path) {
+  return path.replaceAll('\\', '/').toLowerCase();
+}
 
 /** Why a workspace was not opened. */
 /** @type {Readonly<Record<'empty' | 'no-folder' | 'failed', string>>} */
@@ -283,7 +416,7 @@ const newWorkspaceRefusals = {
  * @param {HTMLElement} element — the sidebar's place for it
  * @param {SidebarActions} actions
  */
-export function createHerdrSidebar(element, { createWorkspace, open, folders, renameWorkspace, closeWorkspace, renameTab, closeTab }) {
+export function createHerdrSidebar(element, { createWorkspace, open, folders, renameWorkspace, closeWorkspace, setWorkspaceIcon, iconTags, renameTab, closeTab }) {
   /** How long each workspace and agent has been at work: their robots' story goes on across redrawing. */
   const clock = createWorkClock(() => Date.now());
   let shown = '';
@@ -308,11 +441,16 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
   const startNaming = (dressed, text, subject) => {
     busy = true;
     const box = h('input', { className: 'herdr-row-name', attrs: { type: 'text', maxlength: '60', 'aria-label': subject.names } });
-    // the icon ahead of the name picked beside it
-    const named = subject.icons === undefined ? { icon: undefined, name: subject.label } : splitTabIcon(subject.label);
+    // the icon picked beside the name: an emoji ahead of it, one of Lucide's kept by the viewer
+    const rowIcon = subject.icon;
+    const named = rowIcon === undefined ? { icon: undefined, name: subject.label } : splitTabIcon(subject.label);
     box.value = named.name;
-    const picker = subject.icons === undefined ? undefined : createIconPicker(named.icon, box, { icons: subject.icons, title: 'Icon of the workspace', onLeave: () => leave() });
-    const typed = () => (picker === undefined ? box.value : labelWithIcon(picker.icon(), box.value));
+    const picker = rowIcon === undefined ? undefined : createIconPicker(rowIcon.current, box, { icons: rowIcon.atHand, title: 'Icon of the workspace', onLeave: () => leave(), lucide: { tags: rowIcon.tags } });
+    /** @returns {Naming} — the name typed, with the icon picked — or the one it had while none is */
+    const typed = () => {
+      if (picker === undefined) return { label: box.value, keeps: false, icon: undefined };
+      return picker.picked() ? withIcon(box.value, picker.icon()) : { label: labelWithIcon(named.icon, box.value), keeps: false, icon: undefined };
+    };
     let sending = false;
     box.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
@@ -322,10 +460,11 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
       }
       if (event.key !== 'Enter' || sending) return;
       event.preventDefault();
-      if (box.value.trim() === '' || typed() === subject.label) return redraw(); // nothing new: the name stays
+      const naming = typed();
+      if (box.value.trim() === '' || (naming.label === subject.label && !naming.keeps)) return redraw(); // nothing new: the name stays
       sending = true;
       box.disabled = true;
-      void subject.rename(typed()).then((outcome) => {
+      void renameWith(subject, naming).then((outcome) => {
         sending = false;
         if (outcome.ok) return redraw();
         box.disabled = false;
@@ -405,6 +544,55 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
       row.replaceWith(dressed);
     });
   };
+  /**
+   * A click on the open row's icon — a second click, the first opened it, as for its buttons — opens the icons to pick
+   * from under it, no naming first: the one picked is the row's at once. The lists stay as they are meanwhile; Escape or
+   * a press elsewhere puts the icons away. A click on the icon of a row not open opens the row.
+   * @param {HTMLElement} row
+   * @param {RowSubject} subject
+   */
+  const offerIcon = (row, subject) => {
+    const shown = row.querySelector(':scope > .workspace-icon');
+    const rowIcon = subject.icon;
+    if (shown === null || rowIcon === undefined) return;
+    shown.addEventListener('click', (event) => {
+      if (!row.classList.contains('selected')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (busy) return;
+      busy = true;
+      const putAway = () => {
+        window.document.removeEventListener('pointerdown', onPress, true);
+        palette.element.remove();
+      };
+      /** @param {Event} press */
+      const onPress = (press) => {
+        if (press.target instanceof window.Node && palette.element.contains(press.target)) return;
+        putAway();
+        redraw();
+      };
+      const palette = createIconPalette({
+        icons: rowIcon.atHand,
+        lucide: { tags: rowIcon.tags },
+        onChoose(chosen) {
+          putAway();
+          void renameWith(subject, withIcon(splitTabIcon(subject.label).name, chosen)).then(redraw);
+        },
+        onEscape() {
+          putAway();
+          redraw();
+        },
+      });
+      // Lucide's icons in the workspace's own colour, as its row has it
+      palette.element.style.setProperty('--workspace-hue', row.style.getPropertyValue('--workspace-hue'));
+      element.append(palette.element);
+      window.document.addEventListener('pointerdown', onPress, true);
+      palette.open(shown);
+      // the keys go to the icons: Escape puts them away, not the page's Escape that stops Claude
+      palette.element.tabIndex = -1;
+      palette.element.focus();
+    });
+  };
   const slot = h('div', { className: 'herdr-workspace-slot' });
   const workspacesList = h('div', { className: 'herdr-workspaces', attrs: { role: 'list' } });
   const head = h('div', { className: 'herdr-tabs-head' });
@@ -418,15 +606,39 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
   };
   const startForm = () => {
     const name = h('input', { className: 'herdr-new-name', attrs: { type: 'text', maxlength: '60', placeholder: 'Name', 'aria-label': 'Name of the new workspace' } });
-    // the folder chosen from those the page offers, or typed
-    const choices = h('datalist', { attrs: { id: 'herdr-new-folders' } }, folders().map((choice) => h('option', { attrs: { value: choice } })));
-    const folder = h('input', { className: 'herdr-new-folder', attrs: { type: 'text', placeholder: 'Folder: D:/dev/app or ~/app', spellcheck: 'false', autocomplete: 'off', list: 'herdr-new-folders', 'aria-label': 'Folder of the new workspace' } });
+    const folder = h('input', { className: 'herdr-new-folder', attrs: { type: 'text', placeholder: 'Folder: D:/dev/app or ~/app', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Folder of the new workspace' } });
     // no name given — or only the one the folder gave — follows the folder chosen
     let fromFolder = '';
-    folder.addEventListener('input', () => {
+    const followFolder = () => {
       if (name.value !== '' && name.value !== fromFolder) return;
       fromFolder = workspaceNameOf(folder.value);
       name.value = fromFolder;
+    };
+    // The folder typed, or picked from those the page offers: listed under the box — a phone shows no list of a box's
+    // own — narrowed by what is typed; none once one of them is in the box.
+    const offered = folders().map((path) => {
+      const button = h('button', { text: path, title: path, attrs: { type: 'button' } });
+      button.addEventListener('click', () => {
+        folder.value = path;
+        followFolder();
+        narrow();
+      });
+      return { path, button };
+    });
+    const choices = h('div', { className: 'herdr-new-folders' }, offered.map(({ button }) => button));
+    const narrow = () => {
+      const typed = comparablePath(folder.value);
+      const picked = offered.some(({ path }) => comparablePath(path) === typed);
+      let shown = 0;
+      for (const { path, button } of offered) {
+        button.hidden = picked || shown === offeredFolders || !comparablePath(path).includes(typed);
+        if (!button.hidden) shown += 1;
+      }
+    };
+    narrow();
+    folder.addEventListener('input', () => {
+      followFolder();
+      narrow();
     });
     const error = h('div', { className: 'herdr-new-error', attrs: { role: 'alert' } });
     let sending = false;
@@ -491,20 +703,23 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
         const active = workspace.tabs.find((tab) => tab.id === workspace.activeTab) ?? workspace.tabs[0];
         const row = link(active === undefined ? undefined : tabTarget(active), 'herdr-workspace', [
           h('span', { className: 'herdr-number', text: String(workspace.number) }),
-          ...workspaceIconOf(workspace),
+          ...workspaceIconOf(workspace.icon),
           h('span', { className: 'herdr-name', text: workspaceName(workspace) }),
           lampOf(clock, workspace.id, workspace.number, groupLamp(workspace.status, workspace.tabs.flatMap((tab) => tab.panes), seen)),
         ]);
         row.classList.toggle('selected', workspace.id === place?.workspace.id);
         tintByWorkspace(row, workspace.label);
-        offerChanges(row, '.herdr-name', {
+        /** @type {RowSubject} */
+        const subject = {
           label: workspace.label,
-          icons: workspaceIcons,
+          icon: { atHand: workspaceIcons, current: workspace.icon, setIcon: (icon) => setWorkspaceIcon(workspace.id, icon), tags: iconTags },
           rename: (label) => renameWorkspace(workspace.id, label),
           close: () => closeWorkspace(workspace.id),
           names: 'Name this workspace',
           closes: 'Close the workspace: what runs in its tabs stops',
-        });
+        };
+        offerChanges(row, '.herdr-name', subject);
+        offerIcon(row, subject);
         return row;
       });
       const rows = sessions.map(({ workspace, tab, pane }) => {
@@ -512,7 +727,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
         const title = pane.title === '' ? undefined : pane.title;
         // the status on the right, as the workspaces have it
         const row = link(pane.session === undefined ? `#/pane/${pane.id}` : `#/${pane.session}`, 'herdr-tab', [
-          ...workspaceIconOf(workspace),
+          ...workspaceIconOf(workspace.icon),
           h('span', { className: 'herdr-tab-text' }, [
             h('span', { className: 'herdr-tab-title', text: title === undefined ? tabName(tab) : title }),
             h('span', { className: 'herdr-tab-where', text: [workspaceName(workspace), title === undefined ? undefined : tabName(tab), what].filter((part) => part !== undefined).join(' · ') }),
@@ -524,7 +739,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
         offerChanges(row, '.herdr-tab-text', {
           // a tab herdr numbers has no name of its own to start from
           label: tab.label === String(tab.number) ? '' : tab.label,
-          icons: undefined,
+          icon: undefined,
           rename: (label) => renameTab(tab.id, label),
           close: () => closeTab(tab.id),
           names: 'Name its tab',
@@ -594,7 +809,7 @@ export function createTabBar({ rename, close, open, create }) {
     const box = h('input', { className: 'herdr-tab-name', attrs: { type: 'text', maxlength: '60', placeholder: 'Tab name', 'aria-label': `Name of tab ${tab.number}` } });
     const named = splitTabIcon(tab.label === String(tab.number) ? '' : tab.label);
     box.value = named.name;
-    const picker = createIconPicker(named.icon, box, { icons: tabIcons, title: 'Icon of the tab', onLeave: () => leave() });
+    const picker = createIconPicker(named.icon, box, { icons: tabIcons, title: 'Icon of the tab', onLeave: () => leave(), lucide: undefined });
     let sending = false;
     box.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
@@ -673,7 +888,7 @@ export function createTabBar({ rename, close, open, create }) {
     const message = h('span', { className: 'herdr-tab-new-failed', attrs: { hidden: '' } });
     const name = h('input', { className: 'herdr-tab-name herdr-tab-new-name', attrs: { type: 'text', maxlength: '60', placeholder: 'New tab name', 'aria-label': 'Name of the new tab' } });
     // the new tab's choices stay while the focus is elsewhere
-    const picker = createIconPicker(undefined, name, { icons: tabIcons, title: 'Icon of the tab', onLeave: () => undefined });
+    const picker = createIconPicker(undefined, name, { icons: tabIcons, title: 'Icon of the tab', onLeave: () => undefined, lucide: undefined });
     /** @param {import('../model/herdr.js').TabStart} start */
     const add = (start) => {
       for (const button of choices.querySelectorAll('button')) button.disabled = true;
@@ -752,7 +967,7 @@ export function createTabBar({ rename, close, open, create }) {
       });
       const adding = h('button', { className: 'icon-button herdr-tab-new', title: 'New tab', attrs: { type: 'button', 'aria-label': 'New tab' } }, [icon('plus')]);
       adding.addEventListener('click', () => startAdding(adding, place.tab));
-      element.replaceChildren(h('span', { className: 'herdr-chip-workspace' }, [...workspaceIconOf(place.workspace), workspaceName(place.workspace)]), ...chips, adding);
+      element.replaceChildren(h('span', { className: 'herdr-chip-workspace' }, [...workspaceIconOf(place.workspace.icon), workspaceName(place.workspace)]), ...chips, adding);
       element.querySelector('.herdr-chip.selected')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     },
   };
