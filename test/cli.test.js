@@ -11,17 +11,17 @@ test('isTemporaryInstall_Should_RecognizeNpxCacheOnEverySystem', () => {
 });
 
 test('parseCommand_Should_ServeAndOpenBrowserByDefault', () => {
-  assert.deepEqual(parseCommand([]), { ok: true, command: { action: 'serve', port: 7788, open: true, startMenu: false, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', editor: undefined } });
+  assert.deepEqual(parseCommand([]), { ok: true, command: { action: 'serve', port: 7788, open: true, startMenu: false, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', editor: undefined, vscode: undefined } });
 });
 
 test('parseCommand_Should_ReadActionPortAndBrowserFlag', () => {
   assert.deepEqual(parseCommand(['--background', '--port', '7800', '--no-open']), {
     ok: true,
-    command: { action: 'background', port: 7800, open: false, startMenu: false, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', editor: undefined },
+    command: { action: 'background', port: 7800, open: false, startMenu: false, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', editor: undefined, vscode: undefined },
   });
   assert.deepEqual(parseCommand(['--install-shortcut', '--start-menu']), {
     ok: true,
-    command: { action: 'install-shortcut', port: 7788, open: true, startMenu: true, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', editor: undefined },
+    command: { action: 'install-shortcut', port: 7788, open: true, startMenu: true, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', editor: undefined, vscode: undefined },
   });
   assert.deepEqual(
     [parseCommand(['-v']), parseCommand(['--help'])].map((parsed) => parsed.ok && parsed.command.action),
@@ -84,6 +84,18 @@ test('parseCommand_Should_ReadEditorCommand', () => {
       undefined,
       { ok: false, error: 'Invalid --editor-command value "rider64.exe --line {line}": expected the command of an editor with {path} for the file — and {line}, {project} if it takes them — such as "code --goto {path}:{line}".' },
     ],
+  );
+});
+
+// VS Code in the browser runs when the viewer is given the VS Code CLI to start it with — a path with spaces as it is;
+// a path of nothing is none
+test('parseCommand_Should_ReadVsCodeCli', () => {
+  const given = parseCommand(['--vscode', 'C:/Program Files/Microsoft VS Code/bin/code-tunnel.exe']);
+  const blank = parseCommand(['--vscode', '  ']);
+
+  assert.deepEqual(
+    [given.ok && given.command.vscode, blank],
+    ['C:/Program Files/Microsoft VS Code/bin/code-tunnel.exe', { ok: false, error: 'Invalid --vscode value "  ": expected the VS Code CLI that runs its web server — code-tunnel.exe of VS Code on Windows, code elsewhere.' }],
   );
 });
 

@@ -53,6 +53,16 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   one: Chrome asks once to let the page reach apps on the device.
 
   ![A markdown note with a mermaid diagram in the file panel, beside the session](docs/file-panel.png)
+- **Branch changes.** A button over a session shows in the side panel what the branch checked out in its folder
+  changed since it was made — its commits and its files, what is not committed yet included, new files too — against
+  the branch it was made from, as git recorded making it; with no such record, the main branch; on the main branch
+  itself, what it was pushed to. Another base can be chosen among the repository's branches. A file opened shows its
+  diff, and opens in the panel with a way back to the changes.
+- **VS Code.** Started with `--vscode <the VS Code CLI>`, the viewer runs VS Code in the browser — Microsoft's own
+  `code serve-web` — at `/vscode/`, and a button over a session opens it in the session's folder in a tab of its own:
+  the whole of VS Code, its search, its git, its extensions and their language servers (go to a definition, find the
+  uses). The first start downloads VS Code's server, about 100 MB, into `~/.vscode/cli`; its extensions are its own,
+  in `~/.vscode-server`. It stops with the viewer, however the viewer stops.
 - **Outline and bookmarks.** A right-hand outline lists your prompts (the one on screen is highlighted; Alt+↑ / Alt+↓
   jump between them) and your bookmarks: hover a prompt, an answer or a subagent report and click the flag to keep it
   one click away. Bookmarks are kept by the viewer in `~/.claude-code-webview/bookmarks.json`, so every browser and
@@ -249,6 +259,7 @@ Several computers? Give each its own tunnel, hostname and `--palette`, and the p
 | `node bin/claude-code-webview.js --no-herdr` | do not use herdr even if it is found: the page only reads sessions |
 | `node bin/claude-code-webview.js --claude-command my-claude` | start Claude Code with this command in a tab opened from the page (default: `claude`) |
 | `node bin/claude-code-webview.js --editor-command "code --goto {path}:{line}"` | open a file of the file panel in an editor of this computer; `{path}`, `{line}` and `{project}` — the nearest folder above the file with a `.sln`, `.slnx` or `.git` — are filled in; the program is started directly, not through a shell — on Windows name its `.exe`. Rider: `"C:/Program Files/JetBrains/Rider/bin/rider64.exe" {project} --line {line} {path}` |
+| `node bin/claude-code-webview.js --vscode "C:/Users/ann/AppData/Local/Programs/Microsoft VS Code/bin/code-tunnel.exe"` | run VS Code in the browser at `/vscode/`, opened from a button over a session: the VS Code CLI — `code-tunnel.exe` of VS Code on Windows, `code` elsewhere |
 | `node bin/claude-code-webview.js --install-shortcut` | Windows: desktop shortcut that starts the viewer in the background (`--start-menu` for the Start menu) |
 
 `npm start -- <options>` does the same as `node bin/claude-code-webview.js <options>`.
@@ -288,7 +299,13 @@ Transcripts contain everything the agent has seen, secrets included. So the view
   An HTML page drawn in the panel, and what it loads beside it, comes from `/api/folder/…`: only from the page's folder
   and below — no `..` out, no link in it that leads out — in a sandbox, also when opened in a tab of its own. Its
   scripts are off; the button over the panel runs them in an origin of their own, out of reach of the viewer's page:
-  such a page can neither read what the viewer serves nor send a prompt.
+  such a page can neither read what the viewer serves nor send a prompt;
+- reaches VS Code (`--vscode`) only through itself: VS Code's server listens on 127.0.0.1 with a token the viewer makes,
+  keeps in a file of its own and adds to each request. VS Code's page gets the token too, as a cookie of the viewer's
+  address — its client opens its connection with it — so another site's page cannot read it. A request to `/vscode/` from another
+  site — a picture, a form, a WebSocket — is turned away by what the browser says of where it comes from
+  (`Sec-Fetch-Site`, `Origin`). VS Code reads and writes any file and has a terminal: on a public address it is as open
+  as the login in front of the viewer, the same as sending prompts to a session is.
 
 ## Limitations
 

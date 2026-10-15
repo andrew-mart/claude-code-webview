@@ -6,9 +6,10 @@ import { parseEditorCommand } from '../server/editor.js';
 
 /**
  * @typedef {'serve' | 'background' | 'stop' | 'restart' | 'install-shortcut' | 'help' | 'version'} Action
- * @typedef {{ action: Action, port: number, open: boolean, startMenu: boolean, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[], herdr: 'on' | 'off', claudeCommand: string, editor: Editor | undefined }} Command — herdr: off —
+ * @typedef {{ action: Action, port: number, open: boolean, startMenu: boolean, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[], herdr: 'on' | 'off', claudeCommand: string, editor: Editor | undefined, vscode: string | undefined }} Command — herdr: off —
  *   not used even when found, the page only reads sessions; claudeCommand: what starts Claude Code in a tab opened from
- *   the page; editor: what opens a file of the file panel in an editor, none if not given
+ *   the page; editor: what opens a file of the file panel in an editor, none if not given; vscode: the VS Code CLI
+ *   that runs VS Code in the browser at /vscode/, none if not given
  * @typedef {{ text: string, command: import('../server/editor.js').EditorCommand }} Editor — text: as it was given
  */
 
@@ -49,7 +50,9 @@ export function parseCommand(argv) {
   const editorCommand = editorText === undefined ? undefined : parseEditorCommand(editorText);
   if (editorText !== undefined && editorCommand === undefined) return { ok: false, error: `Invalid --editor-command value "${values['editor-command']}": expected the command of an editor with {path} for the file — and {line}, {project} if it takes them — such as "code --goto {path}:{line}".` };
   const editor = editorText === undefined || editorCommand === undefined ? undefined : { text: editorText, command: editorCommand };
-  return { ok: true, command: { action: chosen[0] ?? 'serve', port, open: !values['no-open'], startMenu: values['start-menu'], palette, publicAddresses, herdr: values['no-herdr'] ? 'off' : 'on', claudeCommand, editor } };
+  const vscode = values.vscode?.trim();
+  if (vscode === '') return { ok: false, error: `Invalid --vscode value "${values.vscode}": expected the VS Code CLI that runs its web server — code-tunnel.exe of VS Code on Windows, code elsewhere.` };
+  return { ok: true, command: { action: chosen[0] ?? 'serve', port, open: !values['no-open'], startMenu: values['start-menu'], palette, publicAddresses, herdr: values['no-herdr'] ? 'off' : 'on', claudeCommand, editor, vscode } };
 }
 
 /**
@@ -77,6 +80,7 @@ function parseOptions(argv) {
       'no-herdr': { type: 'boolean', default: false },
       'claude-command': { type: 'string', default: 'claude' },
       'editor-command': { type: 'string' },
+      vscode: { type: 'string' },
       background: { type: 'boolean', short: 'b', default: false },
       stop: { type: 'boolean', default: false },
       restart: { type: 'boolean', default: false },

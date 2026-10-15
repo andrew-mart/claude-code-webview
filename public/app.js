@@ -27,6 +27,8 @@ import { createOutline } from './view/outline-view.js';
 import { h } from './view/dom.js';
 import { createFilePanel } from './view/file-panel.js';
 import { parseBranchChanges, parseFileDiff } from './model/branch-changes.js';
+import { parseMachine } from './model/machine.js';
+import { vscodeAddress } from './model/vscode.js';
 import { createEditorOpener } from './view/editor-opener.js';
 import { relabelTables } from './view/markdown.js';
 import { createResizer, restoreWidth } from './view/resizer.js';
@@ -87,7 +89,11 @@ const drawers = createDrawers({ root: document.documentElement, backdrop: byId('
 const settings = createSettings((change) => page.keepPlace(change));
 const page = createPage();
 const layout = byId('layout', HTMLElement);
-const filePanel = createFilePanel({ panel: byId('file-panel', HTMLElement), layout, editor: createEditorOpener() });
+/** What the viewer says of itself: whether it has an editor, whether it runs VS Code in the browser. */
+const machine = fetch('/api/machine')
+  .then((response) => (response.ok ? response.json() : undefined))
+  .then(parseMachine, () => undefined);
+const filePanel = createFilePanel({ panel: byId('file-panel', HTMLElement), layout, editor: createEditorOpener(machine) });
 /** @type {import('./view/resizer.js').PanelWidth} */
 const outlineWidth = { property: '--outline-width', storageKey: 'viewer.outlineWidth' };
 restoreWidth(layout, outlineWidth);
@@ -393,7 +399,7 @@ function createPage() {
     const info = sessions.find((session) => session.id === id);
     const tables = sessionTables(id, (change) => (current === undefined ? change() : current.keepPlace(change)));
     tables.apply();
-    const header = createSessionHeader({ place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation: [changesButton(id), drawerButton('outline', 'list', 'Outline')], tools: settings.buttons() });
+    const header = createSessionHeader({ place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation: [vscodeButton(() => sessions.find((session) => session.id === id)?.cwd), changesButton(id), drawerButton('outline', 'list', 'Outline')], tools: settings.buttons() });
     const scroller = h('div', { className: 'scroller' });
     const outlineElement = h('aside', { className: 'outline', attrs: { 'aria-label': 'Outline' } });
     const bookmarks = createBookmarkStore(id);
@@ -934,6 +940,28 @@ async function fetchBranch(sessionId) {
   const response = await fetch(`/api/branch?session=${encodeURIComponent(sessionId)}`).catch(() => undefined);
   const json = response?.ok ? await response.json().catch(() => undefined) : undefined;
   return isRecord(json) ? text(json.branch) : undefined;
+}
+
+/**
+ * The button over a session that opens its folder in VS Code in the browser — in a tab of its own — when the viewer runs
+ * VS Code (--vscode); hidden otherwise.
+ * @param {() => string | undefined} folder — the session's folder now: /cd moves it
+ * @returns {HTMLButtonElement}
+ */
+function vscodeButton(folder) {
+  const button = iconButton('code');
+  button.classList.add('head-vscode');
+  button.title = "Open the session's folder in VS Code";
+  button.setAttribute('aria-label', button.title);
+  button.hidden = true;
+  void machine.then((known) => {
+    button.hidden = known?.vscode !== true;
+  });
+  button.addEventListener('click', () => {
+    const cwd = folder();
+    if (cwd !== undefined) window.open(vscodeAddress(cwd), '_blank', 'noopener');
+  });
+  return button;
 }
 
 /**

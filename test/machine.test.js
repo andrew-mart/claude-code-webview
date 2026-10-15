@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { editorReach, parseMachine } from '../public/model/machine.js';
 
-const viewer = { instance: '6f1c2a3b-0000-4000-8000-000000000001', port: 7788, editor: true };
+const viewer = { instance: '6f1c2a3b-0000-4000-8000-000000000001', port: 7788, editor: true, vscode: true };
 
 // A file opened in the editor shows up on the viewer's computer: the button is for a browser there — one that opened the
 // page at the viewer's own address, or whose 127.0.0.1 answers with the same run of the viewer. Until asked, it is not
@@ -25,4 +25,9 @@ test('editorReach_Should_TellWhetherBrowserIsOnViewersComputer', () => {
 // The viewer's /api/machine reply, or nothing
 test('parseMachine_Should_TakeMachineReply_Or_Nothing', () => {
   assert.deepEqual([parseMachine(viewer), parseMachine({ instance: 'x', port: '7788', editor: true }), parseMachine('down')], [viewer, undefined, undefined]);
+});
+
+// A viewer from before VS Code in the browser says nothing of it: it runs none
+test('parseMachine_Should_TakeViewerSayingNothingOfVsCodeForOneWithout', () => {
+  assert.deepEqual(parseMachine({ instance: 'x', port: 7788, editor: false }), { instance: 'x', port: 7788, editor: false, vscode: false });
 });
