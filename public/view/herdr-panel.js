@@ -11,6 +11,7 @@ import { icon } from './icons.js';
 import { restingRobot } from './rest.js';
 import { workingRobots } from './robot.js';
 import { createWorkClock } from './work-clock.js';
+import { unpluggedRobot } from './unplugged.js';
 import { tintByWorkspace } from './workspace-tint.js';
 import { labelWithIcon, splitTabIcon, tabIcons } from '../model/tab-icon.js';
 
@@ -25,7 +26,8 @@ const lampNames = { working: 'Working', blocked: 'Waiting for you', ready: 'Done
 
 /**
  * The lamp beside an agent: its robots' story while it works, a robot at rest with a joke once its answer is ready
- * and not seen — its workspace's story and joke: its agents all show them, telling the project.
+ * and not seen — its workspace's story and joke: its agents all show them, telling the project — and a robot unplugged
+ * while it is idle.
  * @param {import('../model/lamps.js').Lamp} lamp
  * @param {number} workspace — its workspace's number
  * @param {number} elapsed — how long it has been at work, for the robots' story to go on from
@@ -33,8 +35,33 @@ const lampNames = { working: 'Working', blocked: 'Waiting for you', ready: 'Done
  */
 function statusDot(lamp, workspace, elapsed) {
   // an attribute, not a class: .working is the feed's own "Working…" line
-  const scene = lamp === 'working' ? [workingRobots(storyAt(workspace), elapsed)] : lamp === 'ready' ? [restingRobot(jokeAt(workspace))] : [];
-  return h('span', { className: 'herdr-status', title: lampNames[lamp], attrs: { 'data-status': lamp } }, scene);
+  return h('span', { className: 'herdr-status', title: lampNames[lamp], attrs: { 'data-status': lamp } }, sceneOf(lamp, workspace, elapsed));
+}
+
+/**
+ * What the lamp shows: a drawing, or none — a plain lamp, drawn by its style.
+ * @param {import('../model/lamps.js').Lamp} lamp
+ * @param {number} workspace
+ * @param {number} elapsed
+ * @returns {Element[]}
+ */
+function sceneOf(lamp, workspace, elapsed) {
+  switch (lamp) {
+    case 'working':
+      return [workingRobots(storyAt(workspace), elapsed)];
+    case 'ready':
+      return [restingRobot(jokeAt(workspace))];
+    case 'idle':
+      return [unpluggedRobot()];
+    case 'blocked':
+    case 'unknown':
+      return [];
+    default: {
+      /** @type {never} */
+      const unexpected = lamp;
+      throw new Error(`No lamp ${String(unexpected)}`);
+    }
+  }
 }
 
 /**

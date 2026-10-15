@@ -80,6 +80,7 @@ const scenes = {
   pole: `<path class="pole-stage prop" d="M2.5 22.6H29.5" stroke-width="1.4"/>
   <path class="pole-pole prop" d="M16 0.8V22.6" stroke-width="1.2"/>
   <g class="pole-dancer"><g transform="translate(0.25 5.3) scale(0.75)">${robot('pole', `<path class="pole-arm-right" d="M18 15.5 21 11"/>`)}</g></g>
+  <path class="pole-front prop" d="M16 0.8V22.6" stroke-width="1.2"/>
   <g class="pole-bill pole-bill-1"><rect x="-2.3" y="-1.3" width="4.6" height="2.6" rx="0.4" stroke-width="0.8"/><circle r="0.65" fill="currentColor" stroke="none"/></g><g class="pole-bill pole-bill-2"><rect x="-2.3" y="-1.3" width="4.6" height="2.6" rx="0.4" stroke-width="0.8"/><circle r="0.65" fill="currentColor" stroke="none"/></g><g class="pole-bill pole-bill-3"><rect x="-2.3" y="-1.3" width="4.6" height="2.6" rx="0.4" stroke-width="0.8"/><circle r="0.65" fill="currentColor" stroke="none"/></g><g class="pole-bill pole-bill-4"><rect x="-2.3" y="-1.3" width="4.6" height="2.6" rx="0.4" stroke-width="0.8"/><circle r="0.65" fill="currentColor" stroke="none"/></g>`,
 };
 

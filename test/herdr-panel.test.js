@@ -565,6 +565,17 @@ test('herdrSidebar_Should_KeepNameTypedForNewWorkspace_WhenFolderIsChosen', () =
   assert.deepEqual({ typed, cleared: form.name.value }, { typed: 'review', cleared: 'shop' });
 });
 
+// An agent idle — its answer seen, or nothing done yet — shows a robot unplugged from its power; one at work does not
+test('herdrSidebar_Should_ShowRobotUnplugged_ForIdleAgentsOnly', () => {
+  const element = window.document.createElement('div');
+  const working = { ...web, tabs: web.tabs.map((tab) => (tab.id === 'w2:t2' ? { ...tab, panes: tab.panes.map((one) => ({ ...one, status: /** @type {const} */ ('working') })) } : tab)) };
+
+  createHerdrSidebar(element, noActions).render({ herdr: true, workspaces: [working] }, undefined, '', new Map());
+
+  const drawn =[...element.querySelectorAll('.herdr-status')].map((lamp) => `${lamp.getAttribute('data-status')}: ${lamp.querySelector('svg.unplugged') === null ? 'none' : 'unplugged'}`);
+  assert.deepEqual(drawn, ['idle: unplugged', 'working: none', 'idle: unplugged', 'idle: unplugged']);
+});
+
 // An agent that finished shows its answer ready — its workspace too — until it is seen
 test('herdrSidebar_Should_LightReadyAnswer_UntilSeen', () => {
   const element = window.document.createElement('div');
