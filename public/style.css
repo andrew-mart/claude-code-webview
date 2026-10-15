@@ -52,11 +52,13 @@
   --hl-tag: #116329;
   /* the lamps — a session being written to, an agent's status in herdr — and their glow */
   --lamp-work: #f25a1d;
-  /* a lamp at work in lamps mode: lemon yellow, apart from the amber of one waiting for the reader */
+  /* a lamp at work in lamps mode: lemon yellow, apart from the red of one waiting for the reader's answer */
   --lamp-busy: #d4b300;
   /* what a robot at work works on, behind it: the work's colour gone toward the page, as far things do */
   --lamp-work-far: color-mix(in srgb, var(--lamp-work) 72%, white);
-  --lamp-wait: #e09b00;
+  --lamp-wait: #e0322b;
+  /* the amber a lamp waiting for its user had before it went red: a joke's bit keeps it */
+  --amber: #e09b00;
   --lamp-done: #1fae5a;
   --lamp-glow: 55%;
 
@@ -113,7 +115,8 @@
     --lamp-work: #ff7a3d;
     --lamp-busy: #ffe14a;
     --lamp-work-far: color-mix(in srgb, var(--lamp-work) 72%, black);
-    --lamp-wait: #ffc21a;
+    --lamp-wait: #ff4d45;
+    --amber: #ffc21a;
     --lamp-done: #3ee086;
     --lamp-glow: 80%;
   }
@@ -163,7 +166,8 @@
   --lamp-work: #ff7a3d;
   --lamp-busy: #ffe14a;
   --lamp-work-far: color-mix(in srgb, var(--lamp-work) 72%, black);
-  --lamp-wait: #ffc21a;
+  --lamp-wait: #ff4d45;
+  --amber: #ffc21a;
   --lamp-done: #3ee086;
   --lamp-glow: 80%;
 }
@@ -878,9 +882,12 @@ button {
   color: var(--lamp-work);
 }
 
+/* waiting for its user's answer — a question, a permission: a red lamp blinking, a little quicker than a green one, with
+   robots and with lamps alike */
 .herdr-status[data-status="blocked"] {
-  background: var(--lamp-wait);
-  box-shadow: 0 0 5px 1px color-mix(in srgb, var(--lamp-wait) var(--lamp-glow), transparent);
+  --lamp: var(--lamp-wait);
+  background: var(--lamp);
+  animation: lamp 0.9s ease-in-out infinite;
 }
 
 /* finished, its answer not seen yet: a robot's face (rest.js), one eye glowing green until it is seen, a joke beside it */
@@ -9859,7 +9866,7 @@ a.file-link:hover {
 }
 
 .joke-bit-3 {
-  fill: var(--lamp-wait);
+  fill: var(--amber);
   animation-name: joke-bit-3;
 }
 
