@@ -1315,3 +1315,129 @@ test('codex_Should_ShowSessionGoingOnInAnotherFileAsOne_WithLongOutputThereComin
     { listed: 1, prompts: ['Show the log', 'Show the warnings'], whole: output.length },
   );
 });
+
+// A file edited in the panel is saved from the viewer's own page — a long one too, longer than other writes are — and
+// not from another site
+test('saveFile_Should_SaveTextFromViewerPage_AndNotFromAnotherSite', async (t) => {
+  const { port, base, root } = await withServer(t);
+  const path = join(root, 'limits.ts');
+  await writeFile(path, 'export const perSecond = 10;\n');
+  const read = await (await fetch(`${base}/api/file?path=${encodeURIComponent(path)}`)).json();
+  const long = `export const perSecond = 20;\n${'// note\n'.repeat(40_000)}`;
+
+  const elsewhere = await post(port, '/api/file/save', { ...pageHeaders(port), origin: 'https://evil.example' }, JSON.stringify({ path, content: 'pwned', version: read.version }));
+  const saved = await post(port, '/api/file/save', pageHeaders(port), JSON.stringify({ path, content: long, version: read.version }));
+
+  assert.deepEqual(
+    { elsewhere: elsewhere.status, saved: saved.status, ok: JSON.parse(saved.body).ok, file: (await readFile(path, 'utf8')) === long },
+    { elsewhere: 403, saved: 200, ok: true, file: true },
+  );
+});
+
+// The file panel's editor loads CodeMirror as the page's modules load: every module the page's import map names is
+// served, and every module those import — by name, or beside them — is named or served too
+test('editorModules_Should_ServeEveryModuleTheImportMapNames_AndWhatTheyImport', async (t) => {
+  const { base } = await withServer(t);
+  const page = await (await fetch(`${base}/`)).text();
+  const map = JSON.parse(/<script type="importmap">([\s\S]*?)<\/script>/.exec(page)?.[1] ?? '{}');
+  /** @type {Record<string, string>} */
+  const imports = map.imports;
+  const urls = Object.entries(imports).filter(([name]) => name.startsWith('@codemirror/') || name.startsWith('@lezer/')).map(([, url]) => url);
+  /** @type {string[]} */
+  const unnamed = [];
+  /** @type {string[]} */
+  const unserved = [];
+  const seen = new Set();
+  while (urls.length > 0) {
+    const url = urls.pop() ?? '';
+    if (seen.has(url)) continue;
+    seen.add(url);
+    const reply = await fetch(new URL(url, base));
+    if (reply.status !== 200 || !(reply.headers.get('content-type') ?? '').startsWith('text/javascript')) {
+      unserved.push(url);
+      continue;
+    }
+    for (const [, from, alone] of (await reply.text()).matchAll(/^(?:import|export)\b[^'";]*?\bfrom\s*['"]([^'"]+)['"]|^import\s*['"]([^'"]+)['"]/gm)) {
+      const name = from ?? alone;
+      if (name === undefined) continue;
+      if (name.startsWith('.')) urls.push(new URL(name, new URL(url, base)).pathname);
+      else if (imports[name] === undefined) unnamed.push(name);
+      else urls.push(imports[name]);
+    }
+  }
+
+  assert.deepEqual({ view: imports['@codemirror/view'] !== undefined, unnamed, unserved }, { view: true, unnamed: [], unserved: [] });
+});
+
+// Only the editor's packages' scripts are served from where they are installed: not a package's other files, not a file
+// out of it, not another package
+test('editorModules_Should_ServeOnlyScriptsOfEditorsPackages', async (t) => {
+  const { port } = await withServer(t);
+  /** @param {string} path */
+  const status = (path) =>
+    new Promise((done, fail) => {
+      http.get({ host: '127.0.0.1', port, path }, (reply) => done(reply.resume().statusCode)).on('error', fail);
+    });
+
+  const statuses = await Promise.all(['/vendor/cm/crelt/index.js', '/vendor/cm/crelt/package.json', '/vendor/cm/crelt/..%2Fmarked%2Flib%2Fmarked.esm.js', '/vendor/cm/marked/lib/marked.esm.js'].map(status));
+
+  assert.deepEqual(statuses, [200, 404, 404, 404]);
+});
+
+// The file panel browses a project's folders and searches its text through the viewer
+test('project_Should_ListFolder_And_SearchText', async (t) => {
+  const { base, root } = await withServer(t);
+  const project = join(root, 'shop');
+  await mkdir(join(project, 'src'), { recursive: true });
+  await writeFile(join(project, 'src', 'limits.ts'), 'export const perSecond = 10;\n');
+  await writeFile(join(project, 'README.md'), '# Shop\n');
+
+  const listed = await (await fetch(`${base}/api/dir?path=${encodeURIComponent(project)}`)).json();
+  const found = await (await fetch(`${base}/api/search?root=${encodeURIComponent(project)}&q=perSecond&mode=text&case=1&word=1`)).json();
+  const bad = await fetch(`${base}/api/search?root=${encodeURIComponent(project)}&q=&mode=text`);
+
+  assert.deepEqual(
+    { entries: listed.entries, found: found.matches.map((/** @type {{ path: string, line: number }} */ match) => [match.path, match.line]), bad: bad.status },
+    { entries: [{ name: 'src', kind: 'folder' }, { name: 'README.md', kind: 'file' }], found: [[join(project, 'src', 'limits.ts'), 1]], bad: 400 },
+  );
+});
+
+// A file's links come through the viewer: what it imports, and what imports it
+test('links_Should_TellFilesImportsAndImporters', async (t) => {
+  const { base, root } = await withServer(t);
+  const project = join(root, 'shop');
+  await mkdir(join(project, 'src'), { recursive: true });
+  await writeFile(join(project, 'src', 'limits.ts'), "import { clock } from './clock';\n");
+  await writeFile(join(project, 'src', 'clock.ts'), 'export const clock = 1;\n');
+
+  const links = await (await fetch(`${base}/api/links?path=${encodeURIComponent(join(project, 'src', 'clock.ts'))}&root=${encodeURIComponent(project)}`)).json();
+  const missing = await fetch(`${base}/api/links?path=${encodeURIComponent(join(project, 'gone.ts'))}&root=${encodeURIComponent(project)}`);
+
+  assert.deepEqual(
+    { importedBy: links.importedBy.map((/** @type {{ path: string, line: number }} */ link) => [link.path, link.line]), missing: missing.status },
+    { importedBy: [[join(project, 'src', 'limits.ts'), 1]], missing: 404 },
+  );
+});
+
+// File icons — Material Icon Theme's — come from the viewer: the theme's choices, and each icon it names; nothing else
+// of the package
+test('fileIcons_Should_ServeThemeAndItsIcons_AndNothingElse', async (t) => {
+  const { base, port } = await withServer(t);
+  const theme = await (await fetch(`${base}/vendor/file-icons/theme.json`)).json();
+  const icon = await fetch(`${base}/vendor/file-icons/typescript.svg`);
+  /** @param {string} path */
+  const status = (path) =>
+    new Promise((done, fail) => {
+      http.get({ host: '127.0.0.1', port, path }, (reply) => done(reply.resume().statusCode)).on('error', fail);
+    });
+
+  assert.deepEqual(
+    {
+      ts: theme.fileExtensions.ts,
+      src: theme.folderNames.src,
+      icon: [icon.status, icon.headers.get('content-type'), (await icon.text()).startsWith('<svg')],
+      others: await Promise.all(['/vendor/file-icons/no-such-icon.svg', '/vendor/file-icons/..%2Fpackage.json', '/vendor/file-icons/..%2F..%2Fpackage.json'].map(status)),
+    },
+    { ts: 'typescript', src: 'folder-src', icon: [200, 'image/svg+xml', true], others: [404, 404, 404] },
+  );
+});

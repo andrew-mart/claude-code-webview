@@ -27,6 +27,8 @@ import { createOutline } from './view/outline-view.js';
 import { h } from './view/dom.js';
 import { createFilePanel } from './view/file-panel.js';
 import { parseBranchChanges, parseFileDiff } from './model/branch-changes.js';
+import { parseFileLinks, parseFolderListing, parseSearchFound, projectOfFile } from './model/project.js';
+import { createFileIcons } from './view/file-icons.js';
 import { parseMachine } from './model/machine.js';
 import { vscodeAddress } from './model/vscode.js';
 import { createEditorOpener } from './view/editor-opener.js';
@@ -93,7 +95,10 @@ const layout = byId('layout', HTMLElement);
 const machine = fetch('/api/machine')
   .then((response) => (response.ok ? response.json() : undefined))
   .then(parseMachine, () => undefined);
-const filePanel = createFilePanel({ panel: byId('file-panel', HTMLElement), layout, editor: createEditorOpener(machine) });
+// a file's project: the open session's folder when the file is in it, else the file's own folder
+// files' icons, Material Icon Theme's: its light theme's own on the light page
+const iconOf = createFileIcons({ light: () => document.documentElement.dataset.theme === 'light' || (document.documentElement.dataset.theme !== 'dark' && !window.matchMedia('(prefers-color-scheme: dark)').matches) });
+const filePanel = createFilePanel({ panel: byId('file-panel', HTMLElement), layout, editor: createEditorOpener(machine), project: (path) => projectSource(projectOfFile(path, page.folder())), folder: projectSource, iconOf });
 /** @type {import('./view/resizer.js').PanelWidth} */
 const outlineWidth = { property: '--outline-width', storageKey: 'viewer.outlineWidth' };
 restoreWidth(layout, outlineWidth);
@@ -401,7 +406,7 @@ function createPage() {
     const info = sessions.find((session) => session.id === id);
     const tables = sessionTables(id, (change) => (current === undefined ? change() : current.keepPlace(change)));
     tables.apply();
-    const header = createSessionHeader({ place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation: [vscodeButton(() => sessions.find((session) => session.id === id)?.cwd), changesButton(id), drawerButton('outline', 'list', 'Outline')], tools: settings.buttons() });
+    const header = createSessionHeader({ place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation: [vscodeButton(() => sessions.find((session) => session.id === id)?.cwd), filesButton(() => sessions.find((session) => session.id === id)?.cwd), changesButton(id), drawerButton('outline', 'list', 'Outline')], tools: settings.buttons() });
     const scroller = h('div', { className: 'scroller' });
     const outlineElement = h('aside', { className: 'outline', attrs: { 'aria-label': 'Outline' } });
     const bookmarks = createBookmarkStore(id);
@@ -516,6 +521,8 @@ function createPage() {
 
   return {
     renderList,
+    /** The open session's folder, none while no session is open or its folder is not known. */
+    folder: () => (current === undefined ? undefined : sessions.find((session) => session.id === current?.id)?.cwd),
     /**
      * Runs a change that resizes the open session's feed, keeping the reader at the message they were at.
      * @param {() => void} change
@@ -964,6 +971,65 @@ function vscodeButton(folder) {
     if (cwd !== undefined) window.open(vscodeAddress(cwd), '_blank', 'noopener');
   });
   return button;
+}
+
+/**
+ * The button over a session that shows its project's files in the side panel — the session's folder as a tree, its
+ * text searched.
+ * @param {() => string | undefined} folder — the session's, none while it is not known
+ * @returns {HTMLButtonElement}
+ */
+function filesButton(folder) {
+  const button = iconButton('folder');
+  button.classList.add('head-files');
+  button.title = "The project's files";
+  button.setAttribute('aria-label', button.title);
+  button.addEventListener('click', () => {
+    const root = folder();
+    if (root === undefined) return;
+    drawers.close();
+    filePanel.showProject(projectSource(root));
+  });
+  return button;
+}
+
+/**
+ * A project's folders, its search and a file's links in it, through the viewer.
+ * @param {string} root — the project's folder
+ * @returns {import('./view/file-panel.js').Project}
+ */
+function projectSource(root) {
+  return { root, listFolder: fetchFolder, search: (query) => fetchSearch(root, query), links: (path) => fetchLinks(root, path) };
+}
+
+/**
+ * What a file imports, and what imports it.
+ * @param {string} root
+ * @param {string} path
+ */
+async function fetchLinks(root, path) {
+  const response = await fetch(`/api/links?${new URLSearchParams({ path, root })}`).catch(() => undefined);
+  return parseFileLinks(await response?.json().catch(() => undefined));
+}
+
+/**
+ * A folder's folders and files.
+ * @param {string} path
+ */
+async function fetchFolder(path) {
+  const response = await fetch(`/api/dir?${new URLSearchParams({ path })}`).catch(() => undefined);
+  return parseFolderListing(await response?.json().catch(() => undefined));
+}
+
+/**
+ * The project's text searched.
+ * @param {string} root
+ * @param {import('./model/project.js').SearchQuery} query
+ */
+async function fetchSearch(root, query) {
+  const asked = new URLSearchParams({ root, q: query.text, mode: query.mode, case: query.caseSensitive ? '1' : '0', word: query.wholeWord ? '1' : '0' });
+  const response = await fetch(`/api/search?${asked}`).catch(() => undefined);
+  return parseSearchFound(await response?.json().catch(() => undefined));
 }
 
 /**

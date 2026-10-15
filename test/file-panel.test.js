@@ -14,17 +14,45 @@ const { createFilePanel } = await import('../public/view/file-panel.js');
 /** A viewer without an editor. @type {EditorOpener} */
 const noEditor = { reach: async () => 'none', check: async () => 'none', open: async () => ({ ok: false, error: 'no-editor' }) };
 
+/** @typedef {import('../public/model/project.js').Match} Match */
+
 /**
- * The panel as app.js creates it, in a page of its own.
+ * The panel as app.js creates it, in a page of its own; a file's project is D:/dev/shop, its search finding these lines.
  * @param {EditorOpener} [editor]
+ * @param {readonly Match[]} [lines]
  */
-function filePanel(editor = noEditor) {
+function filePanel(editor = noEditor, lines = []) {
   const layout = window.document.createElement('main');
   const panel = window.document.createElement('aside');
   panel.hidden = true;
   layout.append(panel);
   window.document.body.append(layout);
-  const files = createFilePanel({ panel, layout, editor });
+  const files = createFilePanel({
+    panel,
+    layout,
+    editor,
+    // a folder linked: its files, with nothing in them
+    folder: (root) => ({ root, listFolder: async (path) => ({ ok: true, path, entries: [], more: false }), search: async () => undefined, links: async () => undefined }),
+    // an icon that tells what it was asked for
+    iconOf: (name, kind, open) => Object.assign(window.document.createElement('span'), { className: 'file-icon', title: `${kind}:${name}${open ? ':open' : ''}` }),
+    project: () => ({
+      root: 'D:/dev/shop',
+      listFolder: async (path) => ({ ok: true, path, entries: [], more: false }),
+      search: async (query) => ({ ok: true, root: 'D:/dev/shop', matches: lines.filter((line) => line.text.includes(query.text)), more: false }),
+      // limits.ts imports clock.ts and express, and app.ts imports it
+      links: async () => ({
+        ok: true,
+        imports: [
+          { line: 1, spec: './clock', path: 'D:/dev/shop/src/clock.ts' },
+          { line: 2, spec: 'express', path: undefined },
+          // a type import of the same file further on: listed once
+          { line: 9, spec: './clock', path: 'D:/dev/shop/src/clock.ts' },
+        ],
+        importedBy: [{ path: 'D:/dev/shop/src/app.ts', line: 3, text: "import { allow } from './limits';" }],
+        more: false,
+      }),
+    }),
+  });
   /** Opens the file a link in the feed points at. @param {string} path */
   const open = (path) => files.open({ path, line: undefined, endLine: undefined });
   /** The path of the picture the panel shows. */
@@ -150,31 +178,32 @@ test('filePanel_Should_DrawMarkdownDocument_WithItsLinksToFilesOpeningInPanel', 
   );
 });
 
-// A link to a line of a markdown file opens its source at that line; the button over the panel turns it into the drawn
-// document and back
-test('filePanel_Should_OpenMarkdownSourceAtLinkedLine_And_SwitchToDocumentAndBack', async () => {
+// A markdown file opens drawn as a document even from a link to a line of it — as the feed's links mostly are; Source
+// over the panel shows its text, the linked line marked, and Document the drawn document again
+test('filePanel_Should_OpenMarkdownLinkedAtLineAsDocument_And_ShowItsSourceAtThatLine', async () => {
   serveTexts({ 'D:/dev/x/notes.md': '# Notes\n\nfirst\n\nsecond\n' });
   const { panel, files } = filePanel();
   const shown = () => ({ source: panel.querySelector('.panel-body .fv-code') !== null, document: panel.querySelector('.panel-body .fv-markdown') !== null, mark: panel.querySelector('.panel-body .fv-line-mark') !== null });
-  const toggle = () => {
-    const button = panel.querySelector('.panel-view');
-    assert.ok(button instanceof window.HTMLButtonElement);
-    return button;
+  /** @param {string} label */
+  const press = (label) => {
+    const button = [...panel.querySelectorAll('.panel-view button')].find((one) => one.textContent === label);
+    assert.ok(button instanceof window.HTMLButtonElement, label);
+    button.click();
   };
 
   files.open({ path: 'D:/dev/x/notes.md', line: 5, endLine: undefined });
   await settled();
   const atLine = shown();
-  toggle().click();
+  press('Source');
   await settled();
-  const drawn = shown();
-  toggle().click();
+  const source = shown();
+  press('Document');
   await settled();
 
-  assert.deepEqual({ atLine, drawn, back: shown() }, {
-    atLine: { source: true, document: false, mark: true },
-    drawn: { source: false, document: true, mark: false },
-    back: { source: true, document: false, mark: true },
+  assert.deepEqual({ atLine, source, back: shown() }, {
+    atLine: { source: false, document: true, mark: false },
+    source: { source: true, document: false, mark: true },
+    back: { source: false, document: true, mark: false },
   });
 });
 
@@ -201,7 +230,7 @@ test('filePanel_Should_DrawPageInSandboxedFrame_And_RunScriptsOnlyWhenAsked', as
   press('.panel-scripts');
   await settled();
   const running = frame();
-  press('.panel-view');
+  press('.panel-view-source');
   await settled();
 
   assert.deepEqual(
@@ -243,4 +272,185 @@ test('filePanel_Should_ShowBranchChanges_And_GoBackToThemFromFileOpenedThere', a
     { shownChanges, shownFile, back: title(), sameList: panel.querySelector('.panel-body .changes') === listed },
     { shownChanges: ['Branch changes', 'feat since main'], shownFile: ['limits.ts', 'D:/dev/shop/src/limits.ts'], back: ['Branch changes', 'feat since main'], sameList: true },
   );
+});
+
+// A text file — code, a document's source, a table — is edited in the panel; a picture, a PDF, a Word document is not
+test('filePanel_Should_OfferEditingOfTextFilesOnly', () => {
+  const offered = ['D:/dev/x/src/limits.ts', 'D:/dev/x/README.md', 'D:/dev/x/orders.csv', 'D:/dev/x/docs/mobile.png', 'D:/dev/x/docs/spec.pdf', 'D:/dev/x/docs/spec.docx'].map((path) => {
+    const button = openedAt(path).querySelector('.panel-edit');
+    return button instanceof window.HTMLButtonElement && !button.hidden;
+  });
+
+  assert.deepEqual(offered, [true, true, true, false, false, false]);
+});
+
+// The project's files in place of a file: its folder's tree, a file opened from it in the panel, and the way back to
+// the tree as it was left — named for what it leads back to
+test('filePanel_Should_ShowProjectFiles_And_GoBackToThemFromFileOpenedThere', async () => {
+  const { panel, files } = filePanel();
+  const title = () => [panel.querySelector('.panel-name')?.textContent, panel.querySelector('.panel-path')?.textContent];
+  files.showProject({
+    root: 'D:/dev/shop',
+    listFolder: async (path) => ({ ok: true, path, entries: path === 'D:/dev/shop' ? [{ name: 'README.md', kind: 'file' }] : [], more: false }),
+    search: async () => undefined,
+  });
+  await new Promise((done) => setTimeout(done, 0));
+  const shownFiles = title();
+  const listed = panel.querySelector('.panel-body .project');
+
+  panel.querySelector('.project-entry')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  const shownFile = title();
+  const back = panel.querySelector('.panel-back');
+  const backSays = back?.textContent;
+  back?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+
+  assert.deepEqual(
+    { shownFiles, shownFile, backSays, back: title(), sameList: panel.querySelector('.panel-body .project') === listed },
+    { shownFiles: ['Files', 'D:/dev/shop'], shownFile: ['README.md', 'D:/dev/shop/README.md'], backSays: '← Files', back: ['Files', 'D:/dev/shop'], sameList: true },
+  );
+});
+
+// A name looked for from the editor: its one definition opens at its line, the way back leading to what was found; its
+// uses show in the project's files, definitions first
+test('filePanel_Should_GoToNamesOneDefinition_And_ShowItsUsesInProject', async () => {
+  const lines = [
+    { path: 'D:/dev/shop/src/app.ts', line: 7, column: 3, text: '  allow(count);' },
+    { path: 'D:/dev/shop/src/limits.ts', line: 4, column: 17, text: 'export function allow(count: number): boolean {' },
+  ];
+  const { panel, files } = filePanel(noEditor, lines);
+  const title = () => [panel.querySelector('.panel-name')?.textContent, panel.querySelector('.panel-line')?.textContent];
+
+  await files.findName('definition', 'allow', 'D:/dev/shop/src/app.ts');
+  const definition = { title: title(), back: panel.querySelector('.panel-back')?.hasAttribute('hidden') === false };
+  await files.findName('uses', 'allow', 'D:/dev/shop/src/app.ts');
+  const uses = { title: title(), sections: [...panel.querySelectorAll('.project-section-title')].map((one) => one.textContent) };
+
+  assert.deepEqual(
+    { definition, uses },
+    { definition: { title: ['limits.ts', 'line 4'], back: true }, uses: { title: ['Files', ''], sections: ['Definition', 'Uses'] } },
+  );
+});
+
+// A code file's links: what it imports — a package's import leading to no file — and what imports it; an import opens
+// its file, with the way back to the links
+test('filePanel_Should_ShowFilesLinks_And_OpenImportedFile', async () => {
+  const { panel, open } = filePanel();
+  open('D:/dev/shop/src/limits.ts');
+  const button = panel.querySelector('.panel-links');
+  assert.ok(button instanceof window.HTMLButtonElement && !button.hidden);
+
+  button.click();
+  await new Promise((done) => setTimeout(done, 0));
+  const shown = {
+    title: panel.querySelector('.panel-name')?.textContent,
+    sections: [...panel.querySelectorAll('.links-section')].map((section) => ({
+      title: section.querySelector('.project-section-title')?.textContent,
+      rows: [...section.querySelectorAll('.links-row')].map((row) => row.textContent),
+    })),
+  };
+  const clock = [...panel.querySelectorAll('.links-row')].find((row) => row.textContent?.includes('clock'));
+  assert.ok(clock instanceof window.HTMLElement);
+  clock.click();
+
+  assert.deepEqual(
+    { shown, opened: panel.querySelector('.panel-name')?.textContent, back: panel.querySelector('.panel-back')?.textContent },
+    {
+      shown: {
+        title: 'Links',
+        sections: [
+          { title: 'Imports', rows: ['1./clocksrc/clock.ts', '2expresspackage'] },
+          { title: 'Imported by', rows: ["src/app.ts3import { allow } from './limits';"] },
+        ],
+      },
+      opened: 'clock.ts',
+      back: '← Links',
+    },
+  );
+});
+
+// A file opened from the project's files shows beside them: the tree stays on the left, the file on the right, the one
+// opened marked in the tree; another file from the tree takes its place; the way back to the files leaves the file
+test('filePanel_Should_ShowFileBesideProjectsTree_TreeStaying', async () => {
+  const { panel, files } = filePanel();
+  files.showProject({
+    root: 'D:/dev/shop',
+    listFolder: async (path) => ({ ok: true, path, entries: path === 'D:/dev/shop' ? [{ name: 'README.md', kind: 'file' }, { name: 'limits.ts', kind: 'file' }] : [], more: false }),
+    search: async () => undefined,
+  });
+  await new Promise((done) => setTimeout(done, 0));
+  /** @param {string} label */
+  const row = (label) => [...panel.querySelectorAll('.project-entry')].find((one) => one.textContent === label);
+  const state = () => ({
+    split: panel.classList.contains('split'),
+    tree: panel.querySelector('.panel-side .project') !== null,
+    file: panel.querySelector('.panel-name')?.textContent,
+    marked: [...panel.querySelectorAll('.project-entry.selected')].map((one) => one.textContent),
+  });
+
+  row('README.md')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const first = state();
+  row('limits.ts')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const second = state();
+  panel.querySelector('.panel-back')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+
+  assert.deepEqual(
+    { first, second, back: state() },
+    {
+      first: { split: true, tree: true, file: 'README.md', marked: ['README.md'] },
+      second: { split: true, tree: true, file: 'limits.ts', marked: ['limits.ts'] },
+      back: { split: false, tree: false, file: 'Files', marked: ['limits.ts'] },
+    },
+  );
+});
+
+// Beside the project's files a file can take the whole panel: a button hides the files and shows them again; the files'
+// list itself has no such button
+test('filePanel_Should_HideProjectsTreeBesideFile_AndShowItAgain', async () => {
+  const { panel, files } = filePanel();
+  files.showProject({
+    root: 'D:/dev/shop',
+    listFolder: async (path) => ({ ok: true, path, entries: path === 'D:/dev/shop' ? [{ name: 'README.md', kind: 'file' }] : [], more: false }),
+    search: async () => undefined,
+  });
+  await new Promise((done) => setTimeout(done, 0));
+  const toggle = () => panel.querySelector('.panel-tree');
+  const state = () => ({ offered: toggle() instanceof window.HTMLElement && !toggle()?.hasAttribute('hidden'), treeHidden: panel.classList.contains('tree-hidden') });
+  const listed = state();
+
+  [...panel.querySelectorAll('.project-entry')].find((one) => one.textContent === 'README.md')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const beside = state();
+  toggle()?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const hidden = state();
+  toggle()?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+
+  assert.deepEqual(
+    { listed, beside, hidden, shown: state() },
+    {
+      listed: { offered: false, treeHidden: false },
+      beside: { offered: true, treeHidden: false },
+      hidden: { offered: true, treeHidden: true },
+      shown: { offered: true, treeHidden: false },
+    },
+  );
+});
+
+// A link to a folder opens its files: one written as a folder — its slash at the end — at once, one that turns out to be
+// a folder once the viewer says so
+test('filePanel_Should_ShowFolderLinkedAsItsFiles', async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: false, error: 'not-a-file' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+  try {
+    const { panel, open } = filePanel();
+    const title = () => [panel.querySelector('.panel-name')?.textContent, panel.querySelector('.panel-path')?.textContent];
+
+    open('D:/Downloads/puzzle/unpacked/');
+    await new Promise((done) => setTimeout(done, 0));
+    const slashed = title();
+    open('D:/Downloads/puzzle/assets');
+    await new Promise((done) => setTimeout(done, 20));
+
+    assert.deepEqual({ slashed, plain: title() }, { slashed: ['Files', 'D:/Downloads/puzzle/unpacked'], plain: ['Files', 'D:/Downloads/puzzle/assets'] });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
