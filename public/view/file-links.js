@@ -1,6 +1,6 @@
 // @ts-check
 // File paths in rendered text → links that open the file in the right-hand panel.
-import { fileRefFromHref, findFileRefs } from '../model/file-ref.js';
+import { fileRefFromHref, findFileRefs, wholeFileRef } from '../model/file-ref.js';
 import { h } from './dom.js';
 
 /**
@@ -16,6 +16,12 @@ export function linkFileRefs(root) {
   for (const link of root.querySelectorAll('a[href^="file:"]')) {
     const target = fileRefFromHref(link.getAttribute('href') ?? '');
     if (target !== undefined) markFileLink(link, target);
+  }
+  // inline code that is a path as a whole is one link, spaces and all
+  for (const code of root.querySelectorAll('code')) {
+    const text = code.textContent;
+    const whole = text === null || code.closest('pre, a') !== null ? undefined : wholeFileRef(text);
+    if (whole !== undefined) code.replaceChildren(fileLink(whole, whole.text));
   }
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   /** @type {Text[]} */

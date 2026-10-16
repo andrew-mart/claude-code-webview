@@ -57,11 +57,39 @@ export function findFileRefs(source) {
  * @returns {FileRef}
  */
 function withSpacedName(source, ref) {
-  const lastName = ref.path.split(/[\\/]/).pop() ?? '';
-  if (ref.line !== undefined || /\.[A-Za-z0-9]+$/.test(lastName)) return ref;
+  if (ref.line !== undefined || endsInFileName(ref.path)) return ref;
   const [tail, name, line, endLine] = spacedName.exec(source.slice(ref.index + ref.text.length)) ?? [];
   if (tail === undefined || name === undefined) return ref;
   return { index: ref.index, text: ref.text + tail, path: ref.path + name, line: lineNumber(line), endLine: lineNumber(endLine) };
+}
+
+/**
+ * A path from its start to its end, spaces in its names allowed, optionally followed by its line: what inline code
+ * holds when it is a path.
+ */
+const wholePath = new RegExp(String.raw`^((?:[A-Za-z]:[\\/]|~/|/(?:${posixRoots.join('|')})/)[^"<>|*?:\n\`]*[^"<>|*?:\n\`\s.])(?::(\d+)(?:-(\d+)|:\d+)?)?$`);
+
+/**
+ * The path inline code is as a whole, spaces in the names of its folders included: `D:/docs/20261016 - hosting/` is one
+ * path, which text ends at its first space. None for code that is no path or one found whole in text as it is — nor for
+ * code where the name of a file ends before it does: `D:/docs/a.md and b.md` is a file and words.
+ * @param {string} code
+ * @returns {FileRef | undefined}
+ */
+export function wholeFileRef(code) {
+  const [first] = findFileRefs(code);
+  if (first === undefined || first.index !== 0 || first.text === code || first.line !== undefined || endsInFileName(first.path)) return undefined;
+  const [text, path, line, endLine] = wholePath.exec(code) ?? [];
+  if (text === undefined || path === undefined) return undefined;
+  return { index: 0, text, path, line: lineNumber(line), endLine: lineNumber(endLine) };
+}
+
+/**
+ * @param {string} path
+ * @returns {boolean} — whether its last name has an extension
+ */
+function endsInFileName(path) {
+  return /\.[A-Za-z0-9]+$/.test(path.split(/[\\/]/).pop() ?? '');
 }
 
 /**

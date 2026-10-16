@@ -72,6 +72,18 @@ test('renderMarkdown_Should_TurnFilePathsInTextHeadingsAndInlineCodeIntoLinks', 
   ]);
 });
 
+// Inline code that is a path as a whole is one link, spaces in the names of its folders and all; code that only starts
+// with a path to a file links that file alone
+test('renderMarkdown_Should_LinkInlineCodeThatIsPathWithSpaces_AsAWhole', () => {
+  const holder = html(renderMarkdown('In `D:/dev/x/20261016 - hosting/` and `D:/dev/My Docs/plan.md:12`, not `D:/dev/x/a.md and b.md`'));
+
+  assert.deepEqual(fileLinks(holder), [
+    { text: 'D:/dev/x/20261016 - hosting/', path: 'D:/dev/x/20261016 - hosting/', line: null, inside: 'CODE' },
+    { text: 'D:/dev/My Docs/plan.md:12', path: 'D:/dev/My Docs/plan.md', line: '12', inside: 'CODE' },
+    { text: 'D:/dev/x/a.md', path: 'D:/dev/x/a.md', line: null, inside: 'CODE' },
+  ]);
+});
+
 test('renderMarkdown_Should_KeepPathsInsideCodeBlocksAsText', () => {
   assert.deepEqual(fileLinks(html(renderMarkdown('```\nD:/dev/x/a.cs:41\n```'))), []);
 });
