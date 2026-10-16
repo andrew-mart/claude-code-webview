@@ -5,29 +5,30 @@ import { JSDOM } from 'jsdom';
 // DOMPurify binds to window on import (through the feed's markdown), so the DOM is set up before the view loads.
 const { window } = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
 
-/** The page's stream from the viewer, played by the test: it tells what the server sends. */
-class FakeSource {
-  static CLOSED = 2;
-  /** @type {FakeSource[]} */
-  static made = [];
-  readyState = 1;
-  /** @param {string} url */
-  constructor(url) {
-    this.url = url;
-    /** @type {Record<string, ((message: { data: string }) => void)[]>} */
+/** A session's feed from the viewer, played by the test: it tells what the server sends. */
+class FakeFeed {
+  /** @param {import('../public/view/feed-hub.js').Wanted} wanted */
+  constructor(wanted) {
+    this.wanted = wanted;
+    /** The token it was asked from, as the page's stream asks it. */
+    this.from = wanted.from();
+    /** @type {Record<string, ((data: unknown) => void)[]>} */
     this.listeners = {};
-    FakeSource.made.push(this);
+    this.letGo = false;
   }
-  /** @param {string} type @param {(message: { data: string }) => void} listener */
-  addEventListener(type, listener) {
+  /** @param {string} type @param {(data: unknown) => void} listener */
+  on(type, listener) {
     (this.listeners[type] ??= []).push(listener);
   }
   /** @param {string} type @param {unknown} [data] */
   emit(type, data) {
-    for (const listener of this.listeners[type] ?? []) listener({ data: JSON.stringify(data ?? null) });
+    for (const listener of this.listeners[type] ?? []) listener(JSON.parse(JSON.stringify(data ?? null)));
   }
   close() {
-    this.readyState = FakeSource.CLOSED;
+    this.letGo = true;
+  }
+  closed() {
+    return false;
   }
 }
 
@@ -38,7 +39,6 @@ Object.assign(globalThis, {
   Text: window.Text,
   Element: window.Element,
   HTMLElement: window.HTMLElement,
-  EventSource: FakeSource,
   matchMedia: () => ({ matches: false }),
   ResizeObserver: class {
     observe() {}
@@ -46,6 +46,7 @@ Object.assign(globalThis, {
   },
 });
 const { mountSession } = await import('../public/view/session-view.js');
+const { tailCheck } = await import('../public/model/feed-check.js');
 
 const at = '2026-10-09T07:02:11.686Z';
 /** @param {string} uuid @param {string} text */
@@ -56,12 +57,23 @@ const settled = () => new Promise((done) => setTimeout(done, 10));
 const answer = (uuid, text) => ({ type: 'assistant', uuid, timestamp: at, message: { role: 'assistant', content: [{ type: 'text', text }] } });
 
 /**
- * A session mounted with this copy kept from before, the viewer in reach.
+ * What the viewer tells after what it sent, for the page to hold these.
+ * @param {string} token @param {readonly unknown[]} held @param {number} [earlier]
+ */
+const cursor = (token, held, earlier = 0) => ({ token, shown: earlier + held.length, check: tailCheck(held.slice(-16)) });
+
+/**
+ * A session mounted with this copy kept from before, the viewer in reach; once the copy is read, its feed asked for. It
+ * is let go of when the test ends, a failed one too: its timers would keep the tests running.
+ * @param {import('node:test').TestContext} t
  * @param {import('../public/view/offline-store.js').SavedFeed | undefined} saved
  * @param {import('../public/view/bookmark-store.js').BookmarkStore} [bookmarks]
  */
-function mounted(saved, bookmarks) {
-  FakeSource.made = [];
+async function mounted(t, saved, bookmarks) {
+  /** The feeds asked for, the latest last. @type {FakeFeed[]} */
+  const feeds = [];
+  /** The copies kept. @type {import('../public/view/offline-store.js').SavedFeed[]} */
+  const saves = [];
   const scroller = window.document.createElement('div');
   window.document.body.append(scroller);
   const view = mountSession({
@@ -72,11 +84,18 @@ function mounted(saved, bookmarks) {
     onRewind: undefined,
     sendQueueNow: undefined,
     startAt: undefined,
-    keeping: { load: async () => saved, save: () => undefined, online: () => true, onOnline: () => () => undefined },
+    keeping: { load: async () => saved, save: (feed) => void saves.push(feed), online: () => true, onOnline: () => () => undefined },
     listener: { onMeta: () => undefined, onStatus: () => undefined, onPrompt: () => undefined, onReset: () => undefined },
+    openFeed: (wanted) => {
+      const feed = new FakeFeed(wanted);
+      feeds.push(feed);
+      return feed;
+    },
   });
   scroller.append(view.element);
-  const source = FakeSource.made[0];
+  t.after(() => view.dispose());
+  await settled();
+  const source = feeds[0];
   assert.ok(source);
   /** What the reader sees: the prompts shown, whether it says it loads or updates. */
   const seen = () => ({
@@ -84,13 +103,15 @@ function mounted(saved, bookmarks) {
     loading: !(view.element.querySelector('.loading')?.hasAttribute('hidden') ?? true),
     updating: !(view.element.querySelector('.updating')?.hasAttribute('hidden') ?? true),
   });
-  return { view, source, seen };
+  /** Whether the mark of being brought up to date sits under the session's latest message, the feed shown. */
+  const markUnderFeed = () => view.element.querySelector('.updating')?.previousElementSibling?.matches('.thread:not(.kept)') === true;
+  return { view, source, feeds, saves, seen, markUnderFeed };
 }
 
 // A session opens at once with the copy kept from the last time, marked as being brought up to date; once the viewer
 // has sent the session, it shows that — the copy gone, the mark too
-test('mountSession_Should_ShowKeptCopyAtOnce_MarkedAsUpdating_ThenTheFreshSession', async () => {
-  const { view, source, seen } = mounted({ entries: [prompt('u1', 'Old question')], earlier: 0, lastActivity: undefined, savedAt: 1 });
+test('mountSession_Should_ShowKeptCopyAtOnce_MarkedAsUpdating_ThenTheFreshSession', async (t) => {
+  const { view, source, seen } = await mounted(t, { entries: [prompt('u1', 'Old question')], earlier: 0, lastActivity: undefined, savedAt: 1 });
   await settled();
   const meanwhile = seen();
 
@@ -107,8 +128,8 @@ test('mountSession_Should_ShowKeptCopyAtOnce_MarkedAsUpdating_ThenTheFreshSessio
 });
 
 // A session never kept opens as before: it says it loads until the viewer has sent it
-test('mountSession_Should_SayItLoads_When_NoCopyIsKept', async () => {
-  const { view, source, seen } = mounted(undefined);
+test('mountSession_Should_SayItLoads_When_NoCopyIsKept', async (t) => {
+  const { view, source, seen } = await mounted(t, undefined);
   await settled();
   const meanwhile = seen();
 
@@ -125,7 +146,7 @@ test('mountSession_Should_SayItLoads_When_NoCopyIsKept', async () => {
 });
 
 // An answer is bookmarked from its corner or from under it — read to its end — both flags showing it bookmarked
-test('mountSession_Should_OfferAnswersBookmarkUnderItToo_BothFlagsShowingIt', async () => {
+test('mountSession_Should_OfferAnswersBookmarkUnderItToo_BothFlagsShowingIt', async (t) => {
   /** @type {Set<string>} */
   const marked = new Set();
   /** @type {(() => void)[]} */
@@ -144,7 +165,7 @@ test('mountSession_Should_OfferAnswersBookmarkUnderItToo_BothFlagsShowingIt', as
     },
     dispose: () => undefined,
   };
-  const { view, source } = mounted(undefined, bookmarks);
+  const { view, source } = await mounted(t, undefined, bookmarks);
   source.emit('open');
   source.emit('entries', [prompt('u1', 'Question'), answer('a1', 'The answer.')]);
   source.emit('ready');
@@ -162,8 +183,8 @@ test('mountSession_Should_OfferAnswersBookmarkUnderItToo_BothFlagsShowingIt', as
 
 // A prompt sent from the page shows in the feed at once, as sent — the terminal took it — until Claude Code writes it
 // down: then it is the prompt itself, once
-test('mountSession_Should_ShowPromptSentFromPage_UntilClaudeWritesItDown', async () => {
-  const { view, source } = mounted(undefined);
+test('mountSession_Should_ShowPromptSentFromPage_UntilClaudeWritesItDown', async (t) => {
+  const { view, source } = await mounted(t, undefined);
   source.emit('open');
   source.emit('entries', [prompt('u1', 'Question')]);
   source.emit('ready');
@@ -178,4 +199,150 @@ test('mountSession_Should_ShowPromptSentFromPage_UntilClaudeWritesItDown', async
   view.dispose();
 
   assert.deepEqual({ meanwhile, after }, { meanwhile: ['Check the  limits\nagain'], after: { sent: [], prompts: ['Question', 'Check the limits again'] } });
+});
+
+// A copy kept with the viewer's token shows at once as the session itself — marked as being brought up to date under
+// its latest message — and the viewer, asked from the token, sends what came since alone: no entry twice; the copy is
+// kept again with the viewer's new token
+test('mountSession_Should_GoOnFromKeptCopyWithToken_ShowingItAtOnceAsTheSession', async (t) => {
+  const old = prompt('u1', 'Old question');
+  const { view, source, saves, seen, markUnderFeed } = await mounted(t, { entries: [old], earlier: 0, token: 't1', lastActivity: undefined, savedAt: 1 });
+  const meanwhile = { ...seen(), from: source.from, markUnderFeed: markUnderFeed() };
+
+  source.emit('open', { resumed: true });
+  source.emit('entries', [prompt('u2', 'New question')]);
+  source.emit('cursor', cursor('t2', [old, prompt('u2', 'New question')]));
+  source.emit('ready');
+  await settled();
+  view.dispose();
+
+  assert.deepEqual(
+    { meanwhile, after: seen(), keptToken: saves.at(-1)?.token },
+    { meanwhile: { prompts: ['Old question'], loading: false, updating: true, from: 't1', markUnderFeed: true }, after: { prompts: ['Old question', 'New question'], loading: false, updating: false }, keptToken: 't2' },
+  );
+});
+
+// A copy the viewer cannot go on from — the file rewritten, another build — stays in view, marked as being brought up
+// to date, while the session comes whole; then the session shows in its place, no entry twice
+test('mountSession_Should_KeepCopyInView_When_ViewerCannotGoOnFromIt_ThenShowSessionWhole', async (t) => {
+  const { view, source, seen } = await mounted(t, { entries: [prompt('u1', 'Old question')], earlier: 0, token: 't1', lastActivity: undefined, savedAt: 1 });
+
+  source.emit('open', { resumed: true });
+  source.emit('reset');
+  const meanwhile = seen();
+  const whole = [prompt('u1', 'Old question'), prompt('u9', 'Another question')];
+  source.emit('entries', whole);
+  source.emit('cursor', cursor('t9', whole));
+  source.emit('ready');
+  await settled();
+  view.dispose();
+
+  assert.deepEqual({ meanwhile, after: seen() }, { meanwhile: { prompts: ['Old question'], loading: false, updating: true }, after: { prompts: ['Old question', 'Another question'], loading: false, updating: false } });
+});
+
+// The viewer says the page should hold other entries than it does — whatever went wrong: the session is read anew from
+// its start, asked for with no token, the feed out of step let go of
+test('mountSession_Should_ReadSessionAnew_When_ItsCopyIsOutOfStepWithViewer', async (t) => {
+  const { view, source, feeds, seen } = await mounted(t, undefined);
+  source.emit('open');
+  source.emit('entries', [prompt('u1', 'Question')]);
+
+  source.emit('cursor', { token: 't1', shown: 5, check: 'x' });
+  const anew = feeds[1];
+  assert.ok(anew);
+  const whole = [prompt('u1', 'Question'), prompt('u2', 'Next question')];
+  anew.emit('open');
+  anew.emit('entries', whole);
+  anew.emit('cursor', cursor('t2', whole));
+  anew.emit('ready');
+  await settled();
+  view.dispose();
+
+  assert.deepEqual({ firstLetGo: source.letGo, from: anew.from, after: seen().prompts }, { firstLetGo: true, from: undefined, after: ['Question', 'Next question'] });
+});
+
+// The stream reconnected: the feed goes on from its copy, nothing sent again; reconnected while entries past the last
+// token are held — they would come twice — it starts over and the session comes whole, no entry twice either
+test('mountSession_Should_GoOnAfterReconnect_FromItsCopy_OrStartOverWithEntriesPastToken', async (t) => {
+  const { view, source, seen } = await mounted(t, undefined);
+  const first = [prompt('u1', 'First')];
+  source.emit('open');
+  source.emit('entries', first);
+  source.emit('cursor', cursor('t1', first));
+  source.emit('ready');
+  await settled();
+
+  const goesOnFrom = source.wanted.from();
+  source.emit('open', { resumed: true });
+  source.emit('entries', [prompt('u2', 'Second')]);
+  source.emit('cursor', cursor('t2', [...first, prompt('u2', 'Second')]));
+  const wentOn = seen().prompts;
+  source.emit('entries', [prompt('u3', 'Third')]);
+  const pastToken = source.wanted.from();
+  source.emit('open', { resumed: false });
+  const whole = [...first, prompt('u2', 'Second'), prompt('u3', 'Third')];
+  source.emit('entries', whole);
+  source.emit('cursor', cursor('t3', whole));
+  source.emit('ready');
+  await settled();
+  view.dispose();
+
+  assert.deepEqual({ goesOnFrom, wentOn, pastToken, after: seen().prompts }, { goesOnFrom: 't1', wentOn: ['First', 'Second'], pastToken: undefined, after: ['First', 'Second', 'Third'] });
+});
+
+// A session not shown is paused: its feed let go of, the page's stream not kept busy for it; shown again, it goes on
+// from its copy — the viewer sends what came since alone — its feed as it was, nothing loaded anew
+test('mountSession_Should_LetFeedGoWhilePaused_AndGoOnFromItsCopyWhenResumed', async (t) => {
+  const { view, source, feeds, seen } = await mounted(t, undefined);
+  const first = [prompt('u1', 'First')];
+  source.emit('open');
+  source.emit('entries', first);
+  source.emit('cursor', cursor('t1', first));
+  source.emit('ready');
+  await settled();
+
+  view.pause();
+  const letGo = source.letGo;
+  view.resume();
+  const again = feeds[1];
+  assert.ok(again);
+  again.emit('open', { resumed: true });
+  const meanwhile = seen();
+  again.emit('entries', [prompt('u2', 'Second')]);
+  again.emit('cursor', cursor('t2', [...first, prompt('u2', 'Second')]));
+  again.emit('ready');
+  await settled();
+
+  assert.deepEqual({ letGo, from: again.from, meanwhile, after: seen() }, {
+    letGo: true,
+    from: 't1',
+    meanwhile: { prompts: ['First'], loading: false, updating: false },
+    after: { prompts: ['First', 'Second'], loading: false, updating: false },
+  });
+});
+
+// Paused while it held entries past its token — they would come twice — the feed resumed starts over: the session
+// comes whole, no entry twice
+test('mountSession_Should_StartOver_When_ResumedWithEntriesPastItsToken', async (t) => {
+  const { view, source, feeds, seen } = await mounted(t, undefined);
+  const first = [prompt('u1', 'First')];
+  source.emit('open');
+  source.emit('entries', first);
+  source.emit('cursor', cursor('t1', first));
+  source.emit('ready');
+  source.emit('entries', [prompt('u2', 'Second')]);
+  await settled();
+
+  view.pause();
+  view.resume();
+  const again = feeds[1];
+  assert.ok(again);
+  const whole = [...first, prompt('u2', 'Second'), prompt('u3', 'Third')];
+  again.emit('open', { resumed: false });
+  again.emit('entries', whole);
+  again.emit('cursor', cursor('t3', whole));
+  again.emit('ready');
+  await settled();
+
+  assert.deepEqual({ from: again.from, after: seen().prompts }, { from: undefined, after: ['First', 'Second', 'Third'] });
 });

@@ -3,7 +3,7 @@
 import { formatAgo } from './model/format.js';
 import { isRecord, text } from './model/narrow.js';
 import { currentIndex, stepTarget } from './model/outline.js';
-import { feedToKeep, keptEntries, sessionsToSave } from './model/offline.js';
+import { keptEntries, sessionsToSave } from './model/offline.js';
 import { groupedSessions, listedSessions, mergeSessions } from './model/session-list.js';
 import { actionLabel, choices, nextChoice } from './model/view-settings.js';
 import { agentMark } from './view/agent-marks.js';
@@ -45,6 +45,10 @@ import { relabelTables } from './view/markdown.js';
 import { createResizer, restoreWidth } from './view/resizer.js';
 import { icon } from './view/icons.js';
 import { activityModeEvent, jumpMarginPx, mountSession, openSubagentTranscript } from './view/session-view.js';
+import { createFeedHub } from './view/feed-hub.js';
+import { createFeedKeeper } from './view/feed-keeper.js';
+import { createSessionRelay } from './view/session-relay.js';
+import { createWarmSessions } from './view/warm-sessions.js';
 import { createSidebarHead } from './view/sidebar-head.js';
 import { createTasksView } from './view/tasks-view.js';
 
@@ -61,8 +65,9 @@ const workspacesEveryMs = 15_000;
 const herdrEveryMs = 3000;
 /** The polls the viewer answers 304 while nothing changed: herdr's layout, the workspaces, the history. */
 const pollReply = revalidatedPolls((url, init) => fetch(url, init));
-/** While the viewer answers, the latest sessions are saved to read offline this often at most… */
-const keepEveryMs = 5 * 60_000;
+/** While the viewer answers, the copies of the latest sessions are brought up to date this often at most — what came
+ * since each copy alone: little to ask for… */
+const keepEveryMs = 60_000;
 /** …that many of the latest ones worked on, within this stretch of time, their latest entries. */
 const keptSessions = 8;
 const keptWithinMs = 3 * 24 * 3600_000;
@@ -92,6 +97,26 @@ const updateNotice = createUpdateNotice();
 // Out of the viewer's reach — the computer is off — the page shows what it saved: the session list and the sessions'
 // feeds (view/offline-store.js); it reconnects by itself.
 const offline = openOfflineStore();
+// The sessions' feeds over one stream of the page's own: a stream each would use up the few connections a browser opens
+// to the viewer once the page follows a few sessions at once (view/feed-hub.js).
+const feedHub = createFeedHub({
+  page: [...crypto.getRandomValues(new Uint8Array(12))].map((byte) => byte.toString(16).padStart(2, '0')).join(''),
+  connect: (url) => new EventSource(url),
+  post: async (path, body) => {
+    const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Viewer': '1' }, body: JSON.stringify(body) }).catch(() => undefined);
+    return response?.ok === true;
+  },
+  retryMs: 2000,
+});
+// The copies kept of sessions not open, brought up to date in the background (view/feed-keeper.js).
+const feedKeeper = createFeedKeeper({
+  open: feedHub.open,
+  read: (sessionId) => offline.readFeed(sessionId),
+  save: (sessionId, feed) => offline.saveFeed(sessionId, feed),
+  tail: keptTail,
+  keep: keptEntries,
+  waitMs: 30_000,
+});
 const offlineNotice = createOfflineNotice();
 const connection = createConnection((online) => {
   offlineNotice.hidden = online;
@@ -212,8 +237,8 @@ function createPage() {
   /** @type {number | undefined} */
   let listVersion;
   let listMinute = 0;
-  /** agent: whose the session was taken for when it was opened */
-  /** @type {{ id: string, agent: SessionInfo['agent'], dispose: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, keepPlace: (change: () => void) => void, rewound: (reply: import('./model/rewind.js').RewindReply) => void, stop: () => boolean } | undefined} */
+  /** agent: whose the session was taken for when it was opened; putAway: out of sight, kept as shown (warm) */
+  /** @type {{ id: string, agent: SessionInfo['agent'], dispose: () => void, putAway: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, keepPlace: (change: () => void) => void, rewound: (reply: import('./model/rewind.js').RewindReply) => void, stop: () => boolean } | undefined} */
   let current;
   /** How long each session has been written to: its robots' story goes on as its row is drawn again. */
   const workClock = createWorkClock(() => Date.now());
@@ -433,22 +458,26 @@ function createPage() {
     sessions = parseSessions(saved.sessions);
     renderList();
   };
-  // While the viewer answers, the latest sessions worked on are saved now and then, to read when it does not — even
-  // ones this browser has not opened.
+  // While the viewer answers, the copies of the latest sessions worked on are brought up to date now and then — even
+  // ones this browser has not opened, and with the page put away: a session opened shows what is current at once, and
+  // a session read offline is not long out of date.
   let keptAt = 0;
+  let keepingUp = false;
   const keepRecent = async () => {
-    if (!connection.online() || document.visibilityState !== 'visible' || Date.now() - keptAt < keepEveryMs) return;
+    if (!connection.online() || keepingUp || Date.now() - keptAt < keepEveryMs) return;
     keptAt = Date.now();
-    const marks = await offline.marks();
-    for (const id of sessionsToSave(sessions, marks, { now: Date.now(), limit: keptSessions, withinMs: keptWithinMs })) {
-      // The open session keeps its own copy.
-      if (id === current?.id) continue;
-      const response = await fetch(`/api/snapshot?session=${encodeURIComponent(id)}&tail=${keptTail}`).catch(() => undefined);
-      const snapshot = response?.ok ? await response.json().catch(() => undefined) : undefined;
-      if (!isRecord(snapshot) || !Array.isArray(snapshot.entries) || typeof snapshot.earlier !== 'number') break;
-      await offline.saveFeed(id, { ...feedToKeep({ entries: snapshot.entries, earlier: snapshot.earlier }, keptEntries), savedAt: Date.now() });
+    keepingUp = true;
+    try {
+      const marks = await offline.marks();
+      for (const id of sessionsToSave(sessions, marks, { now: Date.now(), limit: keptSessions, withinMs: keptWithinMs })) {
+        // The open session keeps its own copy, and so does one kept as it was shown: it goes on as it is shown again.
+        if (id === current?.id || warm.has(id)) continue;
+        if ((await feedKeeper.catchUp(id)) === 'no-answer') break;
+      }
+      await refreshMarks();
+    } finally {
+      keepingUp = false;
     }
-    await refreshMarks();
   };
 
   /**
@@ -457,8 +486,7 @@ function createPage() {
    */
   const openPane = (paneId) => {
     if (currentPane?.id === paneId) return;
-    if (current !== undefined) places.set(current.id, current.place());
-    current?.dispose();
+    current?.putAway();
     current = undefined;
     currentPane?.terminal.dispose();
     const terminal = mountTerminal({ pane: paneId, size: paneSize(paneId) });
@@ -470,49 +498,59 @@ function createPage() {
     renderList();
   };
 
-  /** @param {string} id */
-  const open = (id) => {
-    if (current?.id === id) return;
-    currentPane?.terminal.dispose();
-    currentPane = undefined;
-    if (current !== undefined) places.set(current.id, current.place());
-    current?.dispose();
-    const info = sessions.find((session) => session.id === id);
-    // a session the list does not have yet is taken for Claude Code's, the viewer's own
-    const agent = info === undefined ? 'claude' : info.agent;
-    const tables = sessionTables(id, (change) => (current === undefined ? change() : current.keepPlace(change)));
-    tables.apply();
-    const header = createSessionHeader({ place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation: [vscodeButton(() => sessions.find((session) => session.id === id)?.cwd), filesButton(() => sessions.find((session) => session.id === id)?.cwd), changesButton(id), drawerButton('outline', 'list', 'Outline')], tools: settings.buttons() });
+  /**
+   * A session's feed, mounted: what is kept of it as it was shown while it is out of sight (warm-sessions.js), its feed
+   * paused — its header, outline and box are made anew each time it is shown.
+   * @typedef {{ scroller: HTMLElement, view: import('./view/session-view.js').MountedSession, bookmarks: ReturnType<typeof createBookmarkStore>, relay: ReturnType<typeof createSessionRelay>, agent: SessionInfo['agent'], queue: { send: () => void }, dispose: () => void }} FeedPart
+   *   relay: what the feed tells, passed on to what shows it now; queue: ⏩ on a message waiting in Claude Code's queue —
+   *   the box shown sends the queue now
+   */
+  /**
+   * The page's body for sessions, made once: in its feed column the feeds of the sessions kept out of sight stay where
+   * they are, laid out and hidden — taken out of the page and put back, a long feed is laid out anew, for seconds on a
+   * phone. A session shows its feed there, its tasks and box under it, its outline beside.
+   */
+  const mainBody = h('div', { className: 'main-body' });
+  const feedColumn = h('div', { className: 'feed-column' });
+  mainBody.append(feedColumn);
+  /**
+   * @param {HTMLElement} headerElement
+   * @param {HTMLElement} scroller — the session's feed
+   * @param {readonly HTMLElement[]} under — under the feed: its tasks, its box
+   * @param {readonly HTMLElement[]} beside — beside the feed column: the outline
+   */
+  const showSessionParts = (headerElement, scroller, under, beside) => {
+    if (main.children[0] === tabBar.element && main.children[2] === mainBody) main.children[1]?.replaceWith(headerElement);
+    else main.replaceChildren(tabBar.element, headerElement, mainBody);
+    for (const child of [...feedColumn.children]) if (!child.classList.contains('scroller')) child.remove();
+    for (const other of feedColumn.querySelectorAll(':scope > .scroller')) other.classList.toggle('parked', other !== scroller);
+    scroller.classList.remove('parked');
+    if (scroller.parentElement !== feedColumn) feedColumn.append(scroller);
+    feedColumn.append(...under);
+    for (const child of [...mainBody.children]) if (child !== feedColumn) child.remove();
+    mainBody.append(...beside);
+  };
+  /** The sessions opened lately, kept as shown while out of sight: one opened again shows at once, as it was. */
+  const warm = createWarmSessions({ limit: matchMedia('(max-width: 820px)').matches ? 3 : 4, letGo: (/** @type {FeedPart} */ part) => part.dispose() });
+  /**
+   * @param {string} id
+   * @param {SessionInfo['agent']} agent
+   * @returns {FeedPart}
+   */
+  const mountFeed = (id, agent) => {
     const scroller = h('div', { className: 'scroller' });
-    const outlineElement = h('aside', { className: 'outline', attrs: { 'aria-label': 'Outline' } });
     const bookmarks = createBookmarkStore(id);
-    /** @type {import('./view/session-view.js').MountedSession | undefined} */
-    let view;
-    const outline = createOutline({
-      element: outlineElement,
-      onJump: (anchorId) => {
-        drawers.close();
-        const shown = view;
-        // A bookmark in the part of a long session that is not loaded yet: the rest is loaded first.
-        if (shown !== undefined && !shown.scrollToAnchor(anchorId) && shown.hasEarlier()) void shown.loadEarlier().then(() => shown.scrollToAnchor(anchorId));
-      },
-      onRemove: (bookmark) => bookmarks.toggle(bookmark),
-    });
-    outline.setBookmarks(bookmarks.list());
-    const unsubscribe = bookmarks.onChange(() => outline.setBookmarks(bookmarks.list()));
-    const spy = createScrollSpy(scroller, () => view?.promptElements() ?? [], outline.setCurrent);
-    // While the history loads, finding the prompt on screen would lay out the growing feed on every frame:
-    // the outline learns it once the feed is loaded.
-    let loaded = false;
-    view = mountSession({
+    const relay = createSessionRelay();
+    const queue = { send: () => undefined };
+    const view = mountSession({
       scroller,
       sessionId: id,
       agentId: undefined,
       bookmarks,
       onRewind: (prompt) => rewindDialog.open(id, prompt, agent),
-      // ⏩ on a message waiting in Claude Code's queue: the box below sends the queue now
-      sendQueueNow: () => composer.sendQueue(),
+      sendQueueNow: () => queue.send(),
       startAt: places.get(id),
+      openFeed: feedHub.open,
       keeping: {
         load: () => offline.readFeed(id),
         save: (feed) => {
@@ -521,22 +559,58 @@ function createPage() {
         online: () => connection.online(),
         onOnline: (listener) => connection.onOnline(listener),
       },
-      listener: {
-        onMeta: header.onMeta,
-        onStatus(next) {
-          header.onStatus(next);
-          if (loaded || next === 'connecting') return;
-          loaded = true;
-          spy.update();
-        },
-        onPrompt(prompt) {
-          outline.addPrompt(prompt);
-          if (loaded) spy.update();
-        },
-        onReset: outline.clear,
-      },
+      listener: relay.listener,
     });
     scroller.append(view.element);
+    return {
+      scroller,
+      view,
+      bookmarks,
+      relay,
+      agent,
+      queue,
+      dispose() {
+        view.dispose();
+        bookmarks.dispose();
+        scroller.remove();
+      },
+    };
+  };
+
+  /** @param {string} id */
+  const open = (id) => {
+    if (current?.id === id) return;
+    currentPane?.terminal.dispose();
+    currentPane = undefined;
+    current?.putAway();
+    current = undefined;
+    const info = sessions.find((session) => session.id === id);
+    // a session the list does not have yet is taken for Claude Code's, the viewer's own
+    const agent = info === undefined ? 'claude' : info.agent;
+    // kept as it was shown, unless it was taken for another's then
+    const kept = warm.takeOut(id);
+    if (kept !== undefined && kept.agent !== agent) kept.dispose();
+    const part = kept !== undefined && kept.agent === agent ? kept : mountFeed(id, agent);
+    const { scroller, view, bookmarks } = part;
+    const tables = sessionTables(id, scroller, (change) => (current === undefined ? change() : current.keepPlace(change)));
+    tables.apply();
+    const header = createSessionHeader({ place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation: [vscodeButton(() => sessions.find((session) => session.id === id)?.cwd), filesButton(() => sessions.find((session) => session.id === id)?.cwd), changesButton(id), drawerButton('outline', 'list', 'Outline')], tools: settings.buttons() });
+    const outlineElement = h('aside', { className: 'outline', attrs: { 'aria-label': 'Outline' } });
+    const outline = createOutline({
+      element: outlineElement,
+      onJump: (anchorId) => {
+        drawers.close();
+        // A bookmark in the part of a long session that is not loaded yet: the rest is loaded first.
+        if (!view.scrollToAnchor(anchorId) && view.hasEarlier()) void view.loadEarlier().then(() => view.scrollToAnchor(anchorId));
+      },
+      onRemove: (bookmark) => bookmarks.toggle(bookmark),
+    });
+    outline.setBookmarks(bookmarks.list());
+    const unsubscribe = bookmarks.onChange(() => outline.setBookmarks(bookmarks.list()));
+    const spy = createScrollSpy(scroller, () => view.promptElements(), outline.setCurrent);
+    // While the history loads, finding the prompt on screen would lay out the growing feed on every frame:
+    // the outline learns it once the feed is loaded.
+    let loaded = false;
     const composer = createComposer(id, {
       agent,
       focusBox: followedTo === id ? 'no' : 'when-ready',
@@ -555,7 +629,7 @@ function createPage() {
         const response = await fetch(path).catch(() => undefined);
         return response?.ok ? response.json().catch(() => undefined) : undefined;
       },
-      openSubagent: (toolUseId, holder) => void openSubagentTranscript(id, toolUseId, holder),
+      openSubagent: (toolUseId, holder) => void openSubagentTranscript(id, toolUseId, holder, feedHub.open),
     });
     followedTo = undefined;
     const outlineResizer = createResizer({
@@ -568,17 +642,46 @@ function createPage() {
       label: 'Outline width',
       className: 'outline-resizer',
     });
-    main.replaceChildren(tabBar.element, header.element, h('div', { className: 'main-body' }, [h('div', { className: 'feed-column' }, [scroller, tasks.element, composer.element]), outlineResizer, outlineElement]));
-    const mounted = view;
+    part.queue.send = () => composer.sendQueue();
+    showSessionParts(header.element, scroller, [tasks.element, composer.element], [outlineResizer, outlineElement]);
+    // shown at once as it was, the reader where they were
+    if (part === kept) view.restore(places.get(id) ?? { kind: 'bottom' });
+    // what the feed told while out of sight — or before — told to the header and outline first, then what comes
+    part.relay.attach({
+      onMeta: header.onMeta,
+      onStatus(next) {
+        header.onStatus(next);
+        if (loaded || next === 'connecting') return;
+        loaded = true;
+        spy.update();
+      },
+      onPrompt(prompt) {
+        outline.addPrompt(prompt);
+        if (loaded) spy.update();
+      },
+      onReset: outline.clear,
+    });
+    // the feed asked for again, from its copy
+    if (part === kept) view.resume();
+    /** What shows the session — its header, outline, box — let go of. */
+    const closeShown = () => {
+      part.relay.detach();
+      part.queue.send = () => undefined;
+      header.dispose();
+      composer.dispose();
+      tasks.dispose();
+      unsubscribe();
+      spy.dispose();
+    };
     current = {
       id,
       agent,
       header,
-      place: () => mounted.place(),
-      keepPlace: (change) => mounted.keepPlace(change),
+      place: () => view.place(),
+      keepPlace: (change) => view.keepPlace(change),
       step: (direction) => {
         const target = spy.target(direction);
-        if (target !== undefined) void mounted.scrollToAnchor(target);
+        if (target !== undefined) void view.scrollToAnchor(target);
       },
       stop: () => composer.stop(),
       // Like the terminal, the rewound message comes back into the box to be edited and sent again.
@@ -586,14 +689,15 @@ function createPage() {
         composer.say(rewindMessage(reply), 'ok');
         if (reply.ok && reply.prompt !== undefined) composer.fill(reply.prompt);
       },
+      putAway() {
+        places.set(id, view.place());
+        closeShown();
+        view.pause();
+        warm.keep(id, part);
+      },
       dispose() {
-        mounted.dispose();
-        header.dispose();
-        composer.dispose();
-        tasks.dispose();
-        unsubscribe();
-        bookmarks.dispose();
-        spy.dispose();
+        closeShown();
+        part.dispose();
       },
     };
     renderList();
@@ -1304,10 +1408,11 @@ const tablesChoices = ['default', 'fit', 'wide'];
  * How one session shows its tables, over the viewer-wide setting: as everywhere, fitted to the width or wide. The
  * choice is remembered by the browser per session and set on the page's root for the stylesheet.
  * @param {string} sessionId
+ * @param {HTMLElement} feed — the session's: its tables' buttons are labelled by the choice
  * @param {(change: () => void) => void} keepPlace — runs a change keeping the reader's place in the feed
  * @returns {import('./view/session-header.js').SessionTables & { apply: () => void }}
  */
-function sessionTables(sessionId, keepPlace) {
+function sessionTables(sessionId, feed, keepPlace) {
   const key = `viewer.tables.${sessionId}`;
   /** @returns {import('./view/session-header.js').TablesChoice} */
   const value = () => {
@@ -1318,7 +1423,8 @@ function sessionTables(sessionId, keepPlace) {
     const choice = value();
     if (choice === 'default') delete document.documentElement.dataset.sessionTables;
     else document.documentElement.dataset.sessionTables = choice;
-    relabelTables(document);
+    // the session's own tables: those of sessions kept out of sight are labelled as they are shown
+    relabelTables(feed);
   };
   return {
     value,

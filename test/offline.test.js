@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { feedToKeep, sessionsToSave } from '../public/model/offline.js';
+import { lastActivityOf, sessionsToSave } from '../public/model/offline.js';
 
 const hour = 3600_000;
 const now = Date.parse('2026-10-11T12:00:00Z');
@@ -23,7 +23,8 @@ test('sessionsToSave_Should_PickLatestWorkedOnSessionsWhoseSavedCopyIsBehind', (
   assert.deepEqual(sessionsToSave(sessions, saved, { now, limit: 3, withinMs: 72 * hour }), ['behind', 'unsaved']);
 });
 
-test('feedToKeep_Should_KeepLatestEntriesCountDroppedAsEarlierAndTellLastMessageTime', () => {
+// A copy tells how fresh it is by its last prompt or answer: other records — a system note — do not count
+test('lastActivityOf_Should_TellTimeOfLastPromptOrAnswer', () => {
   const entries = [
     { type: 'user', timestamp: '2026-10-11T10:00:00Z' },
     { type: 'assistant', timestamp: '2026-10-11T10:01:00Z' },
@@ -31,5 +32,5 @@ test('feedToKeep_Should_KeepLatestEntriesCountDroppedAsEarlierAndTellLastMessage
     { type: 'system', timestamp: '2026-10-11T11:00:00Z' },
   ];
 
-  assert.deepEqual(feedToKeep({ entries, earlier: 5 }, 3), { entries: entries.slice(1), earlier: 6, lastActivity: Date.parse('2026-10-11T10:02:00Z') });
+  assert.deepEqual([lastActivityOf(entries), lastActivityOf([{ type: 'system', timestamp: '2026-10-11T11:00:00Z' }])], [Date.parse('2026-10-11T10:02:00Z'), undefined]);
 });

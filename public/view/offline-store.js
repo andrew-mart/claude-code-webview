@@ -3,8 +3,10 @@
 // browser's IndexedDB. Without IndexedDB (a private window) nothing is kept and nothing is found.
 
 /**
- * @typedef {{ entries: unknown[], earlier: number, lastActivity: number | undefined, savedAt: number }} SavedFeed
- *   entries — as the server sent them; earlier — how many came before them; lastActivity — the last prompt or answer
+ * @typedef {{ entries: unknown[], earlier: number, token?: string | undefined, lastActivity: number | undefined, savedAt: number }} SavedFeed
+ *   entries — as the server sent them; earlier — how many came before them; token — where the viewer's reading stood
+ *   when it sent them, to go on from (model/feed-copy.js): none in a copy from before tokens; lastActivity — the last
+ *   prompt or answer
  * @typedef {{ lastActivity: number | undefined, savedAt: number }} SavedMark — that a session's feed is kept, and how fresh
  * @typedef {{ sessions: unknown, savedAt: number }} SavedList — the session list as the server sent it
  * @typedef {{
@@ -121,7 +123,7 @@ function isSavedList(value) {
  * @returns {value is SavedFeed}
  */
 function isSavedFeed(value) {
-  return isSavedMark(value) && 'entries' in value && Array.isArray(value.entries) && 'earlier' in value && typeof value.earlier === 'number';
+  return isSavedMark(value) && 'entries' in value && Array.isArray(value.entries) && 'earlier' in value && typeof value.earlier === 'number' && (!('token' in value) || value.token === undefined || typeof value.token === 'string');
 }
 
 /**

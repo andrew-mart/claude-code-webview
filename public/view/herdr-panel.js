@@ -463,6 +463,22 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
   /** How long each workspace and agent has been at work: their robots' story goes on across redrawing. */
   const clock = createWorkClock(() => Date.now());
   let shown = '';
+  /** Which workspace and session are open, as the rows were marked last. */
+  let picked = '';
+  /** The rows drawn, with what each is of: the open ones are marked on them. */
+  /** @type {{ row: HTMLElement, workspaceId: string }[]} */
+  let workspaceRows = [];
+  /** @type {{ row: HTMLElement, pane: import('../model/herdr.js').HerdrPane }[]} */
+  let sessionRows = [];
+  /**
+   * Marks the open workspace and session among the rows drawn.
+   * @param {ReturnType<typeof placeOf> | undefined} place
+   * @param {import('../model/herdr.js').Opened | undefined} opened
+   */
+  const markOpen = (place, opened) => {
+    for (const { row, workspaceId } of workspaceRows) row.classList.toggle('selected', workspaceId === place?.workspace.id);
+    for (const { row, pane } of sessionRows) row.classList.toggle('selected', opened !== undefined && (opened.kind === 'session' ? pane.session === opened.id : pane.id === opened.id));
+  };
   /** What the sidebar was given last: drawn again once a name is typed or a closing answered. */
   /** @type {{ layout: import('../model/herdr.js').HerdrLayout, opened: import('../model/herdr.js').Opened | undefined, search: string, seen: import('../model/lamps.js').SeenPanes } | undefined} */
   let given;
@@ -740,9 +756,18 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
       const workspaces = searchLayout(layout.workspaces, search);
       const sessions = sessionsByActivity(layout.workspaces, search);
       const place = opened === undefined ? undefined : placeOf(layout, opened);
-      const look = JSON.stringify([workspaces, sessions.map(({ pane }) => pane.id), place?.tab.id, opened, [...seen]]);
-      if (look === shown) return;
+      const look = JSON.stringify([workspaces, sessions.map(({ pane }) => pane.id), [...seen]]);
+      const pick = JSON.stringify([place?.workspace.id, opened]);
+      if (look === shown) {
+        // the same rows: only which one is open moves — made anew, a long list and its robots cost a phone a moment
+        if (pick !== picked) markOpen(place, opened);
+        picked = pick;
+        return;
+      }
       shown = look;
+      picked = pick;
+      workspaceRows = [];
+      sessionRows = [];
       const list = workspaces.map((workspace) => {
         const active = workspace.tabs.find((tab) => tab.id === workspace.activeTab) ?? workspace.tabs[0];
         const row = link(active === undefined ? undefined : tabTarget(active), 'herdr-workspace', [
@@ -751,7 +776,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
           h('span', { className: 'herdr-name', text: workspaceName(workspace) }),
           lampOf(clock, workspace.id, workspace.number, groupLamp(workspace.status, workspace.tabs.flatMap((tab) => tab.panes), seen)),
         ]);
-        row.classList.toggle('selected', workspace.id === place?.workspace.id);
+        workspaceRows.push({ row, workspaceId: workspace.id });
         tintByWorkspace(row, workspace.label);
         /** @type {RowSubject} */
         const subject = {
@@ -781,7 +806,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
           ]),
           lampOf(clock, pane.id, workspace.number, paneLamp(pane, seen)),
         ]);
-        row.classList.toggle('selected', opened !== undefined && (opened.kind === 'session' ? pane.session === opened.id : pane.id === opened.id));
+        sessionRows.push({ row, pane });
         tintByWorkspace(row, workspace.label);
         offerChanges(row, '.herdr-tab-text', {
           label: givenName(workspace, tab),
@@ -794,6 +819,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
         });
         return row;
       });
+      markOpen(place, opened);
       workspacesList.replaceChildren(...list);
       head.replaceChildren(`Sessions · ${listed.length}`, ...hiddenShown(sessions.length - listed.length));
       tabsList.replaceChildren(...rows);

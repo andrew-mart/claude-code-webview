@@ -33,6 +33,7 @@ import { readImage } from './images.js';
 import { rewindTarget } from './rewind.js';
 import { createSessionIndex } from './sessions.js';
 import { slimEntry } from './slim.js';
+import { createFeedPages } from './feeds.js';
 import { openingPart, streamTranscript } from './stream.js';
 import { readLineAt } from './tail.js';
 import { createTranscriptCache } from './transcript-cache.js';
@@ -130,7 +131,7 @@ export async function startServer({ index, host, port, pollMs, composer, bookmar
   const allowedOrigins = new Set();
   const fileIcons = createFileIcons();
   /** @type {Deps} */
-  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, seen, codexInUse, uploads, about, build, rewinds, transcripts, palette, herdrView, terminals, usage, isRunning, editor, vscode, instance, fileIcons };
+  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, seen, codexInUse, uploads, about, build, rewinds, transcripts, feeds: createFeedPages(), palette, herdrView, terminals, usage, isRunning, editor, vscode, instance, fileIcons };
   const server = http.createServer((request, response) => {
     handle(deps, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
@@ -164,7 +165,7 @@ export async function startServer({ index, host, port, pollMs, composer, bookmar
 
 /**
  * @typedef {ReturnType<typeof createSessionIndex>} SessionIndex — Claude Code's sessions and Codex's (sessions.js)
- * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, codexInUse: () => Promise<boolean> }} Deps
+ * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, codexInUse: () => Promise<boolean> }} Deps
  *   instance: this run of the viewer, told apart from any other — see /api/machine; vscode: VS Code's web server
  *   behind /vscode/, none when the viewer runs none
  * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'createWorkspace' | 'history' | 'reopen'>} HerdrView
@@ -262,6 +263,8 @@ async function handle(deps, request, response) {
       return withSession(url, response, async (id) => sendJson(response, await deps.bookmarks.list(id)));
     case '/api/stream':
       return withSession(url, response, async (id) => stream(deps, url, id, request, response));
+    case '/api/feeds':
+      return feedsStream(deps, url, request, response);
     case '/api/file':
       return sendFile(url, response);
     case '/api/file/image':
@@ -429,6 +432,8 @@ async function handleWrite(deps, url, request, response) {
   if (url.pathname === '/api/workspace/icon') return setWorkspaceIcon(deps, body, response);
   if (url.pathname === '/api/workspace/close') return closeWorkspace(deps, body, response);
   if (url.pathname === '/api/herdr/hide') return hidePane(deps, body, response);
+  if (url.pathname === '/api/feeds/watch') return watchFeed(deps, body, response);
+  if (url.pathname === '/api/feeds/unwatch') return unwatchFeed(deps, body, response);
   if (url.pathname === '/api/herdr/show') return sendJson(response, await deps.herdrView.showHidden());
   if (url.pathname === '/api/open-in-editor') return openFile(deps, body, response);
   const sessionId = isRecord(body) && typeof body.session === 'string' && sessionIdPattern.test(body.session) ? body.session : undefined;
@@ -871,18 +876,115 @@ async function stream(deps, url, id, request, response) {
     return;
   }
   const events = eventStream(request, response);
-  await streamTranscript({
+  await streamTranscript({ ...feedOf(deps, { id, agentId, tail: tailOf(url), from: fromOf(url.searchParams.get('from')) }), send: events.send, signal: events.signal });
+  events.end();
+}
+
+/** A page's name for itself, or for a feed it follows: short, letters and digits. */
+const feedNamePattern = /^[\w-]{1,64}$/;
+
+/**
+ * @param {unknown} name
+ * @returns {string | undefined}
+ */
+function feedNameOf(name) {
+  return typeof name === 'string' && feedNamePattern.test(name) ? name : undefined;
+}
+
+/**
+ * A page's stream of the feeds it follows (feeds.js), open until the page closes it: the feeds go over it as the page
+ * asks for them.
+ * @param {Deps} deps
+ * @param {URL} url — ?page=<the page's name for itself>
+ * @param {http.IncomingMessage} request
+ * @param {http.ServerResponse} response
+ */
+async function feedsStream(deps, url, request, response) {
+  const page = feedNameOf(url.searchParams.get('page'));
+  if (page === undefined) {
+    response.writeHead(400).end('Bad page');
+    return;
+  }
+  const events = eventStream(request, response);
+  deps.feeds.open(page, events);
+  if (!events.signal.aborted) await new Promise((resolve) => events.signal.addEventListener('abort', resolve, { once: true }));
+  events.end();
+}
+
+/**
+ * A feed the page asks for over its stream: a session's transcript as /api/stream sends it, its events marked with the
+ * page's name for it.
+ * @param {Deps} deps
+ * @param {unknown} body — { page, feed, session, agent?, tail?, from? }
+ * @param {http.ServerResponse} response
+ */
+async function watchFeed(deps, body, response) {
+  const asked = isRecord(body) ? body : {};
+  const page = feedNameOf(asked.page);
+  const feed = feedNameOf(asked.feed);
+  const id = typeof asked.session === 'string' && sessionIdPattern.test(asked.session) ? asked.session : undefined;
+  const agentId = asked.agent === undefined ? null : typeof asked.agent === 'string' && agentIdPattern.test(asked.agent) ? asked.agent : undefined;
+  const tail = asked.tail === undefined ? undefined : Number.isSafeInteger(asked.tail) && Number(asked.tail) > 0 ? Number(asked.tail) : null;
+  if (page === undefined || feed === undefined || id === undefined || agentId === undefined || tail === null || (asked.from !== undefined && fromOf(typeof asked.from === 'string' ? asked.from : undefined) === undefined)) {
+    response.writeHead(400).end('Bad feed');
+    return;
+  }
+  const following = deps.feeds.watch(page, feed);
+  if (following === undefined) return sendJson(response, { ok: false, error: 'no-stream' }, 404);
+  const from = typeof asked.from === 'string' ? asked.from : undefined;
+  streamTranscript({ ...feedOf(deps, { id, agentId, tail, from }), send: following.send, signal: following.signal })
+    .catch((error) => console.error(`The feed of session ${id} for page ${page} failed`, error))
+    .finally(following.done);
+  return sendJson(response, { ok: true });
+}
+
+/**
+ * A feed the page lets go of.
+ * @param {Deps} deps
+ * @param {unknown} body — { page, feed }
+ * @param {http.ServerResponse} response
+ */
+async function unwatchFeed(deps, body, response) {
+  const page = isRecord(body) ? feedNameOf(body.page) : undefined;
+  const feed = isRecord(body) ? feedNameOf(body.feed) : undefined;
+  if (page === undefined || feed === undefined) {
+    response.writeHead(400).end('Bad feed');
+    return;
+  }
+  deps.feeds.unwatch(page, feed);
+  return sendJson(response, { ok: true });
+}
+
+/**
+ * How a session's feed is read for a page — the main conversation's, or a subagent's — but where it goes.
+ * @param {Deps} deps
+ * @param {{ id: string, agentId: string | null, tail: number | undefined, from: string | undefined }} asked — tail: how
+ *   many of the latest entries it opens with, none — all; from: the token of the copy the page goes on from
+ */
+function feedOf(deps, { id, agentId, tail, from }) {
+  return {
     locate: agentId === null ? () => deps.index.find(id) : () => deps.index.findSubagent(id, agentId),
-    scope: agentId === null ? 'main' : 'subagent',
+    scope: agentId === null ? /** @type {const} */ ('main') : /** @type {const} */ ('subagent'),
     rewoundAt: () => (agentId === null ? deps.rewinds.get(id) : undefined),
-    imageUrl: (lineStart, n) => imageLink(id, agentId, lineStart, n),
-    send: events.send,
-    signal: events.signal,
+    imageUrl: (/** @type {number} */ lineStart, /** @type {number} */ n) => imageLink(id, agentId, lineStart, n),
     pollMs: deps.pollMs,
     transcripts: deps.transcripts,
-    tail: tailOf(url),
-  });
-  events.end();
+    tail,
+    version: deps.build,
+    from,
+  };
+}
+
+/** A token is short: one longer is none of the viewer's. */
+const maxTokenChars = 400;
+
+/**
+ * The token of the copy a page goes on from, as it asks; none for one it does not have — or one too long to be a token.
+ * @param {string | null | undefined} asked
+ * @returns {string | undefined}
+ */
+function fromOf(asked) {
+  return typeof asked === 'string' && asked !== '' && asked.length <= maxTokenChars ? asked : undefined;
 }
 
 /**

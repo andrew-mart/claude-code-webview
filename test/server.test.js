@@ -578,8 +578,10 @@ test('live_Should_ReportWhetherSessionCanReceiveText', async (t) => {
 /**
  * Reads an SSE stream and returns events one at a time.
  * @param {ReadableStream<Uint8Array>} body
+ * @param {'skipped' | 'read'} [cursors] whether to give the events telling where the reading stands, sent after each
+ *   send: their own tests read them
  */
-function sseEvents(body) {
+function sseEvents(body, cursors = 'skipped') {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -591,7 +593,8 @@ function sseEvents(body) {
         buffer = buffer.slice(end + 2);
         const event = /^event: (.+)$/m.exec(block)?.[1];
         const data = /^data: (.+)$/m.exec(block)?.[1];
-        if (event !== undefined) return { event, data: data === undefined ? undefined : JSON.parse(data) };
+        // where the reading stands, told after each send: the tests of it read it themselves
+        if (event !== undefined && (event !== 'cursor' || cursors === 'read')) return { event, data: data === undefined ? undefined : JSON.parse(data) };
         continue;
       }
       const { value, done } = await reader.read();
@@ -619,6 +622,46 @@ test('stream_Should_SendExistingEntriesThenLinesAppendedLater', async (t) => {
   const appended = await next();
   assert.equal(appended.event, 'entries');
   assert.deepEqual(appended.data.map((/** @type {{ uuid: string }} */ e) => e.uuid), ['u2']);
+});
+
+/**
+ * The next event, or none once this long has gone by without one.
+ * @param {() => Promise<{ event: string, data: unknown }>} next
+ * @param {number} ms
+ */
+const nextWithin = (next, ms) => Promise.race([next(), new Promise((resolve) => setTimeout(() => resolve('none'), ms))]);
+
+// A page follows several sessions over one stream — one connection, where a stream each would use up the few a browser
+// opens to the viewer: each feed's events come marked with the page's name for it; a feed let go of hears no more; a feed
+// of a page whose stream is not open is refused
+test('feeds_Should_FollowSessionsOverOneStream_EachMarked_UntilLetGo', async (t) => {
+  const { file, base, port } = await withServer(t);
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const response = await fetch(`${base}/api/feeds?page=p1`, { signal: controller.signal });
+  assert.ok(response.body);
+  const next = sseEvents(response.body);
+  const ask = (/** @type {string} */ path, /** @type {unknown} */ body) => post(port, path, pageHeaders(port), JSON.stringify(body));
+  /** @param {{ event: string, data: unknown }} got — "<feed> <event> <uuids of its entries>" */
+  const told = (got) => {
+    const feed = isRecord(got.data) ? got.data.feed : undefined;
+    const data = isRecord(got.data) ? got.data.data : undefined;
+    const uuids = Array.isArray(data) ? ` ${data.map((entry) => (isRecord(entry) ? entry.uuid : '')).join(',')}` : '';
+    return `${feed} ${got.event}${uuids}`;
+  };
+
+  const watched = [await ask('/api/feeds/watch', { page: 'p1', feed: 'a', session: sessionId }), await ask('/api/feeds/watch', { page: 'p1', feed: 'b', session: sessionId })];
+  const opening = [told(await next()), told(await next()), told(await next()), told(await next())].sort();
+  const letGo = await ask('/api/feeds/unwatch', { page: 'p1', feed: 'a' });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  await appendFile(file, promptLine('u2', 'Second question'));
+  const afterwards = [told(await next()), await nextWithin(next, 300)];
+  const refused = await ask('/api/feeds/watch', { page: 'p9', feed: 'a', session: sessionId });
+
+  assert.deepEqual(
+    { watched: watched.map((reply) => reply.status), opening, letGo: letGo.status, afterwards, refused: refused.status },
+    { watched: [200, 200], opening: ['a entries u1', 'a ready', 'b entries u1', 'b ready'], letGo: 200, afterwards: ['b entries u2', 'none'], refused: 404 },
+  );
 });
 
 test('sessions_Should_ListSessionWithTitleAndFolder', async (t) => {

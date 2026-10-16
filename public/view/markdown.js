@@ -149,6 +149,9 @@ export function relabelTables(root) {
  */
 function labelWidthButton(frame, button) {
   const wide = isWide(frame);
+  // labelled so already: left as it is — a button made anew would have the styles of the page worked out again
+  if (button.dataset.wide === String(wide)) return;
+  button.dataset.wide = String(wide);
   const text = wide ? 'Fit this table to the width' : 'Widen this table, scrolling sideways';
   button.title = text;
   button.setAttribute('aria-label', text);

@@ -13,15 +13,18 @@ import { splitLines } from './tail.js';
 import { createTaskTracker } from './tasks.js';
 
 const chunkBytes = 4 * 1024 * 1024;
+/** How many of the last bytes read are kept to tell the file still holds them where they were. */
+const seenBytes = 64;
 
 /**
- * @typedef {{ slim: Record<string, unknown> | undefined, link: import('./branch.js').Link }} CachedEntry — slim: what the
- *   page gets up front (lite.js), undefined for records it does not show; link: the entry's place in the conversation,
- *   for every record
+ * @typedef {{ slim: Record<string, unknown> | undefined, link: import('./branch.js').Link, at: number }} CachedEntry — slim: what
+ *   the page gets up front (lite.js), undefined for records it does not show; link: the entry's place in the
+ *   conversation, for every record; at: where its line starts in the transcript
  * @typedef {{ scope: 'main' | 'subagent', imageUrl: (lineStart: number, n: number) => string }} Reading
  * @typedef {ReturnType<typeof createTaskTracker>} TaskTracker
- * @typedef {{ generation: number, offset: number, carry: Buffer, entries: CachedEntry[], calls: Map<string, import('./lite.js').Call>, tasks: TaskTracker, codex: ReturnType<typeof createCodexReading> | undefined, layout: string | undefined, queue: Promise<unknown> }} FileState — calls: tool calls read whose results have not come yet;
- *   tasks: the work the session started in the background, followed as its entries are read; codex: the reading of a
+ * @typedef {{ generation: number, offset: number, carry: Buffer, seen: Buffer, entries: CachedEntry[], calls: Map<string, import('./lite.js').Call>, tasks: TaskTracker, codex: ReturnType<typeof createCodexReading> | undefined, layout: string | undefined, queue: Promise<unknown> }} FileState — calls: tool calls read whose results have not come yet;
+ *   tasks: the work the session started in the background, followed as its entries are read; seen: the last bytes
+ *   read, up to offset — a file that no longer holds them there was rewritten; codex: the reading of a
  *   Codex session's file, none for Claude Code's; layout: the files the transcript was read from, each to where — none
  *   before the first reading
  * @typedef {(path: string) => Promise<readonly import('./joined.js').Part[]>} PartsOf
@@ -49,7 +52,7 @@ export function createTranscriptCache({ maxFiles, agentOf = () => 'claude', part
    */
   const stateOf = (key, path) => {
     const known = files.get(key);
-    const state = known ?? { generation: ++generations, offset: 0, carry: Buffer.alloc(0), entries: [], calls: new Map(), tasks: createTaskTracker(), codex: codexReadingOf(path), layout: undefined, queue: Promise.resolve() };
+    const state = known ?? { generation: ++generations, offset: 0, carry: Buffer.alloc(0), seen: Buffer.alloc(0), entries: [], calls: new Map(), tasks: createTaskTracker(), codex: codexReadingOf(path), layout: undefined, queue: Promise.resolve() };
     files.delete(key);
     files.set(key, state);
     for (const oldest of files.keys()) {
@@ -123,11 +126,14 @@ async function catchUp(parts, state, reading, renew, reread) {
  */
 async function readOn(joined, layout, state, reading, renew, reread) {
   const size = joined.size;
-  // a file that shrank was rewritten; a Codex session that went on in another file left the end of the one before
-  if (size < state.offset || (state.layout !== undefined && layout !== state.layout)) {
+  // a file that shrank, or no longer holds what was read of it where it was, was rewritten; a Codex session that went on
+  // in another file left the end of the one before
+  const rewritten = size < state.offset || !(await endOf(joined, state.offset)).equals(state.seen);
+  if (rewritten || (state.layout !== undefined && layout !== state.layout)) {
     state.generation = renew();
     state.offset = 0;
     state.carry = Buffer.alloc(0);
+    state.seen = Buffer.alloc(0);
     state.entries = [];
     state.calls = new Map();
     state.tasks = createTaskTracker();
@@ -138,9 +144,23 @@ async function readOn(joined, layout, state, reading, renew, reread) {
     const read = await readEntries(joined, state.offset, size, state.carry, { ...reading, calls: state.calls, tasks: state.tasks, codex: state.codex });
     state.offset = read.offset;
     state.carry = read.carry;
+    state.seen = await endOf(joined, read.offset);
     state.entries.push(...read.entries);
   }
   return { entries: state.entries, generation: state.generation, tasks: state.tasks };
+}
+
+/**
+ * The last bytes of the file up to offset: those kept as seen.
+ * @param {import('./joined.js').Joined} joined
+ * @param {number} offset
+ * @returns {Promise<Buffer>}
+ */
+async function endOf(joined, offset) {
+  const length = Math.min(seenBytes, offset);
+  const bytes = Buffer.alloc(length);
+  const read = length === 0 ? 0 : await joined.read(bytes, offset - length);
+  return bytes.subarray(0, read);
 }
 
 /**
@@ -172,7 +192,7 @@ async function readEntries(joined, from, to, carry, { scope, imageUrl, calls, ta
       for (const raw of codex === undefined ? [parsed] : codex.translate(parsed)) {
         tasks.note(raw);
         const slim = slimEntry(raw, scope, (n) => imageUrl(at, n));
-        entries.push({ slim: slim === undefined ? undefined : liteEntry(slim, { at, calls }), link: linkOf(raw) });
+        entries.push({ slim: slim === undefined ? undefined : liteEntry(slim, { at, calls }), link: linkOf(raw), at });
       }
     }
   }

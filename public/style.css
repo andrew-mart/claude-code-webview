@@ -2107,17 +2107,18 @@ input.herdr-row-name.failed {
   animation: spin 2.4s linear infinite;
 }
 
-/* The copy kept from the last time, shown at once while the viewer sends the session: a mark at the top of the feed,
-   staying in view, says it is being brought up to date — or that it is all there is, offline. */
+/* The copy kept from the last time, shown at once while the viewer sends the session: a mark under its latest message —
+   where the reader looks as a session opens — staying in view over the box, says it is being brought up to date — or
+   that it is all there is, offline. */
 .updating {
   position: sticky;
-  top: 8px;
+  bottom: 12px;
   z-index: 3;
   display: flex;
   width: max-content;
   align-items: center;
   gap: 7px;
-  margin: -20px auto 8px;
+  margin: 12px auto 0;
   padding: 4px 12px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -3053,11 +3054,26 @@ table.diff tr.gap td {
 /* ---------- Prompt composer ---------- */
 
 .feed-column {
+  position: relative;
+  /* the feeds kept out of sight go under what it shows, not under the page */
+  isolation: isolate;
   display: flex;
   flex: 1;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+}
+
+/* the feed of a session kept out of sight (app.js): laid out as it was, as wide, over the column and hidden — shown again
+   at once, with no layout to make anew. Hidden by content-visibility alone — what is under it neither drawn nor pressed:
+   a property every element under it inherits, visibility or pointer-events, would be worked out anew for each of them,
+   both ways. Its own box, empty as it looks, would still take what is pressed over the column — the /btw answer under
+   the feed shown — so it lies under all the column shows */
+.scroller.parked {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  content-visibility: hidden;
 }
 
 .composer {

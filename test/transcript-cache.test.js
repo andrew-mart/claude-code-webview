@@ -126,3 +126,16 @@ test('keep_Should_KeepFileRead_WhileAnyPageKeepingItHasNotLetItGo', async () => 
     { keptBySecond: true, letGoByBoth: false },
   );
 });
+
+// A file rewritten no shorter than it was — its last lines changed for longer ones — is read again under a new
+// generation all the same: what was read of it before is no longer there
+test('read_Should_ReadFileRewrittenNoShorterAgain_UnderNewGeneration', async () => {
+  const path = await transcript();
+  const cache = createTranscriptCache({ maxFiles: 4 });
+  const before = await cache.read(path, { scope: 'main', imageUrl });
+  await writeFile(path, promptLine('u1', 'First question') + promptLine('n2', 'A second question, put in place of the one before, and a good deal longer than it was'));
+
+  const after = await cache.read(path, { scope: 'main', imageUrl });
+
+  assert.deepEqual({ uuids: after.entries.map((entry) => entry.link.uuid), generationChanged: after.generation !== before.generation }, { uuids: ['u1', 'n2'], generationChanged: true });
+});

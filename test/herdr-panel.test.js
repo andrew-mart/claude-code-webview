@@ -1029,3 +1029,19 @@ test('tabBar_Should_DragTabUnderFinger_OnlyAfterItRestsOnIt', async () => {
 
   assert.deepEqual({ swiped, asked }, { swiped: [], asked: [['move', 'w2:t3', '0']] });
 });
+
+// Another session opened: the rows stay as they are — their robots go on — only which one is open moves
+test('herdrSidebar_Should_MoveWhatIsOpen_KeepingRowsAsTheyAre', () => {
+  const element = window.document.createElement('div');
+  const sidebar = createHerdrSidebar(element, noActions);
+  sidebar.render({ herdr: true, workspaces: [web] }, { kind: 'session', id: 's1' }, '', new Map());
+  const rowsBefore = [...element.querySelectorAll('.herdr-workspace, .herdr-tab')];
+
+  sidebar.render({ herdr: true, workspaces: [web] }, { kind: 'session', id: 's3' }, '', new Map());
+  const rowsAfter = [...element.querySelectorAll('.herdr-workspace, .herdr-tab')];
+
+  assert.deepEqual(
+    { same: rowsAfter.length === rowsBefore.length && rowsAfter.every((row, at) => row === rowsBefore[at]), open: rowsAfter.filter((row) => row.classList.contains('selected')).map((row) => row.getAttribute('href')) },
+    { same: true, open: ['#/s1', '#/s3'] },
+  );
+});

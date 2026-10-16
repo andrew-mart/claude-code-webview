@@ -31,9 +31,11 @@ function following(transcripts, path) {
   const events = [];
   /** @type {import('../server/stream.js').Send} */
   const send = (event, data) => {
+    // where the reading stands is told after each send: not what these tests are about
+    if (event === 'cursor') return;
     events.push(event === 'entries' && Array.isArray(data) ? { event, uuids: data.map((entry) => (isRecord(entry) ? entry.uuid : undefined)) } : { event });
   };
-  const done = streamTranscript({ locate: async () => path, scope: 'main', imageUrl, rewoundAt: () => undefined, send, signal: controller.signal, pollMs: 10, transcripts, tail: undefined });
+  const done = streamTranscript({ locate: async () => path, scope: 'main', imageUrl, rewoundAt: () => undefined, send, signal: controller.signal, pollMs: 10, transcripts, tail: undefined, version: 'v1', from: undefined });
   return {
     events,
     /** @param {(sent: typeof events) => boolean} seen */
