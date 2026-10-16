@@ -61,14 +61,18 @@ export function createSessionIndex(root, { summaryBudgetMs, missRetryMs, codexRo
   /** @type {Map<string, number | undefined>} */
   const goesOnFrom = new Map();
 
-  /** Every session file, Claude Code's and Codex's, newest first — a Codex session's files as one. */
+  /**
+   * Every session file, Claude Code's and Codex's, newest first — a Codex session's files as one, and a session with a
+   * copy under another project's folder (its project moved while it ran) by the file written last: the copy stays as it
+   * was made, the session goes on in the other.
+   */
   async function allFiles() {
     const codex = codexRoot === undefined ? [] : codexSessions(await codexFiles(codexRoot));
     for (const session of codex) {
       codexPaths.add(session.file.path);
       if (session.paths.length > 1) codexParts.set(session.file.path, session.paths);
     }
-    return [...(await sessionFiles(root)), ...codex.map((session) => session.file)].sort((a, b) => b.modifiedAt - a.modifiedAt);
+    return newestById([...(await sessionFiles(root)), ...codex.map((session) => session.file)].sort((a, b) => b.modifiedAt - a.modifiedAt));
   }
 
   /** @returns {Promise<readonly SessionInfo[]>} */
@@ -292,6 +296,18 @@ async function codexFiles(codexRoot) {
     }),
   );
   return nested.flat();
+}
+
+/**
+ * The first file of each id among files newest first: the one written last.
+ * @param {readonly SessionFile[]} files
+ * @returns {SessionFile[]}
+ */
+function newestById(files) {
+  /** @type {Map<string, SessionFile>} */
+  const byId = new Map();
+  for (const file of files) if (!byId.has(file.id)) byId.set(file.id, file);
+  return [...byId.values()];
 }
 
 /**

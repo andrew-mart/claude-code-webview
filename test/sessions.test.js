@@ -255,6 +255,28 @@ test('summaryOf_Should_TellSessionsFolderKindAndActivity_ById', async () => {
   assert.deepEqual([await index.summaryOf(id), await index.summaryOf('01a13a06-0000-7481-9aa7-000000000000')], [{ cwd: 'D:/dev/shop', kind: 'interactive', activeAt: Date.parse(at) }, undefined]);
 });
 
+// A session copied under another project's folder — its project being moved, the copy made while it ran — has two files
+// of one id: the one written last is the session going on, the copy stays as it was made. The session is listed once, as
+// the file written last tells it, and found there: its feed follows it, not the copy
+test('list_And_find_Should_TakeFileWrittenLast_When_SessionHasCopyElsewhere', async () => {
+  const root = tempDir('csv-');
+  const id = '3f2c9a50-1111-4222-8333-00000000000a';
+  await mkdir(join(root, 'D--dev-shop'));
+  await mkdir(join(root, 'D--dev-shop-new'));
+  const live = join(root, 'D--dev-shop', `${id}.jsonl`);
+  const copy = join(root, 'D--dev-shop-new', `${id}.jsonl`);
+  await writeFile(copy, `${prompt('Move the shop', 'D:\\dev\\shop-new')}\n`);
+  await utimes(copy, new Date('2026-10-16T16:23:00Z'), new Date('2026-10-16T16:23:00Z'));
+  await writeFile(live, `${prompt('Move the shop', 'D:\\dev\\shop')}\n${prompt('Still at it?', 'D:\\dev\\shop')}\n`);
+  await utimes(live, new Date('2026-10-16T17:51:00Z'), new Date('2026-10-16T17:51:00Z'));
+  const index = createSessionIndex(root, { summaryBudgetMs: 1000, missRetryMs: 0 });
+
+  const listed = await index.list();
+  const found = await index.find(id);
+
+  assert.deepEqual({ listed: listed.map((session) => [session.id, session.cwd]), found }, { listed: [[id, 'D:\\dev\\shop']], found: live });
+});
+
 // An id with no transcript — a session opened before its first message, a Codex thread not written yet — is looked for
 // among all the files at most once in a while, not on every ask, which polls it often: a transcript written meanwhile is
 // found once the while is over
