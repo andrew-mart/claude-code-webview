@@ -46,22 +46,50 @@ test('herdrSidebar_Should_LeadSessionRowWithItsTitle_And_TellWorkspaceAndTabUnde
   assert.deepEqual(
     [...element.querySelectorAll('.herdr-tabs .herdr-tab-text')].map((text) => [...text.children].map((line) => line.textContent)),
     [
-      ['Upgrade to Node 24', 'web · 2 node-24 · codex'],
+      ['Upgrade to Node 24', 'web · node-24 · codex'],
       ['Fix the flaky checkout test', 'web · 1'],
-      ['3 notes', 'web'],
+      ['notes', 'web'],
     ],
   );
 });
 
-// Above the open session the tabs of its workspace: a tab nobody named says its number once, not "1 1"
-test('tabBar_Should_NameUnnamedTabByItsNumberOnce', () => {
-  const { bar } = barAboveSession();
+/**
+ * web after its tabs were dragged about: herdr keeps the number a tab was opened with, and names one nobody named by its
+ * place — the unnamed tab 1 is second, so "2".
+ */
+const moved = {
+  ...web,
+  tabs: [
+    { id: 'w2:t6', number: 6, label: 'main', status: /** @type {const} */ ('idle'), panes: [paneOf({ id: 'w2:p6', session: 's6', activity: 2 })] },
+    { id: 'w2:t1', number: 1, label: '2', status: /** @type {const} */ ('idle'), panes: [paneOf({ id: 'w2:p1', title: 'Fix the flaky checkout test', session: 's1', activity: 5 })] },
+  ],
+};
 
-  bar.render({ herdr: true, workspaces: [web] }, { kind: 'session', id: 's1' }, new Map());
+// Above the open session the tabs of its workspace, as herdr shows them: by their names alone — one nobody named by its
+// place, as herdr names it — never by the numbers they were opened with
+test('tabBar_Should_NameTabsAsHerdrDoes', () => {
+  const chipsOf = (/** @type {import('../public/model/herdr.js').HerdrWorkspace} */ workspace) => {
+    const { bar } = barAboveSession('s1', workspace);
+    return [...bar.element.querySelectorAll('.herdr-chip')].map((chip) => chip.textContent);
+  };
+
+  assert.deepEqual([chipsOf(web), chipsOf(moved)], [['1', 'node-24', 'notes'], ['main', '2']]);
+});
+
+// A tab nobody named has no name to start naming it from, wherever it was moved: the box is empty above the session and
+// in the sidebar alike
+test('tabNaming_Should_StartFromEmptyBox_ForUnnamedTabMovedElsewhere', () => {
+  const { bar, click } = barAboveSession('s1', moved);
+  click('.herdr-chip.selected');
+  click('.herdr-tab-rename');
+  const { element, sidebar } = changingSidebar();
+  sidebar.render({ herdr: true, workspaces: [moved] }, { kind: 'session', id: 's1' }, '', new Map());
+  clickOn(element, '.herdr-tab.selected');
+  pressIn(element, '.herdr-row-rename');
 
   assert.deepEqual(
-    [...bar.element.querySelectorAll('.herdr-chip')].map((chip) => chip.textContent),
-    ['1', '2 node-24', '3 notes'],
+    [bar.element.querySelector('input.herdr-tab-name'), element.querySelector('input.herdr-row-name')].map((box) => (box instanceof window.HTMLInputElement ? box.value : 'no box')),
+    ['', ''],
   );
 });
 
@@ -70,8 +98,9 @@ test('tabBar_Should_NameUnnamedTabByItsNumberOnce', () => {
  * workspace's naming and icon, and the addresses it goes to recorded; each succeeds, a new tab opens as w2:p9.
  * @param {string} [session]
  * @param {import('../public/model/herdr.js').HerdrWorkspace} [workspace]
+ * @param {{ copies: boolean }} [herdr] - copies: herdr opens a tab's copy, as w2:p8; it does unless told
  */
-function barAboveSession(session = 's1', workspace = web) {
+function barAboveSession(session = 's1', workspace = web, { copies } = { copies: true }) {
   /** @type {(string | undefined)[][]} */
   const asked = [];
   const bar = createTabBar({
@@ -82,12 +111,20 @@ function barAboveSession(session = 's1', workspace = web) {
       asked.push(['create', beside, start, label]);
       return { ok: true, target: '#/pane/w2:p9' };
     },
+    duplicate: async (tab) => {
+      asked.push(['duplicate', tab]);
+      return copies ? { ok: true, target: '#/pane/w2:p8' } : { ok: false, error: 'failed' };
+    },
     rename: async (tab, label) => {
       asked.push(['rename', tab, label]);
       return { ok: true };
     },
     close: async (tab) => {
       asked.push(['close', tab]);
+      return { ok: true };
+    },
+    move: async (tab, place) => {
+      asked.push(['move', tab, String(place)]);
       return { ok: true };
     },
     renameWorkspace: async (id, label) => {
@@ -132,6 +169,54 @@ test('tabBar_Should_NameOpenTab_WithEnter_And_LeaveItWithEscape', async () => {
   await settled();
 
   assert.deepEqual({ empty, asked, boxes: bar.element.querySelectorAll('input.herdr-tab-name').length }, { empty: '', asked: [['rename', 'w2:t1', 'checkout']], boxes: 0 });
+});
+
+// F2 names the open tab as its ✎ does — the page hands the key to the bar: the box holds the tab's name, Enter names the
+// tab in herdr
+test('tabBar_Should_NameOpenTab_OnKey', async () => {
+  const { bar, asked } = barAboveSession('s3');
+
+  bar.nameOpenTab();
+  const box = bar.element.querySelector('input.herdr-tab-name');
+  assert.ok(box instanceof window.HTMLInputElement);
+  const named = box.value;
+  box.value = 'docs';
+  box.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter' }));
+  await settled();
+
+  assert.deepEqual({ named, boxes: bar.element.querySelectorAll('input.herdr-tab-name').length, asked }, { named: 'notes', boxes: 0, asked: [['rename', 'w2:t3', 'docs']] });
+});
+
+// The open tab's buttons duplicate it too: herdr's copy of it opens — its session forked — and the page goes to it; a
+// copy herdr did not open is told beside the buttons, the page staying where it is
+test('tabBar_Should_DuplicateOpenTab_And_GoToItsCopy', async () => {
+  const copied = barAboveSession('s3');
+  const refused = barAboveSession('s3', web, { copies: false });
+
+  for (const { click } of [copied, refused]) {
+    click('.herdr-chip.selected');
+    click('.herdr-tab-duplicate');
+  }
+  await settled();
+
+  assert.deepEqual(
+    { copied: copied.asked, refused: refused.asked, told: refused.bar.element.querySelector('.herdr-tab-duplicate-failed')?.textContent },
+    { copied: [['duplicate', 'w2:t3'], ['open', '#/pane/w2:p8']], refused: [['duplicate', 'w2:t3']], told: 'herdr did not open a copy.' },
+  );
+});
+
+// While the open tab's closing is asked, F2 leaves the question as it is
+test('tabBar_Should_LeaveClosingQuestion_OnKeyForNaming', () => {
+  const { bar, click } = barAboveSession('s3');
+  click('.herdr-chip.selected');
+  click('.herdr-tab-close');
+
+  bar.nameOpenTab();
+
+  assert.deepEqual(
+    { boxes: bar.element.querySelectorAll('input.herdr-tab-name').length, question: bar.element.querySelector('.herdr-tab-confirm-close') !== null },
+    { boxes: 0, question: true },
+  );
 });
 
 // Closing a tab stops what runs in it: × asks first, and only "Close" closes
@@ -871,4 +956,76 @@ test('tabBar_Should_PickWorkspacesIcon_FromItsIconAtTheHeadOfItsTabs', async () 
   bar.element.remove();
 
   assert.deepEqual({ opened, away, asked, left: window.document.querySelector('.herdr-icon-palette') === null }, { opened: true, away: true, asked: [['rename workspace', 'w2', '🦊 web']], left: true });
+});
+
+/**
+ * The tab bar laid out as a browser would — jsdom lays nothing out: its tabs side by side, 100px apart, each 80px wide
+ * from 50px — with a pointer that presses, moves and lets go over it.
+ * @param {ReturnType<typeof barAboveSession>['bar']} bar
+ */
+function laidOut(bar) {
+  window.document.body.append(bar.element);
+  const box = (/** @type {number} */ left, /** @type {number} */ width) => () => ({ left, right: left + width, width, top: 0, bottom: 30, height: 30, x: left, y: 0, toJSON: () => undefined });
+  Object.defineProperty(bar.element, 'getBoundingClientRect', { value: box(0, 1000) });
+  /** The tabs as they stand now — the bar draws them anew once a move is done — each at its place. */
+  const layOut = () => [...bar.element.querySelectorAll('.herdr-chip')].forEach((chip, at) => Object.defineProperty(chip, 'getBoundingClientRect', { value: box(50 + 100 * at, 80), configurable: true }));
+  layOut();
+  const chip = (/** @type {string} */ text) => {
+    const found = [...bar.element.querySelectorAll('.herdr-chip')].find((one) => one.textContent === text);
+    assert.ok(found instanceof window.HTMLElement, `no tab ${text}`);
+    return found;
+  };
+  /** @param {string} type @param {EventTarget} at @param {number} x @param {string} pointerType */
+  const pointer = (type, at, x, pointerType) => at.dispatchEvent(new window.PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 10, button: 0, pointerId: 1, pointerType, isPrimary: true }));
+  return {
+    chip,
+    layOut,
+    order: () => [...bar.element.querySelectorAll('.herdr-chip')].map((one) => one.textContent),
+    press: (/** @type {string} */ text, /** @type {number} */ x, pointerType = 'mouse') => pointer('pointerdown', chip(text), x, pointerType),
+    move: (/** @type {number} */ x, pointerType = 'mouse') => pointer('pointermove', window, x, pointerType),
+    release: (/** @type {number} */ x, pointerType = 'mouse') => pointer('pointerup', window, x, pointerType),
+    /** A click on the tab, as the browser makes one after its button is let go. */
+    click: (/** @type {string} */ text) => chip(text).dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true })),
+  };
+}
+
+// A tab is dragged with the mouse to another place among the tabs: it goes there at once and herdr is asked to move it —
+// the place counted between the tabs as they stood; the click the drag ends with does nothing — the open tab's buttons
+// stay away; a tab let go where it was moves nowhere
+test('tabBar_Should_MoveTabDraggedWithMouse_ToWhereItIsLetGo', async () => {
+  const { bar, asked } = barAboveSession();
+  const tabs = laidOut(bar);
+
+  tabs.press('1', 90);
+  tabs.move(200);
+  tabs.move(360);
+  tabs.release(360);
+  tabs.click('1');
+  const dropped = { order: tabs.order(), buttons: bar.element.querySelector('.herdr-tab-actions:not([hidden])') !== null };
+  await settled();
+  tabs.layOut();
+  tabs.press('node-24', 190);
+  tabs.move(205);
+  tabs.release(205);
+  await settled();
+
+  assert.deepEqual({ dropped, asked }, { dropped: { order: ['node-24', 'notes', '1'], buttons: false }, asked: [['move', 'w2:t1', '3']] });
+});
+
+// On a phone a swipe across the tabs scrolls them: a tab is dragged once a finger rests on it a moment
+test('tabBar_Should_DragTabUnderFinger_OnlyAfterItRestsOnIt', async () => {
+  const { bar, asked } = barAboveSession();
+  const tabs = laidOut(bar);
+
+  tabs.press('notes', 290, 'touch');
+  tabs.move(150, 'touch');
+  tabs.release(150, 'touch');
+  const swiped = [...asked];
+  tabs.press('notes', 290, 'touch');
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  tabs.move(60, 'touch');
+  tabs.release(60, 'touch');
+  await settled();
+
+  assert.deepEqual({ swiped, asked }, { swiped: [], asked: [['move', 'w2:t3', '0']] });
 });

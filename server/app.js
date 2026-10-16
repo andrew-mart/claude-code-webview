@@ -167,7 +167,7 @@ export async function startServer({ index, host, port, pollMs, composer, bookmar
  * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, isRunning: IsRunning, editor: OpenEditor | undefined, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, codexInUse: () => Promise<boolean> }} Deps
  *   instance: this run of the viewer, told apart from any other — see /api/machine; vscode: VS Code's web server
  *   behind /vscode/, none when the viewer runs none
- * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'createWorkspace' | 'history' | 'reopen'>} HerdrView
+ * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'createWorkspace' | 'history' | 'reopen'>} HerdrView
  * @typedef {Pick<ReturnType<typeof import('./terminal.js').createTerminals>, 'stream' | 'type'>} Terminals
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
  * @typedef {{ origin: string, host: string }} PublicAddress — where the page is opened from outside, behind a tunnel:
@@ -421,7 +421,9 @@ async function handleWrite(deps, url, request, response) {
   if (url.pathname === '/api/pane/input') return typeIntoPane(deps, body, response);
   if (url.pathname === '/api/tab/rename') return renameTab(deps, body, response);
   if (url.pathname === '/api/tab/close') return closeTab(deps, body, response);
+  if (url.pathname === '/api/tab/move') return moveTab(deps, body, response);
   if (url.pathname === '/api/tab/new') return newTab(deps, body, response);
+  if (url.pathname === '/api/tab/duplicate') return duplicateTab(deps, body, response);
   if (url.pathname === '/api/workspace/new') return newWorkspace(deps, body, response);
   if (url.pathname === '/api/workspace/rename') return renameWorkspace(deps, body, response);
   if (url.pathname === '/api/workspace/icon') return setWorkspaceIcon(deps, body, response);
@@ -595,6 +597,22 @@ async function closeTab(deps, body, response) {
 }
 
 /**
+ * A herdr tab dragged in the page's tab bar to another place among its workspace's tabs.
+ * @param {Deps} deps
+ * @param {unknown} body — { tab, place }: place — between the tabs as they stand, 0 before the first
+ * @param {http.ServerResponse} response
+ */
+async function moveTab(deps, body, response) {
+  const tab = tabOf(body);
+  const place = isRecord(body) && Number.isSafeInteger(body.place) && Number(body.place) >= 0 ? Number(body.place) : undefined;
+  if (tab === undefined || place === undefined) {
+    response.writeHead(400).end('Bad tab place');
+    return;
+  }
+  return sendJson(response, await deps.herdrView.moveTab(tab, place));
+}
+
+/**
  * A herdr tab opened from the page's tab bar, beside the open one: a shell, or Claude Code started in it.
  * @param {Deps} deps
  * @param {unknown} body — { tab, start }
@@ -609,6 +627,21 @@ async function newTab(deps, body, response) {
   }
   const label = isRecord(body) ? text(body.label) : undefined;
   return sendJson(response, await deps.herdrView.createTab(tab, start, label));
+}
+
+/**
+ * A copy of a herdr tab, asked for from the page's tab bar: the session in it forked into a new tab of its workspace.
+ * @param {Deps} deps
+ * @param {unknown} body — { tab }
+ * @param {http.ServerResponse} response
+ */
+async function duplicateTab(deps, body, response) {
+  const tab = tabOf(body);
+  if (tab === undefined) {
+    response.writeHead(400).end('Bad tab');
+    return;
+  }
+  return sendJson(response, await deps.herdrView.duplicateTab(tab));
 }
 
 /**

@@ -157,16 +157,16 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
    * reply's way.
    * @param {string} pane
    * @param {import('../public/model/composer.js').Agent} agent
-   * @param {string | undefined} resumed — the session it goes on with
+   * @param {GoOn | undefined} goOn — the session it goes on with: resumed, or forked into a new one; none for a new session
    * @returns {Promise<boolean>} — whether herdr took the keys
    */
-  const startAgent = async (pane, agent, resumed) => {
+  const startAgent = async (pane, agent, goOn) => {
     for (let look = 0; look < shellLooks; look++) {
       const screen = await herdr(['pane', 'read', pane, '--source', 'visible', '--format', 'text']);
       if (screen.ok && screen.text.trim() !== '') break;
       await delay(shellStepMs);
     }
-    const command = agent === 'claude' ? [claudeCommand, ...(resumed === undefined ? [] : ['--resume', resumed])] : [codexCommand, ...(resumed === undefined ? [] : ['resume', resumed])];
+    const command = agent === 'claude' ? [claudeCommand, ...claudeGoingOn(goOn)] : [codexCommand, ...codexGoingOn(goOn)];
     const started = succeeded(await herdr(['pane', 'send-text', pane, command.join(' ')])) && succeeded(await herdr(['pane', 'send-keys', pane, 'enter']));
     if (started && agent === 'claude') void acceptTrust(herdr, pane, trust).catch(() => undefined); // herdr gone meanwhile: nothing to answer
     return started;
@@ -225,6 +225,32 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
       return { ok: true, target: `#/pane/${pane}` };
     },
     /**
+     * A copy of a tab: a new tab in its workspace and folder, named "<its name>::<the first number not taken>" — a copy
+     * of a copy counted on from the same name — with the session in it forked: Claude Code resumes it as a new session of
+     * its own, Codex forks its thread; a tab with no session gets a shell. The page goes to the new tab.
+     * @param {string} tabId
+     * @returns {Promise<import('../public/model/herdr.js').NewTab>}
+     */
+    async duplicateTab(tabId) {
+      const view = await currentView();
+      const tab = view?.snapshot.tabs.find((known) => known.id === tabId);
+      const panes = view?.snapshot.panes.filter((pane) => pane.tabId === tabId) ?? [];
+      const source = panes.find((pane) => view?.sessionByPane.has(pane.paneId)) ?? panes[0];
+      if (view === undefined || tab === undefined || source === undefined) return { ok: false, error: 'failed' };
+      const forked = forkOf(source, view.sessionByPane.get(source.paneId));
+      // a session's id is typed into a shell: one that is no id is not
+      if (forked === 'not-an-id') return { ok: false, error: 'failed' };
+      const reply = await herdr(['tab', 'create', '--workspace', source.workspaceId, ...(source.cwd === undefined ? [] : ['--cwd', source.cwd])]);
+      const pane = succeeded(reply) ? rootPaneOf(reply.json) : undefined;
+      if (pane === undefined) return { ok: false, error: 'failed' };
+      latest = undefined;
+      const created = succeeded(reply) ? tabOf(reply.json) : undefined;
+      const names = view.snapshot.tabs.filter((known) => known.workspaceId === source.workspaceId).map((known) => known.label);
+      if (created !== undefined) await herdr(['tab', 'rename', created, copyName(tab.label, names)]);
+      if (forked !== undefined && !(await startAgent(pane, forked.agent, { session: forked.session, as: 'fork' }))) return { ok: false, error: 'failed' };
+      return { ok: true, target: `#/pane/${pane}` };
+    },
+    /**
      * A new workspace, named on one line, in a folder — ~ for the home folder — with a shell, or Claude Code or Codex
      * started in it.
      * @param {string} label
@@ -256,6 +282,15 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
       const name = label.replace(/\s+/g, ' ').trim();
       if (name === '') return { ok: false, error: 'empty' };
       return changed(await herdr(['tab', 'rename', tabId, name]));
+    },
+    /**
+     * Moves a tab among its workspace's tabs, as herdr does when one is dragged in its own bar.
+     * @param {string} tabId
+     * @param {number} place — between the tabs as they stand: 0 before the first, their count after the last
+     * @returns {Promise<import('../public/model/herdr.js').TabChange>}
+     */
+    async moveTab(tabId, place) {
+      return changed(await herdr(['tab', 'move', tabId, String(place)]));
     },
     /**
      * Names a workspace, as herdr's own rename does.
@@ -345,7 +380,7 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
       const tab = succeeded(reply) ? tabOf(reply.json) : undefined;
       // a tab nobody named went by its number, which the new tab has a new one of
       if (tab !== undefined && place?.tab !== undefined && !/^\d+$/.test(place.tab)) await herdr(['tab', 'rename', tab, place.tab]);
-      if (!(await startAgent(pane, agent, sessionId))) return { ok: false, error: 'failed' };
+      if (!(await startAgent(pane, agent, { session: sessionId, as: 'resume' }))) return { ok: false, error: 'failed' };
       return { ok: true, target: `#/${sessionId}` };
     },
     /**
@@ -379,7 +414,8 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
 }
 
 /**
- * herdr's workspaces and tabs in its own order — by their numbers — with the panes in each tab.
+ * herdr's workspaces and tabs in its own order — the workspaces by their numbers, the tabs as herdr lists them: a tab
+ * keeps the number it was opened with when it is moved — with the panes in each tab.
  * @param {import('./herdr.js').HerdrSnapshot} snapshot
  * @param {ReadonlyMap<string, string>} sessionByPane
  * @param {ReadonlyMap<string, string>} icons — by workspace id
@@ -397,7 +433,6 @@ function layoutOf(snapshot, sessionByPane, icons, hidden) {
     activeTab: workspace.activeTab,
     tabs: snapshot.tabs
       .filter((tab) => tab.workspaceId === workspace.id)
-      .sort(byNumber)
       .map((tab) => ({
         id: tab.id,
         number: tab.number,
@@ -519,4 +554,59 @@ function tabOf(json) {
  */
 function folderName(folder) {
   return folder.split(/[\\/]/).filter((part) => part !== '').at(-1);
+}
+
+/**
+ * @typedef {{ session: string, as: 'resume' | 'fork' }} GoOn — a session an agent goes on with: resumed, or forked into
+ *   a new session of its own
+ */
+
+/**
+ * What follows Claude Code's command to go on with a session.
+ * @param {GoOn | undefined} goOn
+ * @returns {string[]}
+ */
+function claudeGoingOn(goOn) {
+  if (goOn === undefined) return [];
+  return goOn.as === 'resume' ? ['--resume', goOn.session] : ['--resume', goOn.session, '--fork-session'];
+}
+
+/**
+ * What follows Codex's command to go on with a thread.
+ * @param {GoOn | undefined} goOn
+ * @returns {string[]}
+ */
+function codexGoingOn(goOn) {
+  if (goOn === undefined) return [];
+  return goOn.as === 'resume' ? ['resume', goOn.session] : ['fork', goOn.session];
+}
+
+/** A session's id, as Claude Code and Codex make them. */
+const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * What a copy of a pane forks: the session its agent runs — none for a shell; not-an-id for a session whose id is not
+ * one, as it would be typed into a shell.
+ * @param {import('./herdr.js').Pane} pane
+ * @param {string | undefined} session
+ * @returns {{ agent: import('../public/model/composer.js').Agent, session: string } | 'not-an-id' | undefined}
+ */
+function forkOf(pane, session) {
+  if (session === undefined || (pane.agent !== 'claude' && pane.agent !== 'codex')) return undefined;
+  return sessionIdPattern.test(session) ? { agent: pane.agent, session } : 'not-an-id';
+}
+
+/**
+ * The name of a tab's copy: "<its name>::<n>", n the first number the workspace's tabs leave free; a copy of a copy is
+ * counted on from the same name — "checkout fix::1" copied is "checkout fix::2", or on.
+ * @param {string} label
+ * @param {readonly string[]} names — of the workspace's tabs
+ * @returns {string}
+ */
+function copyName(label, names) {
+  const base = label.replace(/::.*$/s, '').trim();
+  const taken = new Set(names.flatMap((name) => (name.startsWith(`${base}::`) ? [name.slice(base.length + 2)] : [])));
+  let number = 1;
+  while (taken.has(String(number))) number++;
+  return `${base}::${number}`;
 }

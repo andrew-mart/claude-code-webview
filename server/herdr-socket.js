@@ -166,7 +166,8 @@ function socketCall(args) {
 
 /**
  * @param {string | undefined} command
- * @param {readonly string[]} rest — the tab, and the new name for rename; for create, its workspace and folder
+ * @param {readonly string[]} rest — the tab, and the new name for rename, where it goes for move — the place between its
+ *   workspace's tabs as they stand, 0 before the first; for create, its workspace and folder
  * @returns {{ method: string, params: Record<string, unknown> } | undefined}
  */
 function tabCall(command, rest) {
@@ -174,6 +175,8 @@ function tabCall(command, rest) {
   const [tab, label, ...more] = rest;
   if (tab === undefined || more.length > 0) return undefined;
   if (command === 'rename' && label !== undefined) return { method: 'tab.rename', params: { tab_id: tab, label } };
+  // herdr's program has no move: the socket alone moves a tab
+  if (command === 'move' && label !== undefined && /^\d+$/.test(label)) return { method: 'tab.move', params: { tab_id: tab, insert_index: Number(label) } };
   if (command === 'close' && label === undefined) return { method: 'tab.close', params: { tab_id: tab } };
   return undefined;
 }

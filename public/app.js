@@ -138,6 +138,11 @@ document.addEventListener('keydown', (event) => {
     event.preventDefault();
     page.step(event.key === 'ArrowUp' ? 'previous' : 'next');
   }
+  // F2 names the open tab, the prompt's box in focus too — a box has no use for the key; a terminal's programs have
+  if (event.key === 'F2' && !(event.target instanceof Element && event.target.closest('.terminal-view') !== null)) {
+    event.preventDefault();
+    page.nameOpenTab();
+  }
 });
 follow.checked = settings.get('follow') === 'on';
 showSdk.checked = settings.get('sdk') === 'shown';
@@ -274,10 +279,12 @@ function createPage() {
   const tabBar = createTabBar({
     rename: (tab, label) => changeTab('/api/tab/rename', { tab, label }),
     close: (tab) => changeTab('/api/tab/close', { tab }),
+    move: (tab, place) => changeTab('/api/tab/move', { tab, place }),
     open: (target) => {
       location.hash = target;
     },
     create: (tab, start, label) => newTab(tab, start, label),
+    duplicate: (tab) => duplicateTab(tab),
     renameWorkspace: (workspace, label) => changeTab('/api/workspace/rename', { workspace, label }),
     setWorkspaceIcon: (workspace, icon) => changeTab('/api/workspace/icon', { workspace, icon: icon === undefined ? null : icon }),
     iconTags: lucideTags,
@@ -621,6 +628,10 @@ function createPage() {
     /** @param {'previous' | 'next'} direction — move to the neighbouring prompt (Alt+↑ / Alt+↓) */
     step(direction) {
       current?.step(direction);
+    },
+    /** Names the open herdr tab, as its ✎ does: the page's F2. */
+    nameOpenTab() {
+      tabBar.nameOpenTab();
     },
     async refresh() {
       const response = await fetch(`/api/sessions?since=${listVersion ?? ''}`).catch(() => undefined);
@@ -1357,8 +1368,8 @@ function typedFolders() {
 /**
  * A herdr tab or workspace named or closed — or a workspace's icon picked, an idle session hidden, the hidden shown again
  * — from the tab bar or the sidebar; once done the page looks at herdr again, so the change shows at once.
- * @param {'/api/tab/rename' | '/api/tab/close' | '/api/workspace/rename' | '/api/workspace/close' | '/api/workspace/icon' | '/api/herdr/hide' | '/api/herdr/show'} path
- * @param {{ tab: string, label?: string } | { workspace: string, label?: string } | { workspace: string, icon: string | null } | { pane: string } | Record<string, never>} change
+ * @param {'/api/tab/rename' | '/api/tab/close' | '/api/tab/move' | '/api/workspace/rename' | '/api/workspace/close' | '/api/workspace/icon' | '/api/herdr/hide' | '/api/herdr/show'} path
+ * @param {{ tab: string, label?: string } | { tab: string, place: number } | { workspace: string, label?: string } | { workspace: string, icon: string | null } | { pane: string } | Record<string, never>} change
  *   — an icon: one of Lucide's, kept for the workspace; null: none
  * @returns {Promise<import('./model/herdr.js').TabChange>}
  */
@@ -1385,6 +1396,23 @@ async function newTab(tab, start, label) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Viewer': '1' },
     body: JSON.stringify({ tab, start, label }),
+  }).catch(() => undefined);
+  const outcome = parseNewTab(response?.ok ? await response.json().catch(() => undefined) : undefined);
+  if (outcome.ok) await page.refreshHerdr();
+  return outcome;
+}
+
+/**
+ * A copy of a herdr tab, the session in it forked, opened from the tab bar; once herdr has it the page looks at herdr
+ * again.
+ * @param {string} tab — the open tab
+ * @returns {Promise<import('./model/herdr.js').NewTab>}
+ */
+async function duplicateTab(tab) {
+  const response = await fetch('/api/tab/duplicate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Viewer': '1' },
+    body: JSON.stringify({ tab }),
   }).catch(() => undefined);
   const outcome = parseNewTab(response?.ok ? await response.json().catch(() => undefined) : undefined);
   if (outcome.ok) await page.refreshHerdr();

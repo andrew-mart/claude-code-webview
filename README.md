@@ -138,15 +138,19 @@ keeps no record of its processes: a Codex pane shows the thread Codex holds open
 has more than one, the one whose name Codex put in the pane's title. The search finds
 workspaces and sessions by name and by what runs in them.
 
-A second click on the open tab shows its buttons: ✎ names it, × closes it (after asking with ✓ and ✕ — what runs in it
-stops), and the page moves to the tab next to it. A tab can have an emoji icon: picked from a row beside its name as it
+A second click on the open tab shows its buttons: ✎ names it — so does **F2**, anywhere but in a terminal — the next
+one duplicates it, × closes it (after asking with ✓ and ✕ — what runs in it stops), and the page moves to the tab next
+to it. A duplicate is a new tab of the workspace, in the same folder, named `<name>::1` (then `::2`, …; a copy of a copy
+counts on from the same name), with the session in it forked: `claude --resume <id> --fork-session` — the conversation
+so far, going on as a new session — or `codex fork <id>`; a tab with no session gets a terminal. A tab can have an emoji icon: picked from a row beside its name as it
 is named, it is kept ahead of the name in herdr's label, so herdr shows it too. **+** at the end of the row opens a tab
 beside the open one, in its folder and under the name (and icon) you give it: a terminal, or Claude Code started in it
 with `claude` — or with the command given by `--claude-command`, a wrapper of your own — or Codex, with `codex` or
 `--codex-command`; the page goes from the new tab's terminal to its session as soon as the agent's session starts there. When Claude Code started from the page — in a new tab or
 workspace, or resuming a session — asks whether to trust its folder, the viewer answers yes: the folder is the one
 you chose, and the dialog's arrows and Enter are out of reach on a phone. Tabs that do not fit the row scroll sideways
-under the mouse wheel.
+under the mouse wheel. A tab dragged along the row goes where it is let go, in herdr too — on a phone, after a finger
+rests on it a moment, a swipe still scrolls the row.
 
 A workspace has a colour of its own — its hue follows from its name — on the left edge of its row and of the rows of
 the sessions that run or ran in it, and an icon left of its name, one at random until you pick one — kept for its

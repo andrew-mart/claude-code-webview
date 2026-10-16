@@ -119,7 +119,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // tabs renamed and closed are recorded
   /** @type {string[][]} */
   const tabChanges = [];
-  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'createWorkspace' | 'history' | 'reopen'>} */
+  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'createWorkspace' | 'history' | 'reopen'>} */
   const herdrView = {
     workspacesOf: async (listed) => ({ herdr: true, sessions: Object.fromEntries(listed.map(({ id }) => [id, 'web'])), icons: {} }),
     layout: async () => ({ herdr: true, workspaces: [webWorkspace] }),
@@ -134,6 +134,10 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
     },
     closeTab: async (tab) => {
       tabChanges.push(['close', tab]);
+      return { ok: true };
+    },
+    moveTab: async (tab, place) => {
+      tabChanges.push(['move', tab, String(place)]);
       return { ok: true };
     },
     setWorkspaceIcon: async (workspace, icon) => {
@@ -159,6 +163,10 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
     createTab: async (beside, start, label) => {
       tabChanges.push(['create', beside, start, String(label)]);
       return { ok: true, target: '#/pane/w1:p2' };
+    },
+    duplicateTab: async (tab) => {
+      tabChanges.push(['duplicate', tab]);
+      return { ok: true, target: '#/pane/w1:p3' };
     },
     createWorkspace: async (label, folder, start) => {
       tabChanges.push(['workspace', label, folder, start]);
@@ -294,6 +302,34 @@ test('workspaces_Should_PassIconPickedOnViewerPage_And_RefuseWhatIsNoIcon', asyn
   assert.deepEqual(
     { replies: [picked, none].map((reply) => [reply.status, JSON.parse(reply.body)]), refused: strange.status, tabChanges },
     { replies: [[200, { ok: true }], [200, { ok: true }]], refused: 400, tabChanges: [['icon', 'w1', 'lucide:wallet@green'], ['icon', 'w1', 'none']] },
+  );
+});
+
+// A tab dragged on the page goes to its place among its workspace's tabs; a place that is none — below the first, part
+// of one, not a number — is refused before herdr is asked
+test('tabs_Should_MoveTabDraggedOnViewerPage_And_RefuseWhatIsNoPlace', async (t) => {
+  const { port, tabChanges } = await withServer(t);
+
+  const moved = await post(port, '/api/tab/move', pageHeaders(port), JSON.stringify({ tab: 'w1:t1', place: 2 }));
+  const refused = await Promise.all([-1, 1.5, '2'].map(async (place) => (await post(port, '/api/tab/move', pageHeaders(port), JSON.stringify({ tab: 'w1:t1', place }))).status));
+
+  assert.deepEqual(
+    { moved: [moved.status, JSON.parse(moved.body)], refused, tabChanges },
+    { moved: [200, { ok: true }], refused: [400, 400, 400], tabChanges: [['move', 'w1:t1', '2']] },
+  );
+});
+
+// A tab duplicated on the page: herdr's copy of it is asked for and the page told where it opened; what is no tab is
+// refused before herdr is asked
+test('tabs_Should_DuplicateTabOnViewerPagesAsking_And_RefuseWhatIsNoTab', async (t) => {
+  const { port, tabChanges } = await withServer(t);
+
+  const copied = await post(port, '/api/tab/duplicate', pageHeaders(port), JSON.stringify({ tab: 'w1:t1' }));
+  const refused = (await post(port, '/api/tab/duplicate', pageHeaders(port), JSON.stringify({ tab: 7 }))).status;
+
+  assert.deepEqual(
+    { copied: [copied.status, JSON.parse(copied.body)], refused, tabChanges },
+    { copied: [200, { ok: true, target: '#/pane/w1:p3' }], refused: 400, tabChanges: [['duplicate', 'w1:t1']] },
   );
 });
 

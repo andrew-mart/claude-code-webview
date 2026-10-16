@@ -20,6 +20,7 @@ import { lucideIcon } from './lucide.js';
 import { createWorkClock } from './work-clock.js';
 import { tintByWorkspace } from './workspace-tint.js';
 import { workspaceHue } from '../model/workspace-color.js';
+import { allowDragging } from './tab-drag.js';
 import { labelWithIcon, splitTabIcon, tabIcons, workspaceIcons } from '../model/tab-icon.js';
 
 /**
@@ -101,12 +102,14 @@ function tabContent(tab) {
 }
 
 /**
- * A tab by its number and name; a tab nobody named is named by herdr with its number, which is said once.
+ * The name a tab was given: none for a tab nobody named — herdr names it by its place among its workspace's tabs, anew
+ * as it is moved; the number it was opened with stays.
+ * @param {import('../model/herdr.js').HerdrWorkspace} workspace
  * @param {import('../model/herdr.js').HerdrTab} tab
  * @returns {string}
  */
-function tabName(tab) {
-  return tab.label === String(tab.number) ? tab.label : `${tab.number} ${tab.label}`;
+function givenName(workspace, tab) {
+  return tab.label === String(workspace.tabs.findIndex((one) => one.id === tab.id) + 1) ? '' : tab.label;
 }
 
 /** Every emoji to pick an icon from (emoji-picker-element), from the viewer itself (server/app.js: vendor). */
@@ -773,16 +776,15 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
         const row = link(pane.session === undefined ? `#/pane/${pane.id}` : `#/${pane.session}`, 'herdr-tab', [
           ...workspaceIconOf(workspace.icon),
           h('span', { className: 'herdr-tab-text' }, [
-            h('span', { className: 'herdr-tab-title', text: title === undefined ? tabName(tab) : title }),
-            h('span', { className: 'herdr-tab-where', text: [workspaceName(workspace), title === undefined ? undefined : tabName(tab), what].filter((part) => part !== undefined).join(' · ') }),
+            h('span', { className: 'herdr-tab-title', text: title === undefined ? tab.label : title }),
+            h('span', { className: 'herdr-tab-where', text: [workspaceName(workspace), title === undefined ? undefined : tab.label, what].filter((part) => part !== undefined).join(' · ') }),
           ]),
           lampOf(clock, pane.id, workspace.number, paneLamp(pane, seen)),
         ]);
         row.classList.toggle('selected', opened !== undefined && (opened.kind === 'session' ? pane.session === opened.id : pane.id === opened.id));
         tintByWorkspace(row, workspace.label);
         offerChanges(row, '.herdr-tab-text', {
-          // a tab herdr numbers has no name of its own to start from
-          label: tab.label === String(tab.number) ? '' : tab.label,
+          label: givenName(workspace, tab),
           icon: undefined,
           rename: (label) => renameTab(tab.id, label),
           close: () => closeTab(tab.id),
@@ -801,9 +803,10 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
 }
 
 /**
- * @typedef {{ rename: (tabId: string, label: string) => Promise<import('../model/herdr.js').TabChange>, close: (tabId: string) => Promise<import('../model/herdr.js').TabChange>, open: (target: string) => void, create: (besideTab: string, start: import('../model/herdr.js').TabStart, label: string | undefined) => Promise<import('../model/herdr.js').NewTab>, renameWorkspace: (workspaceId: string, label: string) => Promise<TabChange>, setWorkspaceIcon: (workspaceId: string, icon: string | undefined) => Promise<TabChange>, iconTags: () => Promise<Readonly<Record<string, readonly string[]>>> }} TabActions
- *   — rename, close and create resolve once the page shows the change; open goes to a page address; renameWorkspace,
- *   setWorkspaceIcon and iconTags: the workspace's icon picked from the bar's head
+ * @typedef {{ rename: (tabId: string, label: string) => Promise<import('../model/herdr.js').TabChange>, close: (tabId: string) => Promise<import('../model/herdr.js').TabChange>, move: (tabId: string, place: number) => Promise<import('../model/herdr.js').TabChange>, open: (target: string) => void, create: (besideTab: string, start: import('../model/herdr.js').TabStart, label: string | undefined) => Promise<import('../model/herdr.js').NewTab>, duplicate: (tabId: string) => Promise<import('../model/herdr.js').NewTab>, renameWorkspace: (workspaceId: string, label: string) => Promise<TabChange>, setWorkspaceIcon: (workspaceId: string, icon: string | undefined) => Promise<TabChange>, iconTags: () => Promise<Readonly<Record<string, readonly string[]>>> }} TabActions
+ *   — rename, close, move, create and duplicate resolve once the page shows the change; move: to a place between the
+ *   tabs as they stand, 0 before the first; duplicate: a copy of the tab, the session in it forked; open goes to a page
+ *   address; renameWorkspace, setWorkspaceIcon and iconTags: the workspace's icon picked from the bar's head
  */
 
 /**
@@ -813,7 +816,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
  * a terminal, or Claude Code — and the page goes to it.
  * @param {TabActions} actions
  */
-export function createTabBar({ rename, close, open, create, renameWorkspace, setWorkspaceIcon, iconTags }) {
+export function createTabBar({ rename, close, move, open, create, duplicate, renameWorkspace, setWorkspaceIcon, iconTags }) {
   /** How long each tab has been at work: its robots' story goes on across redrawing. */
   const clock = createWorkClock(() => Date.now());
   const element = h('nav', { className: 'herdr-tab-bar', attrs: { 'aria-label': 'herdr tabs', hidden: '' } });
@@ -836,6 +839,9 @@ export function createTabBar({ rename, close, open, create, renameWorkspace, set
   /** The open tab whose buttons are shown: they are out of the way until it is clicked again. */
   /** @type {string | undefined} */
   let buttonsOf;
+  /** Names the open tab as drawn last, as its ✎ does; none while no tab is open. */
+  /** @type {(() => void) | undefined} */
+  let nameOpen;
 
   const finish = () => {
     busy = false;
@@ -843,6 +849,17 @@ export function createTabBar({ rename, close, open, create, renameWorkspace, set
     shown = '';
     if (given !== undefined) bar.render(given.layout, given.opened, given.seen);
   };
+  // a tab dragged to another place among them: the bar stays as it is while it is dragged and moved
+  allowDragging(element, {
+    tabs: () => [...element.querySelectorAll('.herdr-chip')].filter((chip) => chip instanceof window.HTMLElement),
+    idOf: (chip) => chip.dataset.tab,
+    canStart: () => !busy,
+    onStart: () => {
+      busy = true;
+    },
+    onDrop: (tabId, place) => void move(tabId, place).then(finish),
+    onCancel: finish,
+  });
 
   /**
    * The icon of the workspace at the head of its tabs: a press opens its icons to pick from — on a phone a press on the
@@ -879,11 +896,12 @@ export function createTabBar({ rename, close, open, create, renameWorkspace, set
    * @param {HTMLElement} chip
    * @param {HTMLElement} actions
    * @param {import('../model/herdr.js').HerdrTab} tab
+   * @param {string} given — the name it was given, none for a tab nobody named
    */
-  const startNaming = (chip, actions, tab) => {
+  const startNaming = (chip, actions, tab, given) => {
     busy = true;
-    const box = h('input', { className: 'herdr-tab-name', attrs: { type: 'text', maxlength: '60', placeholder: 'Tab name', 'aria-label': `Name of tab ${tab.number}` } });
-    const named = splitTabIcon(tab.label === String(tab.number) ? '' : tab.label);
+    const box = h('input', { className: 'herdr-tab-name', attrs: { type: 'text', maxlength: '60', placeholder: 'Tab name', 'aria-label': `Name of tab ${tab.label}` } });
+    const named = splitTabIcon(given);
     box.value = named.name;
     const picker = createIconPicker(named.icon, box, { icons: tabIcons, title: 'Icon of the tab', onLeave: () => leave(), lucide: undefined });
     let sending = false;
@@ -955,6 +973,29 @@ export function createTabBar({ rename, close, open, create, renameWorkspace, set
   };
 
   /**
+   * herdr opens the tab's copy — the session in it forked — and the page goes to it; a copy not opened is told beside
+   * the tab's buttons.
+   * @param {HTMLButtonElement} button
+   * @param {HTMLElement} actions
+   * @param {import('../model/herdr.js').HerdrTab} tab
+   */
+  const startDuplicating = (button, actions, tab) => {
+    busy = true;
+    button.disabled = true;
+    void duplicate(tab.id).then((outcome) => {
+      if (outcome.ok) {
+        finish();
+        open(outcome.target);
+        return;
+      }
+      busy = false;
+      button.disabled = false;
+      actions.querySelector('.herdr-tab-duplicate-failed')?.remove();
+      actions.append(h('span', { className: 'herdr-tab-duplicate-failed', text: 'herdr did not open a copy.' }));
+    });
+  };
+
+  /**
    * "+" gives way to the new tab's name and the choice of what it runs; Enter starts Claude Code, Escape leaves it.
    * @param {HTMLElement} adding
    * @param {import('../model/herdr.js').HerdrTab} beside — the open tab
@@ -1017,19 +1058,23 @@ export function createTabBar({ rename, close, open, create, renameWorkspace, set
       if (look === shown) return;
       shown = look;
       element.hidden = place === undefined;
+      nameOpen = undefined;
       if (place === undefined) {
         element.replaceChildren();
         return;
       }
       if (buttonsOf !== place.tab.id) buttonsOf = undefined;
       const chips = place.workspace.tabs.flatMap((tab) => {
-        const chip = link(tabTarget(tab), 'herdr-chip', [lampOf(clock, tab.id, place.workspace.number, groupLamp(tab.status, tab.panes, seen)), h('span', { text: tabName(tab) })]);
+        const chip = link(tabTarget(tab), 'herdr-chip', [lampOf(clock, tab.id, place.workspace.number, groupLamp(tab.status, tab.panes, seen)), h('span', { text: tab.label })]);
         chip.title = tabContent(tab);
+        chip.dataset.tab = tab.id;
+        chip.draggable = false;
         chip.classList.toggle('selected', tab.id === place.tab.id);
         if (tab.id !== place.tab.id) return [chip];
         const naming = h('button', { className: 'icon-button herdr-tab-rename', title: 'Name this tab', attrs: { type: 'button', 'aria-label': 'Name this tab' } }, [icon('edit')]);
+        const duplicating = h('button', { className: 'icon-button herdr-tab-duplicate', title: 'Duplicate this tab: its session forked into a new one', attrs: { type: 'button', 'aria-label': 'Duplicate this tab' } }, [icon('duplicate')]);
         const closing = h('button', { className: 'icon-button herdr-tab-close', title: 'Close this tab', attrs: { type: 'button', 'aria-label': 'Close this tab' } }, [icon('cross')]);
-        const actions = h('span', { className: 'herdr-tab-actions' }, [naming, closing]);
+        const actions = h('span', { className: 'herdr-tab-actions' }, [naming, duplicating, closing]);
         actions.hidden = buttonsOf !== tab.id;
         // the open tab is open already: a click on it shows or hides its buttons
         chip.addEventListener('click', (event) => {
@@ -1037,7 +1082,9 @@ export function createTabBar({ rename, close, open, create, renameWorkspace, set
           buttonsOf = buttonsOf === tab.id ? undefined : tab.id;
           actions.hidden = buttonsOf !== tab.id;
         });
-        naming.addEventListener('click', () => startNaming(chip, actions, tab));
+        nameOpen = () => startNaming(chip, actions, tab, givenName(place.workspace, tab));
+        naming.addEventListener('click', nameOpen);
+        duplicating.addEventListener('click', () => startDuplicating(duplicating, actions, tab));
         closing.addEventListener('click', () => startClosing(actions, tab, place.workspace.tabs));
         return [chip, actions];
       });
@@ -1045,6 +1092,10 @@ export function createTabBar({ rename, close, open, create, renameWorkspace, set
       adding.addEventListener('click', () => startAdding(adding, place.tab));
       element.replaceChildren(h('span', { className: 'herdr-chip-workspace' }, [...workspaceIconButton(place.workspace), workspaceName(place.workspace)]), ...chips, adding);
       element.querySelector('.herdr-chip.selected')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    },
+    /** Names the open tab, as its ✎ does — F2 on the page; while a tab is being named, closed or dragged, nothing. */
+    nameOpenTab() {
+      if (!busy) nameOpen?.();
     },
   };
   return bar;

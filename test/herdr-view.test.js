@@ -139,8 +139,8 @@ test('workspaces_Should_AskHerdrAtMostOncePerRefreshPeriod', async (t) => {
   assert.equal(asked.filter((call) => call === 'api snapshot').length, 1);
 });
 
-// The sidebar and the session header show herdr as it is: workspaces and tabs in herdr's order, the panes in each tab,
-// and which session runs in a pane with Claude Code
+// The sidebar and the session header show herdr as it is: workspaces in herdr's order, the tabs as herdr lists them — a
+// tab moved keeps the number it was opened with — the panes in each tab, and which session runs in a pane with Claude Code
 test('herdrView_Should_LayOutWorkspacesTabsAndPanes_WithSessionOfClaudePane', async (t) => {
   const herdr = fakeHerdr({
     workspaces: [
@@ -174,8 +174,8 @@ test('herdrView_Should_LayOutWorkspacesTabsAndPanes_WithSessionOfClaudePane', as
         status: 'working',
         activeTab: 'w2:t3',
         tabs: [
-          { id: 'w2:t1', number: 1, label: 'hotels', status: 'done', panes: [{ id: 'w2:p1', agent: 'claude', status: 'done', title: 'Resume', session: running, size: { cols: 154, rows: 44 }, activity: 50 }] },
           { id: 'w2:t3', number: 3, label: 'search', status: 'working', panes: [{ id: 'w2:p3', agent: 'claude', status: 'working', title: 'Search', session: undefined, size: undefined, activity: 80 }] },
+          { id: 'w2:t1', number: 1, label: 'hotels', status: 'done', panes: [{ id: 'w2:p1', agent: 'claude', status: 'done', title: 'Resume', session: running, size: { cols: 154, rows: 44 }, activity: 50 }] },
         ],
       },
       {
@@ -338,17 +338,21 @@ test('workspaces_Should_FindPaneAnew_When_ProcessNumberIsTakenByAnotherClaude', 
  * herdr with one workspace, web, and its tabs, the first one's pane in D:/shop; renaming, closing and opening a tab
  * change them, a new tab's pane shows its shell's prompt unless told what it shows; the changes and what is typed are
  * recorded.
- * @param {{ fails?: boolean, screens?: readonly string[] }} [options] - fails: herdr refuses to rename, close or open;
- *   screens: what a pane shows, one per look, the last staying
+ * @param {{ fails?: boolean, screens?: readonly string[], opened?: readonly FakeTab[], panes?: readonly FakePane[] }} [options] -
+ *   fails: herdr refuses to rename, close or open; screens: what a pane shows, one per look, the last staying; opened,
+ *   panes: the tabs and panes herdr has to start with, unless the usual two tabs with a shell in the first
  */
-function tabsHerdr({ fails = false, screens = ['PS D:\\shop> '] } = {}) {
-  /** @type {FakeTab[]} */
-  let tabs = [
+function tabsHerdr({
+  fails = false,
+  screens = ['PS D:\\shop> '],
+  opened = [
     { tab_id: 'w2:t1', workspace_id: 'w2', number: 1, label: '1', agent_status: 'idle' },
     { tab_id: 'w2:t2', workspace_id: 'w2', number: 2, label: 'tests', agent_status: 'idle' },
-  ];
-  /** @type {FakePane[]} */
-  const panes = [{ pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:/shop' }];
+  ],
+  panes = [{ pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:/shop' }],
+} = {}) {
+  /** @type {readonly FakeTab[]} */
+  let tabs = opened;
   /** @type {string[]} */
   const changes = [];
   let reads = 0;
@@ -375,6 +379,16 @@ function tabsHerdr({ fails = false, screens = ['PS D:\\shop> '] } = {}) {
       const number = tabs.length + 1;
       tabs = [...tabs, { tab_id: `w2:t${number}`, workspace_id: 'w2', number, label: String(number), agent_status: 'unknown' }];
       return { ok: true, json: { result: { type: 'tab_created', tab: { tab_id: `w2:t${number}` }, root_pane: { pane_id: `w2:p${number}` } } }, text: '' };
+    }
+    if (command === 'move') {
+      // as herdr moves one: to the place between the tabs as they stand — each keeps its number, given as it was opened
+      const from = tabs.findIndex((known) => known.tab_id === tab);
+      const moved = tabs[from];
+      const place = Number(label);
+      const rest = tabs.filter((known) => known.tab_id !== tab);
+      const order = moved === undefined ? tabs : [...rest.slice(0, from < place ? place - 1 : place), moved, ...rest.slice(from < place ? place - 1 : place)];
+      tabs = order;
+      return { ok: true, json: { result: { type: 'tab_list' } }, text: '' };
     }
     tabs = command === 'close' ? tabs.filter((known) => known.tab_id !== tab) : tabs.map((known) => (known.tab_id === tab && label !== undefined ? { ...known, label } : known));
     return { ok: true, json: { result: { type: 'ok' } }, text: '' };
@@ -403,6 +417,18 @@ test('renameTab_Should_NameTabInHerdr_And_ShowNameAtOnce', async () => {
   const outcome = await view.renameTab('w2:t1', '  checkout\n  fix ');
 
   assert.deepEqual({ outcome, changes: herdr.changes, names: tabNames(await view.layout()) }, { outcome: { ok: true }, changes: ['tab rename w2:t1 checkout fix'], names: ['checkout fix', 'tests'] });
+});
+
+// A tab dragged on the page to another place among its workspace's tabs moves there in herdr — the place counted
+// between the tabs as they stood, the last one's end after it — and the page sees the order at once
+test('moveTab_Should_MoveTabInHerdr_And_ShowOrderAtOnce', async () => {
+  const herdr = tabsHerdr();
+  const view = await tabsView(herdr);
+  await view.layout();
+
+  const outcome = await view.moveTab('w2:t1', 2);
+
+  assert.deepEqual({ outcome, changes: herdr.changes, names: tabNames(await view.layout()) }, { outcome: { ok: true }, changes: ['tab move w2:t1 2'], names: ['tests', '1'] });
 });
 
 // A tab closed from the page is closed in herdr — what runs in it stops — and is gone from the page at once
@@ -558,6 +584,74 @@ test('createTab_And_reopen_Should_StartCodexWithItsCommand_AndResumeCodexSession
       changes: ['tab create --workspace w2 --cwd D:/shop', 'pane send-text w2:p3 codex-yolo', 'pane send-keys w2:p3 enter', 'tab create --workspace w2 --cwd D:/web', 'tab rename w2:t4 limits', 'pane send-text w2:p4 codex-yolo resume t1', 'pane send-keys w2:p4 enter'],
     },
   );
+});
+
+// A tab duplicated from the page: a new tab in its workspace and folder, named "<its name>::<the first number not
+// taken>" — a copy of a copy counted on from the same name — the session in it forked: Claude Code resumes it as a new
+// session, Codex forks its thread; a tab with no session gets a shell in its folder; the page goes to the new tab
+test('duplicateTab_Should_OpenTabInItsFolder_ForkingItsSession', async () => {
+  const copied = '1c2d3e4f-1111-4222-8333-944455556666';
+  const thread = '01a13a06-5376-7481-9aa7-ec19297d2f7c';
+  const tab = (/** @type {number} */ number, /** @type {string} */ label) => ({ tab_id: `w2:t${number}`, workspace_id: 'w2', number, label, agent_status: 'idle' });
+  const herdr = tabsHerdr({
+    opened: [tab(1, 'checkout fix'), tab(2, 'checkout fix::1'), tab(3, 'limits'), tab(4, '4')],
+    panes: [
+      { pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:/shop', agent: 'claude', pid: 101 },
+      { pane_id: 'w2:p2', workspace_id: 'w2', tab_id: 'w2:t2', cwd: 'D:/shop', agent: 'claude', pid: 202 },
+      { pane_id: 'w2:p3', workspace_id: 'w2', tab_id: 'w2:t3', cwd: 'D:/web', agent: 'codex', terminal_title_stripped: 'Limits | web' },
+      { pane_id: 'w2:p4', workspace_id: 'w2', tab_id: 'w2:t4', cwd: 'D:/notes' },
+    ],
+  });
+  const folder = tempDir('ccw-workspaces-');
+  const view = createHerdrView({
+    herdr: herdr.run,
+    readRecords: async () => [runningRecord, { ...runningRecord, pid: 202, sessionId: copied }],
+    codexThreads: async () => [{ id: thread, cwd: 'D:/web', name: 'Limits', activeAt: 1 }],
+    icons: noIcons,
+    hidden: noHidden,
+    file: join(folder, 'workspaces.json'),
+    refreshMs: 60_000,
+    trust: { looks: 3, stepMs: 1 },
+    claudeCommand: 'claude-god',
+    codexCommand: 'codex-yolo',
+  });
+
+  const outcomes = [await view.duplicateTab('w2:t1'), await view.duplicateTab('w2:t3'), await view.duplicateTab('w2:t4'), await view.duplicateTab('w2:t2')];
+
+  assert.deepEqual(
+    { outcomes, changes: herdr.changes },
+    {
+      outcomes: ['w2:p5', 'w2:p6', 'w2:p7', 'w2:p8'].map((pane) => ({ ok: true, target: `#/pane/${pane}` })),
+      changes: [
+        'tab create --workspace w2 --cwd D:/shop',
+        'tab rename w2:t5 checkout fix::2',
+        `pane send-text w2:p5 claude-god --resume ${running} --fork-session`,
+        'pane send-keys w2:p5 enter',
+        'tab create --workspace w2 --cwd D:/web',
+        'tab rename w2:t6 limits::1',
+        `pane send-text w2:p6 codex-yolo fork ${thread}`,
+        'pane send-keys w2:p6 enter',
+        'tab create --workspace w2 --cwd D:/notes',
+        'tab rename w2:t7 4::1',
+        'tab create --workspace w2 --cwd D:/shop',
+        'tab rename w2:t8 checkout fix::3',
+        `pane send-text w2:p8 claude-god --resume ${copied} --fork-session`,
+        'pane send-keys w2:p8 enter',
+      ],
+    },
+  );
+});
+
+// A session's id goes to a shell as typed: one that is no id — a record written over by hand — opens no copy at all
+test('duplicateTab_Should_OpenNothing_When_SessionIdIsNoId', async () => {
+  const herdr = tabsHerdr({
+    opened: [{ tab_id: 'w2:t1', workspace_id: 'w2', number: 1, label: 'checkout fix', agent_status: 'idle' }],
+    panes: [{ pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:/shop', agent: 'claude', pid: 101 }],
+  });
+  const folder = tempDir('ccw-workspaces-');
+  const view = createHerdrView({ herdr: herdr.run, readRecords: async () => [{ ...runningRecord, sessionId: `${running} & exit` }], codexThreads: async () => [], icons: noIcons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-god', codexCommand: 'codex-yolo' });
+
+  assert.deepEqual({ outcome: await view.duplicateTab('w2:t1'), changes: herdr.changes }, { outcome: { ok: false, error: 'failed' }, changes: [] });
 });
 
 // Its workspace closed meanwhile — or the session never ran in herdr — it gets its workspace again, named as before or
