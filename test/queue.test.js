@@ -42,3 +42,14 @@ test('queue_Should_KeepPromptWithoutText', () => {
   assert.deepEqual(waitingAfter([imageOnly]), ['']);
   assert.deepEqual(waitingAfter([imageOnly, enqueue('Text'), dequeue]), ['Text']);
 });
+
+// A message from another Claude session is queued with the hops it came by in its opening tag, and taken in mid-turn
+// with them left out: it is the same message, gone from the queue — and the prompt queued after it is the oldest one
+// left, the one taken next
+test('queue_Should_DropMessageFromAnotherSession_TakenInMidTurnWithoutItsHops', () => {
+  const queued = '<cross-session-message from="uds:cc-msg-1" hop-chain="fffd5148" from-name="worker" from-mode="bypass">\nGo ahead.\n</cross-session-message>';
+  const taken = '<cross-session-message from="uds:cc-msg-1" from-name="worker" from-mode="bypass">\nGo ahead.\n</cross-session-message>';
+
+  assert.deepEqual(waitingAfter([enqueue(queued), enqueue('Next prompt'), remove(taken)]), ['Next prompt']);
+  assert.deepEqual(waitingAfter([enqueue(queued), remove(taken), enqueue('Next prompt'), dequeue]), []);
+});

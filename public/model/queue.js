@@ -11,6 +11,16 @@ import { isRecord, text } from './narrow.js';
 const backgroundTaskNote = '<task-notification>';
 
 /**
+ * A queued text as it is told apart from the others: a message from another Claude session is noted with the hops it
+ * came by in its opening tag when it is queued, and without them when it is taken.
+ * @param {string} queued
+ * @returns {string}
+ */
+function asNoted(queued) {
+  return queued.replace(/^(<cross-session-message\b[^>]*?) hop-chain="[^"]*"/, '$1');
+}
+
+/**
  * @param {Queue} queue — waiting before this entry
  * @param {unknown} entry — a transcript entry after the server filter
  * @returns {Queue}
@@ -24,7 +34,7 @@ export function queueAfter(queue, entry) {
     case 'dequeue':
       return queue.slice(1);
     case 'remove': {
-      const at = queue.indexOf(content);
+      const at = queue.findIndex((waiting) => asNoted(waiting) === asNoted(content));
       return at < 0 ? queue : queue.toSpliced(at, 1);
     }
     case 'popAll':
