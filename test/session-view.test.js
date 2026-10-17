@@ -201,6 +201,30 @@ test('mountSession_Should_ShowPromptSentFromPage_UntilClaudeWritesItDown', async
   assert.deepEqual({ meanwhile, after }, { meanwhile: ['Check the  limits\nagain'], after: { sent: [], prompts: ['Question', 'Check the limits again'] } });
 });
 
+// A shell command or a slash command sent from the page is written down as a command, not a prompt: it is no longer
+// shown as sent then either — a shell command typed right after its "!" too
+test('mountSession_Should_StopShowingCommandSentFromPage_When_ClaudeWritesItDown', async (t) => {
+  const { view, source } = await mounted(t, undefined);
+  source.emit('open');
+  source.emit('entries', [prompt('u1', 'Question')]);
+  source.emit('ready');
+  await settled();
+  const sentShown = () => [...view.element.querySelectorAll('.msg.user.sent .bubble-text')].map((bubble) => bubble.textContent);
+
+  for (const text of ["! npm run deploy -- --env 'shop prod'", '!git status', '/model opus']) view.expectPrompt(text);
+  const meanwhile = sentShown();
+  source.emit('entries', [
+    prompt('u2', "<bash-input> npm run deploy -- --env 'shop prod'</bash-input>"),
+    prompt('u3', '<bash-input>git status</bash-input>'),
+    prompt('u4', '<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args>opus</command-args>'),
+  ]);
+  await settled();
+  const after = sentShown();
+  view.dispose();
+
+  assert.deepEqual({ meanwhile, after }, { meanwhile: ["! npm run deploy -- --env 'shop prod'", '!git status', '/model opus'], after: [] });
+});
+
 // A copy kept with the viewer's token shows at once as the session itself — marked as being brought up to date under
 // its latest message — and the viewer, asked from the token, sends what came since alone: no entry twice; the copy is
 // kept again with the viewer's new token

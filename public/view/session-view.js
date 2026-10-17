@@ -671,6 +671,8 @@ function createFeed({ thread, waitingBox }, sessionId, hooks) {
       }
       case 'command':
         top(h('div', { className: 'msg user' }, [h('div', { className: 'slash-command', text: event.text })]));
+        // a shell command or a slash command sent from the page is written down as this, not as a prompt
+        written(event.text);
         break;
       case 'command-output':
         top(h('pre', { className: event.isError ? 'command-output error' : 'command-output', text: event.text }));
@@ -807,11 +809,12 @@ function createFeed({ thread, waitingBox }, sessionId, hooks) {
 }
 
 /**
- * A prompt's text as it is compared: its spaces and line breaks as one space, none at its ends.
+ * A prompt's text as it is compared: its spaces and line breaks as one space, none at its ends — and one after a shell
+ * command's "!", which the terminal writes down whether it was typed or not.
  * @param {string} text
  */
 function spaced(text) {
-  return text.replace(/\s+/g, ' ').trim();
+  return text.replace(/\s+/g, ' ').trim().replace(/^! ?/, '! ');
 }
 
 /**
