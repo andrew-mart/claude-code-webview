@@ -1120,7 +1120,7 @@ async function refreshUsage() {
 }
 
 /** Each agent's name, in the title of its row of usage. */
-const usageAgents = /** @type {const} */ ({ claude: 'Claude', codex: 'Codex' });
+const usageAgents = /** @type {const} */ ({ claude: 'Claude', codex: 'ChatGPT / Codex' });
 
 /**
  * @param {string} path

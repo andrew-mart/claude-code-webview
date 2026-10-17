@@ -11,19 +11,58 @@ const marks = {
 const svgNs = 'http://www.w3.org/2000/svg';
 
 /**
- * @param {import('../model/composer.js').Agent} agent
+ * @param {import('../model/composer.js').Agent | 'claude-gpt'} agent
  * @returns {SVGSVGElement}
  */
 export function agentMark(agent) {
   const svg = document.createElementNS(svgNs, 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('role', 'img');
-  svg.setAttribute('aria-label', marks[agent].name);
+  svg.setAttribute('aria-label', agent === 'claude-gpt' ? 'Claude GPT' : marks[agent].name);
   svg.classList.add('agent-mark');
   svg.dataset.agent = agent;
-  const path = document.createElementNS(svgNs, 'path');
-  path.setAttribute('d', marks[agent].path);
-  path.setAttribute('fill', 'currentColor');
-  svg.append(path);
+  if (agent === 'claude-gpt') appendClaudeGpt(svg);
+  else svg.append(markPath(marks[agent].path));
   return svg;
+}
+
+/** @param {string} drawing */
+function markPath(drawing) {
+  const path = document.createElementNS(svgNs, 'path');
+  path.setAttribute('d', drawing);
+  path.setAttribute('fill', 'currentColor');
+  return path;
+}
+
+/** Claude's rays around OpenAI's knot: the center is cut out, so the two shapes stay clear at small sizes.
+ * @param {SVGSVGElement} svg
+ */
+function appendClaudeGpt(svg) {
+  const maskId = `claude-gpt-${crypto.randomUUID()}`;
+  const defs = document.createElementNS(svgNs, 'defs');
+  const mask = document.createElementNS(svgNs, 'mask');
+  mask.id = maskId;
+  mask.setAttribute('maskUnits', 'userSpaceOnUse');
+  mask.setAttribute('x', '0');
+  mask.setAttribute('y', '0');
+  mask.setAttribute('width', '24');
+  mask.setAttribute('height', '24');
+  mask.setAttribute('mask-type', 'luminance');
+  const field = document.createElementNS(svgNs, 'rect');
+  field.setAttribute('width', '24');
+  field.setAttribute('height', '24');
+  field.setAttribute('fill', 'white');
+  const center = document.createElementNS(svgNs, 'circle');
+  center.setAttribute('cx', '12');
+  center.setAttribute('cy', '12');
+  center.setAttribute('r', '8.4');
+  center.setAttribute('fill', 'black');
+  mask.append(field, center);
+  defs.append(mask);
+  const rays = markPath(marks.claude.path);
+  rays.setAttribute('fill', '#d97757');
+  rays.setAttribute('mask', `url(#${maskId})`);
+  const knot = markPath(marks.codex.path);
+  knot.setAttribute('transform', 'translate(4.08 4.08) scale(0.66)');
+  svg.append(defs, rays, knot);
 }

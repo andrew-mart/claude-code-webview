@@ -5,7 +5,7 @@
 // the review, the bottom of the screen; a rule inside it sets apart its last answers ("Chat about this").
 import { inputBox } from './claude-screen.js';
 
-const rule = /^\s*─{4,}\s*$/;
+const rule = /^\s*[─▔]{4,}\s*$/;
 const footerLine = /Enter to select|Esc to cancel/;
 /** Where a preview's frame starts on an answer's line, after a gap. */
 const previewFrame = /(?<=\s{3})[┌│└]/;
@@ -17,6 +17,8 @@ const optionLine = /^\s*(❯)?\s*(\d+)\.\s+(?:\[([ ✔])\]\s+)?(.*\S)\s*$/;
  */
 export function choiceDialog(screen) {
   if (inputBox(screen) !== undefined) return undefined;
+  const model = modelDialog(screen);
+  if (model !== undefined) return model;
   const lines = screen.split('\n');
   const footer = endOf(lines);
   const top = footer < 0 ? -1 : topOf(lines, footer);
@@ -43,7 +45,26 @@ export function choiceDialog(screen) {
     // previews' column — their frame, the note on notes — not a description
     else if (text !== 'Submit' && !ruled && indentOf(line) < previewColumn) options[options.length - 1] = { ...last, detail: last.detail === undefined ? text : `${last.detail} ${text}` };
   }
-  return options.length === 0 ? undefined : { lines: head, options, tabs: head.some((text) => text.startsWith('←')), previews: frames.length > 0 };
+  return options.length === 0 ? undefined : { lines: head, options, tabs: head.some((text) => text.startsWith('←')), previews: frames.length > 0 || head[0] === 'Switch model?' };
+}
+
+/**
+ * The /model picker has scrolling arrows beside numbered rows and is answered with arrows, not option digits.
+ * @param {string} screen
+ * @returns {import('../public/model/dialog.js').Dialog | undefined}
+ */
+function modelDialog(screen) {
+  const lines = screen.split('\n');
+  const footer = lines.findLastIndex((line) => /Enter to set as default/.test(line));
+  if (footer < 0 || !/s to use this session only.*Esc to cancel/.test(lines.slice(footer).join(' ').replace(/\s+/g, ' '))) return undefined;
+  const top = lines.findLastIndex((line, at) => at < footer && line.trim() === 'Select model');
+  if (top < 0) return undefined;
+  const options = lines.slice(top + 1, footer).flatMap((line) => {
+    const match = /^\s*(?:([❯>])|[↑↓])?\s*(\d+)\.\s+(\S.*)$/.exec(line);
+    if (match === null) return [];
+    return [{ key: match[2] ?? '', label: (match[3] ?? '').trim(), detail: undefined, checked: undefined, current: match[1] !== undefined }];
+  });
+  return options.some((option) => option.current) ? { lines: ['Select model', 'Applies to this session only.'], options, tabs: false, previews: true, sessionOnly: true } : undefined;
 }
 
 /**

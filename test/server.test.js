@@ -19,6 +19,22 @@ import net from 'node:net';
 
 const sessionId = '3f2c9a50-1111-4222-8333-944455556666';
 const at = '2026-10-09T07:02:11.686Z';
+
+test('stream_Should_SendLiveModelAndWindowBeforeAnyMessages', async (t) => {
+  const status = { at: 1000, model: 'gpt-6-sol', contextTokens: 0, contextWindow: 1_050_000 };
+  const { base, file } = await withServer(t, { sessionStatus: status });
+  await writeFile(file, '');
+  const next = await openStream(base, t);
+
+  assert.deepEqual(await next(), { event: 'session-status', data: status });
+});
+
+test('usage_Should_ShowChatGptAccount_WhenNoCodexThreadIsOpen', async (t) => {
+  const usage = { fiveHour: undefined, sevenDay: { percent: 63, resetsAt: 2_000_000 }, readAt: 900 };
+  const { base } = await withServer(t, { chatgptUsage: usage });
+
+  assert.deepEqual(await (await fetch(`${base}/api/usage/codex`)).json(), { sevenDay: { percent: 63, resetsAt: 2_000_000 }, readAt: 900 });
+});
 /** @param {string} uuid @param {string} text */
 const promptLine = (uuid, text) =>
   `${JSON.stringify({ type: 'user', uuid, timestamp: at, cwd: 'D:\\dev\\x', promptSource: 'typed', message: { role: 'user', content: text } })}\n`;
@@ -102,13 +118,13 @@ const webWorkspace = {
 
 /**
  * @param {import('node:test').TestContext} t
- * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[], sessionRunning?: boolean, editor?: 'set' | 'none', vscode?: import('../server/vscode.js').VsCode | undefined, codexRoot?: string | undefined, codexInUse?: boolean }} [options] - takenBack: see
+ * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[], sessionRunning?: boolean, editor?: 'set' | 'none', vscode?: import('../server/vscode.js').VsCode | undefined, codexRoot?: string | undefined, codexInUse?: boolean, chatgptUsage?: import('../public/model/usage.js').Usage | undefined, sessionStatus?: import('../public/model/session-status.js').SessionStatus | undefined }} [options] - takenBack: see
  *   fakeComposer; palette, publicAddresses: what the viewer is started with; sessionRunning: whether Claude Code has the
  *   session open; editor: whether the viewer opens files in an editor — the files it is asked to open are recorded;
  *   vscode: VS Code's web server behind /vscode/; codexRoot: Codex's sessions folder; codexInUse: whether Codex has a
  *   thread open
  */
-async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true, editor = 'set', vscode = undefined, codexRoot = undefined, codexInUse = false } = {}) {
+async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true, editor = 'set', vscode = undefined, codexRoot = undefined, codexInUse = false, chatgptUsage = undefined, sessionStatus = undefined } = {}) {
   const root = tempDir('csv-');
   const project = join(root, 'D--dev-x');
   await mkdir(project);
@@ -196,7 +212,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
     opened.push([path, line]);
     return { ok: true };
   };
-  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, vscode, codexInUse: async () => codexInUse });
+  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, sessionStatus: async (id) => id === sessionId ? sessionStatus : undefined });
   t.after(() => server.close());
   return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls, typed, tabChanges, opened };
 }

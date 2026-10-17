@@ -14,7 +14,7 @@ import { rewoundEntries } from './branch.js';
 const batchSize = 1000;
 
 /**
- * @typedef {(event: 'entries' | 'earlier' | 'ready' | 'reset' | 'missing' | 'cursor', data: unknown) => void} Send
+ * @typedef {(event: 'entries' | 'earlier' | 'ready' | 'reset' | 'missing' | 'cursor' | 'session-status', data: unknown) => void} Send
  * @typedef {{ version: string, sent: number, chain: string, point: string | undefined }} Place — where a page's reading of
  *   the transcript stands: how many of its entries were read for it, chained, under which rewind, by which build
  * @typedef {(lineStart: number, n: number) => string} ImageUrl — the link to the n-th image of the entry on the line that starts at lineStart
@@ -24,13 +24,13 @@ const batchSize = 1000;
 
 /**
  * Runs until the signal is aborted. The file is looked up again on every round: after /cd it moves.
- * @param {{ locate: () => Promise<string | undefined>, scope: 'main' | 'subagent', imageUrl: ImageUrl, rewoundAt: () => string | undefined, send: Send, signal: AbortSignal, pollMs: number, transcripts: TranscriptCache, tail: number | undefined, version: string, from: string | undefined }} options
+ * @param {{ locate: () => Promise<string | undefined>, scope: 'main' | 'subagent', imageUrl: ImageUrl, rewoundAt: () => string | undefined, send: Send, signal: AbortSignal, pollMs: number, transcripts: TranscriptCache, tail: number | undefined, version: string, from: string | undefined, sessionStatus?: (() => Promise<import('../public/model/session-status.js').SessionStatus | undefined>) | undefined }} options
  *   rewoundAt — the prompt this page rewound the session to, if it did; tail — how many of the latest entries to send
  *   at first ("earlier" tells how many were left out); undefined — all of them; version: the viewer's build — a token
  *   of another is not gone on from; from — the token of the copy the page holds: what came since is sent alone, or —
  *   the token not to be gone on from — "reset" and the feed from its start
  */
-export async function streamTranscript({ locate, scope, imageUrl, rewoundAt, send, signal, pollMs, transcripts, tail, version, from }) {
+export async function streamTranscript({ locate, scope, imageUrl, rewoundAt, send, signal, pollMs, transcripts, tail, version, from, sessionStatus = async () => undefined }) {
   /** How many of the file's entries this page has been given. */
   let sent = 0;
   /** Those entries chained (feed-check.js). */
@@ -45,6 +45,7 @@ export async function streamTranscript({ locate, scope, imageUrl, rewoundAt, sen
   // once it is there, that the feed is ready
   let missingSaid = false;
   let readySaid = false;
+  let statusTold = '';
   /** Entries that already have a prompt sent from them: another prompt from there means the conversation was rewound. */
   /** @type {Set<string>} */
   let promptParents = new Set();
@@ -60,6 +61,11 @@ export async function streamTranscript({ locate, scope, imageUrl, rewoundAt, sen
   };
   try {
     while (!signal.aborted) {
+      const status = scope === 'main' ? await sessionStatus().catch(() => undefined) : undefined;
+      if (status !== undefined && JSON.stringify(status) !== statusTold) {
+        statusTold = JSON.stringify(status);
+        send('session-status', status);
+      }
       const path = await locate();
       if (path !== kept?.path) {
         kept?.letGo();

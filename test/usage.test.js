@@ -4,9 +4,22 @@ import { utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tempDir } from '../test-support/temp-dir.js';
 import { parseUsage, usageView } from '../public/model/usage.js';
-import { readUsage, usageOf } from '../server/usage.js';
+import { readUsage, readChatGptUsage, usageOf } from '../server/usage.js';
 
 const now = Date.UTC(2026, 9, 12, 9, 32);
+
+test('chatGptUsage_Should_ReadSuccessfulSnapshotWithoutCredentials_AndHideExpiredOrFailedReadings', async () => {
+  const file = join(tempDir('gpt-usage-'), 'quota.json');
+  const snapshot = { at: now - 1000, status: 200, fingerprint: 'private', limits: { seven_day: { used_percentage: 63, resets_at: (now + 60_000) / 1000 } } };
+  await writeFile(file, JSON.stringify(snapshot));
+  const current = await readChatGptUsage(file, now);
+  const expired = await readChatGptUsage(file, now + 61_000);
+  await writeFile(file, JSON.stringify({ ...snapshot, status: 429 }));
+
+  assert.deepEqual([current, expired, await readChatGptUsage(file, now)], [
+    { fiveHour: undefined, sevenDay: { percent: 63, resetsAt: now + 60_000 }, readAt: now - 1000 }, undefined, undefined,
+  ]);
+});
 /** ~/.claude.json as Claude Code leaves it: its last reading of the account's usage, three minutes old. */
 const claudeState = {
   numStartups: 912,

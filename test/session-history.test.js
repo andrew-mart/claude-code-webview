@@ -12,6 +12,15 @@ const at = (minutes) => Date.UTC(2026, 9, 12, 10, minutes);
  */
 const running = (session, tab) => ({ session, workspace: 'kiwi', tab, folder: 'D:/dev/kiwi' });
 
+test('history_Should_KeepGptLaunchForAnUnansweredSession_AfterItClosesAndViewerRestarts', () => {
+  const live = observed({}, [{ ...running('s1', 'gateway'), claudeGpt: true }], at(0));
+  const closed = observed(live.history, [], at(1));
+  const restarted = parseHistory(JSON.parse(JSON.stringify(closed.history)));
+
+  assert.equal(restarted.s1?.claudeGpt, true);
+  assert.equal(restarted.s1?.open, false);
+});
+
 // A session seen in a herdr pane is remembered with where it runs — workspace, tab, folder — and since when
 test('observed_Should_RememberWhereSessionRuns_And_SinceWhen', () => {
   assert.deepEqual(observed({}, [running('s1', 'code-review')], at(0)), {

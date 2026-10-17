@@ -405,6 +405,57 @@ async function tabsView(herdr, claudeCommand = 'claude') {
   return createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand, codexCommand: 'codex-yolo' });
 }
 
+test('createTab_Should_StartClaudeGptSeparatelyFromOrdinaryClaude', async () => {
+  const herdr = tabsHerdr();
+  const folder = tempDir('ccw-gpt-');
+  const view = createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-normal', claudeGptCommand: 'claude-via-gpt', codexCommand: 'codex' });
+
+  const outcomes = [await view.createTab('w2:t1', 'claude-gpt', undefined), await view.createTab('w2:t1', 'claude', undefined)];
+
+  assert.deepEqual({ outcomes, commands: herdr.changes.filter((change) => change.startsWith('pane send-text')) }, {
+    outcomes: [{ ok: true, target: '#/pane/w2:p3' }, { ok: true, target: '#/pane/w2:p4' }],
+    commands: ['pane send-text w2:p3 claude-via-gpt', 'pane send-text w2:p4 claude-normal'],
+  });
+});
+
+test('reopen_Should_KeepGptLauncherAndModel_ForSessionStartedOutsideViewer', async () => {
+  const herdr = tabsHerdr();
+  const folder = tempDir('ccw-gpt-');
+  const view = createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-normal', claudeGptCommand: 'claude-via-gpt', claudeModelOf: async () => 'gpt-6.1-sol', codexCommand: 'codex' });
+
+  const outcome = await view.reopen(running, 'D:/shop', 'claude');
+
+  assert.deepEqual({ outcome, commands: herdr.changes.filter((change) => change.startsWith('pane send-text')) }, {
+    outcome: { ok: true, target: `#/${running}` },
+    commands: [`pane send-text w5:p1 claude-via-gpt --resume ${running} --model gpt-6.1-sol`],
+  });
+});
+
+test('reopen_Should_KeepGptLauncherAfterRestart_WhenSessionHasNotAnsweredYet', async () => {
+  /** @type {FakePane[]} */
+  const panes = [{ pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:/shop' }];
+  /** @type {unknown[]} */
+  const records = [];
+  const herdr = tabsHerdr({ panes });
+  const folder = tempDir('ccw-gpt-');
+  const startViewer = () => createHerdrView({ herdr: herdr.run, readRecords: async () => records, codexThreads: async () => [], icons: noIcons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-normal', claudeGptCommand: 'claude-via-gpt', codexCommand: 'codex' });
+  const view = startViewer();
+  await view.createTab('w2:t1', 'claude-gpt', undefined);
+  panes.push({ pane_id: 'w2:p3', workspace_id: 'w2', tab_id: 'w2:t3', cwd: 'D:/shop', agent: 'claude', pid: 101 });
+  records.push(runningRecord);
+  await view.history();
+  panes.pop();
+  records.pop();
+  await view.history();
+
+  await startViewer().reopen(running, 'D:/shop', 'claude');
+
+  assert.deepEqual(herdr.changes.filter((change) => change.startsWith('pane send-text')), [
+    'pane send-text w2:p3 claude-via-gpt',
+    `pane send-text w2:p4 claude-via-gpt --resume ${running}`,
+  ]);
+});
+
 /** @param {import('../public/model/herdr.js').HerdrLayout} layout */
 const tabNames = (layout) => layout.workspaces.flatMap((workspace) => workspace.tabs.map((tab) => tab.label));
 

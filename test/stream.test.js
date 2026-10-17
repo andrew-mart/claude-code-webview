@@ -13,6 +13,16 @@ const promptLine = (uuid, text) => `${JSON.stringify({ type: 'user', uuid, times
 /** @param {number} lineStart @param {number} n */
 const imageUrl = (lineStart, n) => `/api/image?at=${lineStart}&n=${n}`;
 
+test('streamTranscript_Should_TellModelAndContextBeforeFirstTranscriptEntry', async () => {
+  const controller = new AbortController();
+  const status = { at: 1000, model: 'gpt-6-sol', contextTokens: 0, contextWindow: 1_050_000 };
+  /** @type {{ event: string, data: unknown }[]} */
+  const sent = [];
+  await streamTranscript({ locate: async () => undefined, scope: 'main', imageUrl, rewoundAt: () => undefined, send: (event, data) => { sent.push({ event, data }); controller.abort(); }, signal: controller.signal, pollMs: 1, transcripts: createTranscriptCache({ maxFiles: 1 }), tail: undefined, version: 'v1', from: undefined, sessionStatus: async () => status });
+
+  assert.deepEqual(sent[0], { event: 'session-status', data: status });
+});
+
 /** A transcript of one prompt, in a folder of its own. @param {string} uuid @param {string} text */
 async function transcript(uuid, text) {
   const path = join(tempDir('ccw-stream-'), 'session.jsonl');

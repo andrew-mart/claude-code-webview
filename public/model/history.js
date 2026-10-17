@@ -3,7 +3,7 @@
 // it was in, and to open it there again.
 
 /**
- * @typedef {{ workspace: string, tab: string | undefined, earlierTabs: readonly string[], folder: string | undefined, firstSeen: number | undefined, lastSeen: number | undefined, open: boolean, note: string | undefined }} Place
+ * @typedef {{ workspace: string, claudeGpt?: true, tab: string | undefined, earlierTabs: readonly string[], folder: string | undefined, firstSeen: number | undefined, lastSeen: number | undefined, open: boolean, note: string | undefined }} Place
  *   — tab: the name of the tab the session ran in; none when only its workspace was kept (older viewers); earlierTabs:
  *   names the tab had before; firstSeen, lastSeen: when the viewer saw it in a pane first and last, ms; open: it is in
  *   a pane now; note: what the session is for, in the user's words
@@ -47,6 +47,7 @@ function placeOf(value) {
   const earlierTabs = Array.isArray(value.earlierTabs) ? value.earlierTabs.flatMap((name) => (typeof name === 'string' ? [name] : [])) : [];
   return {
     workspace,
+    ...(value.claudeGpt === true ? { claudeGpt: /** @type {const} */ (true) } : {}),
     tab: text(value.tab),
     earlierTabs,
     folder: text(value.folder),

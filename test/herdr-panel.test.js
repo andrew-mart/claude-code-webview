@@ -34,6 +34,36 @@ const web = {
 
 /** A sidebar nobody opens a workspace from. @type {import('../public/view/herdr-panel.js').SidebarActions} */
 const noActions = { createWorkspace: async () => ({ ok: false, error: 'failed' }), open: () => undefined, folders: () => [], renameWorkspace: async () => ({ ok: false, error: 'failed' }), closeWorkspace: async () => ({ ok: false, error: 'failed' }), setWorkspaceIcon: async () => ({ ok: false, error: 'failed' }), iconTags: async () => ({}), renameTab: async () => ({ ok: false, error: 'failed' }), closeTab: async () => ({ ok: false, error: 'failed' }), hidePane: async () => ({ ok: false, error: 'failed' }), showHidden: async () => ({ ok: false, error: 'failed' }) };
+
+test('tabBar_Should_OfferSeparateGptStartOnlyWhenConfigured', async () => {
+  const { bar, asked, click } = barAboveSession();
+  click('.herdr-tab-new');
+  assert.equal(bar.element.querySelector('.herdr-tab-new-gpt'), null);
+  click('.herdr-tab-new-cancel');
+  bar.render({ herdr: true, claudeGpt: true, workspaces: [web] }, { kind: 'session', id: 's1' }, new Map());
+  click('.herdr-tab-new');
+  const gpt = bar.element.querySelector('.herdr-tab-new-gpt');
+  assert.ok(gpt instanceof window.HTMLButtonElement);
+  assert.equal(gpt.querySelector('svg[role="img"]')?.getAttribute('aria-label'), 'Claude GPT');
+  gpt.click();
+  await settled();
+
+  assert.deepEqual(asked, [['create', 'w2:t1', 'claude-gpt', undefined], ['open', '#/pane/w2:p9']]);
+});
+
+test('herdrSidebar_Should_StartWorkspaceWithGpt_WhenConfigured', async () => {
+  const element = window.document.createElement('div');
+  /** @type {import('../public/model/herdr.js').TabStart[]} */
+  const started = [];
+  const sidebar = createHerdrSidebar(element, { ...noActions, createWorkspace: async (label, folder, start) => { started.push(start); return { ok: true, target: '#/pane/w5:p1' }; } });
+  sidebar.render({ herdr: true, claudeGpt: true, workspaces: [web] }, undefined, '', new Map());
+  sidebar.newButton.click();
+  const gpt = element.querySelector('.herdr-new-gpt');
+  assert.ok(gpt instanceof window.HTMLButtonElement);
+  gpt.click();
+  await settled();
+  assert.deepEqual(started, ['claude-gpt']);
+});
 /** Lucide's icons a test picks from, with the words they are found by. */
 const lucideTags = { star: ['favorite'], wallet: ['money', 'finance'], coins: ['finance'] };
 

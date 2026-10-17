@@ -9,6 +9,24 @@ const tabs = '←  ☐ Colour  ☐ Sizes  ✔ Submit  →';
 /** The conversation above the dialog: the prompt that asked, with a numbered list in it that is no choice. */
 const above = [' ▐▛███▛█   Claude Code v2.1.296', '❯ Ask me two questions:', '  1. a colour', '  2. the sizes', ''];
 
+test('choiceDialog_Should_ShowGptModelPicker_AndUseArrowNavigation', () => {
+  const picker = [rule, '  Select model', '  Switch between models.', '', '  1. Default (recommended)', ' > 2. GPT-6 Sol √            Custom model (gpt-6-sol)', ' ↓ 3. GPT-6.1 Sol            Custom model (gpt-6.1-sol)', '    … +1 model', '', '  Enter to set as default · s to use this session only · Esc to', '  cancel'].join('\n');
+  const dialog = choiceDialog(picker);
+
+  assert.deepEqual(dialog?.options.map((option) => [option.key, option.current]), [['1', false], ['2', true], ['3', false]]);
+  assert.match(dialog?.options[1]?.label ?? '', /GPT-6 Sol/);
+  assert.equal(dialog?.previews, true);
+});
+
+test('choiceDialog_Should_ShowModelSwitchConfirmation_WithNewTerminalRule', () => {
+  const confirm = ['▔'.repeat(70), '  Switch model?', '  Your next response will be slower and use more tokens', '', '  This conversation is cached for the current model.', '  Switching to GPT-6 Astra means the history gets re-read.', '', '  ❯ 1. Yes, switch to GPT-6 Astra', '    2. No, go back', ''].join('\n');
+  const dialog = choiceDialog(confirm);
+
+  assert.deepEqual(dialog?.options.map((option) => [option.key, option.current]), [['1', true], ['2', false]]);
+  assert.equal(dialog?.previews, true);
+  assert.ok(dialog?.lines.includes('Switch model?'));
+});
+
 /** @param {readonly string[]} dialog — the lines between the dialog's top edge and its footer */
 const screen = (dialog) => [...above, rule, ...dialog, '', footer, ''].join('\n');
 

@@ -131,5 +131,5 @@ function walkTo(dialog, option) {
   const moves = dialog.options.indexOf(option) - from;
   /** @type {import('../model/dialog.js').DialogStep} */
   const step = { key: moves > 0 ? 'down' : 'up' };
-  return [...Array.from({ length: Math.abs(moves) }, () => step), { key: 'enter' }];
+  return [...Array.from({ length: Math.abs(moves) }, () => step), { key: dialog.sessionOnly === true ? 's' : 'enter' }];
 }

@@ -712,7 +712,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
     // an icon, as in a new tab's choices: the four fit on one line in a narrow sidebar
     const cancel = iconButton('herdr-new-cancel', 'cross', 'Cancel (Esc)');
     cancel.addEventListener('click', showButton);
-    const form = h('div', { className: 'herdr-new-workspace' }, [name, folder, choices, h('div', { className: 'herdr-new-actions' }, [choice('herdr-new-shell', 'Terminal', 'shell'), choice('herdr-new-claude', 'Claude Code', 'claude'), choice('herdr-new-codex', 'Codex', 'codex'), cancel]), error]);
+    const form = h('div', { className: 'herdr-new-workspace' }, [name, folder, choices, h('div', { className: 'herdr-new-actions' }, [choice('herdr-new-shell', 'Terminal', 'shell'), choice('herdr-new-claude', 'Claude Code', 'claude'), ...(given?.layout.claudeGpt === true ? [choice('herdr-new-gpt', 'Claude GPT', 'claude-gpt')] : []), choice('herdr-new-codex', 'Codex', 'codex'), cancel]), error]);
     // Enter starts Claude Code there, Escape leaves the form
     form.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') showButton();
@@ -1064,7 +1064,7 @@ export function createTabBar({ rename, close, move, open, create, duplicate, ren
     });
     const cancel = iconButton('herdr-tab-new-cancel', 'cross', 'Cancel (Esc)');
     cancel.addEventListener('click', finish);
-    const choices = h('span', { className: 'herdr-tab-confirm' }, [picker.element, name, choice('shell', 'Terminal', 'herdr-tab-new-shell'), choice('claude', 'Claude Code (Enter)', 'herdr-tab-new-claude'), choice('codex', 'Codex', 'herdr-tab-new-codex'), cancel, message]);
+    const choices = h('span', { className: 'herdr-tab-confirm' }, [picker.element, name, choice('shell', 'Terminal', 'herdr-tab-new-shell'), choice('claude', 'Claude Code (Enter)', 'herdr-tab-new-claude'), ...(given?.layout.claudeGpt === true ? [choice('claude-gpt', 'Claude GPT', 'herdr-tab-new-gpt')] : []), choice('codex', 'Codex', 'herdr-tab-new-codex'), cancel, message]);
     adding.replaceWith(choices);
     name.focus();
   };

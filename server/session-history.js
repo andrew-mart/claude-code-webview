@@ -6,7 +6,7 @@
 /**
  * @typedef {import('../public/model/history.js').History} History
  * @typedef {import('../public/model/history.js').Place} Place
- * @typedef {{ session: string, workspace: string, tab: string | undefined, folder: string | undefined }} Running — a
+ * @typedef {{ session: string, workspace: string, claudeGpt?: boolean, tab: string | undefined, folder: string | undefined }} Running — a
  *   session in a herdr pane now; tab: its name, when herdr tells which tab the pane is in
  */
 
@@ -22,10 +22,11 @@ export function observed(history, running, now) {
   /** @type {Record<string, Place>} */
   const next = { ...history };
   let changed = false;
-  for (const { session, workspace, tab, folder } of running) {
+  for (const { session, workspace, tab, folder, claudeGpt } of running) {
     const before = history[session];
     const place = {
       workspace,
+      ...((claudeGpt ?? before?.claudeGpt) === true ? { claudeGpt: /** @type {const} */ (true) } : {}),
       tab: tab ?? before?.tab,
       earlierTabs: before === undefined || tab === undefined ? (before?.earlierTabs ?? []) : withEarlierName(before.earlierTabs, before.tab, tab),
       folder: folder ?? before?.folder,
@@ -34,7 +35,7 @@ export function observed(history, running, now) {
       open: true,
       note: before?.note,
     };
-    changed ||= before === undefined || before.workspace !== workspace || before.tab !== place.tab || before.folder !== place.folder || !before.open;
+    changed ||= before === undefined || before.workspace !== workspace || before.tab !== place.tab || before.folder !== place.folder || !before.open || before.claudeGpt !== place.claudeGpt;
     next[session] = place;
   }
   const runningNow = new Set(running.map(({ session }) => session));

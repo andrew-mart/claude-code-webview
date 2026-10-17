@@ -34,13 +34,13 @@ import { observed } from './session-history.js';
  */
 
 /**
- * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, codexThreads: () => Promise<readonly import('./codex-live.js').LiveThread[]>, icons: { iconsOf: (workspaces: readonly import('./workspace-icons.js').IconedWorkspace[]) => Promise<ReadonlyMap<string, string>>, setIcon: (folder: string, icon: string | undefined) => Promise<void> }, hidden: ReturnType<typeof import('./hidden-panes.js').createHiddenPanes>, file: string, refreshMs: number, claudeCommand: string, codexCommand: string, trust: { looks: number, stepMs: number } }} deps
+ * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, codexThreads: () => Promise<readonly import('./codex-live.js').LiveThread[]>, icons: { iconsOf: (workspaces: readonly import('./workspace-icons.js').IconedWorkspace[]) => Promise<ReadonlyMap<string, string>>, setIcon: (folder: string, icon: string | undefined) => Promise<void> }, hidden: ReturnType<typeof import('./hidden-panes.js').createHiddenPanes>, file: string, refreshMs: number, claudeCommand: string, claudeGptCommand?: string | undefined, claudeModelOf?: ((session: string) => Promise<string | undefined>) | undefined, codexCommand: string, trust: { looks: number, stepMs: number } }} deps
  *   readRecords — contents of ~/.claude/sessions/*.json; codexThreads — the threads Codex has open now; icons — each
  *   workspace's (workspace-icons.js); hidden — the panes hidden from the page's list (hidden-panes.js); file — where the
  *   workspaces of sessions seen running are kept; refreshMs — herdr is asked at most this often; claudeCommand,
  *   codexCommand — what starts Claude Code, and Codex, in a new tab
  */
-export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidden, file, refreshMs, claudeCommand, codexCommand, trust }) {
+export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidden, file, refreshMs, claudeCommand, claudeGptCommand, claudeModelOf = async () => undefined, codexCommand, trust }) {
   /**
    * A process's pane does not change while it runs: process-info is asked once for each Claude process — by its key
    * (registry.js): the number goes to another process once it is gone.
@@ -53,6 +53,8 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
    * @type {Map<string, string>} — the Claude panes looked in, by process
    */
   const outsideHerdr = new Map();
+  /** New GPT panes not yet associated with a session in Claude Code's registry. @type {Set<string>} */
+  const gptPanes = new Set();
   /** Where every session seen running was — read from the file once, then kept here and written back. */
   /** @type {Promise<{ history: import('../public/model/history.js').History, writtenAt: number }> | undefined} */
   let kept;
@@ -92,15 +94,19 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
    * @param {ReadonlyMap<string, string>} sessionByPane
    */
   const rememberRunning = async (snapshot, sessionByPane) => {
+    const store = await keptHistory();
     const labels = workspaceLabels(snapshot);
     const tabLabels = new Map(snapshot.tabs.map((tab) => [tab.id, tab.label]));
-    const running = snapshot.panes.flatMap((pane) => {
+    const sightings = await Promise.all(snapshot.panes.map(async (pane) => {
       const session = sessionByPane.get(pane.paneId);
       const workspace = labels.get(pane.workspaceId);
       const tab = pane.tabId === undefined ? undefined : tabLabels.get(pane.tabId);
-      return session === undefined || workspace === undefined ? [] : [{ session, workspace, tab, folder: pane.cwd }];
-    });
-    const store = await keptHistory();
+      if (session === undefined || workspace === undefined) return undefined;
+      const model = pane.agent === 'claude' && claudeGptCommand !== undefined ? await claudeModelOf(session) : undefined;
+      const gpt = gptPanes.delete(pane.paneId) || isGptModel(model) || (model === undefined && store.history[session]?.claudeGpt === true);
+      return { session, workspace, tab, folder: pane.cwd, ...(gpt ? { claudeGpt: true } : {}) };
+    }));
+    const running = sightings.filter((sighting) => sighting !== undefined);
     const now = Date.now();
     const { history, changed } = observed(store.history, running, now);
     store.history = history;
@@ -156,19 +162,26 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
    * it may be lost. Claude Code asked whether to trust the folder the user chose for it is answered yes, out of the
    * reply's way.
    * @param {string} pane
-   * @param {import('../public/model/composer.js').Agent} agent
+   * @param {Exclude<import('../public/model/herdr.js').TabStart, 'shell'>} agent
    * @param {GoOn | undefined} goOn — the session it goes on with: resumed, or forked into a new one; none for a new session
    * @returns {Promise<boolean>} — whether herdr took the keys
    */
   const startAgent = async (pane, agent, goOn) => {
+    const model = agent !== 'codex' && goOn !== undefined ? await claudeModelOf(goOn.session) : undefined;
+    const gptModel = isGptModel(model) ? model : undefined;
+    const remembered = goOn === undefined ? undefined : (await keptHistory()).history[goOn.session]?.claudeGpt;
+    const gpt = agent !== 'codex' && (agent === 'claude-gpt' || gptModel !== undefined || remembered === true);
+    const launcher = agent === 'codex' ? codexCommand : gpt ? claudeGptCommand : claudeCommand;
+    if (launcher === undefined) return false;
     for (let look = 0; look < shellLooks; look++) {
       const screen = await herdr(['pane', 'read', pane, '--source', 'visible', '--format', 'text']);
       if (screen.ok && screen.text.trim() !== '') break;
       await delay(shellStepMs);
     }
-    const command = agent === 'claude' ? [claudeCommand, ...claudeGoingOn(goOn)] : [codexCommand, ...codexGoingOn(goOn)];
+    const command = [launcher, ...(agent === 'codex' ? codexGoingOn(goOn) : claudeGoingOn(goOn)), ...(gptModel === undefined ? [] : ['--model', gptModel])];
     const started = succeeded(await herdr(['pane', 'send-text', pane, command.join(' ')])) && succeeded(await herdr(['pane', 'send-keys', pane, 'enter']));
-    if (started && agent === 'claude') void acceptTrust(herdr, pane, trust).catch(() => undefined); // herdr gone meanwhile: nothing to answer
+    if (started && gpt) gptPanes.add(pane);
+    if (started && agent !== 'codex') void acceptTrust(herdr, pane, trust).catch(() => undefined); // herdr gone meanwhile: nothing to answer
     return started;
   };
 
@@ -408,9 +421,14 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
     /** @returns {Promise<import('../public/model/herdr.js').HerdrLayout>} */
     async layout() {
       const view = await currentView();
-      return view === undefined ? { herdr: false, workspaces: [] } : { herdr: true, workspaces: layoutOf(view.snapshot, view.sessionByPane, view.icons, view.hidden) };
+      return view === undefined ? { herdr: false, workspaces: [] } : { herdr: true, ...(claudeGptCommand === undefined ? {} : { claudeGpt: /** @type {const} */ (true) }), workspaces: layoutOf(view.snapshot, view.sessionByPane, view.icons, view.hidden) };
     },
   };
+}
+
+/** @param {string | undefined} model @returns {boolean} */
+function isGptModel(model) {
+  return model !== undefined && /^gpt-[a-z0-9.-]+(?:\[1m\])?$/.test(model);
 }
 
 /**

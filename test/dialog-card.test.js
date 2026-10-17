@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
+import { choiceDialog } from '../server/dialog.js';
+import { parseDialog, parseSteps } from '../public/model/dialog.js';
 
 const { window } = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
 // The icons are drawn when their module loads: the DOM is set up before it.
@@ -43,6 +45,17 @@ function cardAboveBox() {
 }
 
 const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+test('modelPicker_Should_ChangeOnlyThisSession_WithoutSavingGlobalClaudeDefaults', async () => {
+  const { card, answers, press } = cardAboveBox();
+  const screen = ['Select model', ' > 1. GPT-6 Sol', '   2. GPT-6 Astra', 'Enter to set as default · s to use this session only · Esc to cancel'].join('\n');
+  card.show(parseDialog(choiceDialog(screen)));
+  press('GPT-6 Astra');
+  await settled();
+
+  assert.deepEqual(answers, [[{ key: 'down' }, { key: 's' }]]);
+  assert.deepEqual(parseSteps(answers[0]), [{ key: 'down' }, { key: 's' }]);
+});
 
 // What Claude Code asks shows above the box, its choices as buttons: a click picks one with its digit; an answer of
 // one's own goes as the terminal takes it — "Type something", the words, Enter

@@ -14,9 +14,9 @@ import { isRecord, text } from './narrow.js';
  * @typedef {{ id: string, number: number, label: string, status: AgentStatus, panes: readonly HerdrPane[] }} HerdrTab
  * @typedef {{ id: string, number: number, label: string, icon?: string | undefined, status: AgentStatus, activeTab: string | undefined, tabs: readonly HerdrTab[] }} HerdrWorkspace
  *   icon: the emoji it is marked with (server/workspace-icons.js)
- * @typedef {{ herdr: boolean, workspaces: readonly HerdrWorkspace[] }} HerdrLayout — herdr: whether it answers
+ * @typedef {{ herdr: boolean, claudeGpt?: true, workspaces: readonly HerdrWorkspace[] }} HerdrLayout — herdr: whether it answers
  * @typedef {{ ok: true, target: string } | { ok: false, error: 'failed' }} NewTab — a tab opened from the page; target: its page address
- * @typedef {'shell' | 'claude' | 'codex'} TabStart — what a new tab starts with: a shell, or Claude Code or Codex in it
+ * @typedef {'shell' | 'claude' | 'claude-gpt' | 'codex'} TabStart — the shell, ordinary Claude Code, Claude Code through GPT, or Codex
  * @typedef {{ ok: true, target: string } | { ok: false, error: 'empty' | 'no-folder' | 'failed' }} NewWorkspace — a
  *   workspace opened from the page; target: its first pane's page address; no-folder: the folder is not there
  * @typedef {{ ok: true } | { ok: false, error: 'empty' | 'failed' }} TabChange — a tab renamed or closed from the page; empty: a name of
@@ -101,7 +101,7 @@ export function openedAt(hash) {
  */
 export function parseHerdrLayout(json) {
   if (!isRecord(json) || json.herdr !== true || !Array.isArray(json.workspaces)) return { herdr: false, workspaces: [] };
-  return { herdr: true, workspaces: json.workspaces.filter(isRecord).flatMap(parseWorkspace) };
+  return { herdr: true, ...(json.claudeGpt === true ? { claudeGpt: /** @type {const} */ (true) } : {}), workspaces: json.workspaces.filter(isRecord).flatMap(parseWorkspace) };
 }
 
 const statuses = /** @type {const} */ (['idle', 'working', 'blocked', 'done', 'unknown']);

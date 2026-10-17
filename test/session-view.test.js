@@ -91,6 +91,8 @@ async function mounted(t, saved, bookmarks) {
   const feeds = [];
   /** The copies kept. @type {import('../public/view/offline-store.js').SavedFeed[]} */
   const saves = [];
+  /** @type {import('../public/view/session-view.js').SessionMeta[]} */
+  const metas = [];
   const scroller = window.document.createElement('div');
   window.document.body.append(scroller);
   const view = mountSession({
@@ -102,7 +104,7 @@ async function mounted(t, saved, bookmarks) {
     sendQueueNow: undefined,
     startAt: undefined,
     keeping: { load: async () => saved, save: (feed) => void saves.push(feed), online: () => true, onOnline: () => () => undefined },
-    listener: { onMeta: () => undefined, onStatus: () => undefined, onPrompt: () => undefined, onReset: () => undefined },
+    listener: { onMeta: (meta) => metas.push(meta), onStatus: () => undefined, onPrompt: () => undefined, onReset: () => undefined },
     openFeed: (wanted) => {
       const feed = new FakeFeed(wanted);
       feeds.push(feed);
@@ -122,8 +124,22 @@ async function mounted(t, saved, bookmarks) {
   });
   /** Whether the mark of being brought up to date sits under the session's latest message, the feed shown. */
   const markUnderFeed = () => view.element.querySelector('.updating')?.previousElementSibling?.matches('.thread:not(.kept)') === true;
-  return { view, source, feeds, saves, seen, markUnderFeed };
+  return { view, source, feeds, saves, seen, markUnderFeed, metas };
 }
+
+test('sessionView_Should_ShowLiveModelBeforeFirstAnswer_AndKeepNewerContextOverOldHistory', async (t) => {
+  const { source, metas } = await mounted(t, undefined);
+  const status = { at: Date.parse(at) + 10_000, model: 'gpt-6-sol', contextTokens: 0, contextWindow: 1_050_000 };
+  const facts = () => { const meta = metas.at(-1); return [meta?.model, meta?.contextTokens, meta?.contextWindow]; };
+  source.emit('session-status', status);
+  assert.deepEqual(facts(), ['gpt-6-sol', 0, 1_050_000]);
+
+  source.emit('entries', [{ type: 'assistant', uuid: 'old', timestamp: at, message: { role: 'assistant', model: 'gpt-6-astra', usage: { input_tokens: 100_000 }, content: [] } }]);
+  assert.deepEqual(facts(), ['gpt-6-sol', 0, 1_050_000]);
+
+  source.emit('entries', [{ type: 'assistant', uuid: 'new', timestamp: new Date(Date.parse(at) + 20_000).toISOString(), message: { role: 'assistant', model: 'gpt-6-sol', usage: { input_tokens: 400_000 }, content: [] } }]);
+  assert.deepEqual(facts(), ['gpt-6-sol', 400_000, 1_050_000]);
+});
 
 // A session opens at once with the copy kept from the last time, marked as being brought up to date; once the viewer
 // has sent the session, it shows that — the copy gone, the mark too

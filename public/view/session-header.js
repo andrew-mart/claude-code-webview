@@ -56,7 +56,7 @@ export function createSessionHeader({ place, currentBranch, tables, leading, nav
   const render = () => {
     title.textContent = meta.customTitle ?? meta.title ?? where?.title ?? 'Session';
     document.title = `${title.textContent} — Claude Code`;
-    const gauge = meta.model === undefined || meta.contextTokens === undefined ? undefined : contextGauge({ model: meta.model, tokens: meta.contextTokens, extended: meta.extendedContext === true });
+    const gauge = meta.model === undefined || meta.contextTokens === undefined ? undefined : contextGauge({ model: meta.model, tokens: meta.contextTokens, extended: meta.extendedContext === true, window: meta.contextWindow });
     facts.replaceChildren(...factChips({ cwd: where?.cwd, branch, meta, gauge }), h('span', { className: 'facts-toggle' }, [icon('chevron')]));
     details.replaceChildren(...detailRows({ cwd: where?.cwd, branch, meta, gauge }), ...tablesRow(tables, render));
   };
@@ -163,13 +163,18 @@ function effortTag(effort) {
  * @param {ContextGauge} gauge
  */
 function contextChip(gauge) {
-  if (gauge.window === undefined) return h('span', { className: 'fact fact-context', title: 'Context size' }, [h('span', { text: formatTokens(gauge.tokens) })]);
-  const tooltip = `Context: ${formatTokens(gauge.tokens)} of ${formatTokens(gauge.window)} — ${formatTokens(gauge.left)} left`;
+  if (gauge.window === undefined) return h('span', { className: 'fact fact-context', title: 'Context size' }, [h('span', { text: formatContextTokens(gauge.tokens) })]);
+  const tooltip = `Context: ${formatContextTokens(gauge.tokens)} of ${formatContextTokens(gauge.window)} — ${formatContextTokens(gauge.left)} left`;
   return h('span', { className: 'fact fact-context', title: tooltip, attrs: { 'data-level': gauge.level } }, [
     ring(gauge.share),
-    h('span', { text: formatTokens(gauge.tokens) }),
-    h('span', { className: 'fact-dim', text: `/${formatTokens(gauge.window)}` }),
+    h('span', { text: formatContextTokens(gauge.tokens) }),
+    h('span', { className: 'fact-dim', text: `/${formatContextTokens(gauge.window)}` }),
   ]);
+}
+
+/** @param {number} tokens */
+function formatContextTokens(tokens) {
+  return tokens >= 1_000_000 ? `${Number((tokens / 1_000_000).toFixed(2))}M` : formatTokens(tokens);
 }
 
 /**
@@ -213,10 +218,10 @@ function detailRows({ cwd, branch, meta, gauge }) {
 
 /** @param {ContextGauge} gauge @returns {(string | HTMLElement)[]} */
 function contextDetail(gauge) {
-  if (gauge.window === undefined) return [`${formatTokens(gauge.tokens)} — the window of this model is not known`];
+  if (gauge.window === undefined) return [`${formatContextTokens(gauge.tokens)} — the window of this model is not known`];
   const bar = h('span', { className: 'context-bar', attrs: { 'data-level': gauge.level } }, [h('span', { className: 'context-bar-fill' })]);
   bar.style.setProperty('--share', String(gauge.share));
-  return [bar, h('span', { text: `${formatTokens(gauge.tokens)} used · ${formatTokens(gauge.left)} left of ${formatTokens(gauge.window)}` })];
+  return [bar, h('span', { text: `${formatContextTokens(gauge.tokens)} used · ${formatContextTokens(gauge.left)} left of ${formatContextTokens(gauge.window)}` })];
 }
 
 /** @type {readonly [TablesChoice, string][]} */

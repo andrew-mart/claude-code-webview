@@ -291,7 +291,7 @@ button {
 
 /* the meters beside the head's buttons: tighter than they would stand alone, each line still long enough to read */
 .usage-rows .usage-agent {
-  width: 14px;
+  width: 18px;
 }
 
 .usage-rows .usage-meter {
@@ -342,6 +342,12 @@ button {
 
 .agent-mark[data-agent='claude'] {
   color: #d97757;
+}
+
+.agent-mark[data-agent='claude-gpt'] {
+  width: 18px;
+  height: 18px;
+  flex: none;
 }
 
 /* a window the agent does not count keeps its place: the windows of the two rows stand one above the other */
@@ -1556,6 +1562,11 @@ input.herdr-row-name.failed {
 
 .herdr-tab-new-claude .agent-mark {
   color: inherit;
+}
+
+.herdr-tab-confirm .herdr-tab-new-gpt .agent-mark {
+  width: 18px;
+  height: 18px;
 }
 
 /* A herdr pane's terminal: dark, as terminal programs draw for. Its top row — the sidebar's button — on a phone only. */

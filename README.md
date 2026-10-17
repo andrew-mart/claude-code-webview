@@ -172,6 +172,37 @@ sideways past that. A tab split into several panes shows the one running Claude 
 
 ![A herdr tab's terminal next to the herdr sidebar](docs/terminal.png)
 
+### Claude Code through a GPT gateway
+
+Keep ordinary Claude Code and a gateway-backed launcher available together:
+
+```bash
+node bin/claude-code-webview.js --claude-gpt-command my-claude-gpt
+```
+
+This adds **Claude GPT** beside Claude Code when opening a tab or workspace. GPT sessions use that launcher when
+reopened or duplicated, retaining their last model. Sessions launched outside the viewer are recognized by their
+`gpt-*` model IDs. The ordinary Claude Code command stays separate. The gateway must be running and reachable by
+the launcher.
+
+Send `/model` from the input box to open Claude Code's model picker on the page. Clicking a model applies it to that
+session only, leaving the global Claude Code default alone. The picker shows the options configured in Claude Code.
+
+A gateway statusline can publish the session's live model and context to
+`~/.claude-code-webview/session-status/<session-uuid>.json`: `{ "at": <Unix milliseconds>, "model": "<model-id>",
+"contextTokens": <input tokens including cache>, "contextWindow": <window size>, "effort": "high" }`.
+Only `at` and `model` are required. The viewer reads these facts independently of transcript entries, so the model
+can appear before the first answer, and uses the reported window for gateway models. A newer reading takes
+precedence over older transcript messages. The file should contain only these display fields.
+
+`--chatgpt-usage-file <path>` reads a gateway statusline's usage snapshot and shows the freshest reading beside
+Codex's usage, under **ChatGPT / Codex**. The file has `{ "at": <Unix milliseconds>, "status": 200, "limits": { ... } }`;
+`limits.five_hour` and `limits.seven_day` each hold `used_percentage` and `resets_at` (Unix seconds). Missing, failed,
+or expired readings are hidden. Only the windows and their reading time are sent to the browser.
+
+Codex questions issued while work continues appear in the conversation with their choices, outside folded action
+groups. Reply through the input box.
+
 ### Sending prompts
 
 An input box appears under the feed: the text is typed into

@@ -8,6 +8,22 @@ import { isRecord } from '../public/model/narrow.js';
 /** @typedef {import('../public/model/usage.js').Usage} Usage */
 /** @typedef {import('../public/model/usage.js').UsageWindow} UsageWindow */
 
+/** @param {string | undefined} file @param {number} now @returns {Promise<Usage | undefined>} */
+export async function readChatGptUsage(file, now) {
+  const saved = file === undefined ? undefined : await readJson(file);
+  const raw = saved?.json;
+  if (!isRecord(raw) || raw.status !== 200 || typeof raw.at !== 'number' || !Number.isFinite(raw.at) || raw.at > now || !isRecord(raw.limits)) return undefined;
+  const fiveHour = liveWindow(raw.limits.five_hour, now);
+  const sevenDay = liveWindow(raw.limits.seven_day, now);
+  return fiveHour === undefined && sevenDay === undefined ? undefined : { fiveHour, sevenDay, readAt: raw.at };
+}
+
+/** @param {unknown} json @param {number} now @returns {UsageWindow | undefined} */
+function liveWindow(json, now) {
+  if (!isRecord(json) || typeof json.used_percentage !== 'number' || !Number.isFinite(json.used_percentage) || json.used_percentage < 0 || json.used_percentage > 100 || typeof json.resets_at !== 'number' || !Number.isFinite(json.resets_at) || json.resets_at * 1000 <= now) return undefined;
+  return { percent: json.used_percentage, resetsAt: json.resets_at * 1000 };
+}
+
 /**
  * @param {{ claudeState: string, rateLimits: string }} files — ~/.claude.json; the file a statusline drops rate_limits into
  * @returns {Promise<Usage | undefined>} — none until either has a reading

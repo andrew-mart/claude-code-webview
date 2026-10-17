@@ -6,7 +6,7 @@ import { parseEditorCommand } from '../server/editor.js';
 
 /**
  * @typedef {'serve' | 'background' | 'stop' | 'restart' | 'install-shortcut' | 'help' | 'version'} Action
- * @typedef {{ action: Action, port: number, open: boolean, startMenu: boolean, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[], herdr: 'on' | 'off', claudeCommand: string, codexCommand: string, editor: Editor | undefined, vscode: string | undefined }} Command — herdr: off —
+ * @typedef {{ action: Action, port: number, open: boolean, startMenu: boolean, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[], herdr: 'on' | 'off', claudeCommand: string, claudeGptCommand?: string | undefined, chatgptUsageFile?: string | undefined, codexCommand: string, editor: Editor | undefined, vscode: string | undefined }} Command — herdr: off —
  *   not used even when found, the page only reads sessions; claudeCommand: what starts Claude Code in a tab opened from
  *   the page; editor: what opens a file of the file panel in an editor, none if not given; vscode: the VS Code CLI
  *   that runs VS Code in the browser at /vscode/, none if not given
@@ -47,6 +47,10 @@ export function parseCommand(argv) {
   // typed into a terminal and run with Enter: one line
   if (claudeCommand === '' || /[\r\n]/.test(claudeCommand)) return { ok: false, error: `Invalid --claude-command value "${values['claude-command']}": expected the command that starts Claude Code in a terminal, such as claude.` };
   const codexCommand = values['codex-command'].trim();
+  const claudeGptCommand = values['claude-gpt-command']?.trim();
+  const chatgptUsageFile = values['chatgpt-usage-file']?.trim();
+  if (chatgptUsageFile === '') return { ok: false, error: 'Invalid --chatgpt-usage-file: expected a file path.' };
+  if (claudeGptCommand !== undefined && (claudeGptCommand === '' || /[\r\n]/.test(claudeGptCommand))) return { ok: false, error: 'Invalid --claude-gpt-command: expected a command on one line.' };
   if (codexCommand === '' || /[\r\n]/.test(codexCommand)) return { ok: false, error: `Invalid --codex-command value "${values['codex-command']}": expected the command that starts Codex in a terminal, such as codex.` };
   const editorText = values['editor-command']?.trim();
   const editorCommand = editorText === undefined ? undefined : parseEditorCommand(editorText);
@@ -54,7 +58,7 @@ export function parseCommand(argv) {
   const editor = editorText === undefined || editorCommand === undefined ? undefined : { text: editorText, command: editorCommand };
   const vscode = values.vscode?.trim();
   if (vscode === '') return { ok: false, error: `Invalid --vscode value "${values.vscode}": expected the VS Code CLI that runs its web server — code-tunnel.exe of VS Code on Windows, code elsewhere.` };
-  return { ok: true, command: { action: chosen[0] ?? 'serve', port, open: !values['no-open'], startMenu: values['start-menu'], palette, publicAddresses, herdr: values['no-herdr'] ? 'off' : 'on', claudeCommand, codexCommand, editor, vscode } };
+  return { ok: true, command: { action: chosen[0] ?? 'serve', port, open: !values['no-open'], startMenu: values['start-menu'], palette, publicAddresses, herdr: values['no-herdr'] ? 'off' : 'on', claudeCommand, ...(claudeGptCommand === undefined ? {} : { claudeGptCommand }), ...(chatgptUsageFile === undefined ? {} : { chatgptUsageFile }), codexCommand, editor, vscode } };
 }
 
 /**
@@ -81,6 +85,8 @@ function parseOptions(argv) {
       'no-open': { type: 'boolean', default: false },
       'no-herdr': { type: 'boolean', default: false },
       'claude-command': { type: 'string', default: 'claude' },
+      'claude-gpt-command': { type: 'string' },
+      'chatgpt-usage-file': { type: 'string' },
       'codex-command': { type: 'string', default: 'codex' },
       'editor-command': { type: 'string' },
       vscode: { type: 'string' },

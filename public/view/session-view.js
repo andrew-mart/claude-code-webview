@@ -10,6 +10,7 @@ import { inlineImage } from './picture.js';
 import { icon } from './icons.js';
 import { renderMarkdown } from './markdown.js';
 import { createFeedCopy } from '../model/feed-copy.js';
+import { parseSessionStatus } from '../model/session-status.js';
 import { keptEntries, lastActivityOf } from '../model/offline.js';
 import { queueAfter, waitingPrompts } from '../model/queue.js';
 import { sentBubble, waitingBubble } from './waiting-bubble.js';
@@ -17,7 +18,7 @@ import { createToolRow } from './tool-view.js';
 
 /**
  * @typedef {import('../model/entry.js').DisplayEvent} DisplayEvent
- * @typedef {{ title?: string, customTitle?: string, model?: string, contextTokens?: number, effort?: string, costUsd?: number, extendedContext?: boolean }} SessionMeta
+ * @typedef {{ title?: string, customTitle?: string, model?: string, contextTokens?: number, contextWindow?: number, contextAt?: number, effort?: string, costUsd?: number, extendedContext?: boolean }} SessionMeta
  * @typedef {'connecting' | 'missing' | 'idle' | 'working'} SessionStatus
  * @typedef {import('../model/bookmarks.js').Bookmark} Anchor — a message one can come back to: a prompt, an answer, a subagent report
  * @typedef {{ onMeta: (meta: SessionMeta) => void, onStatus: (status: SessionStatus) => void, onPrompt: (prompt: Anchor) => void, onReset: () => void }} SessionListener
@@ -117,6 +118,8 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   };
   /** @type {SessionMeta} */
   let meta = {};
+  /** @type {import('../model/session-status.js').SessionStatus | undefined} */
+  let sessionStatus;
   /** The viewer has sent the session — or gone on from the copy shown. */
   let ready = false;
   /** The feed is shown: the session the viewer sent, or the copy kept, gone on from. */
@@ -198,6 +201,12 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
       copy.take('earlier', data);
       showEarlier(copy.earlier());
     });
+    next.on('session-status', (data) => {
+      const status = parseSessionStatus(data);
+      if (status === undefined || (sessionStatus !== undefined && status.at < sessionStatus.at)) return;
+      sessionStatus = status;
+      listener.onMeta(metaWithStatus(meta, sessionStatus));
+    });
     next.on('entries', (data) => {
       const entries = Array.isArray(data) ? data : [];
       copy.take('entries', entries);
@@ -205,7 +214,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
       const update = feed.apply(entries);
       if (Object.keys(update).length > 0) {
         meta = { ...meta, ...update };
-        listener.onMeta(meta);
+        listener.onMeta(metaWithStatus(meta, sessionStatus));
       }
       if (!ready) {
         received += entries.length;
@@ -317,7 +326,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     }
     const keptFeed = createFeed({ thread: keptThread, waitingBox: h('div') }, sessionId, { loadEntry, sendQueueNow: undefined, anchor: (_, content) => content, onPrompt: () => {}, openFeed });
     const update = keptFeed.apply(saved.entries);
-    if (Object.keys(update).length > 0) listener.onMeta({ ...update, ...meta });
+    if (Object.keys(update).length > 0) listener.onMeta(metaWithStatus({ ...update, ...meta }, sessionStatus));
     keptThread.after(updating);
     updatingText.textContent = viewer === 'out of reach' ? 'Offline · the copy kept from before' : 'Updating…';
     keptThread.hidden = false;
@@ -338,7 +347,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     const update = feed.apply(entries);
     if (Object.keys(update).length > 0) {
       meta = { ...meta, ...update };
-      listener.onMeta(meta);
+      listener.onMeta(metaWithStatus(meta, sessionStatus));
     }
     showEarlier(copy.earlier());
     showFeed();
@@ -509,6 +518,33 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     },
     place: currentPlace,
   };
+}
+
+/**
+ * A fresh statusline can describe a session with no messages yet. Replaying older messages must not replace it;
+ * newer answers keep their own token counts and can reuse the reported window for the same model.
+ * @param {SessionMeta} meta
+ * @param {import('../model/session-status.js').SessionStatus | undefined} status
+ * @returns {SessionMeta}
+ */
+function metaWithStatus(meta, status) {
+  if (status === undefined) return meta;
+  const next = { ...meta };
+  const sameModel = meta.model === status.model;
+  if (meta.contextAt !== undefined && Number.isFinite(meta.contextAt) && meta.contextAt > status.at) {
+    if (sameModel && status.contextWindow !== undefined) next.contextWindow = status.contextWindow;
+    if (sameModel && meta.effort === undefined && status.effort !== undefined) next.effort = status.effort;
+    return next;
+  }
+  next.model = status.model;
+  next.contextAt = status.at;
+  if (status.contextTokens !== undefined) next.contextTokens = status.contextTokens;
+  else if (!sameModel) delete next.contextTokens;
+  if (status.contextWindow !== undefined) next.contextWindow = status.contextWindow;
+  else if (!sameModel) delete next.contextWindow;
+  if (status.effort !== undefined) next.effort = status.effort;
+  else if (!sameModel) delete next.effort;
+  return next;
 }
 
 /**
@@ -742,6 +778,7 @@ function createFeed({ thread, waitingBox }, sessionId, hooks) {
         working = false;
         break;
       case 'usage':
+        meta.contextAt = Date.parse(event.at);
         meta.model = event.model;
         meta.contextTokens = event.contextTokens;
         if (event.effort !== undefined) meta.effort = event.effort;

@@ -43,12 +43,12 @@ export function modelName(id) {
  */
 
 /**
- * @param {{ model: string, tokens: number, extended: boolean }} context
+ * @param {{ model: string, tokens: number, extended: boolean, window?: number | undefined }} context
  *   tokens — what the latest answer received as input; extended — the session's costs name a [1m] model
  * @returns {ContextGauge}
  */
-export function contextGauge({ model, tokens, extended }) {
-  const window = contextWindow(model, extended || tokens > standardWindow);
+export function contextGauge({ model, tokens, extended, window: reportedWindow }) {
+  const window = reportedWindow ?? contextWindow(model, extended || tokens > standardWindow);
   if (window === undefined) return { tokens, window };
   const share = Math.min(tokens / window, 1);
   return { tokens, window, left: Math.max(window - tokens, 0), share, level: share >= hotShare ? 'hot' : share >= warmShare ? 'warm' : 'calm' };

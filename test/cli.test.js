@@ -111,6 +111,13 @@ test('parseCommand_Should_ReadCommandThatStartsClaudeCode', () => {
   );
 });
 
+test('parseCommand_Should_KeepSeparateGptLauncher_AndRejectMultilineCommands', () => {
+  const given = parseCommand(['--claude-gpt-command', 'claude-via-gpt', '--chatgpt-usage-file', 'C:/agent/quota.json']);
+  const multiline = parseCommand(['--claude-gpt-command', 'claude\nother']);
+
+  assert.deepEqual([given.ok && given.command.claudeGptCommand, given.ok && given.command.chatgptUsageFile, multiline.ok], ['claude-via-gpt', 'C:/agent/quota.json', false]);
+});
+
 // Codex as well: "codex", or the command the viewer is given — with options of one's own; a command of nothing is no
 // command
 test('parseCommand_Should_ReadCommandThatStartsCodex', () => {

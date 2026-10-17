@@ -18,7 +18,7 @@
  */
 
 /** The events a feed is sent (server/stream.js). */
-const feedEvents = ['entries', 'earlier', 'ready', 'reset', 'missing', 'cursor'];
+const feedEvents = ['entries', 'earlier', 'ready', 'reset', 'missing', 'cursor', 'session-status'];
 const open = 1;
 const closed = 2;
 
