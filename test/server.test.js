@@ -1400,6 +1400,43 @@ test('vscode_Should_TurnAwayAnotherSite_And_AnswerNotFoundWithoutVsCode', async 
   assert.deepEqual({ embedded: embedded.status, form: form.status, socket: socket.echoed, noOrigin: noOrigin.echoed, none: none.status }, { embedded: 403, form: 403, socket: false, noOrigin: false, none: 404 });
 });
 
+// A file opened in VS Code goes there at its project's folder — the nearest above it with git's .git, a worktree's own
+// though it is inside another repository, else the file's own folder — named under the address VS Code's page is
+// reached at; a file not there, or a viewer with no VS Code, opens nothing
+test('vscode_Should_OpenFileAtItsProjectFolder_UnderAddressPageIsReachedAt', async (t) => {
+  const { base, port } = await withVsCode(t);
+  const plain = await withServer(t);
+  const root = tempDir('csv-vscode-files-');
+  const shop = join(root, 'shop');
+  const fix = join(shop, '.claude', 'worktrees', 'fix');
+  const notes = join(root, 'notes');
+  for (const folder of [join(shop, '.git'), join(shop, 'src', 'cart'), join(fix, 'src'), notes]) await mkdir(folder, { recursive: true });
+  await writeFile(join(fix, '.git'), 'gitdir: ../../../.git/worktrees/fix\n');
+  const inShop = join(shop, 'src', 'cart', 'total.js');
+  const inFix = join(fix, 'src', 'total.js');
+  const loose = join(notes, 'todo.md');
+  for (const file of [inShop, inFix, loose]) await writeFile(file, 'x\n');
+  const uriPath = (/** @type {string} */ path) => path.replaceAll('\\', '/').replace(/^(?=[A-Za-z]:)/, '/');
+  /** @param {string} at @param {string} file @param {Record<string, string>} [headers] */
+  const opened = async (at, file, headers = {}) => {
+    const reply = await fetch(`${at}/api/vscode/open?${new URLSearchParams({ path: file, line: '12' })}`, { redirect: 'manual', headers });
+    const to = new URL(reply.headers.get('location') ?? '/', at);
+    const payload = JSON.parse(to.searchParams.get('payload') ?? '[]');
+    return reply.status === 302 ? { folder: to.searchParams.get('folder'), file: payload[0]?.[1] } : reply.status;
+  };
+
+  assert.deepEqual(
+    [await opened(base, inShop), await opened(base, inFix), await opened(base, loose, { 'X-Forwarded-Host': 'viewer.example.com' }), await opened(base, join(shop, 'gone.js')), await opened(plain.base, inShop)],
+    [
+      { folder: uriPath(shop), file: `vscode-remote://127.0.0.1:${port}${uriPath(inShop)}:12` },
+      { folder: uriPath(fix), file: `vscode-remote://127.0.0.1:${port}${uriPath(inFix)}:12` },
+      { folder: uriPath(notes), file: `vscode-remote://viewer.example.com${uriPath(loose)}:12` },
+      404,
+      404,
+    ],
+  );
+});
+
 // A Codex session is listed beside Claude Code's and shows as they do: its feed comes as Claude Code's records, and a
 // command's long output — left out of the feed at first — comes whole when its row opens; whether it can be typed into
 // the composer tells, as for Claude Code's

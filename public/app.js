@@ -138,7 +138,7 @@ const machine = fetch('/api/machine')
 // a file's project: the open session's folder when the file is in it, else the file's own folder
 // files' icons, Material Icon Theme's: its light theme's own on the light page
 const iconOf = createFileIcons({ light: () => document.documentElement.dataset.theme === 'light' || (document.documentElement.dataset.theme !== 'dark' && !window.matchMedia('(prefers-color-scheme: dark)').matches) });
-const filePanel = createFilePanel({ panel: byId('file-panel', HTMLElement), layout, editor: createEditorOpener(machine), project: (path) => projectSource(projectOfFile(path, page.folder())), folder: projectSource, iconOf });
+const filePanel = createFilePanel({ panel: byId('file-panel', HTMLElement), layout, editor: createEditorOpener(machine), vscode: machine.then((known) => (known?.vscode === true ? openInVsCode : undefined)), project: (path) => projectSource(projectOfFile(path, page.folder())), folder: projectSource, iconOf });
 /** @type {import('./view/resizer.js').PanelWidth} */
 const outlineWidth = { property: '--outline-width', storageKey: 'viewer.outlineWidth' };
 restoreWidth(layout, outlineWidth);
@@ -1220,6 +1220,17 @@ function vscodeButton(folder) {
     if (cwd !== undefined) window.open(vscodeAddress(cwd), '_blank', 'noopener');
   });
   return button;
+}
+
+/**
+ * A file opened in VS Code in the browser at its line, in a tab of its own: the viewer finds the file's project and sends
+ * the tab on to VS Code at its folder.
+ * @param {string} path
+ * @param {number | undefined} line
+ */
+function openInVsCode(path, line) {
+  const asked = new URLSearchParams({ path, ...(line === undefined ? {} : { line: String(line) }) });
+  window.open(`/api/vscode/open?${asked}`, '_blank', 'noopener');
 }
 
 /**

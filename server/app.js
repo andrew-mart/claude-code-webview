@@ -8,7 +8,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import http from 'node:http';
 import net from 'node:net';
 import { homedir } from 'node:os';
-import { extname, join, resolve, sep } from 'node:path';
+import { dirname, extname, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { constants as zlibConstants, createGzip, gzip } from 'node:zlib';
@@ -22,13 +22,14 @@ import { createCodexReading } from './codex.js';
 import { readCodexUsage } from './codex-usage.js';
 import { openJoined } from './joined.js';
 import { parseSteps } from '../public/model/dialog.js';
+import { vscodeFileAddress } from '../public/model/vscode.js';
 import { assetFile, folderFileAt, sandboxPolicy } from 'file-views/server';
 import { editorImports, editorModuleFile, editorModuleFiles, editorModulesPrefix } from './editor-modules.js';
 import { createFileIcons, fileIconAnswer, fileIconsManifest, fileIconsPrefix } from './file-icons.js';
 import { readImageFile, readTextFile, saveTextFile } from './files.js';
 import { fileLinks } from './links.js';
 import { listFolder, searchProject, searchTimeoutMs } from './project.js';
-import { readBranch } from './git.js';
+import { readBranch, workTreeOf } from './git.js';
 import { readImage } from './images.js';
 import { rewindTarget } from './rewind.js';
 import { createSessionIndex } from './sessions.js';
@@ -267,6 +268,8 @@ async function handle(deps, request, response) {
       return feedsStream(deps, url, request, response);
     case '/api/file':
       return sendFile(url, response);
+    case '/api/vscode/open':
+      return openInVsCode(deps, request, url, response);
     case '/api/file/image':
       return sendFileImage(url, response);
     case '/api/dir':
@@ -321,17 +324,49 @@ function vscodeHeaders(headers, target) {
     .split(';')
     .map((cookie) => cookie.trim())
     .filter((cookie) => cookie !== '' && !cookie.startsWith('vscode-tkn='));
+  // VS Code's page connects where the browser reached the viewer, not to VS Code's own address, which a browser
+  // elsewhere cannot reach
+  const authority = pageAuthority(headers);
   return {
     ...headers,
     host: own,
-    // where the browser reached the viewer — or the public address a gate in front of it names: VS Code's page connects
-    // there, not to VS Code's own address, which a browser elsewhere cannot reach
-    ...(headers.host === undefined ? {} : { 'x-forwarded-host': headers['x-forwarded-host'] ?? headers.host }),
+    ...(authority === undefined ? {} : { 'x-forwarded-host': authority }),
     ...(headers.origin === undefined ? {} : { origin: `http://${own}` }),
     cookie: [...cookies, `vscode-tkn=${target.token}`].join('; '),
   };
 }
 
+/**
+ * Where the browser reached the viewer — or the public address a gate in front of it names: the address VS Code's page
+ * is reached at, which names the files of its server too.
+ * @param {http.IncomingHttpHeaders} headers
+ * @returns {string | undefined}
+ */
+function pageAuthority(headers) {
+  const forwarded = headers['x-forwarded-host'];
+  return typeof forwarded === 'string' ? forwarded : headers.host;
+}
+
+/**
+ * A file opened in VS Code in the browser at its project's folder — the nearest above it with git's .git, else its own
+ * — at its line: the browser sent on to VS Code's address for it.
+ * @param {Deps} deps
+ * @param {http.IncomingMessage} request
+ * @param {URL} url — ?path=<the file>&line=<n>
+ * @param {http.ServerResponse} response
+ */
+async function openInVsCode(deps, request, url, response) {
+  if (deps.vscode === undefined) return void response.writeHead(404).end('The viewer runs no VS Code: start it with --vscode');
+  const authority = pageAuthority(request.headers);
+  if (authority === undefined) return void response.writeHead(400).end('No host');
+  const path = url.searchParams.get('path') ?? '';
+  const isFile = isAbsolute(path) && (await stat(path).then((found) => found.isFile(), () => false));
+  if (!isFile) return void response.writeHead(404).end('No such file');
+  const lineText = url.searchParams.get('line') ?? '';
+  const line = /^[1-9]\d*$/.test(lineText) ? Number(lineText) : undefined;
+  const folder = (await workTreeOf(dirname(path))) ?? dirname(path);
+  response.writeHead(302, { Location: vscodeFileAddress({ folder, path, line, authority }) }).end();
+}
 
 /**
  * A request under /vscode/ passed on to VS Code's server, and its answer back.

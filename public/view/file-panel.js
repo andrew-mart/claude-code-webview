@@ -2,7 +2,8 @@
 // Right-hand panel: a file linked from the feed, drawn by file-views by what it is — a markdown document or a page, a
 // table with its columns coloured, text and code with the target line marked, a picture, a PDF or a Word document as
 // its pages. The panel holds its header — the file's name and path, buttons to show the source, run a page's scripts,
-// edit the file here, open it in the editor, reload, copy the path, close — and tells file-views where the viewer's
+// edit the file here, open it in the editor or in VS Code in the browser, reload, copy the path, close — and tells
+// file-views where the viewer's
 // files are. In place of a file it shows a list — the changes of the session's branch, or its project's files and
 // their search — and a file opened from it has a way back to it. A text file is edited in the panel itself
 // (file-editor.js), CodeMirror loaded the first time it is.
@@ -26,6 +27,8 @@ import { createResizer, restoreWidth } from './resizer.js';
  * @typedef {{ open: (target: FileTarget) => void, showChanges: (source: Omit<import('./changes-view.js').ChangesSource, 'openFile'>) => void, showProject: (source: ProjectSource) => void, showFolder: (path: string) => void, findName: (intent: 'definition' | 'uses', name: string, path: string) => Promise<void>, close: () => void, isOpen: () => boolean }} FilePanel
  *   — showChanges: the branch's changes in place of a file, read from the source; showProject: the project's files;
  *   findName: a name in a file looked for in its project — its one definition opened, or its definitions and uses shown
+ * @typedef {(path: string, line: number | undefined) => void} OpenInVsCode — a file opened in VS Code in the browser at
+ *   its line, in its project's folder, in a tab of its own
  * @typedef {{ name: string, icon: string, back: string, backTitle: string, beside: boolean, element: HTMLElement, reload: () => Promise<void>, summary: () => string | undefined }} Listing
  *   — beside: a file opened from the list shows beside it, the list staying on the left — the project's files
  *   — a list in place of a file; name: the panel's title over it; back: the button's word for the way back to it
@@ -49,6 +52,8 @@ const editorRefusals = {
   'no-editor': 'The viewer has no editor to open files in.',
 };
 const elsewhere = "The editor opens on the viewer's computer, and this browser is on another one.";
+const keptOut =
+  'This browser keeps the page from the apps on this computer, so it cannot tell whether the viewer runs here. Allow “Apps on device” (in older Chrome, “Local network access”) for this site — the icon left of the address — and press the button again.';
 
 /** @type {import('./resizer.js').PanelWidth} */
 const panelWidth = { property: '--panel-width', storageKey: 'viewer.panelWidth' };
@@ -75,13 +80,13 @@ function remember(key, value) {
 }
 
 /**
- * @param {{ panel: HTMLElement, layout: HTMLElement, editor: import('./editor-opener.js').EditorOpener, project: (path: string) => Project, folder: (root: string) => Project, iconOf: import('./file-icons.js').IconOf }} parts —
- *   folder: a folder linked, as a project of its own;
+ * @param {{ panel: HTMLElement, layout: HTMLElement, editor: import('./editor-opener.js').EditorOpener, vscode: Promise<OpenInVsCode | undefined>, project: (path: string) => Project, folder: (root: string) => Project, iconOf: import('./file-icons.js').IconOf }} parts —
+ *   folder: a folder linked, as a project of its own; vscode: none when the viewer runs no VS Code;
  *   editor: opens the file at its line in the editor of the viewer's computer, from a browser there; project: the
  *   project a file is in, its folders and its search
  * @returns {FilePanel}
  */
-export function createFilePanel({ panel, layout, editor, project, folder, iconOf }) {
+export function createFilePanel({ panel, layout, editor, vscode, project, folder, iconOf }) {
   const name = h('div', { className: 'panel-name' });
   /** What the panel shows, at the head of its title: the file's icon, or the list's */
   const headIcon = h('span', { className: 'panel-icon' }, [icon('read')]);
@@ -90,6 +95,10 @@ export function createFilePanel({ panel, layout, editor, project, folder, iconOf
   const inEditor = panelButton('external', 'Open in the editor at this line');
   inEditor.classList.add('panel-editor');
   inEditor.hidden = true;
+  // reached through the viewer: from any browser
+  const inVsCode = panelButton('code', "Open in VS Code at this line, in the file's project");
+  inVsCode.classList.add('panel-vscode');
+  inVsCode.hidden = true;
   // a document drawn, or its text: the two named, the one shown pressed
   const showDocument = h('button', { className: 'panel-view-document', text: 'Document', title: 'Show as a document', attrs: { type: 'button' } });
   const showSource = h('button', { className: 'panel-view-source', text: 'Source', title: 'Show the source', attrs: { type: 'button' } });
@@ -118,6 +127,8 @@ export function createFilePanel({ panel, layout, editor, project, folder, iconOf
   const back = h('button', { className: 'panel-back', attrs: { type: 'button' } });
   back.hidden = true;
   const body = h('div', { className: 'panel-body' });
+  // what the panel says of a button pressed: over the file, which may be scrolled far from its top
+  const note = h('div', { className: 'panel-message panel-note', attrs: { hidden: '', role: 'status' } });
   // the project's files on the left while a file opened from them shows on the right — when the panel is wide enough
   const side = h('div', { className: 'panel-side', attrs: { hidden: '' } });
   restoreWidth(layout, panelWidth);
@@ -135,7 +146,8 @@ export function createFilePanel({ panel, layout, editor, project, folder, iconOf
     resizer,
     side,
     h('div', { className: 'panel-main' }, [
-      h('header', { className: 'panel-head' }, [back, treeToggle, h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [headIcon, name, where]), path]), scripts, view, editHere, linksButton, inEditor, reload, copy, close]),
+      h('header', { className: 'panel-head' }, [back, treeToggle, h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [headIcon, name, where]), path]), scripts, view, editHere, linksButton, inEditor, inVsCode, reload, copy, close]),
+      note,
       body,
     ]),
   );
@@ -230,13 +242,13 @@ export function createFilePanel({ panel, layout, editor, project, folder, iconOf
 
   /** @param {string} message */
   const say = (message) => {
-    body.querySelector('.panel-note')?.remove();
-    body.prepend(h('div', { className: 'panel-message panel-note', text: message }));
+    note.textContent = message;
+    note.hidden = false;
   };
   /** @param {import('../model/machine.js').EditorReach} reach */
   const offerEditor = (reach) => {
-    inEditor.hidden = reach !== 'same' && reach !== 'unknown';
-    inEditor.title = reach === 'unknown' ? "Open in the editor at this line — first checks that this browser is on the viewer's computer" : 'Open in the editor at this line';
+    inEditor.hidden = reach !== 'same' && reach !== 'unknown' && reach !== 'blocked';
+    inEditor.title = reach === 'same' ? 'Open in the editor at this line' : "Open in the editor at this line — first checks that this browser is on the viewer's computer";
   };
   inEditor.addEventListener('click', async () => {
     const target = current;
@@ -245,11 +257,21 @@ export function createFilePanel({ panel, layout, editor, project, folder, iconOf
     const reach = known === 'unknown' ? await editor.check() : known;
     offerEditor(reach);
     if (reach !== 'same') {
-      say(elsewhere);
+      say(reach === 'blocked' ? keptOut : elsewhere);
       return;
     }
     const reply = await editor.open(target.path, target.line ?? 1);
     if (!reply.ok) say(editorRefusals[reply.error] ?? 'The viewer did not answer.');
+  });
+  // known once the viewer tells it runs VS Code: a press opens the tab at once — a browser lets a page open one only
+  // straight from a press
+  /** @type {OpenInVsCode | undefined} */
+  let openInVsCode;
+  void vscode.then((openFile) => {
+    openInVsCode = openFile;
+  });
+  inVsCode.addEventListener('click', () => {
+    if (current !== undefined && openInVsCode !== undefined) openInVsCode(current.path, current.line);
   });
 
   /** The files hidden beside the file, or shown: as the reader left them, the next time too. */
@@ -284,6 +306,7 @@ export function createFilePanel({ panel, layout, editor, project, folder, iconOf
     stopBeside();
     current = undefined;
     showingList = true;
+    note.hidden = true;
     shown?.dispose();
     shown = undefined;
     stopEditing();
@@ -292,7 +315,7 @@ export function createFilePanel({ panel, layout, editor, project, folder, iconOf
     path.textContent = listing.summary() ?? '';
     path.title = '';
     where.textContent = '';
-    for (const button of [view, scripts, editHere, linksButton, inEditor, copy, back]) button.hidden = true;
+    for (const button of [view, scripts, editHere, linksButton, inEditor, inVsCode, copy, back]) button.hidden = true;
     reload.hidden = false;
     panel.hidden = false;
     layout.classList.add('with-panel');
@@ -335,12 +358,16 @@ export function createFilePanel({ panel, layout, editor, project, folder, iconOf
       }
       current = target;
       showingList = false;
+      note.hidden = true;
       // beside the project's files, the way back stays: a narrow panel shows one of them at a time
       back.hidden = !panel.classList.contains('split');
       projectShown?.view.select(target.path);
       copy.hidden = false;
       void editor.reach().then((reach) => {
         if (current === target) offerEditor(reach);
+      });
+      void vscode.then((openFile) => {
+        if (current === target) inVsCode.hidden = openFile === undefined;
       });
       name.textContent = target.path.split(/[\\/]/).pop() ?? target.path;
       headIcon.replaceChildren(iconOf(name.textContent, 'file', false));

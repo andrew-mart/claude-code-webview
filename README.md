@@ -70,7 +70,8 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
 - **VS Code.** Started with `--vscode <the VS Code CLI>`, the viewer runs VS Code in the browser — Microsoft's own
   `code serve-web` — at `/vscode/`, and a button over a session opens it in the session's folder in a tab of its own:
   the whole of VS Code, its search, its git, its extensions and their language servers (go to a definition, find the
-  uses). The first start downloads VS Code's server, about 100 MB, into `~/.vscode/cli`; its extensions are its own,
+  uses). A button over a file in the file panel opens VS Code at the file's project — the nearest folder above it with
+  `.git`, a worktree's own, else the file's folder — with the file at its line. The first start downloads VS Code's server, about 100 MB, into `~/.vscode/cli`; its extensions are its own,
   in `~/.vscode-server`. It stops with the viewer, however the viewer stops.
 - **Outline and bookmarks.** A right-hand outline lists your prompts (the one on screen is highlighted; Alt+↑ / Alt+↓
   jump between them) and your bookmarks: hover a prompt, an answer or a subagent report and click the flag to keep it

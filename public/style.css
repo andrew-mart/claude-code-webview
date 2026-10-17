@@ -4324,6 +4324,14 @@ a.file-link:hover {
   font-size: 13.5px;
 }
 
+/* what a button pressed came to, between the panel's head and the file: in sight wherever the file is scrolled to */
+.panel-note {
+  flex: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text-2);
+}
+
 /* The file panel's views (file-views) in the viewer's colours and fonts. */
 .panel-body {
   --fv-text: var(--text);

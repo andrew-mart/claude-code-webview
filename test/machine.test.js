@@ -6,7 +6,8 @@ const viewer = { instance: '6f1c2a3b-0000-4000-8000-000000000001', port: 7788, e
 
 // A file opened in the editor shows up on the viewer's computer: the button is for a browser there — one that opened the
 // page at the viewer's own address, or whose 127.0.0.1 answers with the same run of the viewer. Until asked, it is not
-// known; with no editor given to the viewer there is nothing to open
+// known; nothing answering there is another computer — unless the browser refused the page this computer's apps, which
+// tells nothing of where it is; with no editor given to the viewer there is nothing to open
 test('editorReach_Should_TellWhetherBrowserIsOnViewersComputer', () => {
   assert.deepEqual(
     [
@@ -15,10 +16,11 @@ test('editorReach_Should_TellWhetherBrowserIsOnViewersComputer', () => {
       editorReach(viewer, { hostname: 'viewer.example.com', local: 'unasked' }),
       editorReach(viewer, { hostname: 'viewer.example.com', local: { ...viewer } }),
       editorReach(viewer, { hostname: 'viewer.example.com', local: { ...viewer, instance: '6f1c2a3b-0000-4000-8000-000000000002' } }),
-      editorReach(viewer, { hostname: 'viewer.example.com', local: undefined }),
+      editorReach(viewer, { hostname: 'viewer.example.com', local: 'no-answer' }),
+      editorReach(viewer, { hostname: 'viewer.example.com', local: 'refused' }),
       editorReach({ ...viewer, editor: false }, { hostname: '127.0.0.1', local: 'unasked' }),
     ],
-    ['same', 'same', 'unknown', 'same', 'elsewhere', 'elsewhere', 'none'],
+    ['same', 'same', 'unknown', 'same', 'elsewhere', 'elsewhere', 'blocked', 'none'],
   );
 });
 

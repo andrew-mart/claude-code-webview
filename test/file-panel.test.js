@@ -20,8 +20,10 @@ const noEditor = { reach: async () => 'none', check: async () => 'none', open: a
  * The panel as app.js creates it, in a page of its own; a file's project is D:/dev/shop, its search finding these lines.
  * @param {EditorOpener} [editor]
  * @param {readonly Match[]} [lines]
+ * @param {Promise<import('../public/view/file-panel.js').OpenInVsCode | undefined>} [vscode] - none: the viewer runs no
+ *   VS Code
  */
-function filePanel(editor = noEditor, lines = []) {
+function filePanel(editor = noEditor, lines = [], vscode = Promise.resolve(undefined)) {
   const layout = window.document.createElement('main');
   const panel = window.document.createElement('aside');
   panel.hidden = true;
@@ -31,6 +33,7 @@ function filePanel(editor = noEditor, lines = []) {
     panel,
     layout,
     editor,
+    vscode,
     // a folder linked: its files, with nothing in them
     folder: (root) => ({ root, listFolder: async (path) => ({ ok: true, path, entries: [], more: false }), search: async () => undefined, links: async () => undefined }),
     // an icon that tells what it was asked for
@@ -138,6 +141,60 @@ test('filePanel_Should_OpenFileInEditorAtItsLine_OnViewersComputerOnly', async (
   await settle();
 
   assert.deepEqual({ before, after: shown(), opened }, { before: [true, false, true, true], after: [true, false, false, true], opened: [['D:/dev/x/App.cs', 21], ['D:/dev/x/App.cs', 21]] });
+});
+
+// A browser that keeps the page from this computer's apps keeps the button: a press says where to let the page in — over
+// the file, not in it, where a file scrolled down would hide it — and the next press, the page let in, opens the file
+test('filePanel_Should_TellHowToLetPageIn_When_BrowserKeepsItFromThisComputersApps', async () => {
+  /** @type {import('../public/model/machine.js').EditorReach[]} */
+  const checks = ['blocked', 'same'];
+  /** @type {(string | number)[][]} */
+  const opened = [];
+  const { panel, files } = filePanel({
+    reach: async () => 'unknown',
+    check: async () => checks.shift() ?? 'none',
+    open: async (path, line) => {
+      opened.push([path, line]);
+      return { ok: true };
+    },
+  });
+  files.open({ path: 'D:/dev/x/App.cs', line: 21, endLine: undefined });
+  const settle = () => new Promise((done) => setTimeout(done, 10));
+  await settle();
+  const button = panel.querySelector('.panel-editor');
+  assert.ok(button instanceof window.HTMLButtonElement);
+
+  button.click();
+  await settle();
+  const note = panel.querySelector('.panel-note:not([hidden])');
+  const told = { shown: !button.hidden, inFile: note?.closest('.panel-body') !== null, letIn: note?.textContent?.includes('Apps on device') };
+  button.click();
+  await settle();
+
+  assert.deepEqual({ told, opened }, { told: { shown: true, inFile: false, letIn: true }, opened: [['D:/dev/x/App.cs', 21]] });
+});
+
+// A file opens in VS Code in the browser at its line when the viewer runs VS Code — from any browser, it is reached
+// through the viewer; a viewer without it shows no button, nor does a list in place of a file
+test('filePanel_Should_OpenFileInVsCodeAtItsLine_When_ViewerRunsIt', async () => {
+  /** @type {(string | number | undefined)[][]} */
+  const opened = [];
+  const withVsCode = filePanel(noEditor, [], Promise.resolve((path, line) => void opened.push([path, line])));
+  const without = filePanel(noEditor, [], Promise.resolve(undefined));
+  for (const { files } of [withVsCode, without]) files.open({ path: 'D:/dev/x/App.cs', line: 21, endLine: undefined });
+  await settled();
+  /** @param {HTMLElement} panel */
+  const buttonOf = (panel) => {
+    const button = panel.querySelector('.panel-vscode');
+    assert.ok(button instanceof window.HTMLButtonElement);
+    return button;
+  };
+  const shown = [withVsCode, without].map(({ panel }) => !buttonOf(panel).hidden);
+
+  buttonOf(withVsCode.panel).click();
+  withVsCode.files.showFolder('D:/dev/x/');
+
+  assert.deepEqual({ shown, opened, overList: !buttonOf(withVsCode.panel).hidden }, { shown: [true, false], opened: [['D:/dev/x/App.cs', 21]], overList: false });
 });
 
 /**

@@ -18,20 +18,30 @@ export async function readBranch(dir) {
 }
 
 /**
+ * The repository's work tree a folder is in: this folder or the nearest one above with .git — a folder, or a file in a
+ * worktree or a submodule.
+ * @param {string} dir
+ * @returns {Promise<string | undefined>} — undefined outside a repository
+ */
+export async function workTreeOf(dir) {
+  for (let current = resolve(dir); ; current = dirname(current)) {
+    if (await stat(join(current, '.git')).then(() => true, () => false)) return current;
+    if (dirname(current) === current) return undefined;
+  }
+}
+
+/**
  * The repository's git folder: .git in this folder or the nearest one above. In a worktree or a submodule .git is a
  * file that points to it.
  * @param {string} dir
  * @returns {Promise<string | undefined>}
  */
 async function findGitDir(dir) {
-  for (let current = dir; ; current = dirname(current)) {
-    const dotGit = join(current, '.git');
-    const found = await stat(dotGit).catch(() => undefined);
-    if (found?.isDirectory()) return dotGit;
-    if (found?.isFile()) {
-      const pointer = /^gitdir:\s*(.+)$/m.exec(await readFile(dotGit, 'utf8'))?.[1];
-      return pointer === undefined ? undefined : resolve(current, pointer.trim());
-    }
-    if (dirname(current) === current) return undefined;
-  }
+  const top = await workTreeOf(dir);
+  if (top === undefined) return undefined;
+  const dotGit = join(top, '.git');
+  const found = await stat(dotGit).catch(() => undefined);
+  if (found?.isDirectory()) return dotGit;
+  const pointer = /^gitdir:\s*(.+)$/m.exec(await readFile(dotGit, 'utf8').catch(() => ''))?.[1];
+  return pointer === undefined ? undefined : resolve(top, pointer.trim());
 }

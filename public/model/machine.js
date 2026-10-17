@@ -8,7 +8,10 @@ const loopbackHosts = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
 /**
  * @typedef {{ instance: string, port: number, editor: boolean, vscode: boolean }} Machine — the viewer's /api/machine
  *   reply: the run of the viewer, its port, whether it has an editor, whether it runs VS Code in the browser
- * @typedef {'same' | 'elsewhere' | 'unknown' | 'none'} EditorReach
+ * @typedef {'same' | 'elsewhere' | 'blocked' | 'unknown' | 'none'} EditorReach — blocked: the browser did not let the
+ *   page reach this computer's apps, so where it is is not known until it does
+ * @typedef {Machine | 'no-answer' | 'refused'} LocalAnswer — what the viewer at the browser's 127.0.0.1 said; nothing
+ *   answering there, or the browser refusing the page this computer's apps
  */
 
 /**
@@ -23,13 +26,21 @@ export function parseMachine(json) {
 
 /**
  * @param {Machine} own — what the viewer that served the page says
- * @param {{ hostname: string, local: Machine | undefined | 'unasked' }} browser — hostname: the page's address; local:
- *   what the viewer at the browser's 127.0.0.1 said, nothing if none answered
+ * @param {{ hostname: string, local: LocalAnswer | 'unasked' }} browser — hostname: the page's address; local: what the
+ *   viewer at the browser's 127.0.0.1 said
  * @returns {EditorReach}
  */
 export function editorReach(own, browser) {
   if (!own.editor) return 'none';
   if (loopbackHosts.has(browser.hostname)) return 'same';
-  if (browser.local === 'unasked') return 'unknown';
-  return browser.local?.instance === own.instance ? 'same' : 'elsewhere';
+  switch (browser.local) {
+    case 'unasked':
+      return 'unknown';
+    case 'refused':
+      return 'blocked';
+    case 'no-answer':
+      return 'elsewhere';
+    default:
+      return browser.local.instance === own.instance ? 'same' : 'elsewhere';
+  }
 }

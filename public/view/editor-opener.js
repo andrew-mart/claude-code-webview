@@ -30,7 +30,9 @@ export function createEditorOpener(own) {
     if (machine === undefined) return 'none';
     checked ??= askLocal(machine.port).then((local) => {
       const reach = editorReach(machine, { hostname: location.hostname, local });
-      keep({ instance: machine.instance, reach });
+      // a refusal tells nothing of where the browser is: the next press asks again, the page let in by then
+      if (reach === 'blocked') checked = undefined;
+      else keep({ instance: machine.instance, reach });
       return reach;
     });
     return checked;
@@ -62,14 +64,33 @@ export function createEditorOpener(own) {
 }
 
 /**
- * The viewer at the browser's own 127.0.0.1, if one answers there.
+ * The viewer at the browser's own 127.0.0.1: what it says of itself; nothing answering there, or the browser keeping the
+ * page from this computer's apps.
  * @param {number} port
+ * @returns {Promise<import('../model/machine.js').LocalAnswer>}
  */
 async function askLocal(port) {
-  // loopback: tells Chrome the request goes to this device — it asks the user, then lets an https page reach http there
-  const init = /** @type {const} */ ({ mode: 'cors', targetAddressSpace: 'loopback' });
-  const response = await fetch(`http://127.0.0.1:${port}/api/machine`, init).catch(() => undefined);
-  return response?.ok ? parseMachine(await response.json().catch(() => undefined)) : undefined;
+  // no targetAddressSpace: Chrome tells 127.0.0.1 by itself, asks the user and lets an https page reach http there — and
+  // a system proxy that takes 127.0.0.1 too leaves the address space unknown, the request naming one refused
+  const response = await fetch(`http://127.0.0.1:${port}/api/machine`, { mode: 'cors' }).catch(() => undefined);
+  if (response === undefined) return (await appsRefused()) ? 'refused' : 'no-answer';
+  const machine = response.ok ? parseMachine(await response.json().catch(() => undefined)) : undefined;
+  return machine === undefined ? 'no-answer' : machine;
+}
+
+/**
+ * Whether the browser keeps the page from this computer's apps: Chrome asks its user first, and a refusal — or the
+ * question put away unanswered — leaves the page out, wherever the browser is. A browser that knows no such permission
+ * keeps nothing from it.
+ * @returns {Promise<boolean>}
+ */
+async function appsRefused() {
+  // Chrome 145 on, then the name before the permission was split; a name the browser does not know is refused
+  for (const name of /** @type {const} */ (['loopback-network', 'local-network-access'])) {
+    const status = await navigator.permissions.query({ name }).catch(() => undefined);
+    if (status !== undefined) return status.state !== 'granted';
+  }
+  return false;
 }
 
 /** @returns {{ instance: string, reach: EditorReach } | undefined} */
