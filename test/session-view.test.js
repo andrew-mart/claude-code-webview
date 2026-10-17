@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
+import { createCodexReading } from '../server/codex.js';
 
 // DOMPurify binds to window on import (through the feed's markdown), so the DOM is set up before the view loads.
 const { window } = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
@@ -39,6 +40,7 @@ Object.assign(globalThis, {
   Text: window.Text,
   Element: window.Element,
   HTMLElement: window.HTMLElement,
+  HTMLAnchorElement: window.HTMLAnchorElement,
   matchMedia: () => ({ matches: false }),
   ResizeObserver: class {
     observe() {}
@@ -52,6 +54,21 @@ const at = '2026-10-09T07:02:11.686Z';
 /** @param {string} uuid @param {string} text */
 const prompt = (uuid, text) => ({ type: 'user', uuid, timestamp: at, promptSource: 'typed', message: { role: 'user', content: text } });
 const settled = () => new Promise((done) => setTimeout(done, 10));
+
+test('sessionView_Should_ShowAsynchronousCodexQuestionOutsideCollapsedActions', async (t) => {
+  const reading = createCodexReading();
+  const entries = [
+    { type: 'response_item', ordinal: 1, payload: { type: 'function_call', call_id: 'ask', name: 'request_user_input_async', arguments: JSON.stringify({ questions: [{ title: 'Include model selection and account usage?', options: ['Include both', 'Sessions only'] }] }) } },
+    { type: 'response_item', ordinal: 2, payload: { type: 'function_call_output', call_id: 'ask', output: '{"accepted":true}' } },
+    { type: 'response_item', ordinal: 3, payload: { type: 'function_call', call_id: 'work', name: 'exec_command', arguments: '{"cmd":"git status"}' } },
+  ].flatMap((record) => reading.translate({ ...record, timestamp: at }));
+  const { view } = await mounted(t, { entries, earlier: 0, lastActivity: undefined, savedAt: 1 });
+
+  const shownAnswers = [...view.element.querySelectorAll('.md.answer')].filter((element) => !element.closest('[hidden]')).map((element) => element.textContent).join('\n');
+  assert.match(shownAnswers, /Include model selection and account usage\?/);
+  assert.match(shownAnswers, /Include both/);
+  assert.match(shownAnswers, /Sessions only/);
+});
 
 /** @param {string} uuid @param {string} text */
 const answer = (uuid, text) => ({ type: 'assistant', uuid, timestamp: at, message: { role: 'assistant', content: [{ type: 'text', text }] } });

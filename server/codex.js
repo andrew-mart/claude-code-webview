@@ -91,8 +91,12 @@ function madeOf(raw, payload, model) {
             : { name: text(payload.name) ?? 'tool', input: { input } };
       return [{ type: 'assistant', uuid, message: { ...idOf(payload), role: 'assistant', ...modelOf(model), content: [{ type: 'tool_use', id: callId, ...call }] } }];
     }
-    case 'function_call':
-      return [{ type: 'assistant', uuid, message: { ...idOf(payload), role: 'assistant', ...modelOf(model), content: [{ type: 'tool_use', id: callId, ...functionCallOf(text(payload.name) ?? 'tool', argumentsOf(payload.arguments)) }] } }];
+    case 'function_call': {
+      const name = text(payload.name) ?? 'tool';
+      const args = argumentsOf(payload.arguments);
+      const questions = name === 'request_user_input_async' || name === 'request_user_input' ? questionBlocks(args) : [];
+      return [{ type: 'assistant', uuid, message: { ...idOf(payload), role: 'assistant', ...modelOf(model), content: [...questions, { type: 'tool_use', id: callId, ...functionCallOf(name, args) }] } }];
+    }
     case 'custom_tool_call_output':
     case 'function_call_output': {
       const output = typeof payload.output === 'string' ? payload.output : partsOf(payload.output, 'input_text', 'output_text', 'text').join('');
@@ -101,6 +105,26 @@ function madeOf(raw, payload, model) {
     default:
       return [];
   }
+}
+
+/**
+ * Questions are conversation content even after the tool accepts the request and work continues: a completed call
+ * folds into the activity summary, but the reader still needs the question and its choices to answer in the box.
+ * @param {Record<string, unknown>} args
+ * @returns {Block[]}
+ */
+function questionBlocks(args) {
+  if (!Array.isArray(args.questions)) return [];
+  return args.questions.filter(isRecord).flatMap((question) => {
+    const title = text(question.title) ?? text(question.question);
+    if (title === undefined) return [];
+    const options = Array.isArray(question.options) ? question.options.flatMap((option) => {
+      if (typeof option === 'string') return [option];
+      if (!isRecord(option) || typeof option.label !== 'string') return [];
+      return [typeof option.description === 'string' ? `${option.label}: ${option.description}` : option.label];
+    }) : [];
+    return [{ type: /** @type {const} */ ('text'), text: [title, ...options.map((option, at) => `${at + 1}. ${option}`)].join('\n\n') }];
+  });
 }
 
 /**
