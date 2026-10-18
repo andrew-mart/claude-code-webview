@@ -1,6 +1,7 @@
 // @ts-check
 // The account's usage of Claude — the 5-hour window and the week — as the page shows it, the way Claude Code's
-// statusline does: how much of each is used; on hover, when each resets and how old the reading is.
+// statusline does: how much of each is used; on hover, how much of each has gone by, when each resets and how old the
+// reading is.
 import { isRecord } from './narrow.js';
 
 /**
@@ -40,10 +41,10 @@ function windowOf(json) {
  *   by, percent; gap: none while either is not known
  */
 
-/** The windows: their names, on the meter and on hover, and their length. */
+/** The windows: their names, on the meter and on hover — the window, and the whole of it — and their length. */
 const windowsOf = /** @type {const} */ ([
-  { name: '5h', said: '5-hour window', ms: 5 * 3_600_000, pick: (/** @type {Usage} */ usage) => usage.fiveHour },
-  { name: '7d', said: 'Week', ms: 7 * 24 * 3_600_000, pick: (/** @type {Usage} */ usage) => usage.sevenDay },
+  { name: '5h', said: '5-hour window', whole: 'the 5 hours', ms: 5 * 3_600_000, pick: (/** @type {Usage} */ usage) => usage.fiveHour },
+  { name: '7d', said: 'Week', whole: 'the week', ms: 7 * 24 * 3_600_000, pick: (/** @type {Usage} */ usage) => usage.sevenDay },
 ]);
 
 /**
@@ -54,17 +55,19 @@ const windowsOf = /** @type {const} */ ([
 export function usageView(usage, now) {
   // a window that reset after the reading: what it says is no longer so
   const shown = windowsOf.map((known) => {
-    const window = known.pick(usage);
-    return { ...known, window: window === undefined || (window.resetsAt !== undefined && window.resetsAt <= now) ? undefined : window };
+    const read = known.pick(usage);
+    const window = read === undefined || (read.resetsAt !== undefined && read.resetsAt <= now) ? undefined : read;
+    // how much of the window has gone by, percent
+    const elapsed = window?.resetsAt === undefined ? undefined : Math.round(Math.min(100, Math.max(0, 100 - ((window.resetsAt - now) / known.ms) * 100)));
+    return { ...known, window, elapsed };
   });
   return {
-    meters: shown.map(({ name, ms, window }) => {
-      const elapsed = window?.resetsAt === undefined ? undefined : Math.round(Math.min(100, Math.max(0, 100 - ((window.resetsAt - now) / ms) * 100)));
-      return { name, percent: window?.percent, elapsed, gap: window === undefined || elapsed === undefined ? undefined : gapOf(Math.min(100, window.percent), elapsed) };
-    }),
+    meters: shown.map(({ name, window, elapsed }) => ({ name, percent: window?.percent, elapsed, gap: window === undefined || elapsed === undefined ? undefined : gapOf(Math.min(100, window.percent), elapsed) })),
     title: [
-      ...shown.map(({ said, window }) =>
-        window === undefined ? `${said}: reset since the reading` : `${said}: ${Math.round(window.percent)}% used${window.resetsAt === undefined ? '' : `, resets in ${span(window.resetsAt - now)}`}`,
+      ...shown.map(({ said, whole, window, elapsed }) =>
+        window === undefined
+          ? `${said}: reset since the reading`
+          : `${said}: ${Math.round(window.percent)}% used${window.resetsAt === undefined || elapsed === undefined ? '' : `, ${elapsed}% of ${whole} gone, resets in ${span(window.resetsAt - now)}`}`,
       ),
       `Read ${span(now - usage.readAt)} ago`,
     ].join('\n'),
