@@ -104,7 +104,10 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   "Offline · reading saved copies" shows meanwhile; once the viewer answers, the page reconnects and catches up, keeping
   your place. On an iPhone, add the page to the Home Screen: Safari may clear a website's saved data after a week
   without visits. The saved copies serve online too: a session opened again shows at once as it was last time, marked
-  "Updating…" until the viewer's fresh copy takes its place.
+  "Updating…" until the viewer's fresh copy takes its place. The sessions you switched away from lately stay
+  connected out of sight, over the page's one stream: switching back shows them up to date at once, where you left
+  them. As many stay as their size allows — about ten long ones on a computer, four on a phone, many more short ones,
+  twenty at most; the last one you left always stays.
 - **Background work.** Over the input box, what the session runs in the background — subagents and commands — and
   how many have ended; opened, every task with how it stands: a command with its output as it grows, a subagent with
   its own transcript as it works. A subagent quiet for long is shown as such, not as running for days.

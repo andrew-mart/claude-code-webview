@@ -470,7 +470,7 @@ function createPage() {
     try {
       const marks = await offline.marks();
       for (const id of sessionsToSave(sessions, marks, { now: Date.now(), limit: keptSessions, withinMs: keptWithinMs })) {
-        // The open session keeps its own copy, and so does one kept as it was shown: it goes on as it is shown again.
+        // The open session keeps its own copy, and so does one kept as it was shown: its feed goes on out of sight.
         if (id === current?.id || warm.has(id)) continue;
         if ((await feedKeeper.catchUp(id)) === 'no-answer') break;
       }
@@ -500,7 +500,7 @@ function createPage() {
 
   /**
    * A session's feed, mounted: what is kept of it as it was shown while it is out of sight (warm-sessions.js), its feed
-   * paused — its header, outline and box are made anew each time it is shown.
+   * going on — its header, outline and box are made anew each time it is shown.
    * @typedef {{ scroller: HTMLElement, view: import('./view/session-view.js').MountedSession, bookmarks: ReturnType<typeof createBookmarkStore>, relay: ReturnType<typeof createSessionRelay>, agent: SessionInfo['agent'], queue: { send: () => void }, dispose: () => void }} FeedPart
    *   relay: what the feed tells, passed on to what shows it now; queue: ⏩ on a message waiting in Claude Code's queue —
    *   the box shown sends the queue now
@@ -530,8 +530,17 @@ function createPage() {
     for (const child of [...mainBody.children]) if (child !== feedColumn) child.remove();
     mainBody.append(...beside);
   };
-  /** The sessions opened lately, kept as shown while out of sight: one opened again shows at once, as it was. */
-  const warm = createWarmSessions({ limit: matchMedia('(max-width: 820px)').matches ? 3 : 4, letGo: (/** @type {FeedPart} */ part) => part.dispose() });
+  /**
+   * The sessions opened lately, kept as shown while out of sight, their feeds going on: one opened again shows at once,
+   * up to date. As many as their feeds' elements allow — each costs the page about 3 KB, a long session's feed some
+   * 20,000 of them — a phone fewer: a page put away that holds much is the first a phone lets go of.
+   */
+  const warm = createWarmSessions({
+    most: 20,
+    budget: matchMedia('(max-width: 820px)').matches ? 80_000 : 200_000,
+    weigh: (/** @type {FeedPart} */ part) => part.scroller.getElementsByTagName('*').length,
+    letGo: (/** @type {FeedPart} */ part) => part.dispose(),
+  });
   /**
    * @param {string} id
    * @param {SessionInfo['agent']} agent
@@ -661,8 +670,6 @@ function createPage() {
       },
       onReset: outline.clear,
     });
-    // the feed asked for again, from its copy
-    if (part === kept) view.resume();
     /** What shows the session — its header, outline, box — let go of. */
     const closeShown = () => {
       part.relay.detach();
@@ -692,7 +699,6 @@ function createPage() {
       putAway() {
         places.set(id, view.place());
         closeShown();
-        view.pause();
         warm.keep(id, part);
       },
       dispose() {

@@ -26,9 +26,8 @@ import { createToolRow } from './tool-view.js';
  *   the viewer, over the page's stream (feed-hub.js)
  * @typedef {{ anchor: (anchor: Anchor, content: HTMLElement) => HTMLElement, onPrompt: (prompt: Anchor) => void, loadEntry: import('./tool-view.js').LoadEntry, sendQueueNow: (() => void) | undefined, openFeed: OpenFeed }} FeedHooks — sendQueueNow:
  *   what waits in Claude Code's queue, sent now; none where nothing can be sent; openFeed: for a subagent's transcript
- * @typedef {{ element: HTMLElement, dispose: () => void, scrollToAnchor: (id: string) => boolean, promptElements: () => readonly HTMLElement[], place: () => ReadingPlace, hasEarlier: () => boolean, loadEarlier: () => Promise<void>, keepPlace: (change: () => void) => void, expectPrompt: (text: string) => void, pause: () => void, resume: () => void, restore: (place: ReadingPlace) => void }} MountedSession
- * pause — the session put out of sight, kept as it is shown: its feed let go of; resume — shown again: the feed asked
- * for again, from its copy; restore — the reader taken back to the place they were at;
+ * @typedef {{ element: HTMLElement, dispose: () => void, scrollToAnchor: (id: string) => boolean, promptElements: () => readonly HTMLElement[], place: () => ReadingPlace, hasEarlier: () => boolean, loadEarlier: () => Promise<void>, keepPlace: (change: () => void) => void, expectPrompt: (text: string) => void, restore: (place: ReadingPlace) => void }} MountedSession
+ * restore — the reader taken back to the place they were at — the session shown again, its feed gone on out of sight;
  * expectPrompt — a prompt sent from the page: shown, as sent, until Claude Code writes it down;
  * hasEarlier — the session opened with its latest part, the rest is not loaded; loadEarlier loads it;
  * keepPlace — runs a change that resizes the feed (a font, wide tables) keeping the reader at the same message
@@ -379,8 +378,6 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   /** @type {import('./feed-hub.js').FeedSource | undefined} */
   let source;
   let disposed = false;
-  /** The session out of sight, its feed let go of until it is shown again. */
-  let paused = false;
   if (keeping === undefined) source = connect(tail);
   else {
     const kept = keeping;
@@ -389,7 +386,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
       .load()
       .catch(() => undefined)
       .then((saved) => {
-        if (disposed || paused) return;
+        if (disposed) return;
         if (saved !== undefined && saved.token !== undefined && kept.online()) showCopy({ entries: saved.entries, earlier: saved.earlier, token: saved.token }, tail);
         else showKeptCopy(saved, kept.online() ? 'in reach' : 'out of reach');
         source = connect(tail);
@@ -472,22 +469,6 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
       return true;
     },
     promptElements: () => prompts,
-    pause() {
-      if (paused || disposed) return;
-      paused = true;
-      keepNow();
-      stopWaiting?.();
-      stopWaiting = undefined;
-      source?.close();
-      source = undefined;
-    },
-    resume() {
-      if (!paused || disposed) return;
-      paused = false;
-      // entries held past the copy's token would be sent again: the session comes anew instead
-      if (copy.goOnFrom() === undefined) startOver();
-      source = connect(tail);
-    },
     restore(place) {
       if (!shown) return;
       stuck = !(place.kind === 'message' && returnTo(place));
