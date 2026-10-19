@@ -838,28 +838,9 @@ button {
   background: var(--text-4);
 }
 
-/* idle — its answer seen, or nothing done yet: a robot unplugged (unplugged.js), dim on the ground, no glow. A tab's
-   chip above the session shows nothing. */
+/* idle — its answer seen, or nothing done yet: no lamp at all */
 .herdr-status[data-status="idle"] {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 22px;
-  margin: -7px 0;
-  border-radius: 0;
-  background: none;
-  color: var(--text-4);
-  opacity: 0.7;
-}
-
-.herdr-chip > .herdr-status[data-status="idle"] {
   display: none;
-}
-
-.unplugged {
-  width: 30px;
-  height: 22px;
 }
 
 /* a row at work dimmed — its text and its workspace's edge, not its robots — while another waits for its user: for a
@@ -10154,8 +10135,7 @@ a.file-link:hover {
 /* Lamps in place of robots, when the reader asks (view-settings.js: lamps): at work a yellow lamp, always lit, its
    light wavering unevenly; an answer ready a green lamp blinking, near out between, until it is seen: only what waits
    for the reader goes out. */
-:root[data-lamps="lamps"] :is(.robots, .rests, .unplugged),
-:root[data-lamps="lamps"] .herdr-status[data-status="idle"] {
+:root[data-lamps="lamps"] :is(.robots, .rests) {
   display: none;
 }
 

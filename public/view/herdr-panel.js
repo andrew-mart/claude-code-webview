@@ -14,7 +14,6 @@ import { icon } from './icons.js';
 import { restingRobot } from './rest.js';
 import { workingRobots } from './robot.js';
 import { waverInOwnTime } from './lamp-time.js';
-import { unpluggedRobot } from './unplugged.js';
 import { workspaceIconOf } from './workspace-icon.js';
 import { lucideIcon } from './lucide.js';
 import { createWorkClock } from './work-clock.js';
@@ -37,8 +36,8 @@ const lampNames = { working: 'Working', blocked: 'Waiting for you', ready: 'Done
 
 /**
  * The lamp beside an agent: its robots' story while it works, a robot at rest with a joke once its answer is ready
- * and not seen — its workspace's story and joke: its agents all show them, telling the project — and a robot unplugged
- * while it is idle.
+ * and not seen — its workspace's story and joke: its agents all show them, telling the project — and nothing while
+ * it is idle.
  * @param {import('../model/lamps.js').Lamp} lamp
  * @param {number} workspace — its workspace's number
  * @param {number} elapsed — how long it has been at work, for the robots' story to go on from
@@ -63,7 +62,6 @@ function sceneOf(lamp, workspace, elapsed) {
     case 'ready':
       return [restingRobot(jokeAt(workspace))];
     case 'idle':
-      return [unpluggedRobot()];
     case 'blocked':
     case 'unknown':
       return [];
