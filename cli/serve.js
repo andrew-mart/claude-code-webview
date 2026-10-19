@@ -3,8 +3,9 @@
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { createVsCode } from '../server/vscode.js';
+import { basename, join } from 'node:path';
+import { createVsCode, desktopVsCode } from '../server/vscode.js';
+import { bringForward } from '../server/window-front.js';
 import { startServer } from '../server/app.js';
 import { createBookmarkFile } from '../server/bookmarks.js';
 import { createSeenFile } from '../server/seen.js';
@@ -23,6 +24,8 @@ import { readUsage, readChatGptUsage } from '../server/usage.js';
 import { createClaudeModels } from '../server/claude-model.js';
 import { readSessionStatus } from '../server/session-status.js';
 import { openInEditor } from '../server/editor.js';
+import { createSystemEditor, shellOpen, startApart, windowsHandlers } from '../server/system-editor.js';
+import { openInFileManager } from '../server/file-manager.js';
 
 /**
  * The viewer's settings and log folder: the remembered herdr (herdr.json), bookmarks of all sessions (bookmarks.json),
@@ -83,8 +86,24 @@ export async function serve({ port, about, palette, publicAddresses, herdr, clau
   const terminals = createTerminals({ io: paneIoOf(run), quickMs: via === 'socket' ? 40 : 200, slowMs: via === 'socket' ? 500 : 1000, quickForMs: 4000 });
   // VS Code in the browser, its token kept beside the viewer's other files — named by the port: another viewer on this
   // computer has a VS Code of its own
-  const vscodeServer = vscode === undefined ? undefined : createVsCode({ command: [vscode], tokenFile: join(stateDir, `vscode-token-${port}`) });
-  const server = await startServer({ index, host: '127.0.0.1', port, pollMs: 400, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), seen: createSeenFile(join(stateDir, 'seen.json'), { limit: 500 }), uploads: createUploads(join(stateDir, 'uploads')), about, palette, publicAddresses, herdrView, terminals, usage: () => readUsage(usageFiles), chatgptUsage: () => readChatGptUsage(chatgptUsageFile, Date.now()), sessionStatus: (id) => readSessionStatus(join(stateDir, 'session-status'), id), isRunning: async (id) => latestRecords(await readRecords()).has(id), editor: editor === undefined ? undefined : (path, line) => openInEditor(editor, path, line), vscode: vscodeServer, codexInUse: async () => (await codexThreads.open()).length > 0 });
+  // with no editor given, on Windows a file opens with the program set for its kind (system-editor.js); elsewhere the
+  // viewer has no editor
+  const systemEditor = process.platform === 'win32' ? createSystemEditor({ handlersOf: windowsHandlers, run: startApart, openAsShell: shellOpen, bringForward }) : undefined;
+  // the computer's own VS Code, for a browser on it — on Windows, opened by the viewer in the background, it is brought
+  // before the browser
+  const desktopProgram = vscode === undefined ? undefined : desktopVsCode(vscode, process.platform);
+  const vscodeServer =
+    vscode === undefined
+      ? undefined
+      : createVsCode({
+          command: [vscode],
+          desktop: desktopProgram === undefined ? undefined : [desktopProgram],
+          tokenFile: join(stateDir, `vscode-token-${port}`),
+          bringForward: () => {
+            if (process.platform === 'win32' && desktopProgram !== undefined) bringForward(basename(desktopProgram).replace(/\.exe$/i, ''));
+          },
+        });
+  const server = await startServer({ index, host: '127.0.0.1', port, pollMs: 400, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), seen: createSeenFile(join(stateDir, 'seen.json'), { limit: 500 }), uploads: createUploads(join(stateDir, 'uploads')), about, palette, publicAddresses, herdrView, terminals, usage: () => readUsage(usageFiles), chatgptUsage: () => readChatGptUsage(chatgptUsageFile, Date.now()), sessionStatus: (id) => readSessionStatus(join(stateDir, 'session-status'), id), isRunning: async (id) => latestRecords(await readRecords()).has(id), editor: editor !== undefined ? (path, line) => openInEditor(editor, path, line) : systemEditor, fileManager: openInFileManager, vscode: vscodeServer, codexInUse: async () => (await codexThreads.open()).length > 0 });
   const url = `http://127.0.0.1:${server.port}/`;
   console.log(`Claude Code Webview ${about.version}: ${url}`);
   for (const publicAddress of publicAddresses) console.log(`Also answers at ${publicAddress.origin}/ — keep it behind a login such as Cloudflare Access`);

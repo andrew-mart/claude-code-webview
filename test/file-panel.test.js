@@ -22,8 +22,9 @@ const noEditor = { reach: async () => 'none', check: async () => 'none', open: a
  * @param {readonly Match[]} [lines]
  * @param {Promise<import('../public/view/file-panel.js').OpenInVsCode | undefined>} [vscode] - none: the viewer runs no
  *   VS Code
+ * @param {import('../public/view/file-panel.js').FileManager} [fileManager] - the browser elsewhere by default
  */
-function filePanel(editor = noEditor, lines = [], vscode = Promise.resolve(undefined)) {
+function filePanel(editor = noEditor, lines = [], vscode = Promise.resolve(undefined), fileManager = { places: { known: async () => 'none', find: async () => 'none' }, show: () => undefined }) {
   const layout = window.document.createElement('main');
   const panel = window.document.createElement('aside');
   panel.hidden = true;
@@ -34,6 +35,7 @@ function filePanel(editor = noEditor, lines = [], vscode = Promise.resolve(undef
     layout,
     editor,
     vscode,
+    fileManager,
     // a folder linked: its files, with nothing in them
     folder: (root) => ({ root, listFolder: async (path) => ({ ok: true, path, entries: [], more: false }), search: async () => undefined, links: async () => undefined }),
     // an icon that tells what it was asked for
@@ -176,6 +178,34 @@ test('filePanel_Should_TellHowToLetPageIn_When_BrowserKeepsItFromThisComputersAp
 
 // A file opens in VS Code in the browser at its line when the viewer runs VS Code — from any browser, it is reached
 // through the viewer; a viewer without it shows no button, nor does a list in place of a file
+// The file open shows in its folder in the computer's file manager, picked out — from a browser on the viewer's
+// computer; one elsewhere has no such button, nor does a list in place of a file
+test('filePanel_Should_ShowFileInItsFolder_FromBrowserOnViewersComputer', async () => {
+  /** @type {string[]} */
+  const shown = [];
+  /** @param {import('../public/model/machine.js').EditorReach} place @returns {import('../public/view/file-panel.js').FileManager} */
+  const at = (place) => ({ places: { known: async () => place, find: async () => place }, show: (path) => void shown.push(path) });
+  const here = filePanel(noEditor, [], undefined, at('same'));
+  const away = filePanel(noEditor, [], undefined, at('elsewhere'));
+  for (const { files } of [here, away]) files.open({ path: 'D:/dev/x/App.cs', line: 21, endLine: undefined });
+  await settled();
+  /** @param {HTMLElement} panel */
+  const buttonOf = (panel) => {
+    const button = panel.querySelector('.panel-folder');
+    assert.ok(button instanceof window.HTMLButtonElement);
+    return button;
+  };
+  /** @param {Element | null} element — shown unless it or a box it is in is hidden */
+  const visible = (element) => element !== null && element.closest('[hidden]') === null;
+  const before = [here, away].map(({ panel }) => visible(buttonOf(panel)));
+
+  buttonOf(here.panel).click();
+  await settled();
+  here.files.showFolder('D:/dev/x/');
+
+  assert.deepEqual({ before, shown, overList: visible(buttonOf(here.panel)) }, { before: [true, false], shown: ['D:/dev/x/App.cs'], overList: false });
+});
+
 test('filePanel_Should_OpenFileInVsCodeAtItsLine_When_ViewerRunsIt', async () => {
   /** @type {(string | number | undefined)[][]} */
   const opened = [];

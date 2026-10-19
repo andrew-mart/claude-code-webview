@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { execFile } from 'node:child_process';
-import { appendFile, mkdir, readdir, readFile, utimes, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
 import { gunzipSync } from 'node:zlib';
@@ -212,9 +212,12 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
     opened.push([path, line]);
     return { ok: true };
   };
-  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, sessionStatus: async (id) => id === sessionId ? sessionStatus : undefined });
+  // the file manager opens what is asked
+  /** @type {import('../server/file-manager.js').FileManagerTarget[]} */
+  const shownInFileManager = [];
+  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, sessionStatus: async (id) => id === sessionId ? sessionStatus : undefined });
   t.after(() => server.close());
-  return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls, typed, tabChanges, opened };
+  return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls, typed, tabChanges, opened, shownInFileManager };
 }
 
 /**
@@ -1334,7 +1337,8 @@ test('vendor_Should_ServeFileViewsAssets_And_NothingAboveThem', async (t) => {
  */
 async function withVsCode(t) {
   const dir = tempDir('csv-vscode-');
-  const vscode = createVsCode({ command: [process.execPath, join(import.meta.dirname, '..', 'test-support', 'fake-serve-web.mjs')], tokenFile: join(dir, 'token') });
+  const fake = [process.execPath, join(import.meta.dirname, '..', 'test-support', 'fake-serve-web.mjs')];
+  const vscode = createVsCode({ command: fake, desktop: fake, tokenFile: join(dir, 'token'), bringForward: () => undefined });
   t.after(() => vscode.close());
   const served = await withServer(t, { vscode });
   const target = await vscode.target();
@@ -1414,6 +1418,61 @@ test('vscode_Should_TurnAwayAnotherSite_And_AnswerNotFoundWithoutVsCode', async 
   const none = await fetch(`${plain.base}/vscode/`);
 
   assert.deepEqual({ embedded: embedded.status, form: form.status, socket: socket.echoed, noOrigin: noOrigin.echoed, none: none.status }, { embedded: 403, form: 403, socket: false, noOrigin: false, none: 404 });
+});
+
+// A browser on the viewer's computer has the computer's own VS Code opened: at a session's folder, or at a file's
+// project — the nearest folder above it with git's .git — the file at its line; a folder or a file not there, or a
+// viewer with no VS Code, opens nothing
+test('vscode_Should_OpenComputersOwnVsCode_AtFolderOrAtFilesProject', async (t) => {
+  const told = join(tempDir('csv-vscode-desktop-'), 'opened.json');
+  process.env.FAKE_VSCODE_OPENED = told;
+  t.after(() => delete process.env.FAKE_VSCODE_OPENED);
+  const { port } = await withVsCode(t);
+  const plain = await withServer(t);
+  const shop = join(tempDir('csv-vscode-shop-'), 'shop');
+  await mkdir(join(shop, '.git'), { recursive: true });
+  await mkdir(join(shop, 'src'), { recursive: true });
+  const cart = join(shop, 'src', 'cart.js');
+  await writeFile(cart, 'x\n');
+  /** @param {number} at @param {unknown} body */
+  const asked = async (at, body) => {
+    const reply = await post(at, '/api/vscode/desktop', pageHeaders(at), JSON.stringify(body));
+    let given;
+    for (let waited = 0; waited < 3000 && given === undefined; waited += 50) {
+      given = await readFile(told, 'utf8').then(JSON.parse, () => undefined);
+      if (given === undefined) await new Promise((done) => setTimeout(done, 50));
+    }
+    await rm(told, { force: true });
+    return { reply: JSON.parse(reply.body), given };
+  };
+
+  assert.deepEqual(
+    [await asked(port, { folder: shop }), await asked(port, { path: cart, line: 12 }), (await asked(port, { path: join(shop, 'gone.js'), line: 1 })).reply, (await asked(plain.port, { folder: shop })).reply],
+    [
+      { reply: { ok: true }, given: [shop] },
+      { reply: { ok: true }, given: [shop, '--goto', `${cart}:12`] },
+      { ok: false, error: 'not-there' },
+      { ok: false, error: 'no-vscode' },
+    ],
+  );
+});
+
+// A browser on the viewer's computer opens a folder — a session's — in the computer's file manager, or a file's folder
+// with the file picked out; a folder or a file not there opens nothing
+test('fileManager_Should_OpenFolderOrShowFileInIt_ThatIsThere', async (t) => {
+  const { port, shownInFileManager } = await withServer(t);
+  const folder = tempDir('csv-file-manager-');
+  const cart = join(folder, 'cart.js');
+  await writeFile(cart, 'x\n');
+  /** @param {unknown} body */
+  const asked = async (body) => JSON.parse((await post(port, '/api/folder/open', pageHeaders(port), JSON.stringify(body))).body);
+
+  const replies = [await asked({ folder }), await asked({ path: cart }), await asked({ folder: join(folder, 'gone') }), await asked({ path: folder })];
+
+  assert.deepEqual({ replies, shownInFileManager }, {
+    replies: [{ ok: true }, { ok: true }, { ok: false, error: 'not-there' }, { ok: false, error: 'not-there' }],
+    shownInFileManager: [{ folder }, { path: cart }],
+  });
 });
 
 // A file opened in VS Code goes there at its project's folder — the nearest above it with git's .git, a worktree's own

@@ -1,5 +1,6 @@
 // @ts-check
-// Whether the browser is on the viewer's computer: there a file opened in the viewer's editor shows up before its user.
+// Whether the browser is on the viewer's computer: there a file opened in the viewer's editor — or in the computer's own
+// VS Code — shows up before its user.
 import { isRecord } from './narrow.js';
 
 /** Addresses of this very computer: a page opened at one is on the viewer's computer. */
@@ -8,8 +9,9 @@ const loopbackHosts = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
 /**
  * @typedef {{ instance: string, port: number, editor: boolean, vscode: boolean }} Machine — the viewer's /api/machine
  *   reply: the run of the viewer, its port, whether it has an editor, whether it runs VS Code in the browser
- * @typedef {'same' | 'elsewhere' | 'blocked' | 'unknown' | 'none'} EditorReach — blocked: the browser did not let the
- *   page reach this computer's apps, so where it is is not known until it does
+ * @typedef {'same' | 'elsewhere' | 'blocked' | 'unknown'} BrowserPlace — blocked: the browser did not let the page reach
+ *   this computer's apps, so where it is is not known until it does
+ * @typedef {BrowserPlace | 'none'} EditorReach — none: nothing to open there, or a phone's browser
  * @typedef {Machine | 'no-answer' | 'refused'} LocalAnswer — what the viewer at the browser's 127.0.0.1 said; nothing
  *   answering there, or the browser refusing the page this computer's apps
  */
@@ -28,10 +30,9 @@ export function parseMachine(json) {
  * @param {Machine} own — what the viewer that served the page says
  * @param {{ hostname: string, local: LocalAnswer | 'unasked' }} browser — hostname: the page's address; local: what the
  *   viewer at the browser's 127.0.0.1 said
- * @returns {EditorReach}
+ * @returns {BrowserPlace}
  */
-export function editorReach(own, browser) {
-  if (!own.editor) return 'none';
+export function browserPlace(own, browser) {
   if (loopbackHosts.has(browser.hostname)) return 'same';
   switch (browser.local) {
     case 'unasked':

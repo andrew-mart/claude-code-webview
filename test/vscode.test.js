@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readFile, rm, writeFile } from 'node:fs/promises';
+import { join, win32 } from 'node:path';
 import { tempDir } from '../test-support/temp-dir.js';
-import { createVsCode, serversOf } from '../server/vscode.js';
+import { createVsCode, desktopVsCode, serversOf } from '../server/vscode.js';
 
 const fakeServeWeb = join(import.meta.dirname, '..', 'test-support', 'fake-serve-web.mjs');
 
@@ -15,7 +15,7 @@ const fakeServeWeb = join(import.meta.dirname, '..', 'test-support', 'fake-serve
  */
 async function vsCodeOf(t, command = [process.execPath, fakeServeWeb]) {
   const dir = tempDir('ccw-vscode-');
-  const vscode = createVsCode({ command, tokenFile: join(dir, 'token') });
+  const vscode = createVsCode({ command, desktop: command, tokenFile: join(dir, 'token'), bringForward: () => undefined });
   t.after(() => vscode.close());
   return vscode;
 }
@@ -50,6 +50,53 @@ test('vsCode_Should_StartAgain_When_ItHasStopped', async (t) => {
 
   assert.ok(next !== undefined);
   assert.equal(await ask(next.port, next.token), 200);
+});
+
+// The computer's own VS Code is opened by the same command — for a browser on the viewer's computer — at the folder, a
+// file in it gone to at its line; a program missing starts nothing
+test('vsCode_Should_OpenComputersOwnVsCode_AtFolderWithFileAtItsLine', async (t) => {
+  const told = join(tempDir('ccw-vscode-desktop-'), 'opened.json');
+  process.env.FAKE_VSCODE_OPENED = told;
+  t.after(() => delete process.env.FAKE_VSCODE_OPENED);
+  const given = async () => {
+    for (let waited = 0; waited < 5000; waited += 50) {
+      const written = await readFile(told, 'utf8').catch(() => undefined);
+      if (written !== undefined) {
+        await rm(told);
+        return JSON.parse(written);
+      }
+      await new Promise((done) => setTimeout(done, 50));
+    }
+    return undefined;
+  };
+  const vscode = await vsCodeOf(t);
+  const missing = await vsCodeOf(t, ['no-such-vscode-cli-here']);
+
+  const atLine = { started: await vscode.openDesktop('D:/dev/shop', { path: 'D:/dev/shop/src/cart.js', line: 12 }), given: await given() };
+  const atTop = { started: await vscode.openDesktop('D:/dev/shop', { path: 'D:/dev/shop/README.md', line: undefined }), given: await given() };
+  const folder = { started: await vscode.openDesktop('D:/dev/shop', undefined), given: await given() };
+
+  assert.deepEqual([atLine, atTop, folder, await missing.openDesktop('D:/dev/shop', undefined)], [
+    { started: true, given: ['D:/dev/shop', '--goto', 'D:/dev/shop/src/cart.js:12'] },
+    { started: true, given: ['D:/dev/shop', '--goto', 'D:/dev/shop/README.md'] },
+    { started: true, given: ['D:/dev/shop'] },
+    false,
+  ]);
+});
+
+// The computer's own VS Code is opened on Windows by its program beside the bin folder the CLI is in — the CLI may not
+// find the installation — the Insiders' too; elsewhere the CLI, `code`, opens it; a CLI on Windows that is not in VS
+// Code's bin folder opens none
+test('desktopVsCode_Should_TakeVsCodesProgram_OnWindows_AndTheCliElsewhere', () => {
+  assert.deepEqual(
+    [
+      desktopVsCode('C:\\Users\\ann\\AppData\\Local\\Programs\\Microsoft VS Code\\bin\\code-tunnel.exe', 'win32'),
+      desktopVsCode('C:/Programs/Microsoft VS Code Insiders/bin/code-tunnel-insiders.exe', 'win32'),
+      desktopVsCode('D:/tools/code-tunnel.exe', 'win32'),
+      desktopVsCode('code', 'linux'),
+    ],
+    [win32.join('C:\\Users\\ann\\AppData\\Local\\Programs\\Microsoft VS Code', 'Code.exe'), win32.join('C:/Programs/Microsoft VS Code Insiders', 'Code - Insiders.exe'), undefined, 'code'],
+  );
 });
 
 // No such program: no VS Code to reach
@@ -109,7 +156,7 @@ test('vsCode_Should_StopItsServerOutOfTree_ByTokenFile_LeavingOthersAlone', asyn
   t.after(() => {
     for (const pid of [ours, another]) if (alive(pid)) process.kill(pid);
   });
-  const vscode = createVsCode({ command: [process.execPath, fakeServeWeb], tokenFile });
+  const vscode = createVsCode({ command: [process.execPath, fakeServeWeb], desktop: undefined, tokenFile, bringForward: () => undefined });
 
   vscode.close();
   await new Promise((done) => setTimeout(done, 500));

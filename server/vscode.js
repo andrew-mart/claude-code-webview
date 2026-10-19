@@ -7,6 +7,7 @@
 import { execFile, execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
+import { win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import net from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -14,8 +15,9 @@ import { promisify } from 'node:util';
 
 /**
  * @typedef {{ port: number, token: string }} VsCodeTarget — where the server answers, and its token
- * @typedef {{ target: () => Promise<VsCodeTarget | undefined>, close: () => void }} VsCode — target: the server,
- *   started if it is not running; none when it cannot be
+ * @typedef {{ target: () => Promise<VsCodeTarget | undefined>, openDesktop: (folder: string, file: { path: string, line: number | undefined } | undefined) => Promise<boolean>, close: () => void }} VsCode —
+ *   target: the server, started if it is not running; none when it cannot be; openDesktop: the computer's own VS Code
+ *   opened at the folder, the file gone to at its line — for a browser on this computer; whether it started
  */
 
 /** What runs VS Code's server and takes it down once the viewer is gone. */
@@ -27,11 +29,14 @@ const listenTimeoutMs = 120_000;
 const listenStepMs = 200;
 
 /**
- * @param {{ command: readonly string[], tokenFile: string }} options — command: the VS Code CLI — code-tunnel.exe on
- *   Windows, code elsewhere — with any arguments before serve-web; tokenFile: where the token is kept for it
+ * @param {{ command: readonly string[], desktop: readonly string[] | undefined, tokenFile: string, bringForward: () => void }} options —
+ *   command: the VS Code CLI — code-tunnel.exe on Windows, code elsewhere — with any arguments before serve-web;
+ *   desktop: what opens the computer's own VS Code, with any arguments before its folder and file (desktopVsCode), none
+ *   when nothing does; tokenFile: where the token is kept for it; bringForward: the computer's own VS Code, just opened,
+ *   brought before its user
  * @returns {VsCode}
  */
-export function createVsCode({ command, tokenFile }) {
+export function createVsCode({ command, desktop, tokenFile, bringForward }) {
   /** @typedef {{ child: import('node:child_process').ChildProcess | undefined, ready: Promise<VsCodeTarget | undefined> }} Run */
   /** @type {Run | undefined} */
   let running;
@@ -84,6 +89,22 @@ export function createVsCode({ command, tokenFile }) {
       running = run;
       run.ready = launch(run);
       return run.ready;
+    },
+    openDesktop: (folder, file) => {
+      if (desktop === undefined) return Promise.resolve(false);
+      const [program, ...before] = desktop;
+      if (program === undefined) return Promise.resolve(false);
+      const goTo = file === undefined ? [] : ['--goto', file.line === undefined ? file.path : `${file.path}:${file.line}`];
+      return new Promise((done) => {
+        // apart from the viewer: VS Code outlives it; the CLI's console hidden, VS Code's window shown
+        const child = spawn(program, [...before, folder, ...goTo], { detached: true, stdio: 'ignore', windowsHide: true });
+        child.once('spawn', () => {
+          child.unref();
+          bringForward();
+          done(true);
+        });
+        child.once('error', () => done(false));
+      });
     },
     close: () => {
       const stopping = running;
@@ -279,4 +300,20 @@ function processesIn(output) {
 /** @param {string} text */
 function escaped(text) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * The program that opens the computer's own VS Code. On Windows, VS Code's own beside the bin folder the CLI is in: the
+ * standalone CLI may not find the installation ("No existing installation found") and then opens nothing; elsewhere
+ * the CLI, `code`, opens it.
+ * @param {string} cli — the VS Code CLI given to the viewer
+ * @param {NodeJS.Platform} platform
+ * @returns {string | undefined} — none for a CLI on Windows outside VS Code's bin folder
+ */
+export function desktopVsCode(cli, platform) {
+  if (platform !== 'win32') return cli;
+  const name = /^code-tunnel(-insiders)?\.exe$/i.exec(win32.basename(cli));
+  const bin = win32.dirname(cli);
+  if (name === null || win32.basename(bin).toLowerCase() !== 'bin') return undefined;
+  return win32.join(win32.dirname(bin), name[1] === undefined ? 'Code.exe' : 'Code - Insiders.exe');
 }

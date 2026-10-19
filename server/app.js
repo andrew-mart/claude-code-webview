@@ -107,11 +107,13 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  * @typedef {(sessionId: string) => Promise<import('../public/model/session-status.js').SessionStatus | undefined>} ReadSessionStatus
  * @typedef {(sessionId: string) => Promise<boolean>} IsRunning
  * @typedef {(path: string, line: number) => Promise<import('./editor.js').EditorOutcome>} OpenEditor
+ * @typedef {(target: import('./file-manager.js').FileManagerTarget) => Promise<boolean>} OpenFileManager — a folder
+ *   opened in the computer's file manager, or a file shown in its folder; whether it started
  * @typedef {ReturnType<typeof import('./seen.js').createSeenFile>} Seen
  */
 
 /**
- * @param {{ index: SessionIndex, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, seen: Seen, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, chatgptUsage?: ReadUsage, sessionStatus?: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, vscode?: import('./vscode.js').VsCode | undefined, codexInUse: () => Promise<boolean> }} options
+ * @param {{ index: SessionIndex, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, seen: Seen, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, chatgptUsage?: ReadUsage, sessionStatus?: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, vscode?: import('./vscode.js').VsCode | undefined, codexInUse: () => Promise<boolean> }} options
  *   about — package name and version for /api/health; palette — the page's colours (public/model/palettes.js);
  *   publicAddresses — where else the page is opened at, answered as the local address is; herdrView — what herdr
  *   shows (herdr-view.js); terminals — herdr panes' terminals (terminal.js); usage — the account's usage (usage.js);
@@ -120,7 +122,7 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  *   thread open (codex-live.js)
  * @returns {Promise<{ port: number, close: () => void }>}
  */
-export async function startServer({ index, host, port, pollMs, composer, bookmarks, seen, uploads, about, palette, publicAddresses, herdrView, terminals, usage, chatgptUsage = async () => undefined, sessionStatus = async () => undefined, isRunning, editor, vscode, codexInUse }) {
+export async function startServer({ index, host, port, pollMs, composer, bookmarks, seen, uploads, about, palette, publicAddresses, herdrView, terminals, usage, chatgptUsage = async () => undefined, sessionStatus = async () => undefined, isRunning, editor, fileManager, vscode, codexInUse }) {
   const instance = randomUUID();
   const build = await pageBuild();
   /** Sessions this page rewound: session id → the prompt rewound to; its branch is hidden before the next prompt shows the fork. */
@@ -133,7 +135,7 @@ export async function startServer({ index, host, port, pollMs, composer, bookmar
   const allowedOrigins = new Set();
   const fileIcons = createFileIcons();
   /** @type {Deps} */
-  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, seen, codexInUse, uploads, about, build, rewinds, transcripts, feeds: createFeedPages(), palette, herdrView, terminals, usage, chatgptUsage, sessionStatus, isRunning, editor, vscode, instance, fileIcons };
+  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, seen, codexInUse, uploads, about, build, rewinds, transcripts, feeds: createFeedPages(), palette, herdrView, terminals, usage, chatgptUsage, sessionStatus, isRunning, editor, fileManager, vscode, instance, fileIcons };
   const server = http.createServer((request, response) => {
     handle(deps, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
@@ -167,7 +169,7 @@ export async function startServer({ index, host, port, pollMs, composer, bookmar
 
 /**
  * @typedef {ReturnType<typeof createSessionIndex>} SessionIndex — Claude Code's sessions and Codex's (sessions.js)
- * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, chatgptUsage: ReadUsage, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, codexInUse: () => Promise<boolean> }} Deps
+ * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, chatgptUsage: ReadUsage, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, codexInUse: () => Promise<boolean> }} Deps
  *   instance: this run of the viewer, told apart from any other — see /api/machine; vscode: VS Code's web server
  *   behind /vscode/, none when the viewer runs none
  * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'createWorkspace' | 'history' | 'reopen'>} HerdrView
@@ -364,12 +366,70 @@ async function openInVsCode(deps, request, url, response) {
   const authority = pageAuthority(request.headers);
   if (authority === undefined) return void response.writeHead(400).end('No host');
   const path = url.searchParams.get('path') ?? '';
-  const isFile = isAbsolute(path) && (await stat(path).then((found) => found.isFile(), () => false));
-  if (!isFile) return void response.writeHead(404).end('No such file');
+  if ((await kindAt(path)) !== 'file') return void response.writeHead(404).end('No such file');
   const lineText = url.searchParams.get('line') ?? '';
   const line = /^[1-9]\d*$/.test(lineText) ? Number(lineText) : undefined;
-  const folder = (await workTreeOf(dirname(path))) ?? dirname(path);
-  response.writeHead(302, { Location: vscodeFileAddress({ folder, path, line, authority }) }).end();
+  response.writeHead(302, { Location: vscodeFileAddress({ folder: await projectFolderOf(path), path, line, authority }) }).end();
+}
+
+/**
+ * The computer's own VS Code opened, for a browser on this computer: at a session's folder, or at a file's project
+ * with the file gone to at its line.
+ * @param {Deps} deps
+ * @param {unknown} body — { folder } or { path, line }
+ * @param {http.ServerResponse} response
+ */
+async function openDesktopVsCode(deps, body, response) {
+  const folder = isRecord(body) ? text(body.folder) : undefined;
+  const path = isRecord(body) ? text(body.path) : undefined;
+  const line = isRecord(body) && typeof body.line === 'number' && Number.isInteger(body.line) && body.line >= 1 ? body.line : undefined;
+  if (deps.vscode === undefined) return sendJson(response, { ok: false, error: 'no-vscode' });
+  const vscode = deps.vscode;
+  /** @param {boolean} started */
+  const told = (started) => sendJson(response, started ? { ok: true } : { ok: false, error: 'not-started' });
+  const notThere = { ok: false, error: 'not-there' };
+  if (folder !== undefined) return (await kindAt(folder)) === 'folder' ? told(await vscode.openDesktop(folder, undefined)) : sendJson(response, notThere);
+  if (path === undefined) return void response.writeHead(400).end('Bad folder or file');
+  return (await kindAt(path)) === 'file' ? told(await vscode.openDesktop(await projectFolderOf(path), { path, line })) : sendJson(response, notThere);
+}
+
+/**
+ * A folder opened in the computer's file manager, for a browser on this computer — a session's — or a file shown there
+ * in its folder.
+ * @param {Deps} deps
+ * @param {unknown} body — { folder } or { path }
+ * @param {http.ServerResponse} response
+ */
+async function openFileManager(deps, body, response) {
+  const folder = isRecord(body) ? text(body.folder) : undefined;
+  const path = isRecord(body) ? text(body.path) : undefined;
+  /** @type {import('./file-manager.js').FileManagerTarget | undefined} */
+  let target;
+  if (folder !== undefined) target = (await kindAt(folder)) === 'folder' ? { folder } : undefined;
+  else if (path !== undefined) target = (await kindAt(path)) === 'file' ? { path } : undefined;
+  else return void response.writeHead(400).end('Bad folder or file');
+  if (target === undefined) return sendJson(response, { ok: false, error: 'not-there' });
+  return sendJson(response, (await deps.fileManager(target)) ? { ok: true } : { ok: false, error: 'not-started' });
+}
+
+/**
+ * The folder VS Code is opened at for a file: its project — the nearest above it with git's .git, a worktree's own —
+ * else the file's own folder.
+ * @param {string} path
+ */
+async function projectFolderOf(path) {
+  return (await workTreeOf(dirname(path))) ?? dirname(path);
+}
+
+/**
+ * What an absolute path names: a file, a folder, or nothing there.
+ * @param {string} path
+ * @returns {Promise<'file' | 'folder' | undefined>}
+ */
+async function kindAt(path) {
+  if (!isAbsolute(path)) return undefined;
+  const found = await stat(path).catch(() => undefined);
+  return found?.isFile() ? 'file' : found?.isDirectory() ? 'folder' : undefined;
 }
 
 /**
@@ -475,6 +535,8 @@ async function handleWrite(deps, url, request, response) {
   if (url.pathname === '/api/feeds/unwatch') return unwatchFeed(deps, body, response);
   if (url.pathname === '/api/herdr/show') return sendJson(response, await deps.herdrView.showHidden());
   if (url.pathname === '/api/open-in-editor') return openFile(deps, body, response);
+  if (url.pathname === '/api/vscode/desktop') return openDesktopVsCode(deps, body, response);
+  if (url.pathname === '/api/folder/open') return openFileManager(deps, body, response);
   const sessionId = isRecord(body) && typeof body.session === 'string' && sessionIdPattern.test(body.session) ? body.session : undefined;
   if (sessionId === undefined) {
     response.writeHead(400).end('Bad session id');

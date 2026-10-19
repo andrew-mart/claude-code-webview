@@ -1,55 +1,73 @@
 // @ts-check
-// Opening a file in the editor of the viewer's computer — from a browser on that computer only, where it shows up.
-// A page opened through a tunnel finds out by asking the viewer at the browser's own 127.0.0.1: Chrome asks the user
-// once to let the page reach apps on this device, so it is asked when the button is pressed — or by itself, without
-// troubling anyone, in a browser found on the viewer's computer before, which has been let reach it.
-import { editorReach, parseMachine } from '../model/machine.js';
+// Whether the browser is on the viewer's computer — where a file opened in its editor, or in its own VS Code, shows up —
+// and opening a file in the editor from there. A page opened through a tunnel finds out by asking the viewer at the
+// browser's own 127.0.0.1: Chrome asks the user once to let the page reach apps on this device, so it is asked when a
+// button is pressed — or by itself, without troubling anyone, in a browser found on the viewer's computer before,
+// which has been let reach it.
+import { browserPlace, parseMachine } from '../model/machine.js';
 import { isRecord, text } from '../model/narrow.js';
 
-/** What the browser found out last time: { instance, reach } — kept per browser, the answer is the browser's. */
-const keptKey = 'viewer.editorReach';
+/** What the browser found out last time: { instance, place } — kept per browser, the answer is the browser's. */
+const keptKey = 'viewer.browserPlace';
 
 /**
  * @typedef {import('../model/machine.js').EditorReach} EditorReach
+ * @typedef {{ known: () => Promise<EditorReach>, find: () => Promise<EditorReach> }} PlaceFinder — where the browser is:
+ *   known: what is known without asking the user; find: asks the viewer at 127.0.0.1, the browser may ask the user
+ *   first; none: the viewer did not say what it is, or a phone's browser
  * @typedef {{ ok: true } | { ok: false, error: string }} EditorReply
  * @typedef {{ reach: () => Promise<EditorReach>, check: () => Promise<EditorReach>, open: (path: string, line: number) => Promise<EditorReply> }} EditorOpener —
- *   reach: what is known without asking the user; check: asks the viewer at 127.0.0.1, the browser may ask the user first
+ *   reach, check: where the browser is, as the place finder's known and find — none with no editor to open the file in
  */
 
 /**
  * @param {Promise<import('../model/machine.js').Machine | undefined>} own — what the viewer that served the page says of
  *   itself
- * @returns {EditorOpener}
+ * @returns {PlaceFinder}
  */
-export function createEditorOpener(own) {
+export function createPlaceFinder(own) {
   /** What the viewer at 127.0.0.1 said, once asked. */
   /** @type {Promise<EditorReach> | undefined} */
-  let checked;
-  const check = async () => {
+  let found;
+  const find = async () => {
     const machine = await own;
     if (machine === undefined) return 'none';
-    checked ??= askLocal(machine.port).then((local) => {
-      const reach = editorReach(machine, { hostname: location.hostname, local });
+    found ??= askLocal(machine.port).then((local) => {
+      const place = browserPlace(machine, { hostname: location.hostname, local });
       // a refusal tells nothing of where the browser is: the next press asks again, the page let in by then
-      if (reach === 'blocked') checked = undefined;
-      else keep({ instance: machine.instance, reach });
-      return reach;
+      if (place === 'blocked') found = undefined;
+      else keep({ instance: machine.instance, place });
+      return place;
     });
-    return checked;
+    return found;
   };
   return {
-    async reach() {
+    async known() {
       const machine = await own;
       if (machine === undefined || matchMedia('(pointer: coarse)').matches) return 'none';
-      const known = editorReach(machine, { hostname: location.hostname, local: 'unasked' });
+      const known = browserPlace(machine, { hostname: location.hostname, local: 'unasked' });
       if (known !== 'unknown') return known;
-      if (checked !== undefined) return checked;
-      const kept = keptReach();
-      if (kept?.instance === machine.instance) return kept.reach;
+      if (found !== undefined) return found;
+      const kept = keptPlace();
+      if (kept?.instance === machine.instance) return kept.place;
       // the viewer has started again since: a browser on its computer asks it again, one elsewhere may be asked
-      return kept?.reach === 'same' ? check() : 'unknown';
+      return kept?.place === 'same' ? find() : 'unknown';
     },
-    check,
+    find,
+  };
+}
+
+/**
+ * @param {Promise<import('../model/machine.js').Machine | undefined>} own — what the viewer that served the page says of
+ *   itself
+ * @param {PlaceFinder} [places] - where the browser is, found out once for the page
+ * @returns {EditorOpener}
+ */
+export function createEditorOpener(own, places = createPlaceFinder(own)) {
+  const withEditor = async (/** @type {() => Promise<EditorReach>} */ place) => ((await own)?.editor === true ? place() : 'none');
+  return {
+    reach: () => withEditor(places.known),
+    check: () => withEditor(places.find),
     async open(path, line) {
       const response = await fetch('/api/open-in-editor', {
         method: 'POST',
@@ -93,17 +111,17 @@ async function appsRefused() {
   return false;
 }
 
-/** @returns {{ instance: string, reach: EditorReach } | undefined} */
-function keptReach() {
+/** @returns {{ instance: string, place: 'same' | 'elsewhere' } | undefined} */
+function keptPlace() {
   try {
     const kept = JSON.parse(localStorage.getItem(keptKey) ?? 'null');
-    return isRecord(kept) && typeof kept.instance === 'string' && (kept.reach === 'same' || kept.reach === 'elsewhere') ? { instance: kept.instance, reach: kept.reach } : undefined;
+    return isRecord(kept) && typeof kept.instance === 'string' && (kept.place === 'same' || kept.place === 'elsewhere') ? { instance: kept.instance, place: kept.place } : undefined;
   } catch {
     return undefined; // storage is unavailable or holds something else: the browser is asked again
   }
 }
 
-/** @param {{ instance: string, reach: EditorReach }} found */
+/** @param {{ instance: string, place: EditorReach }} found */
 function keep(found) {
   try {
     localStorage.setItem(keptKey, JSON.stringify(found));

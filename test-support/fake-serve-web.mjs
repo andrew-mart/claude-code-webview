@@ -1,9 +1,17 @@
 // A stand-in for VS Code's `code serve-web`: it takes the same options, answers under its base path only with its
 // connection token, tells what a request carried, and on a WebSocket echoes what it gets. /…/exit stops it; /…/page
-// answers as VS Code's page does: the address it tells the page to connect to, and the cookies it leaves.
-import { readFileSync } from 'node:fs';
+// answers as VS Code's page does: the address it tells the page to connect to, and the cookies it leaves. Asked to open
+// the computer's own VS Code instead — folders and files, no serve-web — it writes down what it was given in the file
+// FAKE_VSCODE_OPENED names.
+import { readFileSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { parseArgs } from 'node:util';
+
+if (process.argv[2] !== 'serve-web') {
+  const told = process.env.FAKE_VSCODE_OPENED;
+  if (told !== undefined) writeFileSync(told, JSON.stringify(process.argv.slice(2)));
+  process.exit(told === undefined ? 2 : 0);
+}
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,

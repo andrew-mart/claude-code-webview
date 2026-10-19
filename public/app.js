@@ -40,7 +40,9 @@ import { splitTabIcon } from './model/tab-icon.js';
 import { waverInOwnTime } from './view/lamp-time.js';
 import { workspaceIconOf } from './view/workspace-icon.js';
 import { vscodeAddress } from './model/vscode.js';
-import { createEditorOpener } from './view/editor-opener.js';
+import { createEditorOpener, createPlaceFinder } from './view/editor-opener.js';
+import { createVsCodeOpener } from './view/vscode-opener.js';
+import { onComputer } from './view/on-computer.js';
 import { relabelTables } from './view/markdown.js';
 import { createResizer, restoreWidth } from './view/resizer.js';
 import { icon } from './view/icons.js';
@@ -138,7 +140,11 @@ const machine = fetch('/api/machine')
 // a file's project: the open session's folder when the file is in it, else the file's own folder
 // files' icons, Material Icon Theme's: its light theme's own on the light page
 const iconOf = createFileIcons({ light: () => document.documentElement.dataset.theme === 'light' || (document.documentElement.dataset.theme !== 'dark' && !window.matchMedia('(prefers-color-scheme: dark)').matches) });
-const filePanel = createFilePanel({ panel: byId('file-panel', HTMLElement), layout, editor: createEditorOpener(machine), vscode: machine.then((known) => (known?.vscode === true ? openInVsCode : undefined)), project: (path) => projectSource(projectOfFile(path, page.folder())), folder: projectSource, iconOf });
+// where the browser is — on the viewer's computer or not — found out once for the page
+const places = createPlaceFinder(machine);
+// VS Code: the computer's own from a browser on it, else VS Code in the browser
+const vscodeOpener = createVsCodeOpener({ places, desktop: openDesktopVsCode, web: openWebVsCode });
+const filePanel = createFilePanel({ panel: byId('file-panel', HTMLElement), layout, editor: createEditorOpener(machine, places), fileManager: { places, show: (path) => void openFileManager({ path }) }, vscode: machine.then((known) => (known?.vscode === true ? (path, line) => vscodeOpener.open({ path, line }) : undefined)), project: (path) => projectSource(projectOfFile(path, page.folder())), folder: projectSource, iconOf });
 /** @type {import('./view/resizer.js').PanelWidth} */
 const outlineWidth = { property: '--outline-width', storageKey: 'viewer.outlineWidth' };
 restoreWidth(layout, outlineWidth);
@@ -603,7 +609,7 @@ function createPage() {
     const { scroller, view, bookmarks } = part;
     const tables = sessionTables(id, scroller, (change) => (current === undefined ? change() : current.keepPlace(change)));
     tables.apply();
-    const header = createSessionHeader({ place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation: [vscodeButton(() => sessions.find((session) => session.id === id)?.cwd), filesButton(() => sessions.find((session) => session.id === id)?.cwd), changesButton(id), drawerButton('outline', 'list', 'Outline')], tools: settings.buttons() });
+    const header = createSessionHeader({ place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation: [vscodeButton(() => sessions.find((session) => session.id === id)?.cwd), fileManagerButton(() => sessions.find((session) => session.id === id)?.cwd), filesButton(() => sessions.find((session) => session.id === id)?.cwd), changesButton(id), drawerButton('outline', 'list', 'Outline')], tools: settings.buttons() });
     const outlineElement = h('aside', { className: 'outline', attrs: { 'aria-label': 'Outline' } });
     const outline = createOutline({
       element: outlineElement,
@@ -1207,8 +1213,8 @@ async function fetchBranch(sessionId) {
 }
 
 /**
- * The button over a session that opens its folder in VS Code in the browser — in a tab of its own — when the viewer runs
- * VS Code (--vscode); hidden otherwise.
+ * The button over a session that opens its folder in VS Code — the computer's own from a browser on the viewer's
+ * computer, else VS Code in the browser in a tab of its own — when the viewer runs VS Code (--vscode); hidden otherwise.
  * @param {() => string | undefined} folder — the session's folder now: /cd moves it
  * @returns {HTMLButtonElement}
  */
@@ -1223,20 +1229,60 @@ function vscodeButton(folder) {
   });
   button.addEventListener('click', () => {
     const cwd = folder();
-    if (cwd !== undefined) window.open(vscodeAddress(cwd), '_blank', 'noopener');
+    if (cwd !== undefined) vscodeOpener.open({ folder: cwd });
   });
   return button;
 }
 
 /**
- * A file opened in VS Code in the browser at its line, in a tab of its own: the viewer finds the file's project and sends
- * the tab on to VS Code at its folder.
- * @param {string} path
- * @param {number | undefined} line
+ * The button over a session that opens its folder in the computer's file manager — Explorer, Finder — from a browser
+ * on the viewer's computer only.
+ * @param {() => string | undefined} folder — the session's folder now: /cd moves it
+ * @returns {HTMLButtonElement}
  */
-function openInVsCode(path, line) {
-  const asked = new URLSearchParams({ path, ...(line === undefined ? {} : { line: String(line) }) });
+function fileManagerButton(folder) {
+  const button = iconButton('folder-open');
+  button.classList.add('head-file-manager');
+  button.title = "Open the session's folder in the computer's file manager";
+  button.setAttribute('aria-label', button.title);
+  onComputer(button, places, () => {
+    const cwd = folder();
+    if (cwd !== undefined) void openFileManager({ folder: cwd });
+  });
+  return button;
+}
+
+/**
+ * A folder opened by the viewer in the computer's file manager, or a file shown there in its folder.
+ * @param {{ folder: string } | { path: string }} target
+ */
+async function openFileManager(target) {
+  await fetch('/api/folder/open', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Viewer': '1' }, body: JSON.stringify(target) }).catch(() => undefined);
+}
+
+/**
+ * VS Code in the browser, in a tab of its own: at a folder, or at a file's project — the viewer finds it and sends the
+ * tab on — with the file at its line.
+ * @param {import('./view/vscode-opener.js').VsCodeTarget} target
+ */
+function openWebVsCode(target) {
+  if ('folder' in target) {
+    window.open(vscodeAddress(target.folder), '_blank', 'noopener');
+    return;
+  }
+  const asked = new URLSearchParams({ path: target.path, ...(target.line === undefined ? {} : { line: String(target.line) }) });
   window.open(`/api/vscode/open?${asked}`, '_blank', 'noopener');
+}
+
+/**
+ * The computer's own VS Code opened by the viewer: at a folder, or at a file's project with the file at its line.
+ * @param {import('./view/vscode-opener.js').VsCodeTarget} target
+ * @returns {Promise<boolean>} — whether it started
+ */
+async function openDesktopVsCode(target) {
+  const response = await fetch('/api/vscode/desktop', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Viewer': '1' }, body: JSON.stringify(target) }).catch(() => undefined);
+  const reply = response?.ok ? await response.json().catch(() => undefined) : undefined;
+  return isRecord(reply) && reply.ok === true;
 }
 
 /**

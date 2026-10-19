@@ -7,7 +7,7 @@ const { window } = new JSDOM('<!doctype html><html><body></body></html>', { url:
 Object.assign(globalThis, { window, location: window.location, localStorage: window.localStorage });
 window.matchMedia = () => /** @type {MediaQueryList} */ (/** @type {unknown} */ ({ matches: false }));
 globalThis.matchMedia = window.matchMedia;
-const { createEditorOpener } = await import('../public/view/editor-opener.js');
+const { createEditorOpener, createPlaceFinder } = await import('../public/view/editor-opener.js');
 
 const viewer = { instance: '6f1c2a3b-0000-4000-8000-000000000001', port: 7788, editor: true, vscode: false };
 
@@ -58,6 +58,20 @@ test('editorOpener_Should_TellRefusalByOlderName_And_KeepWhatIsElsewhere', async
   const elsewhere = await opener.check();
 
   assert.deepEqual([older, elsewhere, await createEditorOpener(Promise.resolve(viewer)).reach()], ['blocked', 'elsewhere', 'elsewhere']);
+});
+
+// Where the browser is is found for a viewer with no editor too — VS Code opens on its computer — while the editor's
+// button has nothing to open there
+test('placeFinder_Should_FindBrowserOnViewersComputer_ForViewerWithNoEditor', async () => {
+  browser({ name: 'loopback-network', state: () => 'granted' }, () => true);
+  const noEditor = Promise.resolve({ ...viewer, editor: false });
+  const places = createPlaceFinder(noEditor);
+  const editor = createEditorOpener(noEditor, places);
+
+  const before = await places.known();
+  const found = await places.find();
+
+  assert.deepEqual([before, found, await places.known(), await editor.reach(), await editor.check()], ['unknown', 'same', 'same', 'none', 'none']);
 });
 
 // A system proxy that takes 127.0.0.1 too leaves the browser not knowing where the request goes: it asks no one, and

@@ -16,6 +16,7 @@ import { createLinksView } from './links-view.js';
 import { createProjectView } from './project-view.js';
 import { createFileEditor } from './file-editor.js';
 import { linkFileRefs, markFileLink } from './file-links.js';
+import { onComputer } from './on-computer.js';
 import { icon } from './icons.js';
 import { createResizer, restoreWidth } from './resizer.js';
 
@@ -27,6 +28,8 @@ import { createResizer, restoreWidth } from './resizer.js';
  * @typedef {{ open: (target: FileTarget) => void, showChanges: (source: Omit<import('./changes-view.js').ChangesSource, 'openFile'>) => void, showProject: (source: ProjectSource) => void, showFolder: (path: string) => void, findName: (intent: 'definition' | 'uses', name: string, path: string) => Promise<void>, close: () => void, isOpen: () => boolean }} FilePanel
  *   — showChanges: the branch's changes in place of a file, read from the source; showProject: the project's files;
  *   findName: a name in a file looked for in its project — its one definition opened, or its definitions and uses shown
+ * @typedef {{ places: import('./editor-opener.js').PlaceFinder, show: (path: string) => void }} FileManager — where the
+ *   browser is; show: a file shown in its folder in the computer's file manager
  * @typedef {(path: string, line: number | undefined) => void} OpenInVsCode — a file opened in VS Code in the browser at
  *   its line, in its project's folder, in a tab of its own
  * @typedef {{ name: string, icon: string, back: string, backTitle: string, beside: boolean, element: HTMLElement, reload: () => Promise<void>, summary: () => string | undefined }} Listing
@@ -50,6 +53,7 @@ const editorRefusals = {
   'no-project': 'The editor did not open it: there is no project folder (.sln, .slnx or .git) above the file.',
   'not-started': "The editor did not start: check the viewer's --editor-command.",
   'no-editor': 'The viewer has no editor to open files in.',
+  'runs-it': 'The editor did not open it: the program set for this kind of file runs it, and none is set to edit it.',
 };
 const elsewhere = "The editor opens on the viewer's computer, and this browser is on another one.";
 const keptOut =
@@ -80,13 +84,14 @@ function remember(key, value) {
 }
 
 /**
- * @param {{ panel: HTMLElement, layout: HTMLElement, editor: import('./editor-opener.js').EditorOpener, vscode: Promise<OpenInVsCode | undefined>, project: (path: string) => Project, folder: (root: string) => Project, iconOf: import('./file-icons.js').IconOf }} parts —
- *   folder: a folder linked, as a project of its own; vscode: none when the viewer runs no VS Code;
+ * @param {{ panel: HTMLElement, layout: HTMLElement, editor: import('./editor-opener.js').EditorOpener, vscode: Promise<OpenInVsCode | undefined>, fileManager: FileManager, project: (path: string) => Project, folder: (root: string) => Project, iconOf: import('./file-icons.js').IconOf }} parts —
+ *   folder: a folder linked, as a project of its own; vscode: none when the viewer runs no VS Code; fileManager: the
+ *   file shown in its folder, from a browser on the viewer's computer;
  *   editor: opens the file at its line in the editor of the viewer's computer, from a browser there; project: the
  *   project a file is in, its folders and its search
  * @returns {FilePanel}
  */
-export function createFilePanel({ panel, layout, editor, vscode, project, folder, iconOf }) {
+export function createFilePanel({ panel, layout, editor, vscode, fileManager, project, folder, iconOf }) {
   const name = h('div', { className: 'panel-name' });
   /** What the panel shows, at the head of its title: the file's icon, or the list's */
   const headIcon = h('span', { className: 'panel-icon' }, [icon('read')]);
@@ -99,6 +104,13 @@ export function createFilePanel({ panel, layout, editor, vscode, project, folder
   const inVsCode = panelButton('code', "Open in VS Code at this line, in the file's project");
   inVsCode.classList.add('panel-vscode');
   inVsCode.hidden = true;
+  // the file in its folder, on the viewer's computer: the button there only — and over a file, not a list
+  const inFolder = panelButton('folder-open', "Show the file in its folder, in the computer's file manager");
+  inFolder.classList.add('panel-folder');
+  const inFolderSlot = h('span', { className: 'panel-folder-slot', attrs: { hidden: '' } }, [inFolder]);
+  onComputer(inFolder, fileManager.places, () => {
+    if (current !== undefined) fileManager.show(current.path);
+  });
   // a document drawn, or its text: the two named, the one shown pressed
   const showDocument = h('button', { className: 'panel-view-document', text: 'Document', title: 'Show as a document', attrs: { type: 'button' } });
   const showSource = h('button', { className: 'panel-view-source', text: 'Source', title: 'Show the source', attrs: { type: 'button' } });
@@ -146,7 +158,7 @@ export function createFilePanel({ panel, layout, editor, vscode, project, folder
     resizer,
     side,
     h('div', { className: 'panel-main' }, [
-      h('header', { className: 'panel-head' }, [back, treeToggle, h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [headIcon, name, where]), path]), scripts, view, editHere, linksButton, inEditor, inVsCode, reload, copy, close]),
+      h('header', { className: 'panel-head' }, [back, treeToggle, h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [headIcon, name, where]), path]), scripts, view, editHere, linksButton, inEditor, inVsCode, inFolderSlot, reload, copy, close]),
       note,
       body,
     ]),
@@ -315,7 +327,7 @@ export function createFilePanel({ panel, layout, editor, vscode, project, folder
     path.textContent = listing.summary() ?? '';
     path.title = '';
     where.textContent = '';
-    for (const button of [view, scripts, editHere, linksButton, inEditor, inVsCode, copy, back]) button.hidden = true;
+    for (const button of [view, scripts, editHere, linksButton, inEditor, inVsCode, inFolderSlot, copy, back]) button.hidden = true;
     reload.hidden = false;
     panel.hidden = false;
     layout.classList.add('with-panel');
@@ -363,6 +375,7 @@ export function createFilePanel({ panel, layout, editor, vscode, project, folder
       back.hidden = !panel.classList.contains('split');
       projectShown?.view.select(target.path);
       copy.hidden = false;
+      inFolderSlot.hidden = false;
       void editor.reach().then((reach) => {
         if (current === target) offerEditor(reach);
       });

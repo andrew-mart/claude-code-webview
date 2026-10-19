@@ -56,10 +56,18 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   - a Word document as its pages, fitted to the panel, its styles and links checked;
   - a PDF as its pages, their text selectable, drawn by pdf.js as they come into view.
 
-  Text that is not UTF-8 is read as Windows-1251. Started with `--editor-command`, the viewer adds a button that opens
-  the file at the marked line in your editor — in a browser on the viewer's own computer, where the editor shows up. A
-  page opened through a tunnel finds that out by asking the viewer at the browser's 127.0.0.1 whether it is the same
-  one: Chrome asks once to let the page reach apps on the device.
+  Text that is not UTF-8 is read as Windows-1251. A button opens the file in your editor — in a browser on the
+  viewer's own computer, where the editor shows up. On Windows it is the program set for the file's kind, as a double
+  click in Explorer would use: at the marked line for the editors that take one — Rider and the other JetBrains IDEs in
+  the file's project (the nearest folder above it with a `.sln`, `.slnx` or `.git`), VS Code in its git work tree,
+  Notepad++, Sublime Text; any other program as a double click opens it; a kind with no program set has Windows ask
+  which. A kind of file whose program would run it — a script, `.reg`, `.exe` — opens in the program set to edit it,
+  or not at all. `--editor-command` sets one editor for every file instead, and is how there is one off Windows. A
+  page opened through a tunnel finds out where the browser is by asking the viewer at the browser's 127.0.0.1 whether
+  it is the same one: Chrome asks once to let the page reach apps on the device. In such a browser one more button over
+  a file shows it in its folder in the computer's file manager — Explorer and Finder pick it out, elsewhere `xdg-open`
+  opens its folder — and one over a session opens the session's folder there; a browser on another computer or a phone
+  has neither.
 
   ![A markdown note with a mermaid diagram in the file panel, beside the session](docs/file-panel.png)
 - **Branch changes.** A button over a session shows in the side panel what the branch checked out in its folder
@@ -71,8 +79,11 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   `code serve-web` — at `/vscode/`, and a button over a session opens it in the session's folder in a tab of its own:
   the whole of VS Code, its search, its git, its extensions and their language servers (go to a definition, find the
   uses). A button over a file in the file panel opens VS Code at the file's project — the nearest folder above it with
-  `.git`, a worktree's own, else the file's folder — with the file at its line. The first start downloads VS Code's server, about 100 MB, into `~/.vscode/cli`; its extensions are its own,
-  in `~/.vscode-server`. It stops with the viewer, however the viewer stops.
+  `.git`, a worktree's own, else the file's folder — with the file at its line. In a browser on the viewer's own
+  computer (found out as for "Open in the editor") both buttons open the computer's own VS Code instead, with its
+  settings, extensions and keys: `code` itself, or on Windows `Code.exe` beside the `bin` folder of `code-tunnel.exe`.
+  The first start downloads VS Code's server, about 100 MB, into `~/.vscode/cli`; its extensions are its own, in
+  `~/.vscode-server`. It stops with the viewer, however the viewer stops.
 - **Outline and bookmarks.** A right-hand outline lists your prompts (the one on screen is highlighted; Alt+↑ / Alt+↓
   jump between them) and your bookmarks: hover a prompt, an answer or a subagent report and click the flag to keep it
   one click away. Bookmarks are kept by the viewer in `~/.claude-code-webview/bookmarks.json`, so every browser and
