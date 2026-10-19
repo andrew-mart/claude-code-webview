@@ -461,6 +461,76 @@ test('herdrSidebar_Should_OpenNewWorkspace_FromItsNameAndFolder', async () => {
   );
 });
 
+// A folder that is not there is offered to be made: the press makes it and opens the workspace there as first asked —
+// its name, what starts in it; one that cannot be made is said so; a folder typed anew takes the offer away
+test('herdrSidebar_Should_OfferToMakeFolderThatIsNotThere_AndOpenWorkspaceInIt', async () => {
+  const element = window.document.createElement('div');
+  /** @type {string[][]} */
+  const asked = [];
+  /** @type {string[]} */
+  const opened = [];
+  const sidebar = createHerdrSidebar(element, {
+    ...noActions,
+    createWorkspace: async (label, folder, start, missing) => {
+      asked.push([label, folder, start, missing]);
+      if (missing === 'refuse') return { ok: false, error: 'no-folder' };
+      return folder === 'D:/locked/notes' ? { ok: false, error: 'not-created' } : { ok: true, target: '#/pane/w5:p1' };
+    },
+    open: (target) => void opened.push(target),
+  });
+  sidebar.render({ herdr: true, workspaces: [web] }, undefined, '', new Map());
+  /** @param {string} selector */
+  const find = (selector) => {
+    const found = element.querySelector(selector);
+    assert.ok(found instanceof window.HTMLElement, selector);
+    return found;
+  };
+  /** @param {string} name @param {string} folder @param {string} start */
+  const ask = async (name, folder, start) => {
+    if (element.querySelector('.herdr-new-workspace') === null) sidebar.newButton.click();
+    for (const [selector, value] of /** @type {const} */ ([['.herdr-new-name', name], ['.herdr-new-folder', folder]])) {
+      const box = find(selector);
+      assert.ok(box instanceof window.HTMLInputElement);
+      box.value = value;
+    }
+    find(start).click();
+    await settled();
+  };
+  const offered = () => element.querySelector('.herdr-new-create:not([hidden])') !== null;
+  const settled = () => new Promise((done) => setTimeout(done, 0));
+
+  await ask('max', 'D:/_agent/max', '.herdr-new-claude');
+  const offer = offered();
+  find('.herdr-new-create').click();
+  await settled();
+  await ask('notes', 'D:/locked/notes', '.herdr-new-shell');
+  find('.herdr-new-create').click();
+  await settled();
+  const notMade = { said: find('.herdr-new-error').textContent, offer: offered() };
+  await ask('notes', 'D:/locked/notes', '.herdr-new-shell');
+  const folder = find('.herdr-new-folder');
+  assert.ok(folder instanceof window.HTMLInputElement);
+  folder.value = 'D:/dev/notes';
+  folder.dispatchEvent(new window.Event('input'));
+
+  assert.deepEqual(
+    { offer, opened, notMade, offerAfterTyping: offered(), asked },
+    {
+      offer: true,
+      opened: ['#/pane/w5:p1'],
+      notMade: { said: 'The folder could not be made.', offer: false },
+      offerAfterTyping: false,
+      asked: [
+        ['max', 'D:/_agent/max', 'claude', 'refuse'],
+        ['max', 'D:/_agent/max', 'claude', 'create'],
+        ['notes', 'D:/locked/notes', 'shell', 'refuse'],
+        ['notes', 'D:/locked/notes', 'shell', 'create'],
+        ['notes', 'D:/locked/notes', 'shell', 'refuse'],
+      ],
+    },
+  );
+});
+
 // Tabs that do not fit scroll sideways under the mouse wheel; tabs that fit leave the wheel to the page
 test('tabBar_Should_ScrollTabsSideways_WithMouseWheel_WhenTheyDoNotFit', () => {
   /** @param {number} scrollWidth */

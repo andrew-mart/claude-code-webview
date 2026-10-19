@@ -17,8 +17,11 @@ import { isRecord, text } from './narrow.js';
  * @typedef {{ herdr: boolean, claudeGpt?: true, workspaces: readonly HerdrWorkspace[] }} HerdrLayout — herdr: whether it answers
  * @typedef {{ ok: true, target: string } | { ok: false, error: 'failed' }} NewTab — a tab opened from the page; target: its page address
  * @typedef {'shell' | 'claude' | 'claude-gpt' | 'codex'} TabStart — the shell, ordinary Claude Code, Claude Code through GPT, or Codex
- * @typedef {{ ok: true, target: string } | { ok: false, error: 'empty' | 'no-folder' | 'failed' }} NewWorkspace — a
- *   workspace opened from the page; target: its first pane's page address; no-folder: the folder is not there
+ * @typedef {'refuse' | 'create'} MissingFolder — what a new workspace does of a folder that is not there: opens nothing,
+ *   or makes it first
+ * @typedef {{ ok: true, target: string } | { ok: false, error: 'empty' | 'no-folder' | 'not-created' | 'failed' }} NewWorkspace — a
+ *   workspace opened from the page; target: its first pane's page address; no-folder: the folder is not there;
+ *   not-created: it could not be made
  * @typedef {{ ok: true } | { ok: false, error: 'empty' | 'failed' }} TabChange — a tab renamed or closed from the page; empty: a name of
  *   nothing but spaces; failed: herdr did not do it
  * @typedef {{ kind: 'session', id: string } | { kind: 'pane', id: string }} Opened — what the page shows: a session's
@@ -191,5 +194,5 @@ export function parseNewWorkspace(json) {
   const target = isRecord(json) && json.ok === true ? text(json.target) : undefined;
   if (target !== undefined) return { ok: true, target };
   const error = isRecord(json) ? json.error : undefined;
-  return { ok: false, error: error === 'empty' || error === 'no-folder' ? error : 'failed' };
+  return { ok: false, error: error === 'empty' || error === 'no-folder' || error === 'not-created' ? error : 'failed' };
 }

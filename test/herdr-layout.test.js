@@ -122,8 +122,8 @@ test('parseNewTab_Should_TakeAddressOfNewTab_And_CountAnyOtherAsFailed', () => {
 // reply — is a workspace not opened
 test('parseNewWorkspace_Should_TakeAddressOrReason_And_CountAnyOtherAsFailed', () => {
   assert.deepEqual(
-    [{ ok: true, target: '#/pane/w5:p1' }, { ok: false, error: 'no-folder' }, { ok: false, error: 'empty' }, { ok: false, error: 'boom' }, undefined].map(parseNewWorkspace),
-    [{ ok: true, target: '#/pane/w5:p1' }, { ok: false, error: 'no-folder' }, { ok: false, error: 'empty' }, { ok: false, error: 'failed' }, { ok: false, error: 'failed' }],
+    [{ ok: true, target: '#/pane/w5:p1' }, { ok: false, error: 'no-folder' }, { ok: false, error: 'not-created' }, { ok: false, error: 'empty' }, { ok: false, error: 'boom' }, undefined].map(parseNewWorkspace),
+    [{ ok: true, target: '#/pane/w5:p1' }, { ok: false, error: 'no-folder' }, { ok: false, error: 'not-created' }, { ok: false, error: 'empty' }, { ok: false, error: 'failed' }, { ok: false, error: 'failed' }],
   );
 });
 

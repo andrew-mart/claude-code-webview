@@ -765,7 +765,8 @@ async function newWorkspace(deps, body, response) {
     response.writeHead(400).end('Bad new workspace');
     return;
   }
-  return sendJson(response, await deps.herdrView.createWorkspace(label, folder, start));
+  // a folder that is not there is made only when the page asks: once it has told the user so
+  return sendJson(response, await deps.herdrView.createWorkspace(label, folder, start, fields.create === true ? 'create' : 'refuse'));
 }
 
 /**

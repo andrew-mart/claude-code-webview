@@ -172,7 +172,8 @@ the sessions that run or ran in it, and an icon left of its name, one at random 
 folder. A press on the icon at the head of its tabs, over the open session, picks another (a second click on the open
 workspace's icon in the sidebar too): an emoji, which goes ahead of its name in herdr, or one of Lucide's icons, found
 by its words, in a colour of your choice. **+** beside the search opens one: its name, its folder — picked from the folders
-typed before and those sessions ran in, or typed anew — and a terminal or Claude Code in it. A second click on the
+typed before and those sessions ran in, or typed anew — and a terminal or Claude Code in it; a folder that is not there
+is offered to be made, and the workspace opens in it as asked. A second click on the
 open workspace or session in the sidebar shows its buttons, as the open tab's do: ✎ names the workspace or the
 session's tab, × closes it. An idle session also gets a crossed-out eye: it hides the session from the list until its
 agent changes state — it starts working, say — on every device (`~/.claude-code-webview/hidden-panes.json`). The list's

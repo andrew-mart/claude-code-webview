@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
+import { stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tempDir } from '../test-support/temp-dir.js';
 import { createHerdrView } from '../server/herdr-view.js';
@@ -734,10 +734,10 @@ test('createWorkspace_Should_OpenWorkspaceInFolder_And_StartClaudeOnRequest', as
   const folder = tempDir('ccw-new-workspace-');
 
   const outcomes = [
-    await view.createWorkspace('  billing\n api ', folder, 'claude'),
-    await view.createWorkspace('notes', folder, 'shell'),
-    await view.createWorkspace('gone', join(folder, 'missing'), 'shell'),
-    await view.createWorkspace('  ', folder, 'shell'),
+    await view.createWorkspace('  billing\n api ', folder, 'claude', 'refuse'),
+    await view.createWorkspace('notes', folder, 'shell', 'refuse'),
+    await view.createWorkspace('gone', join(folder, 'missing'), 'shell', 'refuse'),
+    await view.createWorkspace('  ', folder, 'shell', 'refuse'),
   ];
 
   assert.deepEqual(
@@ -746,6 +746,23 @@ test('createWorkspace_Should_OpenWorkspaceInFolder_And_StartClaudeOnRequest', as
       outcomes: [{ ok: true, target: '#/pane/w5:p1' }, { ok: true, target: '#/pane/w5:p1' }, { ok: false, error: 'no-folder' }, { ok: false, error: 'empty' }],
       changes: [`workspace create --label billing api --cwd ${folder}`, 'pane send-text w5:p1 claude-god', 'pane send-keys w5:p1 enter', `workspace create --label notes --cwd ${folder}`],
     },
+  );
+});
+
+// A folder that is not there is made when asked — the folders above it too — and the workspace opens in it; one that
+// cannot be made — a file is in its place — opens nothing
+test('createWorkspace_Should_MakeFolderThatIsNotThere_WhenAsked', async () => {
+  const herdr = tabsHerdr();
+  const view = await tabsView(herdr, 'claude-god');
+  const root = tempDir('ccw-new-folder-');
+  const fresh = join(root, 'agents', 'max');
+  await writeFile(join(root, 'notes.txt'), 'x');
+
+  const outcomes = [await view.createWorkspace('max', fresh, 'shell', 'create'), await view.createWorkspace('notes', join(root, 'notes.txt', 'inner'), 'shell', 'create')];
+
+  assert.deepEqual(
+    { outcomes, made: await stat(fresh).then((found) => found.isDirectory(), () => false), changes: herdr.changes },
+    { outcomes: [{ ok: true, target: '#/pane/w5:p1' }, { ok: false, error: 'not-created' }], made: true, changes: [`workspace create --label max --cwd ${fresh}`] },
   );
 });
 

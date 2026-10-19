@@ -265,18 +265,20 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
     },
     /**
      * A new workspace, named on one line, in a folder — ~ for the home folder — with a shell, or Claude Code or Codex
-     * started in it.
+     * started in it. A folder that is not there is made first when asked, with the folders above it.
      * @param {string} label
      * @param {string} folder
      * @param {import('../public/model/herdr.js').TabStart} start
+     * @param {import('../public/model/herdr.js').MissingFolder} missing
      * @returns {Promise<import('../public/model/herdr.js').NewWorkspace>}
      */
-    async createWorkspace(label, folder, start) {
+    async createWorkspace(label, folder, start, missing) {
       const name = label.replace(/\s+/g, ' ').trim();
       if (name === '') return { ok: false, error: 'empty' };
       const cwd = folder.trim().replace(/^~(?=$|[\\/])/, homedir());
       const isFolder = isAbsolute(cwd) && (await stat(cwd).then((found) => found.isDirectory(), () => false));
-      if (!isFolder) return { ok: false, error: 'no-folder' };
+      if (!isFolder && (missing === 'refuse' || !isAbsolute(cwd))) return { ok: false, error: 'no-folder' };
+      if (!isFolder && !(await mkdir(cwd, { recursive: true }).then(() => true, () => false))) return { ok: false, error: 'not-created' };
       const reply = await herdr(['workspace', 'create', '--label', name, '--cwd', cwd]);
       const pane = succeeded(reply) ? rootPaneOf(reply.json) : undefined;
       if (pane === undefined) return { ok: false, error: 'failed' };

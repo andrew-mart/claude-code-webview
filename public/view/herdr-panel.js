@@ -356,7 +356,7 @@ function link(target, className, children) {
 
 /**
  * @typedef {import('../model/herdr.js').TabChange} TabChange
- * @typedef {{ createWorkspace: (label: string, folder: string, start: import('../model/herdr.js').TabStart) => Promise<import('../model/herdr.js').NewWorkspace>, open: (target: string) => void, folders: () => readonly string[], renameWorkspace: (workspaceId: string, label: string) => Promise<TabChange>, closeWorkspace: (workspaceId: string) => Promise<TabChange>, setWorkspaceIcon: (workspaceId: string, icon: string | undefined) => Promise<TabChange>, iconTags: () => Promise<Readonly<Record<string, readonly string[]>>>, renameTab: (tabId: string, label: string) => Promise<TabChange>, closeTab: (tabId: string) => Promise<TabChange>, hidePane: (paneId: string) => Promise<TabChange>, showHidden: () => Promise<TabChange> }} SidebarActions
+ * @typedef {{ createWorkspace: (label: string, folder: string, start: import('../model/herdr.js').TabStart, missing: import('../model/herdr.js').MissingFolder) => Promise<import('../model/herdr.js').NewWorkspace>, open: (target: string) => void, folders: () => readonly string[], renameWorkspace: (workspaceId: string, label: string) => Promise<TabChange>, closeWorkspace: (workspaceId: string) => Promise<TabChange>, setWorkspaceIcon: (workspaceId: string, icon: string | undefined) => Promise<TabChange>, iconTags: () => Promise<Readonly<Record<string, readonly string[]>>>, renameTab: (tabId: string, label: string) => Promise<TabChange>, closeTab: (tabId: string) => Promise<TabChange>, hidePane: (paneId: string) => Promise<TabChange>, showHidden: () => Promise<TabChange> }} SidebarActions
  *   — createWorkspace, and the renames and closings, resolve once the page shows the change; open goes to a page address;
  *   folders: the folders to offer for a new workspace — typed before, where sessions ran
  * @typedef {{ atHand: readonly string[], current: string | undefined, setIcon: (icon: string | undefined) => Promise<TabChange>, tags: () => Promise<Readonly<Record<string, readonly string[]>>> }} RowIcon
@@ -443,10 +443,11 @@ function comparablePath(path) {
 }
 
 /** Why a workspace was not opened. */
-/** @type {Readonly<Record<'empty' | 'no-folder' | 'failed', string>>} */
+/** @type {Readonly<Record<'empty' | 'no-folder' | 'not-created' | 'failed', string>>} */
 const newWorkspaceRefusals = {
   empty: 'Name the workspace.',
   'no-folder': 'There is no such folder.',
+  'not-created': 'The folder could not be made.',
   failed: 'herdr did not open the workspace.',
 };
 
@@ -680,19 +681,27 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
       }
     };
     narrow();
+    const error = h('div', { className: 'herdr-new-error', attrs: { role: 'alert' } });
+    // a folder that is not there: offered to be made, the workspace opened there as it was asked for
+    const create = h('button', { className: 'herdr-new-create', text: 'Create the folder', attrs: { type: 'button', hidden: '' } });
+    /** What was to start in the workspace refused for its folder: the same starts once the folder is made. */
+    /** @type {import('../model/herdr.js').TabStart} */
+    let refusedStart = 'shell';
     folder.addEventListener('input', () => {
       followFolder();
       narrow();
+      // the offer was for the folder typed before
+      create.hidden = true;
     });
-    const error = h('div', { className: 'herdr-new-error', attrs: { role: 'alert' } });
     let sending = false;
-    /** @param {import('../model/herdr.js').TabStart} start */
-    const submit = async (start) => {
+    /** @param {import('../model/herdr.js').TabStart} start @param {import('../model/herdr.js').MissingFolder} missing */
+    const submit = async (start, missing) => {
       if (sending) return;
       sending = true;
       form.classList.add('sending');
       error.textContent = '';
-      const outcome = await createWorkspace(name.value, folder.value, start);
+      create.hidden = true;
+      const outcome = await createWorkspace(name.value, folder.value, start, missing);
       sending = false;
       form.classList.remove('sending');
       if (outcome.ok) {
@@ -701,22 +710,27 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
         return;
       }
       error.textContent = newWorkspaceRefusals[outcome.error];
+      if (outcome.error === 'no-folder') {
+        refusedStart = start;
+        create.hidden = false;
+      }
       (outcome.error === 'empty' ? name : folder).focus();
     };
+    create.addEventListener('click', () => void submit(refusedStart, 'create'));
     /** @param {string} className @param {string} label @param {import('../model/herdr.js').TabStart} start */
     const choice = (className, label, start) => {
       const button = h('button', { className, text: label, attrs: { type: 'button' } });
-      button.addEventListener('click', () => void submit(start));
+      button.addEventListener('click', () => void submit(start, 'refuse'));
       return button;
     };
     // an icon, as in a new tab's choices: the four fit on one line in a narrow sidebar
     const cancel = iconButton('herdr-new-cancel', 'cross', 'Cancel (Esc)');
     cancel.addEventListener('click', showButton);
-    const form = h('div', { className: 'herdr-new-workspace' }, [name, folder, choices, h('div', { className: 'herdr-new-actions' }, [choice('herdr-new-shell', 'Terminal', 'shell'), choice('herdr-new-claude', 'Claude Code', 'claude'), ...(given?.layout.claudeGpt === true ? [choice('herdr-new-gpt', 'Claude GPT', 'claude-gpt')] : []), choice('herdr-new-codex', 'Codex', 'codex'), cancel]), error]);
+    const form = h('div', { className: 'herdr-new-workspace' }, [name, folder, choices, h('div', { className: 'herdr-new-actions' }, [choice('herdr-new-shell', 'Terminal', 'shell'), choice('herdr-new-claude', 'Claude Code', 'claude'), ...(given?.layout.claudeGpt === true ? [choice('herdr-new-gpt', 'Claude GPT', 'claude-gpt')] : []), choice('herdr-new-codex', 'Codex', 'codex'), cancel]), error, create]);
     // Enter starts Claude Code there, Escape leaves the form
     form.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') showButton();
-      else if (event.key === 'Enter' && event.target instanceof HTMLInputElement) void submit('claude');
+      else if (event.key === 'Enter' && event.target instanceof HTMLInputElement) void submit('claude', 'refuse');
     });
     slot.replaceChildren(form);
     slot.hidden = false;

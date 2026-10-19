@@ -275,8 +275,8 @@ function createPage() {
     return lucideWords;
   };
   const herdrSidebar = createHerdrSidebar(herdrPanel, {
-    createWorkspace: async (label, folder, start) => {
-      const outcome = await newWorkspace(label, folder, start);
+    createWorkspace: async (label, folder, start, missing) => {
+      const outcome = await newWorkspace(label, folder, start, missing);
       if (outcome.ok) writeStorage(foldersKey, JSON.stringify(rememberFolder(typedFolders(), folder)));
       return outcome;
     },
@@ -1589,17 +1589,19 @@ async function duplicateTab(tab) {
 }
 
 /**
- * A herdr workspace opened from the sidebar; the page looks at herdr again before it goes there.
+ * A herdr workspace opened from the sidebar — its folder made first when asked; the page looks at herdr again before it
+ * goes there.
  * @param {string} label
  * @param {string} folder
  * @param {import('./model/herdr.js').TabStart} start
+ * @param {import('./model/herdr.js').MissingFolder} missing
  * @returns {Promise<import('./model/herdr.js').NewWorkspace>}
  */
-async function newWorkspace(label, folder, start) {
+async function newWorkspace(label, folder, start, missing) {
   const response = await fetch('/api/workspace/new', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Viewer': '1' },
-    body: JSON.stringify({ label, folder, start }),
+    body: JSON.stringify({ label, folder, start, create: missing === 'create' }),
   }).catch(() => undefined);
   const outcome = parseNewWorkspace(response?.ok ? await response.json().catch(() => undefined) : undefined);
   if (outcome.ok) await page.refreshHerdr();

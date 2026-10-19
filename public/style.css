@@ -1193,6 +1193,23 @@ button {
   display: none;
 }
 
+/* Under "There is no such folder.": the offer to make it */
+.herdr-new-create {
+  align-self: flex-start;
+  padding: 3px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.herdr-new-create:hover {
+  background: var(--bg-hover);
+}
+
 /* A tab's or a workspace's icon, picked as it is named or opened: the button shows the icon — a faint face while there
    is none — and opens under it the emoji at hand, ✕ for none, and every emoji to find (emoji-picker-element). */
 .herdr-icon-picker {

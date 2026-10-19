@@ -184,8 +184,8 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
       tabChanges.push(['duplicate', tab]);
       return { ok: true, target: '#/pane/w1:p3' };
     },
-    createWorkspace: async (label, folder, start) => {
-      tabChanges.push(['workspace', label, folder, start]);
+    createWorkspace: async (label, folder, start, missing) => {
+      tabChanges.push(['workspace', label, folder, start, missing]);
       return { ok: true, target: '#/pane/w5:p1' };
     },
   };
@@ -403,18 +403,26 @@ test('dialog_Should_PassAnswerFromViewerPage_And_RefuseOtherKeys', async (t) => 
   );
 });
 
-// A new workspace is asked for with its name and folder, and a shell or Claude Code in it; anything else is refused
-// before herdr
+// A new workspace is asked for with its name and folder, and a shell or Claude Code in it — its folder made first when
+// asked; anything else is refused before herdr
 test('workspaces_Should_OpenNewWorkspace_And_RefuseUnknownStart', async (t) => {
   const { port, tabChanges } = await withServer(t);
   const ask = (/** @type {unknown} */ body) => post(port, '/api/workspace/new', pageHeaders(port), JSON.stringify(body));
 
   const opened = await ask({ label: 'billing', folder: 'D:/dev/billing', start: 'shell' });
+  await ask({ label: 'notes', folder: 'D:/dev/notes', start: 'claude', create: true });
   const strange = await Promise.all([ask({ label: 'billing', folder: 'D:/dev/billing', start: 'rm -rf' }), ask({ label: 'billing', start: 'shell' })]);
 
   assert.deepEqual(
     { opened: [opened.status, JSON.parse(opened.body)], strange: strange.map(({ status }) => status), tabChanges },
-    { opened: [200, { ok: true, target: '#/pane/w5:p1' }], strange: [400, 400], tabChanges: [['workspace', 'billing', 'D:/dev/billing', 'shell']] },
+    {
+      opened: [200, { ok: true, target: '#/pane/w5:p1' }],
+      strange: [400, 400],
+      tabChanges: [
+        ['workspace', 'billing', 'D:/dev/billing', 'shell', 'refuse'],
+        ['workspace', 'notes', 'D:/dev/notes', 'claude', 'create'],
+      ],
+    },
   );
 });
 
