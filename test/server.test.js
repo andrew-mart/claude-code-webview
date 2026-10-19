@@ -215,7 +215,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // the file manager opens what is asked
   /** @type {import('../server/file-manager.js').FileManagerTarget[]} */
   const shownInFileManager = [];
-  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, sessionStatus: async (id) => id === sessionId ? sessionStatus : undefined });
+  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, sessionStatus: async (id) => id === sessionId ? sessionStatus : undefined });
   t.after(() => server.close());
   return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls, typed, tabChanges, opened, shownInFileManager };
 }
@@ -1077,6 +1077,19 @@ test('interrupt_Should_HideStoppedPromptClaudeGaveBackFromFeedAtOnce', { timeout
   // the terminal takes the prompt out of the conversation, so does the page
   assert.equal((await next()).event, 'reset');
   assert.deepEqual(uuids(await next()), ['u1', 'a1']);
+});
+
+// What a session's "/" offers is asked for by its agent and its folder, the one it is in now; a session id that is no
+// id is refused
+test('commands_Should_OfferWhatSessionsAgentHasInItsFolder', async (t) => {
+  const { file, base } = await withServer(t);
+  const folder = tempDir('csv-commands-');
+  await appendFile(file, `${JSON.stringify({ type: 'user', uuid: 'u2', timestamp: at, cwd: folder, message: { role: 'user', content: 'Next' } })}\n`);
+
+  const offered = await (await fetch(`${base}/api/commands?session=${sessionId}`)).json();
+  const refused = await fetch(`${base}/api/commands?session=nope`);
+
+  assert.deepEqual({ offered, refused: refused.status }, { offered: [{ name: '/claude', hint: '', about: folder, source: 'built-in' }], refused: 400 });
 });
 
 test('branch_Should_ReadBranchCheckedOutInSessionFolderNotOneTranscriptRecorded', async (t) => {

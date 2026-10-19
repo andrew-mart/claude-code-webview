@@ -232,6 +232,12 @@ screenshot anywhere on the page (Ctrl+V), or drop files on the box. The page sca
 `~/.claude-code-webview/uploads/` and lists their paths at the end of the prompt, and Claude Code opens them with its
 Read tool. In the feed the list shows as pictures again.
 
+A slash at the start of the box offers the session's commands over it, as the terminal's menu does, narrowed by what is
+typed: Claude Code's own, the skills and command files of yours (`~/.claude/skills`, `~/.claude/commands`) and of the
+session's folder (`.claude/`), and those of the plugins turned on, as `/<plugin>:<name>`; for Codex its own and your
+prompts. ↑ and ↓ go through them, Enter or Tab puts one in the box — to send as it is or with arguments — and Esc puts
+the list away.
+
 `/btw <question>` in the box asks a side question, as in the terminal: Claude answers from what the conversation
 already holds, with no tools, even while it is busy, and nothing is added to the conversation. Claude Code shows the
 answer only in a panel over its prompt box, so the viewer reads it off the terminal — scrolling to its end — closes

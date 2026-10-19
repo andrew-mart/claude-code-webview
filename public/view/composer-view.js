@@ -2,11 +2,14 @@
 // Prompt box under the feed: the prompt goes to the session terminal via herdr (server: /api/send, /api/interrupt).
 // "/btw …" asks aside, as in the terminal (/api/btw): the answer shows above the box and never joins the feed. A choice
 // Claude Code waits for — its AskUserQuestion dialog — shows above the box too, and is answered from there (/api/dialog).
+// A command typed — a slash first — has the session's commands and skills offered over the box (command-menu.js).
 import { askerNames, btwMessage, composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, sideQuestionOf, stopMessage } from '../model/composer.js';
 import { parseDialogReply } from '../model/dialog.js';
 import { parseNewTab } from '../model/herdr.js';
 import { answerBlocks } from '../model/side-answer.js';
+import { completeCommand, parseCommands } from '../model/command-suggest.js';
 import { createAttachmentPicker } from './attachment-picker.js';
+import { createCommandMenu } from './command-menu.js';
 import { createDialogCard } from './dialog-card.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
@@ -61,7 +64,25 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   // a box taller than a few lines folds to them: a long text pasted in need not cover the conversation
   const fold = h('button', { className: 'icon-button composer-fold', attrs: { type: 'button', hidden: '' } });
   let folded = false;
-  const form = h('form', { className: 'composer-box' }, [fold, attachments.list, attachments.button, input, h('div', { className: 'composer-actions' }, [interrupt, send])]);
+  /** The session's commands and skills, asked of the viewer the first time one is typed. */
+  /** @type {Promise<readonly import('../model/command-suggest.js').SlashCommand[]> | undefined} */
+  let commands;
+  const commandMenu = createCommandMenu({
+    load: () =>
+      (commands ??= fetch(`/api/commands?session=${encodeURIComponent(sessionId)}`)
+        .then((response) => (response.ok ? response.json() : undefined))
+        .then(parseCommands, () => [])),
+    onPick: (name) => {
+      const done = completeCommand(input.value, input.selectionStart ?? input.value.length, name);
+      input.value = done.text;
+      input.setSelectionRange(done.caret, done.caret);
+      writeDraft(draftKey, input.value);
+      fit();
+      refreshButtons();
+      input.focus();
+    },
+  });
+  const form = h('form', { className: 'composer-box' }, [commandMenu.element, fold, attachments.list, attachments.button, input, h('div', { className: 'composer-actions' }, [interrupt, send])]);
   const aside = h('section', { className: 'side-answer', attrs: { hidden: '', 'aria-label': 'Side question', 'aria-live': 'polite' } });
   const closeAside = h('button', { className: 'icon-button side-answer-close', title: 'Close', attrs: { type: 'button', 'aria-label': 'Close' } }, [icon('cross')]);
   closeAside.addEventListener('click', () => asides.set(sessionId, undefined));
@@ -272,6 +293,8 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     submitPrompt('queued');
   });
   input.addEventListener('keydown', (event) => {
+    // the commands offered take ↑, ↓, Enter, Tab and Esc while they show
+    if (commandMenu.key(event)) return;
     // Esc stops Claude, as it does in the terminal
     if (event.key === 'Escape' && stop()) {
       event.preventDefault();
@@ -316,7 +339,15 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     writeDraft(draftKey, input.value);
     fit();
     refreshButtons();
+    commandMenu.update(input.value, input.selectionStart ?? input.value.length);
   });
+  // the caret moved out of the command's name, or the box left: the commands go
+  const followCaret = () => commandMenu.update(input.value, input.selectionStart ?? input.value.length);
+  input.addEventListener('click', followCaret);
+  input.addEventListener('keyup', (event) => {
+    if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) followCaret();
+  });
+  input.addEventListener('blur', () => commandMenu.hide());
   // A prompt Claude had not started on comes back into the box, as Esc in the terminal does. Watching for it takes a
   // moment: the button waits, so a second press does not reach the terminal as a second Esc.
   /**

@@ -107,13 +107,15 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  * @typedef {(sessionId: string) => Promise<import('../public/model/session-status.js').SessionStatus | undefined>} ReadSessionStatus
  * @typedef {(sessionId: string) => Promise<boolean>} IsRunning
  * @typedef {(path: string, line: number) => Promise<import('./editor.js').EditorOutcome>} OpenEditor
+ * @typedef {(session: { agent: 'claude' | 'codex', cwd: string | undefined }) => Promise<readonly import('./commands.js').SlashCommand[]>} SessionCommands —
+ *   what a session's "/" offers, by its agent, in its folder
  * @typedef {(target: import('./file-manager.js').FileManagerTarget) => Promise<boolean>} OpenFileManager — a folder
  *   opened in the computer's file manager, or a file shown in its folder; whether it started
  * @typedef {ReturnType<typeof import('./seen.js').createSeenFile>} Seen
  */
 
 /**
- * @param {{ index: SessionIndex, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, seen: Seen, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, chatgptUsage?: ReadUsage, sessionStatus?: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, vscode?: import('./vscode.js').VsCode | undefined, codexInUse: () => Promise<boolean> }} options
+ * @param {{ index: SessionIndex, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, seen: Seen, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, chatgptUsage?: ReadUsage, sessionStatus?: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode?: import('./vscode.js').VsCode | undefined, codexInUse: () => Promise<boolean> }} options
  *   about — package name and version for /api/health; palette — the page's colours (public/model/palettes.js);
  *   publicAddresses — where else the page is opened at, answered as the local address is; herdrView — what herdr
  *   shows (herdr-view.js); terminals — herdr panes' terminals (terminal.js); usage — the account's usage (usage.js);
@@ -122,7 +124,7 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  *   thread open (codex-live.js)
  * @returns {Promise<{ port: number, close: () => void }>}
  */
-export async function startServer({ index, host, port, pollMs, composer, bookmarks, seen, uploads, about, palette, publicAddresses, herdrView, terminals, usage, chatgptUsage = async () => undefined, sessionStatus = async () => undefined, isRunning, editor, fileManager, vscode, codexInUse }) {
+export async function startServer({ index, host, port, pollMs, composer, bookmarks, seen, uploads, about, palette, publicAddresses, herdrView, terminals, usage, chatgptUsage = async () => undefined, sessionStatus = async () => undefined, isRunning, editor, fileManager, commands, vscode, codexInUse }) {
   const instance = randomUUID();
   const build = await pageBuild();
   /** Sessions this page rewound: session id → the prompt rewound to; its branch is hidden before the next prompt shows the fork. */
@@ -135,7 +137,7 @@ export async function startServer({ index, host, port, pollMs, composer, bookmar
   const allowedOrigins = new Set();
   const fileIcons = createFileIcons();
   /** @type {Deps} */
-  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, seen, codexInUse, uploads, about, build, rewinds, transcripts, feeds: createFeedPages(), palette, herdrView, terminals, usage, chatgptUsage, sessionStatus, isRunning, editor, fileManager, vscode, instance, fileIcons };
+  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, seen, codexInUse, uploads, about, build, rewinds, transcripts, feeds: createFeedPages(), palette, herdrView, terminals, usage, chatgptUsage, sessionStatus, isRunning, editor, fileManager, commands, vscode, instance, fileIcons };
   const server = http.createServer((request, response) => {
     handle(deps, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
@@ -169,7 +171,7 @@ export async function startServer({ index, host, port, pollMs, composer, bookmar
 
 /**
  * @typedef {ReturnType<typeof createSessionIndex>} SessionIndex — Claude Code's sessions and Codex's (sessions.js)
- * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, chatgptUsage: ReadUsage, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, codexInUse: () => Promise<boolean> }} Deps
+ * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, chatgptUsage: ReadUsage, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, codexInUse: () => Promise<boolean> }} Deps
  *   instance: this run of the viewer, told apart from any other — see /api/machine; vscode: VS Code's web server
  *   behind /vscode/, none when the viewer runs none
  * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'createWorkspace' | 'history' | 'reopen'>} HerdrView
@@ -212,6 +214,12 @@ async function handle(deps, request, response) {
       const version = Number(since);
       return sendJson(response, await deps.index.changes(since === '' || !Number.isFinite(version) ? undefined : version));
     }
+    // what the session's "/" offers: its agent's commands, the skills in its folder
+    case '/api/commands':
+      return withSession(url, response, async (id) => {
+        const session = (await deps.index.list()).find((one) => one.id === id);
+        return sendJson(response, await deps.commands({ agent: session?.agent ?? 'claude', cwd: session?.cwd }));
+      });
     case '/api/branch':
       // The branch checked out in the session's folder now, for the header.
       return withSession(url, response, async (id) => {

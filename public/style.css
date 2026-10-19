@@ -3599,6 +3599,67 @@ table.diff tr.gap td {
   position: relative;
 }
 
+/* The commands offered while one is typed (command-menu.js): over the box, as wide as it, the one marked lit; each its
+   name, its arguments, whose it is, and a line of what it does. */
+.command-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  max-height: min(45vh, 340px);
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elev);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  list-style: none;
+}
+
+.command-option {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.command-option.marked,
+.command-option:hover {
+  background: var(--bg-hover);
+}
+
+.command-name {
+  font: 600 13px/1.4 var(--font-mono);
+  color: var(--text);
+}
+
+.command-hint {
+  font: 12px/1.4 var(--font-mono);
+  color: var(--text-3);
+}
+
+.command-source {
+  padding: 0 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.command-about {
+  flex: 1 1 100%;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .composer-box.folded .composer-input {
   max-height: 4.9em;
 }
