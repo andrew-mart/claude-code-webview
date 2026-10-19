@@ -22,6 +22,8 @@ import { readLineAt } from './tail.js';
  * @typedef {{ id: string, project: string, agent: Agent, title: string | undefined, cwd: string | undefined, branch: string | undefined, kind: SessionKind, modifiedAt: number, size: number, activeAt: number }} SessionInfo
  * @typedef {{ agentId: string, toolUseId: string | undefined, agentType: string | undefined, description: string | undefined }} SubagentInfo
  * @typedef {{ path: string, project: string, agent: Agent, id: string, modifiedAt: number, size: number }} SessionFile
+ * @typedef {{ id: string, cwd: string, startedAt: number }} StartedSession — a session Claude Code has open: its folder,
+ *   and when it started
  */
 
 const sessionFileName = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
@@ -39,11 +41,12 @@ const unknownSummary = { title: undefined, cwd: undefined, branch: undefined, ki
  * There can be thousands of sessions, so a single list request computes summaries within a time budget
  * (the first batch always), the remaining sessions go out untitled and are filled in on later requests.
  * @param {string} root — ~/.claude/projects
- * @param {{ summaryBudgetMs: number, missRetryMs: number, codexRoot?: string | undefined }} options — missRetryMs: how
- *   long an id found in no file is not looked for again — the pages ask about it often, and each look goes over all the
- *   files; codexRoot: ~/.codex/sessions, none: no Codex sessions
+ * @param {{ summaryBudgetMs: number, missRetryMs: number, codexRoot?: string | undefined, started?: (() => Promise<readonly StartedSession[]>) | undefined }} options
+ *   — missRetryMs: how long an id found in no file is not looked for again — the pages ask about it often, and each look
+ *   goes over all the files; codexRoot: ~/.codex/sessions, none: no Codex sessions; started: the sessions Claude Code
+ *   has open — one with no transcript yet, before its first message, is listed by its folder — none: only transcripts
  */
-export function createSessionIndex(root, { summaryBudgetMs, missRetryMs, codexRoot }) {
+export function createSessionIndex(root, { summaryBudgetMs, missRetryMs, codexRoot, started }) {
   /** summarizedAt — when the summary was made: a page that asked before learns it with the next changes */
   /** @type {Map<string, { size: number, modifiedAt: number, summary: SessionSummary, summarizedAt: number }>} */
   const summaries = new Map();
@@ -60,6 +63,9 @@ export function createSessionIndex(root, { summaryBudgetMs, missRetryMs, codexRo
   /** Where the file before a Codex session's next one leaves off: the next one's first line tells, and never changes. */
   /** @type {Map<string, number | undefined>} */
   const goesOnFrom = new Map();
+  /** When each session open with no transcript was first listed: a page that asked before learns of it with the next changes. */
+  /** @type {ReadonlyMap<string, number>} */
+  let startedListedAt = new Map();
 
   /**
    * Every session file, Claude Code's and Codex's, newest first — a Codex session's files as one, and a session with a
@@ -112,8 +118,13 @@ export function createSessionIndex(root, { summaryBudgetMs, missRetryMs, codexRo
       const info = { ...omitPath(file), ...summary, activeAt: lastActivity === undefined ? file.modifiedAt : lastActivity };
       return { info, changedAt: cached === undefined ? file.modifiedAt : Math.max(file.modifiedAt, cached.summarizedAt) };
     });
+    const transcribed = new Set(files.map((file) => file.id));
+    const untranscribed = (started === undefined ? [] : await started()).filter((session) => !transcribed.has(session.id));
+    // Claude Code tells it has the session open a while after it started: it counts as changed once it is listed
+    const fresh = untranscribed.map((session) => ({ info: startedInfo(session), changedAt: startedListedAt.get(session.id) ?? version }));
+    startedListedAt = new Map(fresh.map(({ info, changedAt }) => [info.id, changedAt]));
     // Latest activity first: a session Claude Code merely touched does not jump above the ones being worked in.
-    return all.sort((a, b) => b.info.activeAt - a.info.activeAt);
+    return [...all, ...fresh].sort((a, b) => b.info.activeAt - a.info.activeAt);
   }
 
   /**
@@ -381,6 +392,16 @@ function subagentInfo(name, json) {
  */
 function omitPath({ path, ...rest }) {
   return rest;
+}
+
+/**
+ * A session Claude Code has open with no transcript yet: untitled, in its folder — under the project folder its
+ * transcript will be written in — active since it started.
+ * @param {StartedSession} session
+ * @returns {SessionInfo}
+ */
+function startedInfo({ id, cwd, startedAt }) {
+  return { id, project: cwd.replace(/[^a-zA-Z0-9]/g, '-'), agent: 'claude', title: undefined, cwd, branch: undefined, kind: 'interactive', modifiedAt: startedAt, size: 0, activeAt: startedAt };
 }
 
 /**

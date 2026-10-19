@@ -121,6 +121,7 @@ function follow(viewer, from) {
   const events = [];
   const done = streamTranscript({
     locate: viewer.locate,
+    running: async () => true,
     scope: 'main',
     imageUrl,
     rewoundAt: viewer.rewoundAt,

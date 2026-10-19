@@ -1002,8 +1002,22 @@ test('stream_Should_ShowOnlyActiveBranchOfRewoundConversation', async (t) => {
   assert.deepEqual(uuids(await next()), ['u1', 'a1', 'p3']);
 });
 
-// A session started just now has no transcript until its first message: the page hears it is missing, then — once
-// Claude Code writes it — its entries, and that the feed is ready to be shown
+// A session started just now has no transcript until its first message: it is ready, with nothing in it — waiting for
+// that message — not missing; its entries come once Claude Code writes them
+test('stream_Should_ShowRunningSessionAsReady_BeforeItsTranscriptIsWritten', async (t) => {
+  const { file, base } = await withServer(t);
+  await rm(file);
+  const next = await openStream(base, t);
+
+  const before = (await next()).event;
+  await writeFile(file, promptLine('f1', 'Hello'));
+  const entries = await next();
+
+  assert.deepEqual([before, uuids(entries)], ['ready', ['f1']]);
+});
+
+// A session Claude Code has not open, with no transcript: the page hears it is missing, then — should the transcript
+// come after all — its entries, and that the feed is ready to be shown
 test('stream_Should_ShowTranscriptThatAppearsAfterItWasMissing', async (t) => {
   const { root, base } = await withServer(t);
   const fresh = '9b1d2c30-5555-4666-8777-988899990000';

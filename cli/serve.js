@@ -11,7 +11,7 @@ import { createBookmarkFile } from '../server/bookmarks.js';
 import { createSeenFile } from '../server/seen.js';
 import { createUploads } from '../server/uploads.js';
 import { createComposer } from '../server/composer.js';
-import { latestRecords, readSessionRecords } from '../server/registry.js';
+import { latestRecords, readSessionRecords, startedSessions } from '../server/registry.js';
 import { createHerdrRunner, herdrTurnedOff, paneIoOf, readSavedHerdr, resolveHerdr, saveHerdr } from '../server/herdr.js';
 import { createHerdrSocket, socketRunner } from '../server/herdr-socket.js';
 import { createHerdrView } from '../server/herdr-view.js';
@@ -77,7 +77,7 @@ export async function serve({ port, about, palette, publicAddresses, herdr, clau
   const usageFiles = { claudeState: claudeStateFile(process.env), rateLimits: join(stateDir, 'rate-limits.json') };
   // Codex's sessions beside Claude Code's: none while it has never run here
   const codexHome = process.env.CODEX_HOME ?? join(homedir(), '.codex');
-  const index = createSessionIndex(join(claude, 'projects'), { summaryBudgetMs: 1500, missRetryMs: 2000, codexRoot: join(codexHome, 'sessions') });
+  const index = createSessionIndex(join(claude, 'projects'), { summaryBudgetMs: 1500, missRetryMs: 2000, codexRoot: join(codexHome, 'sessions'), started: async () => startedSessions(await readRecords()) });
   const codexThreads = createCodexThreads({ home: codexHome, summaryOf: index.summaryOf, held: lockHeld });
   const icons = createWorkspaceIcons({ file: join(stateDir, 'workspace-icons.json'), random: Math.random });
   const herdrView = createHerdrView({ herdr: run, readRecords, codexThreads: codexThreads.open, icons, hidden: createHiddenPanes(join(stateDir, 'hidden-panes.json')), file: join(stateDir, 'workspaces.json'), refreshMs: herdrRefreshMs, trust: claudeTrustPace, claudeCommand, claudeGptCommand, claudeModelOf: createClaudeModels(index.find), codexCommand });

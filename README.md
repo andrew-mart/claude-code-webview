@@ -25,7 +25,8 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
 
 - **All sessions** of every project, newest first, with titles, project folder and age; an orange dot marks a session
   written to in the last two minutes. "Follow the active session" switches to whichever session was written to last.
-  Sessions that a program drives (`claude -p`, the Agent SDK) are hidden until you tick "Show SDK sessions". These
+  A session started just now is there before its first message too — untitled, in its folder, as Claude Code has it
+  open. Sessions that a program drives (`claude -p`, the Agent SDK) are hidden until you tick "Show SDK sessions". These
   options open from the sliders at the sidebar's head — one row, the account's usage and its buttons, so the lists get
   the height; the magnifier opens the search in its place, Escape or ✕ closes it.
 - **Codex sessions** beside Claude Code's, marked `codex`: prompts, answers, reasoning summaries, commands with their

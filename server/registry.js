@@ -6,8 +6,9 @@ import { join } from 'node:path';
 import { isRecord, text } from '../public/model/narrow.js';
 
 /**
- * @typedef {{ pid: number, startedAt: number | undefined, sessionId: string, status: string, updatedAt: number }} LiveRecord
- *   startedAt — when its process started: a process's number goes to another once it is gone, the two told apart by it
+ * @typedef {{ pid: number, startedAt: number | undefined, sessionId: string, cwd: string | undefined, status: string, updatedAt: number }} LiveRecord
+ *   startedAt — when its process started: a process's number goes to another once it is gone, the two told apart by it;
+ *   cwd — the session's folder
  */
 
 /**
@@ -59,6 +60,16 @@ export function latestRecords(records) {
 }
 
 /**
+ * The interactive sessions open, each in its folder, since its process started: before its first message a session has
+ * no transcript to tell them.
+ * @param {readonly unknown[]} records — contents of ~/.claude/sessions/<pid>.json
+ * @returns {import('./sessions.js').StartedSession[]}
+ */
+export function startedSessions(records) {
+  return [...latestRecords(records).values()].flatMap(({ sessionId, cwd, startedAt }) => (cwd === undefined || startedAt === undefined ? [] : [{ id: sessionId, cwd, startedAt }]));
+}
+
+/**
  * @param {unknown} raw — contents of ~/.claude/sessions/<pid>.json
  * @returns {LiveRecord | undefined}
  */
@@ -68,5 +79,5 @@ function parseRecord(raw) {
   const status = text(raw.status);
   const updatedAt = typeof raw.updatedAt === 'number' ? raw.updatedAt : 0;
   const startedAt = typeof raw.startedAt === 'number' ? raw.startedAt : undefined;
-  return sessionId === undefined || status === undefined ? undefined : { pid: raw.pid, startedAt, sessionId, status, updatedAt };
+  return sessionId === undefined || status === undefined ? undefined : { pid: raw.pid, startedAt, sessionId, cwd: text(raw.cwd), status, updatedAt };
 }

@@ -156,6 +156,48 @@ test('list_Should_PutSessionWithLatestMessageFirstWhateverTheFileTime', async ()
   );
 });
 
+// A session started just now has no transcript until its first message: it is listed as Claude Code has it open — in
+// its folder, untitled, since it started — and a session open with a transcript is listed by the transcript, once
+test('list_Should_ListStartedSessionInItsFolder_BeforeItsTranscriptIsWritten', async () => {
+  const root = tempDir('csv-');
+  await mkdir(join(root, 'D--dev-a'));
+  const talked = '3f2c9a50-1111-4222-8333-000000000001';
+  const fresh = '3f2c9a50-1111-4222-8333-000000000002';
+  await writeFile(join(root, 'D--dev-a', `${talked}.jsonl`), `${line({ type: 'user', uuid: 'q', timestamp: '2026-10-08T10:00:00.000Z', cwd: 'D:\\dev\\a', message: { role: 'user', content: 'Talked already' } })}\n`);
+  const started = async () => [
+    { id: talked, cwd: 'D:\\dev\\a', startedAt: Date.parse('2026-10-08T09:00:00.000Z') },
+    { id: fresh, cwd: 'D:\\dev\\shop', startedAt: Date.parse('2026-10-09T08:00:00.000Z') },
+  ];
+
+  const sessions = await createSessionIndex(root, { summaryBudgetMs: 1000, missRetryMs: 0, started }).list();
+
+  assert.deepEqual(
+    sessions.map((session) => [session.id, session.agent, session.title, session.cwd, session.activeAt]),
+    [
+      [fresh, 'claude', undefined, 'D:\\dev\\shop', Date.parse('2026-10-09T08:00:00.000Z')],
+      [talked, 'claude', 'Talked already', 'D:\\dev\\a', Date.parse('2026-10-08T10:00:00.000Z')],
+    ],
+  );
+});
+
+// Claude Code tells it has a session open a while after the session started: a page that asked before learns of it
+// with the next changes, and once only
+test('changes_Should_BringStartedSessionOnce_ToCallerThatAskedBeforeItWasListed', async () => {
+  const fresh = '3f2c9a50-1111-4222-8333-000000000002';
+  /** @type {import('../server/sessions.js').StartedSession[]} */
+  let open = [];
+  const index = createSessionIndex(tempDir('csv-'), { summaryBudgetMs: 1000, missRetryMs: 0, started: async () => open });
+
+  const before = await index.changes(undefined);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  open = [{ id: fresh, cwd: 'D:\\dev\\shop', startedAt: before.version - 1000 }];
+  const first = await index.changes(before.version);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const next = await index.changes(first.version);
+
+  assert.deepEqual([first.sessions.map((session) => session.id), next.sessions.map((session) => session.id), next.total], [[fresh], [], 1]);
+});
+
 // Codex's sessions are listed beside Claude Code's — ~/.codex/sessions/<year>/<month>/<day>/rollout-<time>-<id>.jsonl —
 // with their title, folder and branch, told apart by their agent; a run of codex exec is one run by a program. Each is
 // found by its id, and is known for a Codex one by its file

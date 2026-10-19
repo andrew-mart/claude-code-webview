@@ -24,13 +24,14 @@ const batchSize = 1000;
 
 /**
  * Runs until the signal is aborted. The file is looked up again on every round: after /cd it moves.
- * @param {{ locate: () => Promise<string | undefined>, scope: 'main' | 'subagent', imageUrl: ImageUrl, rewoundAt: () => string | undefined, send: Send, signal: AbortSignal, pollMs: number, transcripts: TranscriptCache, tail: number | undefined, version: string, from: string | undefined, sessionStatus?: (() => Promise<import('../public/model/session-status.js').SessionStatus | undefined>) | undefined }} options
- *   rewoundAt — the prompt this page rewound the session to, if it did; tail — how many of the latest entries to send
- *   at first ("earlier" tells how many were left out); undefined — all of them; version: the viewer's build — a token
- *   of another is not gone on from; from — the token of the copy the page holds: what came since is sent alone, or —
- *   the token not to be gone on from — "reset" and the feed from its start
+ * @param {{ locate: () => Promise<string | undefined>, running: () => Promise<boolean>, scope: 'main' | 'subagent', imageUrl: ImageUrl, rewoundAt: () => string | undefined, send: Send, signal: AbortSignal, pollMs: number, transcripts: TranscriptCache, tail: number | undefined, version: string, from: string | undefined, sessionStatus?: (() => Promise<import('../public/model/session-status.js').SessionStatus | undefined>) | undefined }} options
+ *   running — whether Claude Code has the session open; rewoundAt — the prompt this page rewound the session to, if it
+ *   did; tail — how many of the latest entries to send at first ("earlier" tells how many were left out); undefined —
+ *   all of them; version: the viewer's build — a token of another is not gone on from; from — the token of the copy the
+ *   page holds: what came since is sent alone, or — the token not to be gone on from — "reset" and the feed from its
+ *   start
  */
-export async function streamTranscript({ locate, scope, imageUrl, rewoundAt, send, signal, pollMs, transcripts, tail, version, from, sessionStatus = async () => undefined }) {
+export async function streamTranscript({ locate, running, scope, imageUrl, rewoundAt, send, signal, pollMs, transcripts, tail, version, from, sessionStatus = async () => undefined }) {
   /** How many of the file's entries this page has been given. */
   let sent = 0;
   /** Those entries chained (feed-check.js). */
@@ -41,8 +42,8 @@ export async function streamTranscript({ locate, scope, imageUrl, rewoundAt, sen
   let told;
   /** @type {number | undefined} */
   let generation;
-  // said once each: the transcript is missing — a session started just now has none before its first message — and,
-  // once it is there, that the feed is ready
+  // said once each: the transcript is missing, and that the feed is ready — once the transcript is there, or while the
+  // session runs without one: a session started just now has none before its first message, and waits for it
   let missingSaid = false;
   let readySaid = false;
   let statusTold = '';
@@ -73,8 +74,13 @@ export async function streamTranscript({ locate, scope, imageUrl, rewoundAt, sen
       }
       const read = path === undefined ? undefined : await transcripts.read(path, { scope, imageUrl }).catch(() => undefined);
       if (read === undefined) {
-        if (!missingSaid) send('missing', null);
-        missingSaid = true;
+        if (await running()) {
+          if (!readySaid) send('ready', null);
+          readySaid = true;
+        } else {
+          if (!missingSaid) send('missing', null);
+          missingSaid = true;
+        }
       } else {
         if (goOnFrom !== undefined) {
           // the page's copy: gone on from where its token says, if the file still holds what was read for it then

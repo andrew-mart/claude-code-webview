@@ -1074,6 +1074,7 @@ async function unwatchFeed(deps, body, response) {
 function feedOf(deps, { id, agentId, tail, from }) {
   return {
     locate: agentId === null ? () => deps.index.find(id) : () => deps.index.findSubagent(id, agentId),
+    running: agentId === null ? () => deps.isRunning(id) : async () => false,
     sessionStatus: agentId === null ? () => deps.sessionStatus(id) : async () => undefined,
     scope: agentId === null ? /** @type {const} */ ('main') : /** @type {const} */ ('subagent'),
     rewoundAt: () => (agentId === null ? deps.rewinds.get(id) : undefined),

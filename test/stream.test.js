@@ -18,7 +18,7 @@ test('streamTranscript_Should_TellModelAndContextBeforeFirstTranscriptEntry', as
   const status = { at: 1000, model: 'gpt-6-sol', contextTokens: 0, contextWindow: 1_050_000 };
   /** @type {{ event: string, data: unknown }[]} */
   const sent = [];
-  await streamTranscript({ locate: async () => undefined, scope: 'main', imageUrl, rewoundAt: () => undefined, send: (event, data) => { sent.push({ event, data }); controller.abort(); }, signal: controller.signal, pollMs: 1, transcripts: createTranscriptCache({ maxFiles: 1 }), tail: undefined, version: 'v1', from: undefined, sessionStatus: async () => status });
+  await streamTranscript({ locate: async () => undefined, running: async () => true, scope: 'main', imageUrl, rewoundAt: () => undefined, send: (event, data) => { sent.push({ event, data }); controller.abort(); }, signal: controller.signal, pollMs: 1, transcripts: createTranscriptCache({ maxFiles: 1 }), tail: undefined, version: 'v1', from: undefined, sessionStatus: async () => status });
 
   assert.deepEqual(sent[0], { event: 'session-status', data: status });
 });
@@ -45,7 +45,7 @@ function following(transcripts, path) {
     if (event === 'cursor') return;
     events.push(event === 'entries' && Array.isArray(data) ? { event, uuids: data.map((entry) => (isRecord(entry) ? entry.uuid : undefined)) } : { event });
   };
-  const done = streamTranscript({ locate: async () => path, scope: 'main', imageUrl, rewoundAt: () => undefined, send, signal: controller.signal, pollMs: 10, transcripts, tail: undefined, version: 'v1', from: undefined });
+  const done = streamTranscript({ locate: async () => path, running: async () => true, scope: 'main', imageUrl, rewoundAt: () => undefined, send, signal: controller.signal, pollMs: 10, transcripts, tail: undefined, version: 'v1', from: undefined });
   return {
     events,
     /** @param {(sent: typeof events) => boolean} seen */
