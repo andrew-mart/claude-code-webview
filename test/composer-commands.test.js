@@ -73,3 +73,45 @@ test('composer_Should_OfferCommandsWhileOneIsTyped_AndPutThePickedOneInTheBox', 
     { shown: ['/config', '/compact'], picked: { text: '/compact ', menu: [] }, escaped: [], clicked: '/tdd ', further: [], posted: [] },
   );
 });
+
+// A skill written while the session is open is offered the next time a slash is typed, as the terminal's menu does —
+// not only once the session is opened again
+test('composer_Should_OfferASkillWrittenMeanwhile_TheNextTimeASlashIsTyped', async (t) => {
+  let skills = offered;
+  Object.assign(globalThis, {
+    matchMedia: () => ({ matches: false }),
+    fetch: async (/** @type {string} */ path) => {
+      const body = path.startsWith('/api/commands') ? skills : path.startsWith('/api/live') ? { state: 'live', status: 'idle', pane: 'w1:p1' } : { ok: true };
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    },
+  });
+  const composer = createComposer('7d1e4b20-2222-4333-8444-a55566667777', { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined });
+  window.document.body.append(composer.element);
+  t.after(() => {
+    composer.dispose();
+    composer.element.remove();
+  });
+  await settle();
+  const box = composer.element.querySelector('.composer-input');
+  assert.ok(box instanceof window.HTMLTextAreaElement);
+  /** @param {string} text */
+  const type = async (text) => {
+    box.value = text;
+    box.setSelectionRange(text.length, text.length);
+    box.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await settle();
+  };
+  const menu = () => {
+    const list = composer.element.querySelector('.command-menu');
+    return list instanceof window.HTMLElement && !list.hidden ? [...list.querySelectorAll('.command-name')].map((name) => name.textContent) : [];
+  };
+
+  await type('/td');
+  const before = menu();
+  await type('');
+  skills = [...offered, { name: '/tidy', hint: '', about: 'Tidies the folder.', source: 'personal' }];
+  await type('/tid');
+  const after = menu();
+
+  assert.deepEqual({ before, after }, { before: ['/tdd'], after: ['/tidy'] });
+});

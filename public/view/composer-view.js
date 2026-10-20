@@ -74,14 +74,12 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   // a box taller than a few lines folds to them: a long text pasted in need not cover the conversation
   const fold = h('button', { className: 'icon-button composer-fold', attrs: { type: 'button', hidden: '' } });
   let folded = false;
-  /** The session's commands and skills, asked of the viewer the first time one is typed. */
-  /** @type {Promise<readonly import('../model/command-suggest.js').SlashCommand[]> | undefined} */
-  let commands;
+  // the session's commands and skills, asked of the viewer each time the list opens
   const commandMenu = createCommandMenu({
     load: () =>
-      (commands ??= fetch(`/api/commands?session=${encodeURIComponent(sessionId)}`)
+      fetch(`/api/commands?session=${encodeURIComponent(sessionId)}`)
         .then((response) => (response.ok ? response.json() : undefined))
-        .then(parseCommands, () => [])),
+        .then(parseCommands, () => []),
     onPick: (name) => {
       const done = completeCommand(input.value, input.selectionStart ?? input.value.length, name);
       input.value = done.text;

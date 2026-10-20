@@ -1,6 +1,7 @@
 // @ts-check
 // The commands offered over the box while one is typed in it (model/command-suggest.js): ↑ and ↓ go through them,
-// Enter or Tab puts the one marked in the box, a click or a tap puts any, Esc puts the list away.
+// Enter or Tab puts the one marked in the box, a click or a tap puts any, Esc puts the list away. The commands are
+// asked of the viewer each time the list opens: a skill written meanwhile is offered the next time a slash is typed.
 import { commandQuery, rankCommands } from '../model/command-suggest.js';
 import { h } from './dom.js';
 
@@ -9,7 +10,7 @@ const shownAtMost = 50;
 
 /**
  * @param {{ load: () => Promise<readonly import('../model/command-suggest.js').SlashCommand[]>, onPick: (name: string) => void }} parts —
- *   load: the session's commands, asked of the viewer once; onPick: the command picked, to put in the box
+ *   load: the session's commands, asked of the viewer; onPick: the command picked, to put in the box
  * @returns {{ element: HTMLElement, update: (text: string, caret: number) => void, hide: () => void, key: (event: KeyboardEvent) => boolean }} —
  *   update: the box's text and caret, the list shown for them or put away; key: a key while the list shows taken by it,
  *   whether it was
@@ -21,9 +22,13 @@ export function createCommandMenu({ load, onPick }) {
   let marked = 0;
   /** The latest update's number: a list loaded for an earlier text is not shown. */
   let asked = 0;
+  /** The commands asked for since the list opened: typing on reuses them, the list put away lets them go. */
+  /** @type {Promise<readonly import('../model/command-suggest.js').SlashCommand[]> | undefined} */
+  let loaded;
 
   const hide = () => {
     asked++;
+    loaded = undefined;
     shown = [];
     element.hidden = true;
     element.replaceChildren();
@@ -71,7 +76,7 @@ export function createCommandMenu({ load, onPick }) {
       const query = commandQuery(text, caret);
       if (query === undefined) return hide();
       const number = ++asked;
-      void load().then((commands) => {
+      void (loaded ??= load()).then((commands) => {
         if (number === asked) show(rankCommands(commands, query).slice(0, shownAtMost));
       });
     },
