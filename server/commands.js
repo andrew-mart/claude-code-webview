@@ -39,7 +39,8 @@ export async function claudeCommands({ config, cwd }) {
 }
 
 /**
- * The skills of a folder of them: each a folder with a SKILL.md, named by its frontmatter or the folder.
+ * The skills of a folder of them: each a folder with a SKILL.md, or a link to one — a skill installed elsewhere, a
+ * junction on Windows — named by its frontmatter or the folder.
  * @param {string} folder
  * @param {string} source
  * @param {string} prefix — a plugin's name and a colon, or nothing
@@ -47,7 +48,7 @@ export async function claudeCommands({ config, cwd }) {
  */
 async function skillsIn(folder, source, prefix) {
   const entries = await readdir(folder, { withFileTypes: true }).catch(() => []);
-  const skills = await Promise.all(entries.filter((entry) => entry.isDirectory()).map((entry) => skillAt(join(folder, entry.name), source, prefix)));
+  const skills = await Promise.all(entries.filter((entry) => entry.isDirectory() || entry.isSymbolicLink()).map((entry) => skillAt(join(folder, entry.name), source, prefix)));
   return skills.flatMap((skill) => (skill === undefined ? [] : [skill]));
 }
 

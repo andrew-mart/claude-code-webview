@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tempDir } from '../test-support/temp-dir.js';
 import { claudeCommands, codexCommands } from '../server/commands.js';
@@ -64,6 +64,23 @@ test('claudeCommands_Should_OfferBuiltInsSkillsCommandsAndPluginsOn_ForSessionsF
         { name: '/tdd', hint: '[feature]', about: 'Test-driven development: red, green, refactor', source: 'personal' },
       ],
     },
+  );
+});
+
+// A skill installed as a link to its folder elsewhere — as `npx skills add` puts one, a junction on Windows — is offered
+// as one in a folder of its own
+test('claudeCommands_Should_OfferSkill_InstalledAsLinkToItsFolder', async () => {
+  const root = tempDir('commands-linked-');
+  const config = join(root, 'claude');
+  await put(join(root, 'agents', 'skills', 'archify', 'SKILL.md'), '---\nname: archify\ndescription: Diagrams as standalone HTML\n---\n');
+  await mkdir(join(config, 'skills'), { recursive: true });
+  await symlink(join(root, 'agents', 'skills', 'archify'), join(config, 'skills', 'archify'), 'junction');
+
+  const offered = await claudeCommands({ config, cwd: undefined });
+
+  assert.deepEqual(
+    offered.filter((command) => command.source !== 'built-in'),
+    [{ name: '/archify', hint: '', about: 'Diagrams as standalone HTML', source: 'personal' }],
   );
 });
 
