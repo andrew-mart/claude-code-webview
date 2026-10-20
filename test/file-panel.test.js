@@ -240,6 +240,26 @@ function serveTexts(texts) {
 }
 const settled = () => new Promise((done) => setTimeout(done, 10));
 
+// A document's diagram fits the panel, drawn smaller when it is wider (style.css): a click shows it at its own size,
+// scrolling sideways, and the next one fits it again
+test('filePanel_Should_ShowDiagramAtItsOwnSizeOnClick_AndFitItAgainOnTheNext', async () => {
+  Object.assign(globalThis, { DOMParser: window.DOMParser, XMLSerializer: window.XMLSerializer, SVGSVGElement: window.SVGSVGElement, HTMLElement: window.HTMLElement, HTMLImageElement: window.HTMLImageElement, HTMLScriptElement: window.HTMLScriptElement });
+  Reflect.set(window, 'mermaid', { initialize() {}, render: async () => ({ svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 400"><text>wide</text></svg>' }) });
+  serveTexts({ 'D:/dev/x/flow.md': '# Flow\n\n```mermaid\nflowchart LR\n  A --> B\n```\n' });
+  const { panel, open } = filePanel();
+  open('D:/dev/x/flow.md');
+  await settled();
+  const diagram = panel.querySelector('.panel-body .fv-diagram');
+  const ownSize = () => diagram?.classList.contains('natural-size');
+
+  diagram?.querySelector('img')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const once = ownSize();
+  diagram?.querySelector('img')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  Reflect.deleteProperty(window, 'mermaid');
+
+  assert.deepEqual({ drawn: diagram !== null, once, twice: ownSize() }, { drawn: true, once: true, twice: false });
+});
+
 // A markdown document opens drawn as a document, its pictures from the viewer and its links to files opening in the
 // panel — a link written as a link and a path in its text alike — a page on the web left to the browser
 test('filePanel_Should_DrawMarkdownDocument_WithItsLinksToFilesOpeningInPanel', async () => {

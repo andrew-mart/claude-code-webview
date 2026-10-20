@@ -4506,6 +4506,28 @@ a.file-link:hover {
   background: var(--bg);
 }
 
+/* A document's diagram as wide as the panel, not as the text's column: one wider than that is drawn smaller to fit —
+   the whole of it in view — and a click shows it at its own size, scrolling sideways, and fits it again (file-panel.js).
+   The panel's body is the width it takes; the document's padding is file-views' 22px on either side. */
+.panel-body:has(> .fv-markdown) {
+  container-type: inline-size;
+}
+
+.panel-body > .fv-markdown .fv-diagram {
+  width: calc(100cqw - 44px);
+}
+
+.panel-body > .fv-markdown .fv-diagram img {
+  max-width: 100%;
+  height: auto;
+  cursor: zoom-in;
+}
+
+.panel-body > .fv-markdown .fv-diagram.natural-size img {
+  max-width: none;
+  cursor: zoom-out;
+}
+
 /* A document's table narrows its columns down to whole words, not further — file-views lets its text break anywhere,
    a letter a line on a phone — and, wider than the panel, scrolls sideways. A path or code in a cell still wraps
    anywhere, but not down to a few letters a line: as the feed's tables do. */

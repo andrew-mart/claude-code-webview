@@ -142,6 +142,12 @@ export function createFilePanel({ panel, layout, editor, vscode, fileManager, pr
   const back = h('button', { className: 'panel-back', attrs: { type: 'button' } });
   back.hidden = true;
   const body = h('div', { className: 'panel-body' });
+  // a document's diagram, drawn smaller to fit the panel, shows at its own size on a click — scrolling sideways — and
+  // fits again on the next (style.css)
+  body.addEventListener('click', (event) => {
+    const picture = event.target instanceof Element ? event.target.closest('.fv-diagram > img') : null;
+    picture?.parentElement?.classList.toggle('natural-size');
+  });
   // what the panel says of a button pressed: over the file, which may be scrolled far from its top
   const note = h('div', { className: 'panel-message panel-note', attrs: { hidden: '', role: 'status' } });
   // the project's files on the left while a file opened from them shows on the right — when the panel is wide enough

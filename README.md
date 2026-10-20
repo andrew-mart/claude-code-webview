@@ -50,8 +50,9 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   `file:///` links and paths in Read/Edit/Write rows open the file in a side panel, scrolled to and highlighting the line.
   The panel shows the file as it is on disk now, not at the time of the answer, drawn by what it is by
   [file-views](https://github.com/andrew-mart/file-views):
-  - markdown as a document — its pictures and links read from its folder, mermaid diagrams drawn; the button over the
-    panel shows its source, and a link to one of its lines opens the source there;
+  - markdown as a document — its pictures and links read from its folder, mermaid diagrams drawn as wide as the panel,
+    a wider one smaller to fit, a click showing it at its own size; the button over the panel shows its source, and a
+    link to one of its lines opens the source there;
   - a CSV table with its columns coloured, a text file with its web addresses as links, code highlighted, a picture;
   - an HTML page with what lies beside it, in a sandbox, its scripts off until the ⚡ button runs them;
   - a Word document as its pages, fitted to the panel, its styles and links checked;
