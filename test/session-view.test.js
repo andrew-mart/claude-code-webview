@@ -234,6 +234,45 @@ test('mountSession_Should_ShowPromptSentFromPage_UntilClaudeWritesItDown', async
   assert.deepEqual({ meanwhile, after }, { meanwhile: ['Check the  limits\nagain'], after: { sent: [], prompts: ['Question', 'Check the limits again'] } });
 });
 
+// /clear, /new or /resume sent from the page: the tab goes on with another session, and what was sent and not written
+// down here never will be — it is let go of
+test('mountSession_Should_LetGoOfPromptsSentAndNotWrittenDown_When_TabWentOnWithAnotherSession', async (t) => {
+  const { view, source } = await mounted(t, undefined);
+  source.emit('open');
+  source.emit('entries', [prompt('u1', 'Question')]);
+  source.emit('ready');
+  await settled();
+  view.expectPrompt('/new');
+
+  view.forgetSent();
+  const shown = [...view.element.querySelectorAll('.msg.user.sent')].length;
+  view.dispose();
+
+  assert.equal(shown, 0);
+});
+
+// Over the feed — above its earliest entries and the button that loads earlier ones — the page puts the conversation
+// the tab went on from; another takes its place, none leaves nothing there
+test('mountSession_Should_ShowLeadAboveEverything_ReplacingTheOneBefore', async (t) => {
+  const { view, source } = await mounted(t, { entries: [prompt('u1', 'Question')], earlier: 3, lastActivity: undefined, savedAt: 1 });
+  source.emit('open');
+  source.emit('ready');
+  await settled();
+  /** @param {string} text */
+  const lead = (text) => Object.assign(window.document.createElement('a'), { textContent: text });
+  const first = () => view.element.firstElementChild?.textContent;
+
+  view.setLead(lead('Earlier: rate limits'));
+  const set = first();
+  view.setLead(lead('Earlier: checkout'));
+  const replaced = [first(), view.element.textContent?.includes('rate limits')];
+  view.setLead(undefined);
+  const cleared = view.element.textContent?.includes('checkout');
+  view.dispose();
+
+  assert.deepEqual({ set, replaced, cleared }, { set: 'Earlier: rate limits', replaced: ['Earlier: checkout', false], cleared: false });
+});
+
 // A shell command or a slash command sent from the page is written down as a command, not a prompt: it is no longer
 // shown as sent then either — a shell command typed right after its "!" too
 test('mountSession_Should_StopShowingCommandSentFromPage_When_ClaudeWritesItDown', async (t) => {

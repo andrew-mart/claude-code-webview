@@ -89,7 +89,7 @@ function fakeComposer(takenBack) {
 }
 
 /** Where the session ran in herdr: the viewer tab of web, closed since. @type {import('../public/model/history.js').Place} */
-const closedPlace = { workspace: 'web', tab: 'viewer', earlierTabs: [], folder: 'D:/dev/x', firstSeen: 1, lastSeen: 2, open: false, note: undefined };
+const closedPlace = { workspace: 'web', tab: 'viewer', earlierTabs: [], terminal: undefined, folder: 'D:/dev/x', firstSeen: 1, lastSeen: 2, open: false, note: undefined };
 
 /**
  * A command Claude ran in the background, as the transcript has it: the call, and the result naming its output file.

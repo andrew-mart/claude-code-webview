@@ -255,6 +255,19 @@ conversation is restored, the message comes back into the box on the page to be 
 The feed shows only the active branch of a conversation: a rewind deletes nothing from the transcript, so the
 messages it undid are left out.
 
+### A tab's conversations
+
+`/clear` (or `/new`), `/resume` and `/branch` go on in the same Claude Code with another conversation. Typed in a tab —
+from the page or in the terminal — the page showing the conversation before goes on with the new one, its box with it,
+and "Earlier in this tab" over the new one's feed opens the one before. The history button over a session shows in the
+side panel the conversations of its tab — the one it runs now first, then those it went on from — and the herdr tabs
+closed, the latest first, each with its conversations: a click opens one to read, and "Restore" opens the tab again in
+its workspace, its latest conversation resumed and the others still its own. A conversation its tab went on from has,
+in the box's place, "Resume here" — `/resume` typed into the tab, which keeps the conversation it ran in its history —
+and "New tab", a copy of the tab with Claude Code resuming the conversation there. A tab is told from the others by
+herdr's id of its terminal, kept with every session in `~/.claude-code-webview/workspaces.json`; a session seen before
+the viewer kept it is a closed tab of its own.
+
 ### Workspaces in the session list
 
 In "Sessions" the session list shows each session's herdr workspace next to its folder (unless they are named alike), the search

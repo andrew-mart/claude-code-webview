@@ -25,14 +25,17 @@ import { createResizer, restoreWidth } from './resizer.js';
  * @typedef {Omit<import('./project-view.js').ProjectSource, 'openFile' | 'iconOf'>} ProjectSource
  * @typedef {ProjectSource & { links: (path: string) => Promise<import('../model/project.js').FileLinks | undefined> }} Project
  *   — a file's project: its folders, its search, a file's links in it
- * @typedef {{ open: (target: FileTarget) => void, showChanges: (source: Omit<import('./changes-view.js').ChangesSource, 'openFile'>) => void, showProject: (source: ProjectSource) => void, showFolder: (path: string) => void, findName: (intent: 'definition' | 'uses', name: string, path: string) => Promise<void>, close: () => void, isOpen: () => boolean }} FilePanel
- *   — showChanges: the branch's changes in place of a file, read from the source; showProject: the project's files;
+ * @typedef {{ open: (target: FileTarget) => void, showChanges: (source: Omit<import('./changes-view.js').ChangesSource, 'openFile'>) => void, showHistory: (history: ShownList) => void, showProject: (source: ProjectSource) => void, showFolder: (path: string) => void, findName: (intent: 'definition' | 'uses', name: string, path: string) => Promise<void>, close: () => void, isOpen: () => boolean }} FilePanel
+ *   — showChanges: the branch's changes in place of a file, read from the source; showHistory: the conversations of
+ *   herdr's tabs (history-view.js); showProject: the project's files;
  *   findName: a name in a file looked for in its project — its one definition opened, or its definitions and uses shown
  * @typedef {{ places: import('./editor-opener.js').PlaceFinder, show: (path: string) => void }} FileManager — where the
  *   browser is; show: a file shown in its folder in the computer's file manager
  * @typedef {(path: string, line: number | undefined) => void} OpenInVsCode — a file opened in VS Code in the browser at
  *   its line, in its project's folder, in a tab of its own
- * @typedef {{ name: string, icon: string, back: string, backTitle: string, beside: boolean, element: HTMLElement, reload: () => Promise<void>, summary: () => string | undefined }} Listing
+ * @typedef {{ element: HTMLElement, reload: () => Promise<void>, summary: () => string | undefined }} ShownList — a list drawn
+ *   by its own view: reload draws it anew, summary goes under the panel's title
+ * @typedef {ShownList & { name: string, icon: string, back: string, backTitle: string, beside: boolean }} Listing
  *   — beside: a file opened from the list shows beside it, the list staying on the left — the project's files
  *   — a list in place of a file; name: the panel's title over it; back: the button's word for the way back to it
  */
@@ -400,6 +403,10 @@ export function createFilePanel({ panel, layout, editor, vscode, fileManager, pr
       const changes = createChangesView({ ...source, openFile: (file) => openFromList({ path: file, line: undefined, endLine: undefined }) });
       changes.element.replaceChildren(h('div', { className: 'panel-message', text: 'Reading the branch…' }));
       showListing({ name: 'Branch changes', icon: 'branch', back: '← Changes', backTitle: "Back to the branch's changes", beside: false, ...changes });
+    },
+    /** @param {ShownList} history */
+    showHistory(history) {
+      showListing({ name: 'History', icon: 'history', back: '← History', backTitle: 'Back to the history', beside: false, ...history });
     },
     /** @param {string} path — a folder: its files, as a project of its own */
     showFolder(path) {

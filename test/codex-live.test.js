@@ -11,7 +11,7 @@ import { codexPanes, createCodexThreads } from '../server/codex-live.js';
  * @param {string} [title]
  * @returns {import('../server/herdr.js').Pane}
  */
-const codexPane = (paneId, cwd, title) => ({ paneId, workspaceId: paneId.split(':')[0] ?? '', tabId: undefined, cwd, agent: 'codex', status: 'working', title, size: undefined, activity: 1 });
+const codexPane = (paneId, cwd, title) => ({ paneId, workspaceId: paneId.split(':')[0] ?? '', tabId: undefined, terminal: undefined, cwd, agent: 'codex', status: 'working', title, size: undefined, activity: 1 });
 
 // A Codex pane runs the thread open in its folder: the one Codex holds open there — a folder's case and slashes aside
 test('codexPanes_Should_GiveCodexPaneTheThreadOpenInItsFolder', () => {

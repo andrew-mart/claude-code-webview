@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf, searchLayout, sessionsByActivity, tabTarget } from '../public/model/herdr.js';
+import { openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf, searchLayout, sessionsByActivity, successorIn, tabTarget } from '../public/model/herdr.js';
 
 const session = '7d4e1b20-2222-4333-8444-955566667777';
 
@@ -124,6 +124,36 @@ test('parseNewWorkspace_Should_TakeAddressOrReason_And_CountAnyOtherAsFailed', (
   assert.deepEqual(
     [{ ok: true, target: '#/pane/w5:p1' }, { ok: false, error: 'no-folder' }, { ok: false, error: 'not-created' }, { ok: false, error: 'empty' }, { ok: false, error: 'boom' }, undefined].map(parseNewWorkspace),
     [{ ok: true, target: '#/pane/w5:p1' }, { ok: false, error: 'no-folder' }, { ok: false, error: 'not-created' }, { ok: false, error: 'empty' }, { ok: false, error: 'failed' }, { ok: false, error: 'failed' }],
+  );
+});
+
+// /clear, /new, /resume in the tab of the session the page shows: its pane goes on with another session, which the page
+// follows; a session still in a pane — this one or another — a pane gone or left with a shell, or a session that was in
+// no pane, has none to follow
+test('successorIn_Should_TellSessionItsPaneWentOnWith', () => {
+  const cleared = '5b0e8d14-3333-4444-8555-a66677778888';
+  /**
+   * trip_plans with these sessions in its panes, by pane id, the others with none; resume's tab closed unless its pane
+   * is told.
+   * @param {Readonly<Record<string, string | undefined>>} sessions
+   * @returns {import('../public/model/herdr.js').HerdrLayout}
+   */
+  const running = (sessions) => ({
+    herdr: true,
+    workspaces: [{ ...tripPlans, tabs: tripPlans.tabs.filter((tab) => tab.id !== 'w2:t1' || 'w2:p1' in sessions).map((tab) => ({ ...tab, panes: tab.panes.map((pane) => ({ ...pane, session: sessions[pane.id] })) })) }],
+  });
+  const before = running({ 'w2:p1': session });
+
+  assert.deepEqual(
+    [
+      successorIn(before, running({ 'w2:p1': cleared }), session),
+      successorIn(before, running({ 'w2:p1': session }), session),
+      successorIn(before, running({ 'w2:p1': cleared, 'w2:p3': session }), session),
+      successorIn(before, running({}), session),
+      successorIn(before, running({ 'w2:p1': undefined }), session),
+      successorIn(running({ 'w2:p1': undefined }), running({ 'w2:p1': cleared }), session),
+    ],
+    [cleared, undefined, undefined, undefined, undefined, undefined],
   );
 });
 

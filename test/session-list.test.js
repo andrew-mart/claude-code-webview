@@ -77,7 +77,7 @@ test('groupedSessions_Should_GatherSessionsOfEachWorkspace_LatestActivityFirst_T
  * @param {Partial<import('../public/model/history.js').Place>} [more]
  * @returns {import('../public/model/history.js').Place}
  */
-const ranIn = (tab, more = {}) => ({ workspace: 'claude-webview', tab, earlierTabs: [], folder: undefined, firstSeen: 1, lastSeen: 2, open: false, note: undefined, ...more });
+const ranIn = (tab, more = {}) => ({ workspace: 'claude-webview', tab, earlierTabs: [], terminal: undefined, folder: undefined, firstSeen: 1, lastSeen: 2, open: false, note: undefined, ...more });
 
 /** naming ran in the tab "drafts", once called "notes-tab", with a note; viewer still runs in "ui"; blank never ran in herdr. */
 const history = { naming: ranIn('drafts', { earlierTabs: ['notes-tab'], note: 'wording of the README' }), viewer: ranIn('ui', { open: true }) };

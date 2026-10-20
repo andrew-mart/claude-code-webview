@@ -104,7 +104,7 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
       if (session === undefined || workspace === undefined) return undefined;
       const model = pane.agent === 'claude' && claudeGptCommand !== undefined ? await claudeModelOf(session) : undefined;
       const gpt = gptPanes.delete(pane.paneId) || isGptModel(model) || (model === undefined && store.history[session]?.claudeGpt === true);
-      return { session, workspace, tab, folder: pane.cwd, ...(gpt ? { claudeGpt: true } : {}) };
+      return { session, workspace, tab, terminal: pane.terminal, folder: pane.cwd, ...(gpt ? { claudeGpt: true } : {}) };
     }));
     const running = sightings.filter((sighting) => sighting !== undefined);
     const now = Date.now();
@@ -374,8 +374,8 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
     },
     /**
      * A closed session opened again where it ran: a new tab of its workspace — the workspace opened again if it is gone,
-     * or named after the folder for a session never seen in herdr — named as the tab was, in its folder, Claude Code —
-     * or Codex — resuming it there. The page stays on the session's feed.
+     * or named after the folder for a session never seen in herdr — named as the tab was, or as a copy of it while it is
+     * open, in its folder, Claude Code — or Codex — resuming it there. The page stays on the session's feed.
      * @param {string} sessionId
      * @param {string | undefined} cwd — the session's folder, as its transcript tells it
      * @param {import('../public/model/composer.js').Agent} agent — whose session
@@ -393,8 +393,10 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
       if (pane === undefined) return { ok: false, error: 'failed' };
       latest = undefined;
       const tab = succeeded(reply) ? tabOf(reply.json) : undefined;
-      // a tab nobody named went by its number, which the new tab has a new one of
-      if (tab !== undefined && place?.tab !== undefined && !/^\d+$/.test(place.tab)) await herdr(['tab', 'rename', tab, place.tab]);
+      const names = view.snapshot.tabs.filter((known) => known.workspaceId === workspace?.id).map((known) => known.label);
+      // a tab nobody named went by its number, which the new tab has a new one of; one still open — another conversation
+      // going on in it — is copied
+      if (tab !== undefined && place?.tab !== undefined && !/^\d+$/.test(place.tab)) await herdr(['tab', 'rename', tab, names.includes(place.tab) ? copyName(place.tab, names) : place.tab]);
       if (!(await startAgent(pane, agent, { session: sessionId, as: 'resume' }))) return { ok: false, error: 'failed' };
       return { ok: true, target: `#/${sessionId}` };
     },

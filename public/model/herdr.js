@@ -49,8 +49,31 @@ export function tabTarget(tab) {
  * @returns {string | undefined}
  */
 export function paneSession(layout, paneId, sessionWhenOpened) {
-  const pane = layout.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes)).find((known) => known.id === paneId);
+  const pane = panesOf(layout).find((known) => known.id === paneId);
   return pane?.session === sessionWhenOpened ? undefined : pane?.session;
+}
+
+/**
+ * The session a session's pane went on with — /clear, /new or /resume typed in its tab: the one in the pane it was in
+ * before, while it is in none now.
+ * @param {HerdrLayout} before — what herdr showed last time
+ * @param {HerdrLayout} after — what it shows now
+ * @param {string} sessionId
+ * @returns {string | undefined}
+ */
+export function successorIn(before, after, sessionId) {
+  const was = panesOf(before).find((pane) => pane.session === sessionId);
+  const now = panesOf(after);
+  if (was === undefined || now.some((pane) => pane.session === sessionId)) return undefined;
+  return now.find((pane) => pane.id === was.id)?.session;
+}
+
+/**
+ * @param {HerdrLayout} layout
+ * @returns {HerdrPane[]} — of every tab of every workspace
+ */
+function panesOf(layout) {
+  return layout.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes));
 }
 
 /**

@@ -13,9 +13,9 @@ import { createAsideStore } from './view/aside-store.js';
 import { listenForCopies } from './view/markdown-copy.js';
 import { revalidatedPolls } from './view/revalidated-polls.js';
 import { createDrawers } from './view/drawers.js';
-import { openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf } from './model/herdr.js';
+import { openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf, successorIn } from './model/herdr.js';
 import { folderChoices, rememberFolder } from './model/folders.js';
-import { parseHistory } from './model/history.js';
+import { parseHistory, tabNeighbours } from './model/history.js';
 import { parseUsage, usageView } from './model/usage.js';
 import { createHerdrSidebar, createTabBar } from './view/herdr-panel.js';
 import { mergeSeen, parseSeen, seeOpened } from './model/lamps.js';
@@ -53,6 +53,7 @@ import { createSessionRelay } from './view/session-relay.js';
 import { createWarmSessions } from './view/warm-sessions.js';
 import { createSidebarHead } from './view/sidebar-head.js';
 import { createTasksView } from './view/tasks-view.js';
+import { createHistoryView, earlierLink } from './view/history-view.js';
 
 /**
  * activeAt — the session's last prompt or answer; agent — whose session it is: Claude Code's, or Codex's
@@ -244,7 +245,7 @@ function createPage() {
   let listVersion;
   let listMinute = 0;
   /** agent: whose the session was taken for when it was opened; putAway: out of sight, kept as shown (warm) */
-  /** @type {{ id: string, agent: SessionInfo['agent'], dispose: () => void, putAway: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, keepPlace: (change: () => void) => void, rewound: (reply: import('./model/rewind.js').RewindReply) => void, stop: () => boolean } | undefined} */
+  /** @type {{ id: string, agent: SessionInfo['agent'], dispose: () => void, putAway: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, keepPlace: (change: () => void) => void, rewound: (reply: import('./model/rewind.js').RewindReply) => void, stop: () => boolean, forgetSent: () => void, showTab: () => void } | undefined} */
   let current;
   /** How long each session has been written to: its robots' story goes on as its row is drawn again. */
   const workClock = createWorkClock(() => Date.now());
@@ -261,6 +262,30 @@ function createPage() {
   /** @type {import('./model/history.js').History} */
   let history = {};
   let historyKnown = '';
+  /** Whether the page has anything of a session to show: the list has it — one with no transcript it has not. */
+  const readable = (/** @type {string} */ id) => sessions.some((session) => session.id === id);
+  /** A session as the list tells it, for the conversations of herdr's tabs. @param {string} id */
+  const listedOf = (id) => {
+    const info = sessions.find((session) => session.id === id);
+    return info === undefined ? undefined : { title: info.title, activeAt: info.activeAt };
+  };
+  /** The conversations of the open session's tab and the tabs closed, in the side panel. */
+  const historyView = createHistoryView({
+    shown: () => current?.id,
+    history: () => history,
+    listed: listedOf,
+    open: (id) => {
+      // on a narrow screen the panel covers the feed
+      if (matchMedia('(max-width: 820px)').matches) filePanel.close();
+      location.hash = `#/${id}`;
+    },
+    reopen: reopenSession,
+    now: () => Date.now(),
+  });
+  /** The history panel drawn anew, while it shows: the open session, the list or the history changed. */
+  const redrawHistory = () => {
+    if (historyView.element.isConnected) void historyView.reload();
+  };
   /** What herdr shows (server/herdr-view.js): the sidebar's herdr mode and the tabs above the open session. */
   /** @type {import('./model/herdr.js').HerdrLayout} */
   let herdrLayout = { herdr: false, workspaces: [] };
@@ -502,6 +527,7 @@ function createPage() {
     main.replaceChildren(top, tabBar.element, terminal.element);
     currentPane = { id: paneId, terminal, title, sessionWhenOpened: paneSession(herdrLayout, paneId, undefined) };
     renderList();
+    redrawHistory();
   };
 
   /**
@@ -609,7 +635,7 @@ function createPage() {
     const { scroller, view, bookmarks } = part;
     const tables = sessionTables(id, scroller, (change) => (current === undefined ? change() : current.keepPlace(change)));
     tables.apply();
-    const header = createSessionHeader({ place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation: [vscodeButton(() => sessions.find((session) => session.id === id)?.cwd), fileManagerButton(() => sessions.find((session) => session.id === id)?.cwd), filesButton(() => sessions.find((session) => session.id === id)?.cwd), changesButton(id), drawerButton('outline', 'list', 'Outline')], tools: settings.buttons() });
+    const header = createSessionHeader({ place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation: [vscodeButton(() => sessions.find((session) => session.id === id)?.cwd), fileManagerButton(() => sessions.find((session) => session.id === id)?.cwd), filesButton(() => sessions.find((session) => session.id === id)?.cwd), changesButton(id), historyButton(historyView), drawerButton('outline', 'list', 'Outline')], tools: settings.buttons() });
     const outlineElement = h('aside', { className: 'outline', attrs: { 'aria-label': 'Outline' } });
     const outline = createOutline({
       element: outlineElement,
@@ -632,10 +658,14 @@ function createPage() {
       asides,
       // a prompt the terminal took shows in the feed at once, until Claude Code writes it down
       onSent: (text) => view?.expectPrompt(text),
-      // a tab numbered by herdr says little: only a named one is told
+      // a tab numbered by herdr says little: only a named one is told; the conversation it went on with, while it runs
       placeOf: () => {
         const place = history[id];
-        return place === undefined ? undefined : { workspace: place.workspace, tab: place.tab !== undefined && !/^\d+$/.test(place.tab) ? place.tab : undefined };
+        if (place === undefined) return undefined;
+        const { runningNow } = tabNeighbours(history, id, readable);
+        // one the list does not have yet is taken for Claude Code's, as a session opened is
+        const info = runningNow === undefined ? undefined : sessions.find((session) => session.id === runningNow.id);
+        return { workspace: place.workspace, tab: place.tab !== undefined && !/^\d+$/.test(place.tab) ? place.tab : undefined, runningNow: runningNow === undefined ? undefined : { id: runningNow.id, title: info?.title ?? 'a new conversation', agent: info?.agent ?? 'claude' } };
       },
     });
     const tasks = createTasksView({
@@ -697,6 +727,13 @@ function createPage() {
         if (target !== undefined) void view.scrollToAnchor(target);
       },
       stop: () => composer.stop(),
+      forgetSent: () => view.forgetSent(),
+      // over the feed, the conversation its tab went on from
+      showTab() {
+        const { earlier } = tabNeighbours(history, id, readable);
+        const listed = earlier === undefined ? undefined : listedOf(earlier.id);
+        view.setLead(earlier === undefined || listed === undefined ? undefined : earlierLink({ id: earlier.id, title: listed.title ?? 'Untitled', activeAt: listed.activeAt }, Date.now()));
+      },
       // Like the terminal, the rewound message comes back into the box to be edited and sent again.
       rewound(reply) {
         composer.say(rewindMessage(reply), 'ok');
@@ -712,7 +749,9 @@ function createPage() {
         part.dispose();
       },
     };
+    current.showTab();
     renderList();
+    redrawHistory();
   };
 
   /** Opens the open session anew: its box, rewinds and hints as whose the list tells it is now. */
@@ -769,6 +808,9 @@ function createPage() {
       listMinute = minute;
       sessions = merged;
       renderList();
+      // a conversation of a tab is shown once the list has it
+      current?.showTab();
+      redrawHistory();
       void offline.saveList(sessions);
       void keepRecent();
       const info = sessions.find((session) => session.id === current?.id);
@@ -804,6 +846,8 @@ function createPage() {
       historyKnown = known;
       history = parseHistory(reply);
       renderList();
+      current?.showTab();
+      redrawHistory();
     },
     followLatest() {
       const [latest] = listed('');
@@ -822,6 +866,8 @@ function createPage() {
     },
     /** herdr in the sidebar — when it is the sidebar's mode — and the tabs above what the page shows. */
     renderHerdr() {
+      // what only herdr has — its tabs' history — shows with it
+      document.documentElement.toggleAttribute('data-herdr', herdrLayout.herdr);
       const mode = herdrLayout.herdr && settings.get('sidebar') === 'herdr' ? 'herdr' : 'sessions';
       sidebarHead.show({ mode, herdr: herdrLayout.herdr });
       herdrPanel.hidden = mode !== 'herdr';
@@ -852,10 +898,19 @@ function createPage() {
       const known = JSON.stringify(reply);
       if (known === herdrKnown) return;
       herdrKnown = known;
+      const before = herdrLayout;
       herdrLayout = parseHerdrLayout(reply);
       // Claude Code started in the terminal shown — a tab opened with Claude, or claude typed there: its feed instead
       const started = currentPane === undefined ? undefined : paneSession(herdrLayout, currentPane.id, currentPane.sessionWhenOpened);
       if (started !== undefined) location.hash = `#/${started}`;
+      // /clear, /new or /resume in the tab of the session shown: the page goes on with the session the tab went on with —
+      // what was sent to this one and not written down never will be; the tab's history tells the one before
+      const wentOn = current === undefined ? undefined : successorIn(before, herdrLayout, current.id);
+      if (wentOn !== undefined) {
+        current?.forgetSent();
+        void this.refreshHistory();
+        location.hash = `#/${wentOn}`;
+      }
       this.renderHerdr();
     },
     /** The answers seen on the other devices: their lamps go out here too. */
@@ -1363,6 +1418,24 @@ function changesButton(sessionId) {
 }
 
 /**
+ * The button over a session that shows the conversations of herdr's tabs in the side panel: of its own tab — the one it
+ * runs and those it went on from — and of the tabs closed; hidden without herdr (style.css).
+ * @param {import('./view/file-panel.js').ShownList} history
+ * @returns {HTMLButtonElement}
+ */
+function historyButton(history) {
+  const button = iconButton('history');
+  button.classList.add('head-history');
+  button.title = "The tab's conversations, and the tabs closed";
+  button.setAttribute('aria-label', button.title);
+  button.addEventListener('click', () => {
+    drawers.close();
+    filePanel.showHistory(history);
+  });
+  return button;
+}
+
+/**
  * The changes of the branch checked out in the session's folder, against a base chosen or the one it was made from.
  * @param {string} sessionId
  * @param {string | undefined} base
@@ -1565,6 +1638,23 @@ async function newTab(tab, start, label) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Viewer': '1' },
     body: JSON.stringify({ tab, start, label }),
+  }).catch(() => undefined);
+  const outcome = parseNewTab(response?.ok ? await response.json().catch(() => undefined) : undefined);
+  if (outcome.ok) await page.refreshHerdr();
+  return outcome;
+}
+
+/**
+ * A closed tab opened again in herdr, this conversation of it resumed there; once herdr has it the page looks at herdr
+ * again.
+ * @param {string} session
+ * @returns {Promise<import('./model/herdr.js').NewTab>}
+ */
+async function reopenSession(session) {
+  const response = await fetch('/api/history/reopen', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Viewer': '1' },
+    body: JSON.stringify({ session }),
   }).catch(() => undefined);
   const outcome = parseNewTab(response?.ok ? await response.json().catch(() => undefined) : undefined);
   if (outcome.ok) await page.refreshHerdr();

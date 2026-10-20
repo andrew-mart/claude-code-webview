@@ -27,10 +27,16 @@ const noticeMs = 4000;
 const serverSilent = { shown: true, enabled: false, canInterrupt: false, canReopen: false, placeholder: 'Sending is unavailable', hint: 'The viewer server did not report whether the session is running.' };
 
 /**
+ * @typedef {{ workspace: string, tab: string | undefined, runningNow: { id: string, title: string, agent: import('../model/composer.js').Agent } | undefined }} Ran — where
+ *   a session ran in herdr: its workspace, its tab's name — when it had one; runningNow: the conversation its tab went
+ *   on with — /clear, /new or /resume typed there — while it runs, and whose it is
+ */
+
+/**
  * @param {string} sessionId
- * @param {{ agent: import('../model/composer.js').Agent, focusBox: 'when-ready' | 'no', placeOf: () => { workspace: string, tab: string | undefined } | undefined, asides: import('./aside-store.js').AsideStore, onSent: (text: string) => void }} options —
+ * @param {{ agent: import('../model/composer.js').Agent, focusBox: 'when-ready' | 'no', placeOf: () => Ran | undefined, asides: import('./aside-store.js').AsideStore, onSent: (text: string) => void }} options —
  *   agent: whose session; focusBox when-ready: the user opened the session, so the box takes the focus once the session can be written to; no:
- *   following the active session switched to it. placeOf: the herdr workspace and tab the session ran in, if known. asides:
+ *   following the active session switched to it. placeOf: where the session ran in herdr, if known. asides:
  *   the side questions and answers of the page's sessions — one outlives the box it was asked in. onSent: a prompt the
  *   session's terminal took — the feed shows it until Claude Code writes it down
  * @returns {{ element: HTMLElement, say: (message: string, tone: 'ok' | 'error') => void, fill: (text: string) => void, stop: () => boolean, sendQueue: () => void, dispose: () => void }} — stop: Claude stopped if it was working
@@ -45,10 +51,14 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   const send = h('button', { className: 'composer-send', title: keyboard === 'touch' ? 'Send' : 'Send (Enter)', attrs: { type: 'submit', 'aria-label': 'Send' } }, [icon('send')]);
   const hint = h('div', { className: 'composer-hint' });
   // a session that is not running is opened again in herdr — where it ran — and the box comes to life when it starts
-  const reopen = h('button', { className: 'composer-reopen', text: 'Open in herdr', title: 'A tab of the workspace it ran in, named as before; Claude Code resumes the session there', attrs: { type: 'button' } });
+  const reopen = h('button', { className: 'composer-reopen', attrs: { type: 'button' } });
+  // one whose tab went on with another conversation goes back to it there too: /resume typed into that one
+  const resumeHere = h('button', { className: 'composer-resume-here', text: 'Resume here', title: "Back to this conversation in its tab: /resume typed into the one it runs now, which stays in the tab's history", attrs: { type: 'button', hidden: '' } });
   const resumeWhere = h('span', { className: 'composer-resume-where' });
-  // in the box's place while the session is not running: where it ran, and the button that opens it there again
-  const resume = h('div', { className: 'composer-resume', attrs: { hidden: '' } }, [h('div', { className: 'composer-resume-text' }, [h('span', { className: 'composer-resume-state', text: 'Not running' }), resumeWhere]), reopen]);
+  // in the box's place while the session is not running: where it ran, and the buttons that open it there again
+  const resume = h('div', { className: 'composer-resume', attrs: { hidden: '' } }, [h('div', { className: 'composer-resume-text' }, [h('span', { className: 'composer-resume-state', text: 'Not running' }), resumeWhere]), h('div', { className: 'composer-resume-actions' }, [resumeHere, reopen])]);
+  /** What the card shows, to draw it again only when that changes: it is looked at every few seconds. */
+  let ranShown = '';
   const status = h('div', { className: 'composer-status', attrs: { role: 'status' } });
   let enabled = false;
   let sending = false;
@@ -142,10 +152,7 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     busy = view.canInterrupt;
     resume.hidden = !view.canReopen;
     form.hidden = view.canReopen;
-    if (view.canReopen) {
-      const place = placeOf();
-      resumeWhere.textContent = place === undefined ? 'Opens in herdr in a new workspace named after its folder' : [place.workspace, place.tab].filter((part) => part !== undefined).join(' · ');
-    }
+    if (view.canReopen) showRan(placeOf());
     dialogCard.show(live?.state === 'live' ? live.dialog : undefined);
     showQueued(live?.state === 'live' ? live.queued : []);
     refreshButtons();
@@ -158,15 +165,33 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     }
   };
   /**
+   * Where the session ran, in the card in the box's place: the conversation its tab runs now, to go to, and the ways
+   * back to this one — in that tab for Claude Code's, and in a new one — or the workspace and tab a new tab opens in.
+   * @param {Ran | undefined} place
+   */
+  const showRan = (place) => {
+    const runningNow = place?.runningNow;
+    const look = JSON.stringify([place, agent]);
+    if (look === ranShown) return;
+    ranShown = look;
+    if (runningNow !== undefined) resumeWhere.replaceChildren('Its tab went on with ', h('a', { text: runningNow.title, attrs: { href: `#/${runningNow.id}` } }));
+    else resumeWhere.textContent = place === undefined ? 'Opens in herdr in a new workspace named after its folder' : [place.workspace, place.tab].filter((part) => part !== undefined).join(' · ');
+    // /resume is Claude Code's, typed into Claude Code
+    resumeHere.hidden = runningNow === undefined || agent !== 'claude' || runningNow.agent !== 'claude';
+    reopen.textContent = runningNow === undefined ? 'Open in herdr' : 'New tab';
+    reopen.title = runningNow === undefined ? 'A tab of the workspace it ran in, named as before; Claude Code resumes the session there' : 'A copy of its tab in the workspace; Claude Code resumes the session there';
+  };
+  /**
    * @param {'/api/send' | '/api/interrupt' | '/api/btw' | '/api/dialog' | '/api/history/reopen'} path
    * @param {{ text?: string, images?: readonly import('./attachment-picker.js').AttachedImage[], now?: true, question?: string, steps?: readonly import('../model/dialog.js').DialogStep[] }} payload — now: past Claude Code's queue
+   * @param {string} [session] - whose: the box's session unless another
    * @returns {Promise<unknown>} — the reply's JSON; undefined if the server did not answer
    */
-  const post = async (path, payload) => {
+  const post = async (path, payload, session = sessionId) => {
     const response = await fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Viewer': '1' },
-      body: JSON.stringify({ session: sessionId, ...payload }),
+      body: JSON.stringify({ session, ...payload }),
     }).catch(() => undefined);
     return response?.ok ? response.json().catch(() => undefined) : undefined;
   };
@@ -254,6 +279,20 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
       reopen.disabled = false;
       say(opened.ok ? 'Opened in herdr — Claude Code is resuming the session.' : 'herdr did not open the session.', opened.ok ? 'ok' : 'error');
       // Claude Code takes a few seconds to start: the box follows it
+      for (const delayMs of [2000, 5000, 9000]) setTimeout(() => void refreshLive(), delayMs);
+    });
+  });
+  // Claude Code in the tab goes back to this conversation once it takes /resume — after its turn, if it works: the box
+  // comes to life then
+  resumeHere.addEventListener('click', () => {
+    const runningNow = placeOf()?.runningNow;
+    if (runningNow === undefined) return;
+    resumeHere.disabled = true;
+    say('Sending /resume to its tab…', 'busy');
+    void post('/api/send', { text: `/resume ${sessionId}` }, runningNow.id).then((json) => {
+      const outcome = parseOutcome(json);
+      resumeHere.disabled = false;
+      say(outcome?.ok === true ? 'Sent — Claude Code goes back to this conversation in its tab, once its turn is over if it is working.' : 'Its tab did not take /resume — open the conversation in a new tab instead.', outcome?.ok === true ? 'ok' : 'error');
       for (const delayMs of [2000, 5000, 9000]) setTimeout(() => void refreshLive(), delayMs);
     });
   });

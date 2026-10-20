@@ -11,7 +11,7 @@ const running = '7d4e1b20-2222-4333-8444-955566667777';
 /**
  * @typedef {{ workspace_id: string, label: string, number?: number, agent_status?: string, active_tab_id?: string }} FakeWorkspace
  * @typedef {{ tab_id: string, workspace_id: string, number: number, label: string, agent_status: string }} FakeTab
- * @typedef {{ pane_id: string, workspace_id: string, cwd: string, tab_id?: string, agent?: string, agent_status?: string, terminal_title_stripped?: string, state_change_seq?: number, pid?: number }} FakePane
+ * @typedef {{ pane_id: string, workspace_id: string, cwd: string, tab_id?: string, terminal_id?: string, agent?: string, agent_status?: string, terminal_title_stripped?: string, state_change_seq?: number, pid?: number }} FakePane
  * @typedef {{ tab_id: string, workspace_id: string, panes: { pane_id: string, rect: { x: number, y: number, width: number, height: number } }[] }} FakeLayout
  */
 
@@ -573,6 +573,28 @@ test('history_Should_KeepSessionWithItsTab_AndCloseItOnceItsPaneIsGone', async (
   ]);
 });
 
+// /clear, /new, /resume: the process in a tab's pane goes on with another session — the two are the tab's conversations,
+// one after the other, kept with its terminal
+test('history_Should_KeepConversationsOfOneTab_WithItsTerminal_When_ItsProcessGoesOnWithAnotherSession', async (t) => {
+  const cleared = '5b0e8d14-3333-4444-8555-a66677778888';
+  const records = [runningRecord];
+  const inTab = fakeHerdr({
+    workspaces: tripPlans.workspaces,
+    tabs: [{ tab_id: 'w2:t1', workspace_id: 'w2', number: 1, label: 'hotels', agent_status: 'idle' }],
+    panes: [{ pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', terminal_id: 'term_65cd672d541fe1d', cwd: 'D:\\trip_plans', agent: 'claude', pid: 101 }],
+  });
+  const view = await workspacesOf(t, { herdr: inTab, records });
+  await view.history();
+  records[0] = { ...runningRecord, sessionId: cleared, updatedAt: 2 };
+
+  const history = await view.history();
+
+  assert.deepEqual([history[running], history[cleared]].map((place) => (place === undefined ? undefined : { terminal: place.terminal, open: place.open })), [
+    { terminal: 'term_65cd672d541fe1d', open: false },
+    { terminal: 'term_65cd672d541fe1d', open: true },
+  ]);
+});
+
 // The page asks for the history every few seconds and is told "not changed" while nothing has: an open session's place
 // does not carry when it was last seen — it is seen now
 test('history_Should_StayTheSame_WhileNothingChanges', async (t) => {
@@ -614,6 +636,17 @@ test('reopen_Should_OpenSessionInItsWorkspace_InTabNamedAsBefore', async () => {
     outcome: { ok: true, target: '#/s9' },
     changes: ['tab create --workspace w2 --cwd D:/web', 'tab rename w2:t3 checkout fix', 'pane send-text w2:p3 claude-god --resume s9', 'pane send-keys w2:p3 enter'],
   });
+});
+
+// A conversation whose tab is still open — another one going on in it — opens in a copy of the tab, not in a second
+// tab of the same name
+test('reopen_Should_NameNewTabAsCopy_When_TabItRanInIsStillOpen', async () => {
+  const herdr = tabsHerdr();
+  const view = await viewWithHistory(herdr, { s9: { workspace: 'web', tab: 'tests', folder: 'D:/web' } });
+
+  await view.reopen('s9', 'D:/web', 'claude');
+
+  assert.deepEqual(herdr.changes.filter((change) => change.startsWith('tab rename')), ['tab rename w2:t3 tests::1']);
 });
 
 // Codex as Claude Code: a new tab starts it with the command the viewer was told to start it with, and a closed Codex

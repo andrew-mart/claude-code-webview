@@ -26,9 +26,11 @@ import { createToolRow } from './tool-view.js';
  *   the viewer, over the page's stream (feed-hub.js)
  * @typedef {{ anchor: (anchor: Anchor, content: HTMLElement) => HTMLElement, onPrompt: (prompt: Anchor) => void, loadEntry: import('./tool-view.js').LoadEntry, sendQueueNow: (() => void) | undefined, openFeed: OpenFeed }} FeedHooks — sendQueueNow:
  *   what waits in Claude Code's queue, sent now; none where nothing can be sent; openFeed: for a subagent's transcript
- * @typedef {{ element: HTMLElement, dispose: () => void, scrollToAnchor: (id: string) => boolean, promptElements: () => readonly HTMLElement[], place: () => ReadingPlace, hasEarlier: () => boolean, loadEarlier: () => Promise<void>, keepPlace: (change: () => void) => void, expectPrompt: (text: string) => void, restore: (place: ReadingPlace) => void }} MountedSession
+ * @typedef {{ element: HTMLElement, dispose: () => void, scrollToAnchor: (id: string) => boolean, promptElements: () => readonly HTMLElement[], place: () => ReadingPlace, hasEarlier: () => boolean, loadEarlier: () => Promise<void>, keepPlace: (change: () => void) => void, expectPrompt: (text: string) => void, forgetSent: () => void, setLead: (lead: HTMLElement | undefined) => void, restore: (place: ReadingPlace) => void }} MountedSession
  * restore — the reader taken back to the place they were at — the session shown again, its feed gone on out of sight;
- * expectPrompt — a prompt sent from the page: shown, as sent, until Claude Code writes it down;
+ * expectPrompt — a prompt sent from the page: shown, as sent, until Claude Code writes it down; forgetSent — those not
+ * written down let go of: the session's tab went on with another session — /clear, /new, /resume — they never will be;
+ * setLead — what goes over the feed, above all of it: the conversation the session's tab went on from; none, nothing;
  * hasEarlier — the session opened with its latest part, the rest is not loaded; loadEarlier loads it;
  * keepPlace — runs a change that resizes the feed (a font, wide tables) keeping the reader at the same message
  * Where the reader is in the feed: at the bottom, following new messages, or at a message — the one at the top of the
@@ -81,7 +83,9 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   const keptThread = h('div', { className: 'thread kept', attrs: { hidden: '' } });
   const updatingText = h('span', { text: 'Updating…' });
   const updating = h('div', { className: 'updating', attrs: { role: 'status', hidden: '' } }, [h('span', { className: 'spark', text: '✻' }), updatingText]);
-  const element = h('div', { className: 'session' }, [earlier, keptThread, updating, thread, loading, working, waitingBox, jump]);
+  // the conversation the session's tab went on from, over all of it
+  const lead = h('div', { className: 'session-lead', attrs: { hidden: '' } });
+  const element = h('div', { className: 'session' }, [lead, earlier, keptThread, updating, thread, loading, working, waitingBox, jump]);
   const anchors = createAnchors(bookmarks, onRewind);
   /** @type {HTMLElement[]} */
   const prompts = [];
@@ -480,6 +484,13 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     expectPrompt(text) {
       feed.expect(text);
     },
+    forgetSent() {
+      feed.forgetSent();
+    },
+    setLead(shown) {
+      lead.replaceChildren(...(shown === undefined ? [] : [shown]));
+      lead.hidden = shown === undefined;
+    },
     keepPlace(change) {
       // At the bottom the feed keeps following it by itself.
       if (!shown || stuck) {
@@ -821,6 +832,11 @@ function createFeed({ thread, waitingBox }, sessionId, hooks) {
     /** A prompt sent from the page, shown until Claude Code writes it down. @param {string} text */
     expect(text) {
       sent.push(text);
+      showWaiting();
+    },
+    /** The prompts sent from the page and not written down, let go of: they never will be. */
+    forgetSent() {
+      sent.length = 0;
       showWaiting();
     },
   };

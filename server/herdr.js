@@ -132,8 +132,9 @@ export function foregroundPids(json) {
  * @typedef {{ id: string, number: number, label: string, status: AgentStatus, activeTab: string | undefined }} HerdrWorkspace
  * @typedef {{ id: string, workspaceId: string, number: number, label: string, status: AgentStatus }} HerdrTab
  * @typedef {{ cols: number, rows: number }} PaneSize
- * @typedef {{ paneId: string, workspaceId: string, tabId: string | undefined, cwd: string | undefined, agent: string | undefined, status: AgentStatus, title: string | undefined, size: PaneSize | undefined, activity: number | undefined }} Pane
- *   cwd: the folder of its shell or program; agent: the coding agent herdr recognized there (claude, codex, …);
+ * @typedef {{ paneId: string, workspaceId: string, tabId: string | undefined, terminal: string | undefined, cwd: string | undefined, agent: string | undefined, status: AgentStatus, title: string | undefined, size: PaneSize | undefined, activity: number | undefined }} Pane
+ *   terminal: herdr's id of its terminal, one of its own for every terminal herdr opens — a pane's id is used again by
+ *   others; cwd: the folder of its shell or program; agent: the coding agent herdr recognized there (claude, codex, …);
  *   title: the terminal's title; size: its terminal's, from the tab's layout; activity: herdr's count of agents' state
  *   changes when this pane's agent changed state last — the larger, the more recent; none without an agent
  * @typedef {{ workspaces: readonly HerdrWorkspace[], tabs: readonly HerdrTab[], panes: readonly Pane[] }} HerdrSnapshot
@@ -164,7 +165,7 @@ export function snapshotOf(json) {
     ),
     panes: recordsIn(snapshot.panes).flatMap((pane) =>
       typeof pane.pane_id === 'string' && typeof pane.workspace_id === 'string'
-        ? [{ paneId: pane.pane_id, workspaceId: pane.workspace_id, tabId: text(pane.tab_id), cwd: text(pane.cwd), agent: text(pane.agent), status: statusOf(pane.agent_status), title: text(pane.terminal_title_stripped), size: sizes.get(pane.pane_id), activity: activity.get(pane.pane_id) }]
+        ? [{ paneId: pane.pane_id, workspaceId: pane.workspace_id, tabId: text(pane.tab_id), terminal: text(pane.terminal_id), cwd: text(pane.cwd), agent: text(pane.agent), status: statusOf(pane.agent_status), title: text(pane.terminal_title_stripped), size: sizes.get(pane.pane_id), activity: activity.get(pane.pane_id) }]
         : [],
     ),
   };

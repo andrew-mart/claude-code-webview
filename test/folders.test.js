@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { folderChoices, rememberFolder } from '../public/model/folders.js';
 
 /** A place a session ran in, in this folder, seen last at this time. */
-const ranIn = (/** @type {string | undefined} */ folder, /** @type {number} */ lastSeen) => ({ workspace: 'w', tab: 't', earlierTabs: [], folder, firstSeen: 1, lastSeen, open: false, note: undefined });
+const ranIn = (/** @type {string | undefined} */ folder, /** @type {number} */ lastSeen) => ({ workspace: 'w', tab: 't', earlierTabs: [], terminal: undefined, folder, firstSeen: 1, lastSeen, open: false, note: undefined });
 
 // A new workspace's folder is chosen from those typed before — the latest first — then from where sessions ran, the
 // latest first; a folder is offered once, however its slashes or letters' case are written on Windows

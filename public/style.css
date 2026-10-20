@@ -2168,6 +2168,46 @@ input.herdr-row-name.failed {
   border-color: var(--border-strong);
 }
 
+/* Over the feed, above all of it: the conversation the session's tab had before this one. */
+.session-lead {
+  display: flex;
+  justify-content: center;
+  margin: 0 0 18px;
+}
+
+.tab-earlier {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--text-3);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.tab-earlier:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.tab-earlier-label,
+.tab-earlier-ago {
+  flex: none;
+}
+
+.tab-earlier-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-2);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .working .spark {
   display: inline-block;
   animation: spin 2.4s linear infinite;
@@ -3745,9 +3785,11 @@ table.diff tr.gap td {
 }
 
 /* A session not running, opened again in herdr where it ran. */
-/* A session that is not running, in the box's place: where it ran, and the button that opens it there again. */
+/* A session that is not running, in the box's place: where it ran, and the buttons that open it there again — under
+   what it says when that needs the width. */
 .composer-resume {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   padding: 10px 10px 10px 16px;
@@ -3759,7 +3801,7 @@ table.diff tr.gap td {
 
 .composer-resume-text {
   display: flex;
-  flex: 1;
+  flex: 1 1 180px;
   flex-direction: column;
   min-width: 0;
 }
@@ -3795,6 +3837,39 @@ table.diff tr.gap td {
 }
 
 .composer-reopen:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* the conversation its tab went on with: to go to it */
+.composer-resume-where a {
+  color: var(--text-2);
+}
+
+.composer-resume-actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+/* back to it in its tab, beside a new tab: outlined */
+.composer-resume-here {
+  padding: 7px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.composer-resume-here:hover {
+  background: var(--bg-hover);
+}
+
+.composer-resume-here:disabled {
   opacity: 0.6;
   cursor: default;
 }
@@ -4832,6 +4907,117 @@ a.file-link:hover {
   border-radius: 3px;
   background: color-mix(in srgb, var(--accent) 28%, transparent);
   color: inherit;
+}
+
+/* ---------- The conversations of herdr's tabs in the side panel ---------- */
+
+/* the button over a session: only with herdr, whose tabs they are */
+:root:not([data-herdr]) .head-history {
+  display: none;
+}
+
+.history {
+  padding: 12px 10px 24px;
+  font-size: 13.5px;
+}
+
+.history section + section {
+  margin-top: 18px;
+}
+
+.history-heading {
+  margin: 0 8px 4px;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-closed-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.history-closed-head .history-heading {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.history-restore {
+  flex: none;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--text-2);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.history-restore:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.history-restore:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.history-conversation {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.history-conversation:hover {
+  background: var(--bg-hover);
+}
+
+.history-conversation.shown {
+  background: var(--bg-selected);
+}
+
+.history-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the conversation its tab runs now: a green dot before its title */
+.history-conversation.running .history-title::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  vertical-align: 1px;
+}
+
+.history-ago {
+  flex: none;
+  color: var(--text-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.history-error {
+  margin: 4px 8px 0;
+  color: var(--danger);
+  font-size: 12.5px;
 }
 
 /* ---------- The branch's changes in the side panel ---------- */
