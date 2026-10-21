@@ -74,6 +74,33 @@ test('dialogCard_Should_ShowQuestion_And_AnswerWithChoiceOrOwnWords', async () =
   assert.deepEqual({ question, answers }, { question: true, answers: [[{ key: '2' }], [{ key: '3' }, { text: 'Purple' }, { key: 'enter' }]] });
 });
 
+// One's own words are asked for where the terminal has "Type something" — among the answers, above "Chat about this",
+// not under them all, out of sight in a card scrolled by long answers
+test('dialogCard_Should_AskForOwnWords_WhereTheTerminalHasTypeSomething', () => {
+  const { card } = cardAboveBox();
+  const own = card.element.querySelector('input');
+  const chat = [...card.element.querySelectorAll('button')].find((button) => button.textContent?.includes('Chat about this'));
+  assert.ok(own && chat);
+
+  assert.equal(own.compareDocumentPosition(chat) & window.Node.DOCUMENT_POSITION_FOLLOWING, window.Node.DOCUMENT_POSITION_FOLLOWING);
+});
+
+// In a question with several answers one's own words are ticked as the terminal takes them: the arrows to "Type
+// something", the words — typed on it, they tick it — and ↑ off it, where a digit would be typed into the words
+test('dialogCard_Should_TickOwnWords_InQuestionWithSeveralAnswers', async () => {
+  const { card, answers } = cardAboveBox();
+  const rule = '─'.repeat(40);
+  const sizes = ['←  ☐ Colour  ☐ Sizes  ✔ Submit  →', 'Which sizes?', '❯ 1. [ ] Small', '         Small size', '  2. [ ] Large', '         Large size', '  3. [ ] Type something', '     Submit', rule, '  4. Chat about this', 'Enter to select · Tab/Arrow keys to navigate · Esc to cancel'];
+  card.show(choiceDialog(['❯ Ask me', rule, ...sizes].join('\n')));
+  const own = card.element.querySelector('input');
+  assert.ok(own instanceof window.HTMLInputElement);
+  own.value = 'Medium';
+  own.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter' }));
+  await settled();
+
+  assert.deepEqual(answers, [[{ key: 'down' }, { key: 'down' }, { text: 'Medium' }, { key: 'up' }]]);
+});
+
 // Several questions are gone through with ← and →; Esc cancels them; with nothing asked the card is gone
 test('dialogCard_Should_GoBetweenQuestions_CancelThem_And_HideWhenNothingIsAsked', async () => {
   const { card, answers, press } = cardAboveBox();

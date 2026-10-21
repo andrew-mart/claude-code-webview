@@ -53,16 +53,18 @@ export function createDialogCard({ asker, answer }) {
   };
 
   /**
-   * A line of one's own words: the choice that opens it, the words, Enter — only in a question with one answer, where
-   * Enter answers.
+   * A line of one's own words: in a question with one answer the choice that opens it, the words, Enter, which answers;
+   * in one with several the arrows to it, the words, which tick it, and ↑ off it — on it a digit is typed into the words.
    * @param {import('../model/dialog.js').DialogOption} option
+   * @param {import('../model/dialog.js').Dialog} dialog
    */
-  const ownAnswer = (option) => {
+  const ownAnswer = (option, dialog) => {
     const words = h('input', { className: 'dialog-own', attrs: { type: 'text', placeholder: 'An answer of your own', 'aria-label': 'An answer of your own' } });
-    const go = h('button', { className: 'dialog-own-send', text: 'Answer', attrs: { type: 'button' } });
+    const go = h('button', { className: 'dialog-own-send', text: option.checked === undefined ? 'Answer' : 'Add', attrs: { type: 'button' } });
     const submit = () => {
       const text = words.value.replace(/\s+/g, ' ').trim();
-      if (text !== '') send([{ key: digitOf(option.key) }, { text }, { key: 'enter' }]);
+      if (text === '') return;
+      send(option.checked === undefined ? [{ key: digitOf(option.key) }, { text }, { key: 'enter' }] : [...arrowsTo(dialog, option), { text }, { key: 'up' }]);
     };
     go.addEventListener('click', submit);
     words.addEventListener('keydown', (event) => {
@@ -82,13 +84,14 @@ export function createDialogCard({ asker, answer }) {
       shown = look;
       element.hidden = dialog === undefined;
       if (dialog === undefined) return element.replaceChildren();
-      const own = dialog.options.find((option) => ownWords.test(option.label) && option.checked === undefined);
-      const choices = dialog.options.filter((option) => option !== own);
       element.replaceChildren(
         h('header', { className: 'dialog-card-head', text: `${asker} asks` }),
         ...dialog.lines.map((line) => h('p', { className: 'dialog-line', text: line })),
-        h('div', { className: 'dialog-options' }, choices.map((option) => choice(option, dialog))),
-        ...(own === undefined ? [] : [ownAnswer(own)]),
+        h(
+          'div',
+          { className: 'dialog-options' },
+          dialog.options.map((option) => (ownWords.test(option.label) ? ownAnswer(option, dialog) : choice(option, dialog))),
+        ),
         h('div', { className: 'dialog-nav' }, [
           ...(dialog.tabs ? [button('← Previous', [{ key: 'left' }], 'dialog-nav-button'), button('Next →', [{ key: 'right' }], 'dialog-nav-button')] : []),
           button('Cancel (Esc)', [{ key: 'esc' }], 'dialog-nav-button dialog-cancel'),
@@ -127,9 +130,19 @@ function digitOf(key) {
  * @returns {import('../model/dialog.js').DialogStep[]}
  */
 function walkTo(dialog, option) {
+  return [...arrowsTo(dialog, option), { key: dialog.sessionOnly === true ? 's' : 'enter' }];
+}
+
+/**
+ * The arrows from the answer under the cursor to the one wanted.
+ * @param {import('../model/dialog.js').Dialog} dialog
+ * @param {import('../model/dialog.js').DialogOption} option
+ * @returns {import('../model/dialog.js').DialogStep[]}
+ */
+function arrowsTo(dialog, option) {
   const from = Math.max(0, dialog.options.findIndex((known) => known.current));
   const moves = dialog.options.indexOf(option) - from;
   /** @type {import('../model/dialog.js').DialogStep} */
   const step = { key: moves > 0 ? 'down' : 'up' };
-  return [...Array.from({ length: Math.abs(moves) }, () => step), { key: dialog.sessionOnly === true ? 's' : 'enter' }];
+  return Array.from({ length: Math.abs(moves) }, () => step);
 }
