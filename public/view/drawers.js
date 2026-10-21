@@ -3,7 +3,8 @@
 // one at a time, and close on a tap outside, Esc, or once something in them is chosen.
 // The open drawer is kept in the browser's history entry (the only thing the page keeps there): going back to a page
 // shows it as it was left. On a phone the swipe from the left edge is the browser's Back, and it slides in a picture of
-// that page — usually with the session list open, since the session was chosen in it.
+// that page — usually with the session list open, since the session was chosen in it. Not in the iPhone's home-screen
+// app: there the page keeps no pages to go back to, and the swipe opens the list (page-address.js, edge-swipe.js).
 import { isRecord } from '../model/narrow.js';
 
 /** @typedef {'sessions' | 'outline'} Drawer */

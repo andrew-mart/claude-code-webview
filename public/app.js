@@ -13,6 +13,8 @@ import { createAsideStore } from './view/aside-store.js';
 import { listenForCopies } from './view/markdown-copy.js';
 import { revalidatedPolls } from './view/revalidated-polls.js';
 import { createDrawers } from './view/drawers.js';
+import { watchEdgeSwipe } from './view/edge-swipe.js';
+import { createPageAddress } from './view/page-address.js';
 import { openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf, successorIn } from './model/herdr.js';
 import { folderChoices, rememberFolder } from './model/folders.js';
 import { parseHistory, tabNeighbours } from './model/history.js';
@@ -127,6 +129,14 @@ const connection = createConnection((online) => {
 });
 
 const drawers = createDrawers({ root: document.documentElement, backdrop: byId('drawer-backdrop', HTMLElement), history });
+// In the iPhone's home-screen app another session takes the place of the one shown, with no page to go back to: the
+// swipe from the left edge — Back there, which at times leaves the page frozen under a picture of the one before — is
+// the page's own, and opens the session list.
+const address = createPageAddress({ location, history: 'standalone' in navigator && navigator.standalone === true ? 'replaced' : 'kept' });
+address.followLinksIn(document);
+watchEdgeSwipe(document, () => {
+  if (matchMedia('(max-width: 820px)').matches && document.documentElement.dataset.view === 'session' && !drawers.isOpen()) drawers.toggle('sessions');
+});
 // A view setting that resizes the feed keeps the reader at the message they were at.
 const settings = createSettings((change) => page.keepPlace(change));
 /** The answers seen: herdr's finished agents' lamps put out. */
@@ -277,7 +287,7 @@ function createPage() {
     open: (id) => {
       // on a narrow screen the panel covers the feed
       if (matchMedia('(max-width: 820px)').matches) filePanel.close();
-      location.hash = `#/${id}`;
+      address.go(`#/${id}`);
     },
     reopen: reopenSession,
     now: () => Date.now(),
@@ -306,7 +316,7 @@ function createPage() {
       return outcome;
     },
     open: (target) => {
-      location.hash = target;
+      address.go(target);
     },
     folders: () => folderChoices(typedFolders(), history),
     renameWorkspace: (workspace, label) => changeTab('/api/workspace/rename', { workspace, label }),
@@ -337,7 +347,7 @@ function createPage() {
     close: (tab) => changeTab('/api/tab/close', { tab }),
     move: (tab, place) => changeTab('/api/tab/move', { tab, place }),
     open: (target) => {
-      location.hash = target;
+      address.go(target);
     },
     create: (tab, start, label) => newTab(tab, start, label),
     duplicate: (tab) => duplicateTab(tab),
@@ -853,7 +863,7 @@ function createPage() {
       const [latest] = listed('');
       if (!follow.checked || latest === undefined || latest.id === current?.id) return;
       followedTo = latest.id;
-      location.hash = `#/${latest.id}`;
+      address.go(`#/${latest.id}`);
     },
     openFromHash() {
       const opened = openedAt(location.hash);
@@ -902,14 +912,14 @@ function createPage() {
       herdrLayout = parseHerdrLayout(reply);
       // Claude Code started in the terminal shown — a tab opened with Claude, or claude typed there: its feed instead
       const started = currentPane === undefined ? undefined : paneSession(herdrLayout, currentPane.id, currentPane.sessionWhenOpened);
-      if (started !== undefined) location.hash = `#/${started}`;
+      if (started !== undefined) address.go(`#/${started}`);
       // /clear, /new or /resume in the tab of the session shown: the page goes on with the session the tab went on with —
       // what was sent to this one and not written down never will be; the tab's history tells the one before
       const wentOn = current === undefined ? undefined : successorIn(before, herdrLayout, current.id);
       if (wentOn !== undefined) {
         current?.forgetSent();
         void this.refreshHistory();
-        location.hash = `#/${wentOn}`;
+        address.go(`#/${wentOn}`);
       }
       this.renderHerdr();
     },
