@@ -1685,8 +1685,17 @@ input.herdr-row-name.failed {
   max-width: 44ch;
 }
 
+/* On a short line the folder and the branch give way — their full values are in the details — and the chips after
+   them, the session's id last, stay in view. */
+.fact-folder,
+.fact-branch {
+  flex: 0 1 auto;
+  min-width: 9ch;
+}
+
 .fact-folder > span,
-.fact-branch > span {
+.fact-branch > span,
+.fact-session > span {
   font-family: var(--font-mono);
   font-size: 11.5px;
 }
@@ -1793,6 +1802,18 @@ input.herdr-row-name.failed {
 .head-details code {
   font-family: var(--font-mono);
   font-size: 12px;
+}
+
+/* Copying the session's id: an icon beside it, no taller than the row's text. */
+.head-details .head-copy {
+  width: 24px;
+  height: 24px;
+  margin: -4px 0 -4px -8px;
+}
+
+.head-copy .icon {
+  width: 14px;
+  height: 14px;
 }
 
 .context-bar {

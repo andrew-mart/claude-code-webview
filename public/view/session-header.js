@@ -1,6 +1,7 @@
 // @ts-check
 // The session header. The title and the status on top; under the title the session's facts at a glance — folder,
-// branch, model and effort, how full the context window is, cost — which open into details with the full values.
+// branch, model and effort, how full the context window is, cost, the session's id — which open into details with the
+// full values.
 // The view buttons stand in a row on a wide screen and fold into a menu on a narrow one.
 import { formatTokens } from '../model/format.js';
 import { contextGauge, modelName } from '../model/session-facts.js';
@@ -32,13 +33,14 @@ const statusLooks = {
 const branchRefreshMs = 15_000;
 
 /**
- * @param {{ place: SessionPlace | undefined, currentBranch: () => Promise<string | undefined>, tables: SessionTables, leading: HTMLElement, navigation: readonly HTMLElement[], tools: readonly HTMLElement[] }} parts
+ * @param {{ sessionId: string, place: SessionPlace | undefined, currentBranch: () => Promise<string | undefined>, tables: SessionTables, leading: HTMLElement, navigation: readonly HTMLElement[], tools: readonly HTMLElement[] }} parts
+ *   sessionId — the agent's id of the session, as its transcript is named;
  *   currentBranch — the branch checked out in the session's folder now (the transcript keeps the one it saw first);
  *   tables — how this session shows its tables, chosen in the details;
  *   leading — before the title (the session list's drawer button); navigation — buttons that always stay in view;
  *   tools — the view settings, folded into a menu on a narrow screen
  */
-export function createSessionHeader({ place, currentBranch, tables, leading, navigation, tools }) {
+export function createSessionHeader({ sessionId, place, currentBranch, tables, leading, navigation, tools }) {
   const title = h('h1', { className: 'title' });
   const facts = h('button', { className: 'head-facts', attrs: { type: 'button', 'aria-expanded': 'false', title: 'Show session details' } });
   const details = h('dl', { className: 'head-details', attrs: { hidden: '' } });
@@ -57,8 +59,8 @@ export function createSessionHeader({ place, currentBranch, tables, leading, nav
     title.textContent = meta.customTitle ?? meta.title ?? where?.title ?? 'Session';
     document.title = `${title.textContent} — Claude Code`;
     const gauge = meta.model === undefined || meta.contextTokens === undefined ? undefined : contextGauge({ model: meta.model, tokens: meta.contextTokens, extended: meta.extendedContext === true, window: meta.contextWindow });
-    facts.replaceChildren(...factChips({ cwd: where?.cwd, branch, meta, gauge }), h('span', { className: 'facts-toggle' }, [icon('chevron')]));
-    details.replaceChildren(...detailRows({ cwd: where?.cwd, branch, meta, gauge }), ...tablesRow(tables, render));
+    facts.replaceChildren(...factChips({ sessionId, cwd: where?.cwd, branch, meta, gauge }), h('span', { className: 'facts-toggle' }, [icon('chevron')]));
+    details.replaceChildren(...detailRows({ sessionId, cwd: where?.cwd, branch, meta, gauge }), ...tablesRow(tables, render));
   };
 
   const setOpen = (/** @type {HTMLButtonElement} */ button, /** @type {boolean} */ open) => button.setAttribute('aria-expanded', String(open));
@@ -125,7 +127,7 @@ export function createSessionHeader({ place, currentBranch, tables, leading, nav
 }
 
 /**
- * @typedef {{ cwd: string | undefined, branch: string | undefined, meta: SessionMeta, gauge: ContextGauge | undefined }} Facts
+ * @typedef {{ sessionId: string, cwd: string | undefined, branch: string | undefined, meta: SessionMeta, gauge: ContextGauge | undefined }} Facts
  */
 
 /**
@@ -133,13 +135,15 @@ export function createSessionHeader({ place, currentBranch, tables, leading, nav
  * @param {Facts} facts
  * @returns {HTMLElement[]}
  */
-function factChips({ cwd, branch, meta, gauge }) {
+function factChips({ sessionId, cwd, branch, meta, gauge }) {
   const chips = [];
   if (cwd !== undefined) chips.push(chip('folder', 'fact-folder', [h('span', { text: folderName(cwd) })], cwd));
   if (branch !== undefined) chips.push(chip('branch', 'fact-branch', [h('span', { text: branch })], `Branch ${branch}`));
   if (meta.model !== undefined) chips.push(chip('model', 'fact-model', [h('span', { text: modelName(meta.model) }), ...effortTag(meta.effort)], meta.model));
   if (gauge !== undefined) chips.push(contextChip(gauge));
   if (meta.costUsd !== undefined) chips.push(h('span', { className: 'fact fact-cost', text: `$${meta.costUsd.toFixed(2)}`, title: 'Cost of the session' }));
+  // its first characters tell it from the others, as a commit's short hash does
+  chips.push(h('span', { className: 'fact fact-session', title: `Session ${sessionId}` }, [h('span', { text: sessionId.slice(0, 8) })]));
   return chips;
 }
 
@@ -201,11 +205,11 @@ function ring(share) {
 }
 
 /**
- * The details: full path, branch, model, context used and left, cost.
+ * The details: full path, branch, model, context used and left, cost, the session's id.
  * @param {Facts} facts
  * @returns {HTMLElement[]}
  */
-function detailRows({ cwd, branch, meta, gauge }) {
+function detailRows({ sessionId, cwd, branch, meta, gauge }) {
   /** @type {[string, (string | HTMLElement)[]][]} */
   const rows = [];
   if (cwd !== undefined) rows.push(['Folder', [h('code', { text: cwd })]]);
@@ -213,7 +217,23 @@ function detailRows({ cwd, branch, meta, gauge }) {
   if (meta.model !== undefined) rows.push(['Model', [`${modelName(meta.model)}${meta.effort === undefined ? '' : ` · effort ${meta.effort}`}`]]);
   if (gauge !== undefined) rows.push(['Context', contextDetail(gauge)]);
   if (meta.costUsd !== undefined) rows.push(['Cost', [`$${meta.costUsd.toFixed(2)}`]]);
+  rows.push(['Session', [h('code', { text: sessionId }), copyIdButton(sessionId)]]);
   return rows.flatMap(([label, value]) => [h('dt', { text: label }), h('dd', {}, value)]);
+}
+
+/**
+ * Copies the session's id; a tick for a moment once it is copied.
+ * @param {string} sessionId
+ */
+function copyIdButton(sessionId) {
+  const button = h('button', { className: 'icon-button head-copy', title: 'Copy the session id', attrs: { type: 'button', 'aria-label': 'Copy the session id' } }, [icon('copy')]);
+  button.addEventListener('click', () => {
+    void navigator.clipboard.writeText(sessionId).then(() => {
+      button.replaceChildren(icon('check'));
+      setTimeout(() => button.replaceChildren(icon('copy')), 1500);
+    });
+  });
+  return button;
 }
 
 /** @param {ContextGauge} gauge @returns {(string | HTMLElement)[]} */
