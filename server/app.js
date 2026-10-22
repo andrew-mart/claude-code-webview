@@ -14,6 +14,7 @@ import { promisify } from 'node:util';
 import { constants as zlibConstants, createGzip, gzip } from 'node:zlib';
 import { withAttachedImages } from '../public/model/attachments.js';
 import { parseBookmarkChange } from '../public/model/bookmarks.js';
+import { parseLaterChange } from '../public/model/later.js';
 import { iconValue, parseIcon } from '../public/model/icon-choice.js';
 import { isRecord, text } from '../public/model/narrow.js';
 import { takenBackPrompt } from './branch.js';
@@ -115,7 +116,7 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  */
 
 /**
- * @param {{ index: SessionIndex, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, seen: Seen, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, chatgptUsage?: ReadUsage, sessionStatus?: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode?: import('./vscode.js').VsCode | undefined, codexInUse: () => Promise<boolean> }} options
+ * @param {{ index: SessionIndex, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, seen: Seen, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, chatgptUsage?: ReadUsage, sessionStatus?: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode?: import('./vscode.js').VsCode | undefined, codexInUse: () => Promise<boolean> }} options
  *   about — package name and version for /api/health; palette — the page's colours (public/model/palettes.js);
  *   publicAddresses — where else the page is opened at, answered as the local address is; herdrView — what herdr
  *   shows (herdr-view.js); terminals — herdr panes' terminals (terminal.js); usage — the account's usage (usage.js);
@@ -124,7 +125,7 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  *   thread open (codex-live.js)
  * @returns {Promise<{ port: number, close: () => void }>}
  */
-export async function startServer({ index, host, port, pollMs, composer, bookmarks, seen, uploads, about, palette, publicAddresses, herdrView, terminals, usage, chatgptUsage = async () => undefined, sessionStatus = async () => undefined, isRunning, editor, fileManager, commands, vscode, codexInUse }) {
+export async function startServer({ index, host, port, pollMs, composer, bookmarks, later, seen, uploads, about, palette, publicAddresses, herdrView, terminals, usage, chatgptUsage = async () => undefined, sessionStatus = async () => undefined, isRunning, editor, fileManager, commands, vscode, codexInUse }) {
   const instance = randomUUID();
   const build = await pageBuild();
   /** Sessions this page rewound: session id → the prompt rewound to; its branch is hidden before the next prompt shows the fork. */
@@ -137,7 +138,7 @@ export async function startServer({ index, host, port, pollMs, composer, bookmar
   const allowedOrigins = new Set();
   const fileIcons = createFileIcons();
   /** @type {Deps} */
-  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, seen, codexInUse, uploads, about, build, rewinds, transcripts, feeds: createFeedPages(), palette, herdrView, terminals, usage, chatgptUsage, sessionStatus, isRunning, editor, fileManager, commands, vscode, instance, fileIcons };
+  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, later, seen, codexInUse, uploads, about, build, rewinds, transcripts, feeds: createFeedPages(), palette, herdrView, terminals, usage, chatgptUsage, sessionStatus, isRunning, editor, fileManager, commands, vscode, instance, fileIcons };
   const server = http.createServer((request, response) => {
     handle(deps, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
@@ -171,7 +172,7 @@ export async function startServer({ index, host, port, pollMs, composer, bookmar
 
 /**
  * @typedef {ReturnType<typeof createSessionIndex>} SessionIndex — Claude Code's sessions and Codex's (sessions.js)
- * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, chatgptUsage: ReadUsage, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, codexInUse: () => Promise<boolean> }} Deps
+ * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, chatgptUsage: ReadUsage, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, codexInUse: () => Promise<boolean> }} Deps
  *   instance: this run of the viewer, told apart from any other — see /api/machine; vscode: VS Code's web server
  *   behind /vscode/, none when the viewer runs none
  * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'createWorkspace' | 'history' | 'reopen'>} HerdrView
@@ -276,6 +277,9 @@ async function handle(deps, request, response) {
       return withSession(url, response, async (id) => sendJson(response, await deps.index.subagents(id)));
     case '/api/bookmarks':
       return withSession(url, response, async (id) => sendJson(response, await deps.bookmarks.list(id)));
+    // the prompts set aside for later in the session's box
+    case '/api/later':
+      return withSession(url, response, async (id) => sendJson(response, await deps.later.list(id)));
     case '/api/stream':
       return withSession(url, response, async (id) => stream(deps, url, id, request, response));
     case '/api/feeds':
@@ -592,6 +596,14 @@ async function handleWrite(deps, url, request, response) {
         return;
       }
       return sendJson(response, await deps.bookmarks.change(sessionId, change));
+    }
+    case '/api/later': {
+      const change = parseLaterChange(isRecord(body) ? body.change : undefined);
+      if (change === undefined) {
+        response.writeHead(400).end('Bad change of the prompts set aside');
+        return;
+      }
+      return sendJson(response, await deps.later.change(sessionId, change));
     }
     default:
       response.writeHead(404).end('Not found');

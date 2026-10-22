@@ -21,8 +21,8 @@ test('composerState_Should_EnableInputOnlyForSessionRunningInHerdr', () => {
     canInterrupt: true,
     canReopen: false,
     placeholder: 'Claude is working — your message will be queued',
-    // while Claude works the queue can be skipped: Ctrl+Enter sends at once
-    hint: "Enter queues it, Ctrl+Enter sends it now, Shift+Enter for a new line. The text goes to the session's terminal (herdr pane w3D:p1).",
+    // while Claude works the queue can be skipped: Ctrl+Enter sends at once; or what comes to mind is set aside for later
+    hint: "Enter queues it, Ctrl+Enter sends it now, Alt+Enter sets it aside for later, Shift+Enter for a new line. The text goes to the session's terminal (herdr pane w3D:p1).",
   });
 });
 

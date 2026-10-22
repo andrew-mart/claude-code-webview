@@ -229,6 +229,12 @@ need not cover the conversation: a box taller than a few lines folds to them wit
 takes it out of the terminal's input box and puts it into the page's box, exactly as it was sent, before anything
 already typed there. Drafts are kept per session.
 
+What comes to mind while Claude works need not break into its turn — Claude Code's queue hands a prompt over as soon
+as it can — nor be lost: the clock beside ↑ (Alt+Enter) sets the box's text aside for later. The prompts set aside
+wait over the box in the order written; each goes into the box to be edited, is sent from an empty box with one tap,
+or is removed. The viewer keeps them in `~/.claude-code-webview/later.json`, so the phone and the computer see the
+same ones.
+
 Images can go with a prompt: pick them with the paperclip (on a phone — from the gallery or the camera), paste a
 screenshot anywhere on the page (Ctrl+V), or drop files on the box. The page scales photos down to 2048 px before sending; the viewer saves them in
 `~/.claude-code-webview/uploads/` and lists their paths at the end of the prompt, and Claude Code opens them with its

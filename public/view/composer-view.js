@@ -13,6 +13,8 @@ import { createCommandMenu } from './command-menu.js';
 import { createDialogCard } from './dialog-card.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
+import { createLaterStore } from './later-store.js';
+import { createLaterList } from './later-view.js';
 
 /** How often to check whether the session is running and busy. */
 const liveRefreshMs = 4000;
@@ -49,6 +51,8 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   input.value = readDraft(draftKey);
   const interrupt = h('button', { className: 'composer-stop', title: 'Stop — press Esc in the session terminal', attrs: { type: 'button', hidden: '', 'aria-label': 'Stop' } }, [icon('stop')]);
   const send = h('button', { className: 'composer-send', title: keyboard === 'touch' ? 'Send' : 'Send (Enter)', attrs: { type: 'submit', 'aria-label': 'Send' } }, [icon('send')]);
+  // what comes to mind while the agent works is set aside rather than sent: in its queue it would break into the turn
+  const setAsideButton = h('button', { className: 'icon-button composer-later', title: keyboard === 'touch' ? 'Set aside for later' : 'Set aside for later (Alt+Enter)', attrs: { type: 'button', 'aria-label': 'Set aside for later' } }, [icon('later')]);
   const hint = h('div', { className: 'composer-hint' });
   // a session that is not running is opened again in herdr — where it ran — and the box comes to life when it starts
   const reopen = h('button', { className: 'composer-reopen', attrs: { type: 'button' } });
@@ -90,7 +94,7 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
       input.focus();
     },
   });
-  const form = h('form', { className: 'composer-box' }, [commandMenu.element, fold, attachments.list, attachments.button, input, h('div', { className: 'composer-actions' }, [interrupt, send])]);
+  const form = h('form', { className: 'composer-box' }, [commandMenu.element, fold, attachments.list, attachments.button, input, h('div', { className: 'composer-actions' }, [setAsideButton, interrupt, send])]);
   const aside = h('section', { className: 'side-answer', attrs: { hidden: '', 'aria-label': 'Side question', 'aria-live': 'polite' } });
   const closeAside = h('button', { className: 'icon-button side-answer-close', title: 'Close', attrs: { type: 'button', 'aria-label': 'Close' } }, [icon('cross')]);
   closeAside.addEventListener('click', () => asides.set(sessionId, undefined));
@@ -110,7 +114,31 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     queued.hidden = items.length === 0;
     queuedList.replaceChildren(...items.map((item) => h('li', { text: item })));
   };
-  const element = h('div', { className: 'composer' }, [dialogCard.element, aside, queued, resume, form, h('div', { className: 'composer-footer' }, [hint, status]), attachments.input]);
+  const laterList = createLaterList({
+    // into the box to be edited, after what the box holds
+    intoBox: (prompt) => {
+      input.value = input.value.trim() === '' ? prompt.text : `${input.value.trimEnd()}\n\n${prompt.text}`;
+      writeDraft(draftKey, input.value);
+      later.remove(prompt.id);
+      fit();
+      refreshButtons();
+      if (keyboard === 'physical') input.focus();
+    },
+    // sent as the box sends it, from the box — an empty one: words written meanwhile are neither sent with it nor lost.
+    // Should the terminal not take it, it stays in the box
+    send: (prompt) => {
+      if (input.value.trim() !== '' || attachments.images().length > 0) return;
+      input.value = prompt.text;
+      writeDraft(draftKey, input.value);
+      later.remove(prompt.id);
+      fit();
+      refreshButtons();
+      submitPrompt('queued');
+    },
+    remove: (prompt) => later.remove(prompt.id),
+  });
+  const later = createLaterStore(sessionId, (prompts) => laterList.show(prompts));
+  const element = h('div', { className: 'composer' }, [dialogCard.element, aside, queued, laterList.element, resume, form, h('div', { className: 'composer-footer' }, [hint, status]), attachments.input]);
 
   const fit = () => {
     input.style.height = 'auto';
@@ -129,6 +157,8 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   };
   const refreshButtons = () => {
     send.disabled = !enabled || sending || asking || (input.value.trim() === '' && attachments.images().length === 0);
+    setAsideButton.disabled = !enabled || input.value.trim() === '';
+    laterList.allowSend(enabled && input.value.trim() === '' && attachments.images().length === 0);
     input.disabled = !enabled;
     attachments.button.disabled = !enabled;
   };
@@ -329,12 +359,28 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     event.preventDefault();
     submitPrompt('queued');
   });
+  /** The box's words set aside for later, the box free again; its images stay in it. */
+  const setAside = () => {
+    const text = input.value.trim();
+    if (!enabled || text === '') return;
+    later.add(text);
+    input.value = '';
+    writeDraft(draftKey, '');
+    fit();
+    refreshButtons();
+  };
+  setAsideButton.addEventListener('click', setAside);
   input.addEventListener('keydown', (event) => {
     // the commands offered take ↑, ↓, Enter, Tab and Esc while they show
     if (commandMenu.key(event)) return;
     // Esc stops Claude, as it does in the terminal
     if (event.key === 'Escape' && stop()) {
       event.preventDefault();
+      return;
+    }
+    if (event.key === 'Enter' && event.altKey && !event.isComposing) {
+      event.preventDefault();
+      setAside();
       return;
     }
     // Enter sends, Shift+Enter inserts a new line; while composing with an IME, Enter confirms the word.
@@ -448,6 +494,7 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
       clearInterval(timer);
       clearTimeout(noticeTimer);
       unwatchAsides();
+      later.dispose();
       document.removeEventListener('paste', onPaste);
     },
   };

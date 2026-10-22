@@ -3339,6 +3339,63 @@ table.diff tr.gap td {
   content: '↳ ';
 }
 
+/* The prompts set aside for later, over the box: one line each, the whole of it in its tooltip and in the box. */
+.later {
+  margin: 0 0 6px;
+  padding: 4px 4px 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elev);
+  font-size: 13px;
+}
+
+.later-head {
+  padding: 2px 0;
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.later-items {
+  display: flex;
+  flex-direction: column;
+  max-height: 30vh;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.later-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.later-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.later-item .icon-button {
+  flex: none;
+  width: 28px;
+  height: 28px;
+}
+
+.later-item .icon-button:disabled {
+  color: var(--text-4);
+  cursor: default;
+}
+
+.later-item .icon {
+  width: 14px;
+  height: 14px;
+}
+
 /* What Claude Code asks in its terminal, above the box: its choices as buttons, a click is the key the terminal gets. */
 .dialog-card {
   display: flex;
@@ -3741,6 +3798,11 @@ table.diff tr.gap td {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* nothing in the box to set aside: the box keeps its one button */
+.composer-later:disabled {
+  display: none;
 }
 
 .composer-send {

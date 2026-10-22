@@ -12,6 +12,7 @@ import { palettes } from '../public/model/palettes.js';
 import { startServer } from '../server/app.js';
 import { createSessionIndex } from '../server/sessions.js';
 import { createBookmarkFile } from '../server/bookmarks.js';
+import { createLaterFile } from '../server/later.js';
 import { createSeenFile } from '../server/seen.js';
 import { createUploads } from '../server/uploads.js';
 import { createVsCode } from '../server/vscode.js';
@@ -215,7 +216,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // the file manager opens what is asked
   /** @type {import('../server/file-manager.js').FileManagerTarget[]} */
   const shownInFileManager = [];
-  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, sessionStatus: async (id) => id === sessionId ? sessionStatus : undefined });
+  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), later: createLaterFile(join(root, 'later.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, sessionStatus: async (id) => id === sessionId ? sessionStatus : undefined });
   t.after(() => server.close());
   return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls, typed, tabChanges, opened, shownInFileManager };
 }
@@ -778,6 +779,21 @@ test('bookmarks_Should_RejectChangeOfUnknownShape', async (t) => {
   const responses = await Promise.all(malformed.map((change) => post(port, '/api/bookmarks', pageHeaders(port), JSON.stringify({ session: sessionId, change }))));
 
   assert.deepEqual(responses.map((response) => response.status), [400, 400, 400]);
+});
+
+/** @type {import('../public/model/later.js').LaterPrompt} */
+const setAside = { id: 'l1', text: 'Then update the README', at: '2026-10-22T09:00:00.000Z' };
+
+// A prompt set aside for later on the page is the viewer's: the page asks for it again — on another device too — and a
+// change of another shape is refused
+test('later_Should_KeepPromptSetAsideOnPage_AndRefuseChangeOfUnknownShape', async (t) => {
+  const { base, port } = await withServer(t);
+
+  const added = await post(port, '/api/later', pageHeaders(port), JSON.stringify({ session: sessionId, change: { action: 'add', prompt: setAside } }));
+  const listed = await fetch(`${base}/api/later?session=${sessionId}`);
+  const refused = await post(port, '/api/later', pageHeaders(port), JSON.stringify({ session: sessionId, change: { action: 'add', prompt: { id: 'l2' } } }));
+
+  assert.deepEqual({ added: added.status, listed: await listed.json(), refused: refused.status }, { added: 200, listed: [setAside], refused: 400 });
 });
 
 /** The start of a PNG file: the bytes do not have to form a whole picture, only to come back unchanged. */

@@ -35,13 +35,14 @@ import { isRecord, text } from './narrow.js';
  */
 const keysHint = { physical: 'Enter to send, Shift+Enter for a new line.', touch: 'The ↑ button sends, Enter starts a new line.' };
 /**
- * While the agent works a message waits in its queue — or goes at once, past it, into the turn under way. ⏩ on a
- * waiting message is Claude Code's: the page sees its queue.
+ * While the agent works a message waits in its queue — or goes at once, past it, into the turn under way, or is set
+ * aside for later, sent by hand once the turn is over (later-view.js). ⏩ on a waiting message is Claude Code's: the
+ * page sees its queue.
  * @type {Readonly<Record<Agent, Readonly<Record<Keyboard, string>>>>}
  */
 const busyKeysHint = {
-  claude: { physical: 'Enter queues it, Ctrl+Enter sends it now, Shift+Enter for a new line.', touch: 'The ↑ button queues it, Enter starts a new line; ⏩ on a waiting message sends the queue now.' },
-  codex: { physical: 'Enter queues it, Ctrl+Enter sends it now, Shift+Enter for a new line.', touch: 'The ↑ button queues it, Enter starts a new line.' },
+  claude: { physical: 'Enter queues it, Ctrl+Enter sends it now, Alt+Enter sets it aside for later, Shift+Enter for a new line.', touch: 'The ↑ button queues it, Enter starts a new line; ⏩ on a waiting message sends the queue now.' },
+  codex: { physical: 'Enter queues it, Ctrl+Enter sends it now, Alt+Enter sets it aside for later, Shift+Enter for a new line.', touch: 'The ↑ button queues it, Enter starts a new line.' },
 };
 /** @type {Readonly<Record<Agent, string>>} */
 const agentNames = { claude: 'Claude', codex: 'Codex' };
