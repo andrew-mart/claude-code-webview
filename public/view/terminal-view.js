@@ -7,6 +7,7 @@ import { Terminal } from '@xterm/xterm';
 import { isRecord } from '../model/narrow.js';
 import { redraw } from '../model/terminal.js';
 import { h } from './dom.js';
+import { createKeyBar } from './key-bar.js';
 
 const largestFont = 14;
 const smallestFont = 9;
@@ -21,7 +22,7 @@ const charWidth = 0.6;
 export function mountTerminal({ pane, size }) {
   const host = h('div', { className: 'terminal-host' });
   const notice = h('div', { className: 'terminal-notice', attrs: { hidden: '' } });
-  const element = h('div', { className: 'terminal-view' }, [host, notice]);
+  const view = h('div', { className: 'terminal-view' }, [host, notice]);
   const terminal = new Terminal({
     cols: size?.cols ?? 120,
     rows: size?.rows ?? 40,
@@ -35,11 +36,11 @@ export function mountTerminal({ pane, size }) {
   terminal.open(host);
   terminal.focus();
   const fit = () => {
-    const fitting = Math.floor(element.clientWidth / (terminal.cols * charWidth));
+    const fitting = Math.floor(view.clientWidth / (terminal.cols * charWidth));
     terminal.options.fontSize = Math.max(smallestFont, Math.min(largestFont, fitting));
   };
   const watchWidth = new ResizeObserver(fit);
-  watchWidth.observe(element);
+  watchWidth.observe(view);
 
   const source = new EventSource(`/api/pane/stream?${new URLSearchParams({ pane })}`);
   source.addEventListener('screen', (message) => {
@@ -55,6 +56,8 @@ export function mountTerminal({ pane, size }) {
 
   const keys = createKeySender(pane);
   const typing = terminal.onData(keys.send);
+  // the terminal, scrolling as it needs, over the keys a phone's keyboard lacks — style.css shows them to a finger only
+  const element = h('div', { className: 'terminal-pane' }, [view, createKeyBar(keys.send)]);
   return {
     element,
     resize(next) {

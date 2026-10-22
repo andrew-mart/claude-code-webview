@@ -1572,6 +1572,14 @@ input.herdr-row-name.failed {
   display: none;
 }
 
+.terminal-pane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  background: #1e1d1c;
+}
+
 .terminal-view {
   flex: 1;
   min-height: 0;
@@ -1584,6 +1592,37 @@ input.herdr-row-name.failed {
   margin: 12px 4px;
   color: #c2c0b6;
   font-size: 13px;
+}
+
+/* The keys a phone's keyboard lacks, at the foot of the terminal, which scrolls over them; a mouse and a keyboard need none. */
+.terminal-keys {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .terminal-keys {
+    display: flex;
+    flex: none;
+    gap: 6px;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+    border-top: 1px solid #3a3936;
+  }
+
+  .terminal-key {
+    flex: 1;
+    min-width: 0;
+    height: 40px;
+    padding: 0;
+    border: 1px solid #3a3936;
+    border-radius: 8px;
+    background: #2b2a28;
+    color: #f5f4ef;
+    font: 15px var(--font-mono);
+  }
+
+  .terminal-key:active {
+    background: #3a3936;
+  }
 }
 
 .main {
