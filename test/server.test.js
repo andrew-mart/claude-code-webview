@@ -119,13 +119,13 @@ const webWorkspace = {
 
 /**
  * @param {import('node:test').TestContext} t
- * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[], sessionRunning?: boolean, editor?: 'set' | 'none', vscode?: import('../server/vscode.js').VsCode | undefined, codexRoot?: string | undefined, codexInUse?: boolean, chatgptUsage?: import('../public/model/usage.js').Usage | undefined, sessionStatus?: import('../public/model/session-status.js').SessionStatus | undefined }} [options] - takenBack: see
+ * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[], sessionRunning?: boolean, editor?: 'set' | 'none', vscode?: import('../server/vscode.js').VsCode | undefined, codexRoot?: string | undefined, codexInUse?: boolean, chatgptUsage?: import('../public/model/usage.js').Usage | undefined, sessionStatus?: import('../public/model/session-status.js').SessionStatus | undefined, statusRead?: Promise<unknown> }} [options] - takenBack: see
  *   fakeComposer; palette, publicAddresses: what the viewer is started with; sessionRunning: whether Claude Code has the
  *   session open; editor: whether the viewer opens files in an editor — the files it is asked to open are recorded;
  *   vscode: VS Code's web server behind /vscode/; codexRoot: Codex's sessions folder; codexInUse: whether Codex has a
- *   thread open
+ *   thread open; statusRead: the session's status is read once it settles — a slow read
  */
-async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true, editor = 'set', vscode = undefined, codexRoot = undefined, codexInUse = false, chatgptUsage = undefined, sessionStatus = undefined } = {}) {
+async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true, editor = 'set', vscode = undefined, codexRoot = undefined, codexInUse = false, chatgptUsage = undefined, sessionStatus = undefined, statusRead = Promise.resolve() } = {}) {
   const root = tempDir('csv-');
   const project = join(root, 'D--dev-x');
   await mkdir(project);
@@ -216,7 +216,10 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // the file manager opens what is asked
   /** @type {import('../server/file-manager.js').FileManagerTarget[]} */
   const shownInFileManager = [];
-  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), later: createLaterFile(join(root, 'later.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, sessionStatus: async (id) => id === sessionId ? sessionStatus : undefined });
+  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), later: createLaterFile(join(root, 'later.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, sessionStatus: async (id) => {
+      await statusRead;
+      return id === sessionId ? sessionStatus : undefined;
+    } });
   t.after(() => server.close());
   return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls, typed, tabChanges, opened, shownInFileManager };
 }
@@ -690,6 +693,27 @@ test('feeds_Should_FollowSessionsOverOneStream_EachMarked_UntilLetGo', async (t)
     { watched: watched.map((reply) => reply.status), opening, letGo: letGo.status, afterwards, refused: refused.status },
     { watched: [200, 200], opening: ['a entries u1', 'a ready', 'b entries u1', 'b ready'], letGo: 200, afterwards: ['b entries u2', 'none'], refused: 404 },
   );
+});
+
+// A page closing its stream while a feed over it still reads the session's status — the browser reloaded, a phone
+// went to sleep: what the feed tells next goes nowhere, and the viewer goes on. It wrote into the closed stream and
+// stopped, ERR_STREAM_WRITE_AFTER_END, as every page came back at once after a restart
+test('feeds_Should_KeepViewerUp_When_PageClosesStreamWhileFeedReadsStatus', async (t) => {
+  /** @type {(value?: unknown) => void} */
+  let readStatus = () => undefined;
+  const statusRead = new Promise((resolve) => (readStatus = resolve));
+  const { base, port } = await withServer(t, { sessionStatus: { at: 1000, model: 'claude-opus-5-5', contextTokens: 1000, contextWindow: 1_000_000 }, statusRead });
+  const controller = new AbortController();
+  const page = await fetch(`${base}/api/feeds?page=p1`, { signal: controller.signal, headers: { 'Accept-Encoding': 'gzip' } });
+  const watched = await post(port, '/api/feeds/watch', pageHeaders(port), JSON.stringify({ page: 'p1', feed: 'a', session: sessionId }));
+
+  controller.abort();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  readStatus();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const health = await fetch(`${base}/api/health`);
+
+  assert.deepEqual({ page: page.status, watched: watched.status, health: health.status }, { page: 200, watched: 200, health: 200 });
 });
 
 test('sessions_Should_ListSessionWithTitleAndFolder', async (t) => {

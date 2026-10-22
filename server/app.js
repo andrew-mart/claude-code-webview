@@ -1149,13 +1149,18 @@ function eventStream(request, response) {
   const out = zipped ? createGzip({ flush: zlibConstants.Z_SYNC_FLUSH }) : response;
   if (out !== response) out.pipe(response);
   const controller = new AbortController();
-  const ping = setInterval(() => out.write(': ping\n\n'), 15_000);
+  // what comes after the stream has ended goes nowhere: a feed over a page's stream may have been reading — the
+  // session's status, its file — when the page closed it, and tells what it read once it has it
+  const write = (/** @type {string} */ text) => {
+    if (!out.writableEnded) out.write(text);
+  };
+  const ping = setInterval(() => write(': ping\n\n'), 15_000);
   request.on('close', () => {
     controller.abort();
     clearInterval(ping);
   });
   return {
-    send: (event, data) => out.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
+    send: (event, data) => write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
     signal: controller.signal,
     end: () => {
       clearInterval(ping);
