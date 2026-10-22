@@ -52,3 +52,23 @@ export async function settleOn(terminal, wait, ready) {
   }
   return undefined;
 }
+
+/** A terminal's escape sequence: a style or a cursor move (CSI), a link or a title (OSC). */
+const escape = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
+/** Dim text — SGR 2 — up to the next escape: where its style is reset, or the line ends. */
+const dimText = /\u001b\[2m[^\u001b]*/g;
+
+/**
+ * The screen as text, from what the terminal shows with its styles: what Claude Code draws dim in its prompt box — a
+ * reply it suggests, which Tab takes — is not in the box, and is left out, the box as empty as it is.
+ * @param {string} styled — the screen with its escape sequences, as herdr reads it in ansi
+ * @returns {string} — as herdr reads the screen in text: each line ended, the blanks it ends with dropped
+ */
+export function plainScreen(styled) {
+  if (styled === '') return '';
+  const lines = styled.replace(/\n$/, '').split('\n').map((line) => line.replace(/\r$/, ''));
+  const plain = lines.map((line) => line.replace(escape, ''));
+  const [top] = plain.flatMap((line, index) => (rule.test(line) ? [index] : [])).slice(-2);
+  const box = top === undefined ? -1 : top + 1;
+  return plain.map((line, index) => `${(index === box && line.trimStart().startsWith('❯') ? (lines[index] ?? '').replace(dimText, '').replace(escape, '') : line).trimEnd()}\n`).join('');
+}

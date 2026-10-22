@@ -7,7 +7,7 @@
 //   herdr pane send-text / send-keys → the text and Enter, as if the user typed them
 import { setTimeout as delay } from 'node:timers/promises';
 import { driveBtw } from './btw.js';
-import { inputBox, settleOn, squash } from './claude-screen.js';
+import { inputBox, plainScreen, settleOn, squash } from './claude-screen.js';
 import { driveCodexBtw } from './codex-btw.js';
 import { driveCodexRewind } from './codex-rewind.js';
 import { codexDialog, codexInputBox, codexQueued, showsSideConversation, showsSubagent } from './codex-screen.js';
@@ -296,15 +296,16 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
   }
 
   /**
-   * The session's terminal: what its screen shows, keys and text typed into it.
+   * The session's terminal: what its screen shows, keys and text typed into it. The screen is read with its styles: a
+   * reply Claude Code suggests in its empty prompt box is drawn as typed text is, only dim.
    * @param {string} pane
    * @returns {import('./claude-screen.js').Terminal}
    */
   function terminalOf(pane) {
     return {
       read: async () => {
-        const reply = await herdr(['pane', 'read', pane, '--source', 'visible', '--format', 'text']);
-        return reply.ok ? reply.text : undefined;
+        const reply = await herdr(['pane', 'read', pane, '--source', 'visible', '--format', 'ansi']);
+        return reply.ok ? plainScreen(reply.text) : undefined;
       },
       keys: async (...keys) => succeeded(await herdr(['pane', 'send-keys', pane, ...keys])),
       text: async (text) => succeeded(await herdr(['pane', 'send-text', pane, text])),

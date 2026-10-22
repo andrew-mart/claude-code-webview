@@ -174,22 +174,26 @@ test('rewind_Should_TouchTerminalOnlyWhileClaudeWaitsForInput', async () => {
  * herdr in front of Claude Code with /btw: the session's pane shows the prompt box, or after Enter on "/btw …" the side
  * panel with its answer, until Esc closes it. Records every call.
  * @param {string} answer
+ * @param {string} [suggested] - a reply Claude Code suggests in its empty box: dim when read in ansi, read as text it
+ *   looks typed
  */
-function sidePanelHerdr(answer) {
+function sidePanelHerdr(answer, suggested = '') {
   const herdr = fakeHerdr();
   let box = '';
   /** @type {string | undefined} */
   let asked;
-  const screen = () =>
+  /** @param {'ansi' | 'text'} format */
+  const shownInBox = (format) => (box !== '' || suggested === '' ? box : format === 'ansi' ? `\u001b[2m${suggested}\u001b[0m` : suggested);
+  const screen = (/** @type {'ansi' | 'text'} */ format) =>
     asked === undefined
-      ? ['● Done.', '────────', `❯ ${box}`, '────────'].join('\n')
+      ? ['● Done.', '────────', `❯ ${shownInBox(format)}`, '────────'].join('\n')
       : ['● Done.', '▔'.repeat(20), `    /btw ${asked}`, `      ${answer}`, '    ↑/↓ to scroll · c to copy · f to fork · Esc to close'].join('\n');
   /** @param {readonly string[]} args @returns {Promise<import('../server/composer.js').HerdrReply>} */
   const run = async (args) => {
     const [, command, , ...rest] = args;
     if (command === 'read') {
       herdr.calls.push([...args]);
-      return { ok: true, json: undefined, text: screen() };
+      return { ok: true, json: undefined, text: screen(args.includes('ansi') ? 'ansi' : 'text') };
     }
     if (command === 'send-text') box += rest.join('');
     for (const key of command === 'send-keys' ? rest : []) {
@@ -208,6 +212,16 @@ const typedInto = (calls) => calls.filter(([, command]) => command === 'send-tex
 // A side question goes to the session's own terminal as /btw, and its answer comes back from the side panel
 test('btw_Should_AskInSessionPane_And_GiveAnswerFromSidePanel', async () => {
   const herdr = sidePanelHerdr('The limit is in src/config.ts.');
+
+  const outcome = await composerOf([record], herdr).btw(sessionId, 'where is the retry limit?');
+
+  assert.deepEqual({ outcome, typed: typedInto(herdr.calls) }, { outcome: { ok: true, answer: 'The limit is in src/config.ts.' }, typed: ['/btw where is the retry limit?', 'enter', 'down', 'esc'] });
+});
+
+// An empty box showing a reply Claude Code suggests — dim, Tab takes it — is empty: the side question goes, the
+// suggestion giving way to it as to anything typed
+test('btw_Should_Ask_When_BoxShowsOnlyClaudeCodesSuggestion', async () => {
+  const herdr = sidePanelHerdr('The limit is in src/config.ts.', 'да, запускай тесты');
 
   const outcome = await composerOf([record], herdr).btw(sessionId, 'where is the retry limit?');
 
