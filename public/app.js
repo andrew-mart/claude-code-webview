@@ -37,7 +37,7 @@ import { createOutline } from './view/outline-view.js';
 import { createNotesStore } from './view/notes-store.js';
 import { createPinsStore } from './view/pins-store.js';
 import { createPinsView } from './view/pins-view.js';
-import { scopesOf } from './model/pins.js';
+import { pathOffers, pathTyped, scopesOf } from './model/pins.js';
 import { createNotesView } from './view/notes-view.js';
 import { createTabSwitcher } from './view/tab-switcher.js';
 import { noteOpened, parseRecent, switcherEntries } from './model/recent-tabs.js';
@@ -868,6 +868,13 @@ function createPage() {
     outlineElement.prepend(notesView.element);
     // the files pinned beside the session, under its notes: its own and its project folder's, opened in the side panel
     const pinsView = createPinsView({
+      // what is in the folder a path is typed in, for the path to pin
+      pathsOnDisk: async (typed) => {
+        const where = pathTyped(typed);
+        if (where === undefined) return [];
+        const listing = await fetchFolder(where.folder);
+        return listing?.ok === true ? pathOffers(where, listing.entries) : [];
+      },
       open: (path) => {
         drawers.close();
         filePanel.open({ path, line: undefined, endLine: undefined });

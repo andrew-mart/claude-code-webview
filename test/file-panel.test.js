@@ -680,3 +680,64 @@ test('filePanel_Should_ReopenWhatItShowedLast', async () => {
 
   assert.deepEqual({ nothing, file, reopenedNote }, { nothing: false, file: [true, false, 'D:/dev/shop/src/limits.ts'], reopenedNote: [true, false, true] });
 });
+
+// A PDF or a Word document shows dimmed for the dark theme — a PDF's pages inverted, a Word document's paper dark
+// (style.css) — and in its own colours on a press, which this browser keeps for the documents of that kind opened after,
+// each kind its own; other files have no such button
+test('filePanel_Should_ShowDocumentInItsOwnColoursOnPress_KeptForDocumentsOfItsKind', (t) => {
+  Reflect.set(globalThis, 'localStorage', window.localStorage);
+  t.after(() => {
+    window.localStorage.clear();
+    Reflect.deleteProperty(globalThis, 'localStorage');
+  });
+  /** @param {Element} panel */
+  const ownColours = (panel) => panel.querySelector('.panel-body')?.classList.contains('own-colours');
+  const { panel, open } = filePanel();
+  open('D:/dev/x/docs/spec.pdf');
+  const before = ownColours(panel);
+  const button = panel.querySelector('.panel-dim');
+  assert.ok(button instanceof window.HTMLButtonElement);
+
+  button.click();
+  const after = ownColours(panel);
+  open('D:/dev/x/docs/terms.docx');
+
+  const offered = ['D:/dev/x/docs/plan.pdf', 'D:/dev/x/docs/terms.docx', 'D:/dev/x/src/limits.ts', 'D:/dev/x/docs/mobile.png'].map((path) => {
+    const shown = openedAt(path).querySelector('.panel-dim');
+    return shown instanceof window.HTMLButtonElement && !shown.hidden;
+  });
+  assert.deepEqual(
+    { before, after, word: ownColours(panel), laterPdf: ownColours(openedAt('D:/dev/x/docs/plan.pdf')), offered },
+    { before: false, after: true, word: false, laterPdf: true, offered: [true, true, false, false] },
+  );
+});
+
+// The button at the end of the head copies the file's text; the small one beside the path copies the path; a file with
+// no text to copy — a PDF, a picture — has no such button
+test('filePanel_Should_CopyFilesTextFromHead_AndItsPathFromBesideIt', async (t) => {
+  serveTexts({ 'D:/dev/x/src/limits.ts': 'export const perSecond = 10;\n' });
+  /** @type {string[]} */
+  const copied = [];
+  Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (/** @type {string} */ text) => void copied.push(text) }, configurable: true });
+  t.after(() => Reflect.deleteProperty(navigator, 'clipboard'));
+  const { panel, open } = filePanel();
+  open('D:/dev/x/src/limits.ts');
+  await settled();
+  /** @param {string} selector */
+  const press = (selector) => {
+    const button = panel.querySelector(selector);
+    assert.ok(button instanceof window.HTMLButtonElement, `no ${selector}`);
+    button.click();
+  };
+
+  press('.panel-copy');
+  await settled();
+  press('.panel-path-copy');
+  await settled();
+
+  const offered = ['D:/dev/x/docs/spec.pdf', 'D:/dev/x/docs/mobile.png'].map((path) => {
+    const button = openedAt(path).querySelector('.panel-copy');
+    return button instanceof window.HTMLButtonElement && !button.hidden;
+  });
+  assert.deepEqual({ copied, offered }, { copied: ['export const perSecond = 10;\n', 'D:/dev/x/src/limits.ts'], offered: [false, false] });
+});

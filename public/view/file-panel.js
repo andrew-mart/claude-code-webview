@@ -2,7 +2,8 @@
 // Right-hand panel: a file linked from the feed, drawn by file-views by what it is — a markdown document or a page, a
 // table with its columns coloured, text and code with the target line marked, a picture, a PDF or a Word document as
 // its pages. The panel holds its header — the file's name and path, buttons to show the source, run a page's scripts,
-// edit the file here, open it in the editor or in VS Code in the browser, reload, copy the path, close — and tells
+// edit the file here, open it in the editor or in VS Code in the browser, reload, copy its text, close; a small one
+// beside the path copies it — and tells
 // file-views where the viewer's
 // files are. In place of a file it shows a list — the changes of the session's branch, or its project's files and
 // their search — and a file opened from it has a way back to it. A text file is edited in the panel itself
@@ -87,6 +88,14 @@ const keptOut =
 const panelWidth = { property: '--panel-width', storageKey: 'viewer.panelWidth' };
 /** Where it is kept whether the project's files are hidden beside a file. */
 const treeKey = 'viewer.panelTree';
+/** A kind of document with colours of its own: a PDF's pages, a Word document's paper. */
+/** @typedef {'pdf' | 'docx'} OwnColoured */
+/**
+ * Where it is kept, for each kind of document with colours of its own, whether it shows in them in the dark theme, not
+ * dimmed: a PDF in its own colours does not decide for a Word document.
+ * @type {Readonly<Record<OwnColoured, string>>}
+ */
+const coloursKeys = { pdf: 'viewer.pdfColours', docx: 'viewer.docxColours' };
 
 /** @param {string} key */
 function recall(key) {
@@ -95,6 +104,11 @@ function recall(key) {
   } catch {
     return ''; // storage is unavailable — the files shown
   }
+}
+
+/** @param {OwnColoured} kind @returns {'dimmed' | 'own'} — how documents of the kind show in the dark theme */
+function coloursKept(kind) {
+  return recall(coloursKeys[kind]) === 'own' ? 'own' : 'dimmed';
 }
 
 /** @param {string} key @param {string} value — empty: nothing kept */
@@ -121,7 +135,11 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
   const name = h('div', { className: 'panel-name' });
   /** What the panel shows, at the head of its title: the file's icon, or the list's */
   const headIcon = h('span', { className: 'panel-icon' }, [icon('read')]);
-  const path = h('div', { className: 'panel-path' });
+  const pathText = h('span', { className: 'panel-path-text' });
+  // the file's path copied: a small button beside it
+  const copyPath = h('button', { className: 'icon-button panel-path-copy', title: 'Copy path', attrs: { type: 'button', 'aria-label': 'Copy path' } }, [icon('copy')]);
+  copyPath.hidden = true;
+  const path = h('div', { className: 'panel-path' }, [pathText, copyPath]);
   const where = h('span', { className: 'panel-line' });
   const inEditor = panelButton('external', 'Open in the editor at this line');
   inEditor.classList.add('panel-editor');
@@ -146,6 +164,11 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
   const scripts = panelButton('skill', "Run the page's scripts");
   scripts.classList.add('panel-scripts');
   scripts.hidden = true;
+  // a PDF or a Word document in the dark theme: dimmed — a PDF's pages inverted, a Word document's paper dark
+  // (style.css) — or in its own colours, as this browser keeps it for the kind
+  const dim = panelButton('sun', '');
+  dim.classList.add('panel-dim');
+  dim.hidden = true;
   // the file's text edited here, and back to the file shown
   const editHere = panelButton('edit', 'Edit the file here');
   editHere.classList.add('panel-edit');
@@ -162,7 +185,9 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
   reload.classList.add('panel-reload');
   // a list's own buttons — a note's — before ↻, in one row with the panel's
   const listActions = h('span', { className: 'panel-list-actions', attrs: { hidden: '' } });
-  const copy = panelButton('copy', 'Copy path');
+  // the file's text copied — the text edited, while it is edited here
+  const copy = panelButton('copy', "Copy the file's text");
+  copy.classList.add('panel-copy');
   // the file pinned beside the open session, in its outline
   const pin = createPinButton(pins);
   const close = panelButton('cross', 'Close (Esc)');
@@ -196,7 +221,7 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
   // their own there, under the file's name
   const top = h('div', { className: 'panel-top' }, [
     h('div', { className: 'panel-grip', attrs: { 'aria-hidden': 'true' } }),
-    h('header', { className: 'panel-head' }, [back, treeToggle, h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [headIcon, name, where]), path]), h('div', { className: 'panel-tools' }, [scripts, view, editHere, linksButton, inEditor, inVsCode, inFolderSlot, listActions, reload, pin.element, copy]), close]),
+    h('header', { className: 'panel-head' }, [back, treeToggle, h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [headIcon, name, where]), path]), h('div', { className: 'panel-tools' }, [scripts, dim, view, editHere, linksButton, inEditor, inVsCode, inFolderSlot, listActions, reload, pin.element, copy]), close]),
   ]);
   panel.replaceChildren(
     resizer,
@@ -218,6 +243,21 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
   /** Whether the page shown runs its scripts. */
   /** @type {'on' | 'off'} */
   let pageScripts = 'off';
+  /** How a document with colours of its own shows in the dark theme, each kind as this browser keeps it. */
+  /** @type {Record<OwnColoured, 'dimmed' | 'own'>} */
+  let colours = { pdf: coloursKept('pdf'), docx: coloursKept('docx') };
+  /** The kind of the document shown, when it has colours of its own. */
+  /** @type {OwnColoured | undefined} */
+  let coloured;
+  /** The document's look on the panel, and the button saying what a press does: over a document with colours of its own. */
+  const showColours = () => {
+    dim.hidden = coloured === undefined;
+    if (coloured === undefined) return;
+    const own = colours[coloured] === 'own';
+    body.classList.toggle('own-colours', own);
+    dim.replaceChildren(icon(own ? 'moon' : 'sun'));
+    dim.title = own ? 'Dim the document for the dark theme' : 'Show the document in its own colours';
+  };
   /** The list shown, or kept for the way back from a file opened from it. */
   /** @type {Listing | undefined} */
   let listing;
@@ -274,6 +314,7 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
   const dress = (/** @type {import('file-views').FileKind} */ kind) => {
     editHere.hidden = !editable(kind);
     linksButton.hidden = !editable(kind);
+    copy.hidden = !editable(kind);
     editHere.classList.toggle('on', editing);
     editHere.title = editing ? 'Show the file' : 'Edit the file here';
     reload.hidden = editing;
@@ -281,6 +322,8 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
     showDocument.setAttribute('aria-pressed', String(mode === 'document'));
     showSource.setAttribute('aria-pressed', String(mode === 'source'));
     scripts.hidden = editing || kind !== 'html' || mode !== 'document';
+    coloured = kind === 'pdf' || kind === 'docx' ? kind : undefined;
+    showColours();
     scripts.classList.toggle('on', pageScripts === 'on');
     scripts.title = pageScripts === 'on' ? "Stop the page's scripts" : "Run the page's scripts — in a sandbox, out of reach of this page";
   };
@@ -383,10 +426,10 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
     name.textContent = listing.name();
     headIcon.replaceChildren(icon(listing.icon));
     reload.title = 'Reload';
-    path.textContent = listing.summary() ?? '';
-    path.title = '';
+    pathText.textContent = listing.summary() ?? '';
+    pathText.title = '';
     where.textContent = '';
-    for (const button of [view, scripts, editHere, linksButton, inEditor, inVsCode, inFolderSlot, copy, back]) button.hidden = true;
+    for (const button of [view, scripts, editHere, linksButton, inEditor, inVsCode, inFolderSlot, copy, copyPath, back]) button.hidden = true;
     pin.show(undefined);
     listActions.replaceChildren(...(listing.actions === undefined ? [] : [listing.actions]));
     listActions.hidden = listing.actions === undefined;
@@ -403,7 +446,7 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
   const retitle = () => {
     if (!showingList || listing === undefined) return;
     name.textContent = listing.name();
-    path.textContent = listing.summary() ?? '';
+    pathText.textContent = listing.summary() ?? '';
   };
   /** @param {Listing} shownList */
   const showListing = (shownList) => {
@@ -452,7 +495,7 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
       // beside the project's files, the way back stays: a narrow panel shows one of them at a time
       back.hidden = !panel.classList.contains('split');
       projectShown?.view.select(target.path);
-      copy.hidden = false;
+      copyPath.hidden = false;
       inFolderSlot.hidden = false;
       pin.show(target.path);
       void editor.reach().then((reach) => {
@@ -464,8 +507,8 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
       name.textContent = target.path.split(/[\\/]/).pop() ?? target.path;
       headIcon.replaceChildren(iconOf(name.textContent, 'file', false));
       reload.title = 'Reload file';
-      path.textContent = target.path;
-      path.title = target.path;
+      pathText.textContent = target.path;
+      pathText.title = target.path;
       where.textContent = lineLabel(target);
       // a page linked at a line opens its source there; a markdown document is read drawn — the feed links it at a line
       // mostly — its source, the line marked, a press away
@@ -599,6 +642,13 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
     pageScripts = pageScripts === 'on' ? 'off' : 'on';
     load(current);
   });
+  dim.addEventListener('click', () => {
+    if (coloured === undefined) return;
+    const next = colours[coloured] === 'own' ? 'dimmed' : 'own';
+    colours = { ...colours, [coloured]: next };
+    remember(coloursKeys[coloured], next === 'own' ? 'own' : '');
+    showColours();
+  });
   editHere.addEventListener('click', () => {
     if (current === undefined) return;
     if (editing) load(current);
@@ -616,8 +666,21 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
     else if (showingList) void readList();
   });
   back.addEventListener('click', showList);
+  /**
+   * The file's text: the text edited, while it is edited here — saved or not — else the file's as the viewer reads it.
+   * @param {FileTarget} target
+   * @returns {Promise<{ ok: true, text: string } | { ok: false, message: string }>}
+   */
+  const fileText = async (target) => {
+    const edited = editorHere.text();
+    return edited === undefined ? readText(target.path) : { ok: true, text: edited };
+  };
   copy.addEventListener('click', () => {
-    if (current !== undefined) void navigator.clipboard.writeText(current.path);
+    if (current === undefined) return;
+    void fileText(current).then((read) => (read.ok ? copyTicked(copy, read.text) : say(read.message)));
+  });
+  copyPath.addEventListener('click', () => {
+    if (current !== undefined) void copyTicked(copyPath, current.path);
   });
   // × closes the document shown for good: put away otherwise — Esc, a swipe down on a phone — it stays among the docs
   close.addEventListener('click', () => {
@@ -626,6 +689,17 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
     if (closing !== undefined) api.forgetDoc(closing);
   });
   return api;
+}
+
+/**
+ * Copies the text: a tick on the button for a moment once it is copied.
+ * @param {HTMLButtonElement} button
+ * @param {string} text
+ */
+async function copyTicked(button, text) {
+  await navigator.clipboard.writeText(text);
+  button.replaceChildren(icon('check'));
+  setTimeout(() => button.replaceChildren(icon('copy')), 1500);
 }
 
 /**

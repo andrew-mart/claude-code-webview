@@ -45,7 +45,8 @@ const saveRefusals = {
 /**
  * @param {{ fetchFile: FetchFile, makeEditor: MakeEditor, onName: OnName }} deps — makeEditor: CodeMirror in the page, a
  *   stand-in in tests; onName: the name at the cursor looked for in the project
- * @returns {{ element: HTMLElement, open: (target: FileTarget) => Promise<void>, leave: () => void, changed: () => boolean }}
+ * @returns {{ element: HTMLElement, open: (target: FileTarget) => Promise<void>, leave: () => void, changed: () => boolean, text: () => string | undefined }}
+ *   — text: the text being edited, saved or not; none while no file is
  */
 export function createFileEditor({ fetchFile, makeEditor, onName }) {
   const save = h('button', { className: 'code-edit-save', text: 'Save', title: 'Save (Ctrl+S)', attrs: { type: 'button' } });
@@ -182,7 +183,7 @@ export function createFileEditor({ fetchFile, makeEditor, onName }) {
   };
   definition.addEventListener('click', () => lookFor('definition'));
   uses.addEventListener('click', () => lookFor('uses'));
-  return { element, open, leave, changed };
+  return { element, open, leave, changed, text: () => editing?.editor.text() };
 }
 
 /**

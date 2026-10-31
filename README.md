@@ -139,9 +139,10 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   panel pins it, to the session's project folder — every session in it shows it — or to this session alone, chosen as it
   is pinned; pressed again, it unpins it. A file the viewer did not pin — gone from its path, or the viewer not
   answering — is told under the pin. A click on a pinned file opens it in the side panel, × unpins it; each is marked by
-  where it is pinned. **+** over the list pins a file by its path, typed or pasted in — to the project or to the
-  session; a path with no file there is refused, saying so. ✎ on a row names the file in the list as you like, the
-  file's own name left as it is. Kept in `~/.claude-code-webview/pins.json`, so every device shows them.
+  where it is pinned. **+** over the list pins a file by its path, typed or pasted in — what is on the disk offered
+  under it as it is typed, folder by folder — to the project or to the session; a path with no file there is refused,
+  saying so. ✎ on a row names the file in the list as you like, the file's own name left as it is. Kept in
+  `~/.claude-code-webview/pins.json`, so every device shows them.
 
   ![The outline's notes, one inline and two set apart, and the files pinned under them, each marked by where; beside it a file in the side panel being pinned, to the project or to this session](docs/pins.png)
 - **Session header.** Under the title, one line of facts: the folder, the branch checked out there now, the model and

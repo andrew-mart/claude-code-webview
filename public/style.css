@@ -4665,6 +4665,57 @@ table.diff tr.gap td {
 }
 
 .pins-path-row,
+/* what is on the disk for the path typed (pins-view.js): a row each — a folder to go on into, a file to pin — under the
+   field, scrolling past a few */
+.pins-offers {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  margin: 4px 0 2px;
+  overflow-y: auto;
+}
+
+.pins-offers:empty {
+  display: none;
+}
+
+.pins-offer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pins-offer:hover,
+.pins-offer:focus-visible {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.pins-offer .icon,
+.pins-offer .file-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.pins-offer span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .pins-choice {
   display: flex;
   align-items: center;
@@ -5828,12 +5879,37 @@ a.file-link:hover {
   display: none;
 }
 
+/* the file's path, and a small button beside it that copies it */
 .panel-path {
-  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
   color: var(--text-3);
   font: 11.5px/1.5 var(--font-mono);
+}
+
+.panel-path-text {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.panel-path-copy.icon-button {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  color: var(--text-4);
+}
+
+.panel-path-copy.icon-button:hover {
+  color: var(--text);
+}
+
+.panel-path-copy svg {
+  width: 12px;
+  height: 12px;
 }
 
 .panel-body {
@@ -6043,6 +6119,72 @@ a.file-link:hover {
 /* the page's scripts running: the button lit */
 .panel-scripts.on {
   color: var(--accent);
+}
+
+/* A document with colours of its own in the dark theme. A PDF's pages — pictures on canvases — inverted, the hue turned
+   half round so that red stays reddish rather than turning teal; the shadow, a light halo once inverted, dropped. A Word
+   document's paper dark and its words and lines light; the grounds of its cells and paragraphs dropped — a light one on
+   dark paper reads as a hole — its pictures as they are, and an HTML piece of it, a document of its own with black words,
+   left on white. The button over the panel shows the document in its own colours (file-panel.js); in the light theme
+   there is nothing to dim, and no button. */
+:root[data-theme="dark"] .panel-body:not(.own-colours) .fv-pdf-page {
+  filter: invert(1) hue-rotate(180deg);
+  box-shadow: none;
+}
+
+:root[data-theme="dark"] .panel-body:not(.own-colours) .fv-docx section.docx {
+  background: var(--bg-elev) !important;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.5);
+}
+
+:root[data-theme="dark"] .panel-body:not(.own-colours) .fv-docx section.docx,
+:root[data-theme="dark"] .panel-body:not(.own-colours) .fv-docx section.docx * {
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+:root[data-theme="dark"] .panel-body:not(.own-colours) .fv-docx section.docx *:not(img, svg, canvas) {
+  background-color: transparent !important;
+}
+
+:root[data-theme="dark"] .panel-body:not(.own-colours) .fv-docx section.docx iframe.fv-docx-piece {
+  background-color: #fff !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .panel-body:not(.own-colours) .fv-pdf-page {
+    filter: invert(1) hue-rotate(180deg);
+    box-shadow: none;
+  }
+
+  :root:not([data-theme="light"]) .panel-body:not(.own-colours) .fv-docx section.docx {
+    background: var(--bg-elev) !important;
+    box-shadow: 0 2px 10px rgb(0 0 0 / 0.5);
+  }
+
+  :root:not([data-theme="light"]) .panel-body:not(.own-colours) .fv-docx section.docx,
+  :root:not([data-theme="light"]) .panel-body:not(.own-colours) .fv-docx section.docx * {
+    color: var(--text) !important;
+    border-color: var(--border) !important;
+  }
+
+  :root:not([data-theme="light"]) .panel-body:not(.own-colours) .fv-docx section.docx *:not(img, svg, canvas) {
+    background-color: transparent !important;
+  }
+
+  :root:not([data-theme="light"]) .panel-body:not(.own-colours) .fv-docx section.docx iframe.fv-docx-piece {
+    background-color: #fff !important;
+  }
+}
+
+:root[data-theme="light"] .panel-dim {
+  display: none;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .panel-dim {
+    display: none;
+  }
 }
 
 /* ---------- Files' icons — Material Icon Theme's (file-icons.js) ---------- */
@@ -12288,7 +12430,8 @@ a.file-link:hover {
     background: var(--border-strong);
   }
 
-  /* the head in two rows: the name, and × at its end; the buttons under it in one row scrolling sideways — no path */
+  /* the head in two rows: the name, and × at its end; the buttons under it in one row scrolling sideways — the path
+     not shown, its copy button is */
   .file-panel .panel-head {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
@@ -12329,8 +12472,35 @@ a.file-link:hover {
     display: none;
   }
 
+  /* no path: the small button that copies it right after the name, in its row — the name cut short to leave it room */
+  .file-panel .panel-head > .panel-title {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .file-panel .panel-name-row {
+    min-width: 0;
+  }
+
+  /* kept off × for a finger */
   .file-panel .panel-path {
+    flex: none;
+    margin-right: 8px;
+  }
+
+  .file-panel .panel-path-text {
     display: none;
+  }
+
+  .file-panel .panel-path-copy.icon-button {
+    width: 28px;
+    height: 28px;
+  }
+
+  .file-panel .panel-path-copy svg {
+    width: 14px;
+    height: 14px;
   }
 
   /* The documents put away, under the feed over the box: cards in a row to leaf through sideways, the latest first. */

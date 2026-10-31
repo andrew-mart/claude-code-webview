@@ -224,3 +224,15 @@ test('fileEditor_Should_EditOnlyTheFileOpenedLast_When_OpenedWhileAnotherOpens',
 
   assert.deepEqual(page.editors().filter((one) => !one.disposed).map((one) => one.text), ['second']);
 });
+
+// The text being edited — what is typed, saved or not — for the panel to copy; none once the file is left
+test('fileEditor_Should_TellTextBeingEdited_NoneOnceLeft', async () => {
+  const page = editing({ 'D:/dev/shop/limits.ts': 'export const perSecond = 10;\n' });
+  await page.files.open({ path: 'D:/dev/shop/limits.ts', line: undefined, endLine: undefined });
+  page.editor()?.typed('export const perSecond = 20;\n');
+
+  const typed = page.files.text();
+  page.files.leave();
+
+  assert.deepEqual([typed, page.files.text()], ['export const perSecond = 20;\n', undefined]);
+});

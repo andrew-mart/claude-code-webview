@@ -3,7 +3,7 @@
 // project folder's, each once, by the name given it — else its file's — marked by where it is pinned; a click opens one
 // in the side panel — where 📌 over a file pins it — ✎ names it in the list, its file's name left as it is, and × unpins
 // it from everywhere it is pinned. + over the list pins a file by its path, typed or pasted in, to the project or to the
-// session; with no file there it says why.
+// session — what is on the disk offered under it as it is typed, folder by folder; with no file there it says why.
 import { pinKey, pinLabel } from '../model/pins.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
@@ -17,14 +17,17 @@ import { pinRefusals } from './pins-store.js';
  * @typedef {import('./pins-store.js').PinOutcome} PinOutcome
  */
 
+/** The paths offered under the field at most: a folder's first ones, the rest found by typing on. */
+const maxOffers = 30;
+
 /**
- * @param {{ open: (path: string) => void, unpin: (path: string) => void, pinPath: (scope: PinScope, path: string) => Promise<PinOutcome>, rename: (path: string, name: string) => void, iconOf: (name: string) => HTMLElement }} actions
+ * @param {{ open: (path: string) => void, unpin: (path: string) => void, pinPath: (scope: PinScope, path: string) => Promise<PinOutcome>, rename: (path: string, name: string) => void, pathsOnDisk: (typed: string) => Promise<readonly import('../model/pins.js').PathOffer[]>, iconOf: (name: string) => HTMLElement }} actions
  *   — open: a file shown in the side panel; unpin: a file unpinned from everywhere it is pinned; pinPath: a file pinned
  *   by its path, how that went; rename: a pinned file named in the list, a blank name giving back the file's; iconOf: a
  *   file's icon
  * @returns {{ element: HTMLElement, show: (pins: SessionPins) => void }} — show: the pins as they stand now
  */
-export function createPinsView({ open, unpin, pinPath, rename, iconOf }) {
+export function createPinsView({ open, unpin, pinPath, rename, pathsOnDisk, iconOf }) {
   const count = h('span', { className: 'outline-count' });
   const adding = h('button', { className: 'icon-button pins-add', title: 'Pin a file by its path', attrs: { type: 'button', 'aria-label': 'Pin a file by its path' } }, [icon('plus')]);
   const asking = h('div', { className: 'pins-asking', attrs: { hidden: '' } });
@@ -40,6 +43,30 @@ export function createPinsView({ open, unpin, pinPath, rename, iconOf }) {
   const askPath = () => {
     const field = h('input', { className: 'pins-path', attrs: { type: 'text', placeholder: 'The path of a file: D:\\…, /home/…, ~/…', 'aria-label': 'The path of a file to pin', autocomplete: 'off', spellcheck: 'false' } });
     const told = h('div', { className: 'pins-told' });
+    // what is on the disk for the path typed: a folder picked goes on into it, a file picked is the path to pin; an
+    // answer for what was typed before is dropped
+    const offers = h('div', { className: 'pins-offers' });
+    let looks = 0;
+    const lookOnDisk = () => {
+      const turn = ++looks;
+      void pathsOnDisk(field.value).then((found) => {
+        if (turn === looks) offers.replaceChildren(...found.slice(0, maxOffers).map(offerOf));
+      });
+    };
+    /** @param {import('../model/pins.js').PathOffer} offer */
+    const offerOf = (offer) => {
+      const made = h('button', { className: `pins-offer ${offer.kind}`, title: offer.path, attrs: { type: 'button' } }, [offer.kind === 'folder' ? icon('folder') : iconOf(offer.name), h('span', { text: offer.name })]);
+      // picked, the field keeps the focus: on a phone the keyboard stays up
+      made.addEventListener('mousedown', (event) => event.preventDefault());
+      made.addEventListener('click', () => {
+        field.value = offer.path;
+        field.focus();
+        if (offer.kind === 'folder') lookOnDisk();
+        else offers.replaceChildren();
+      });
+      return made;
+    };
+    field.addEventListener('input', lookOnDisk);
     /** @param {PinScope} scope @param {string} words @param {string} title */
     const toward = (scope, words, title) => {
       const made = h('button', { className: `pins-to-${scope}`, text: words, title, attrs: { type: 'button' } });
@@ -73,7 +100,7 @@ export function createPinsView({ open, unpin, pinPath, rename, iconOf }) {
     });
     leaving.addEventListener('click', close);
     asking.hidden = false;
-    asking.replaceChildren(h('div', { className: 'pins-path-row' }, [field, leaving]), h('div', { className: 'pins-choice' }, [toward('folder', 'To the project', "Pin it beside every session in the session's project folder (Enter)"), toward('session', 'To this session', 'Pin it beside this session alone')]), told);
+    asking.replaceChildren(h('div', { className: 'pins-path-row' }, [field, leaving]), offers, h('div', { className: 'pins-choice' }, [toward('folder', 'To the project', "Pin it beside every session in the session's project folder (Enter)"), toward('session', 'To this session', 'Pin it beside this session alone')]), told);
     field.focus();
   };
   adding.addEventListener('click', () => (asking.hidden ? askPath() : undefined));

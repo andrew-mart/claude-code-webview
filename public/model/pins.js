@@ -117,3 +117,40 @@ export function parsePinChange(value) {
 function exhaustive(value) {
   throw new Error(`Unexpected change of the pins ${JSON.stringify(value)}`);
 }
+
+/**
+ * @typedef {{ folder: string, start: string }} PathTyped — a path being typed: the folder it is typed in, up to its last
+ *   slash, and the start of the name after it
+ * @typedef {{ path: string, name: string, kind: 'folder' | 'file' }} PathOffer — a folder's path ends with a slash, to go
+ *   on into it
+ */
+
+/**
+ * Where a path being typed to pin goes on from: the folder up to its last slash, the name's start after it; none for a
+ * path not whole yet — no drive, no / or ~/ — which no folder is listed for.
+ * @param {string} typed
+ * @returns {PathTyped | undefined}
+ */
+export function pathTyped(typed) {
+  const at = Math.max(typed.lastIndexOf('/'), typed.lastIndexOf('\\'));
+  const folder = typed.slice(0, at + 1);
+  return at === -1 || !/^(?:[a-zA-Z]:[\\/]|[\\/]|~[\\/])/.test(folder) ? undefined : { folder, start: typed.slice(at + 1) };
+}
+
+/**
+ * The paths offered for one being typed: the folder's entries whose names start as typed, in any case, the folders
+ * first — each ending with the slash typed, to go on into it — and hidden ones only for a dot typed.
+ * @param {PathTyped} where
+ * @param {readonly import('./project.js').FolderEntry[]} entries — the folder's
+ * @returns {PathOffer[]}
+ */
+export function pathOffers({ folder, start }, entries) {
+  const slash = folder.slice(-1);
+  const wanted = start.toLowerCase();
+  const fitting = entries.filter((entry) => entry.name.toLowerCase().startsWith(wanted) && (!entry.name.startsWith('.') || start.startsWith('.')));
+  return [...fitting.filter((entry) => entry.kind === 'folder'), ...fitting.filter((entry) => entry.kind === 'file')].map((entry) => ({
+    path: `${folder}${entry.name}${entry.kind === 'folder' ? slash : ''}`,
+    name: entry.name,
+    kind: entry.kind,
+  }));
+}

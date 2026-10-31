@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { changePins, parsePinChange, parsePins, parseSessionPins, pinLabel, scopesOf } from '../public/model/pins.js';
+import { changePins, parsePinChange, parsePins, parseSessionPins, pathOffers, pathTyped, pinLabel, scopesOf } from '../public/model/pins.js';
 
 /** @typedef {import('../public/model/pins.js').Pin} Pin */
 
@@ -68,6 +68,37 @@ test('changePins_Should_NamePinnedFileByHand_AndPinLabelShowIt', () => {
       labels: [['Spec v2', 'design.pdf'], ['spec.md', 'design.pdf']],
       stored: [{ ...spec, name: 'Spec v2' }, design],
       change: { action: 'name', path: spec.path, name: 'Spec v2' },
+    },
+  );
+});
+
+// A path being typed to pin is offered on from the folder it is typed in — up to its last slash — the entries whose
+// names start as typed after it, in any case, the folders first, each to go on into; hidden ones only for a dot typed.
+// A path not whole yet — no drive, no / or ~/ — is offered nothing
+test('pathOffers_Should_OfferEntriesOfFolderTypedIn_StartingAsTyped_FoldersFirst', () => {
+  /** @type {import('../public/model/project.js').FolderEntry[]} */
+  const entries = [
+    { name: 'notes.md', kind: 'file' },
+    { name: 'Node', kind: 'folder' },
+    { name: '.nvmrc', kind: 'file' },
+    { name: 'src', kind: 'folder' },
+    { name: 'NOTICE', kind: 'file' },
+  ];
+
+  assert.deepEqual(
+    {
+      typed: [pathTyped('D:\\dev\\shop\\no'), pathTyped('shop/no'), pathTyped('~/')],
+      offered: pathOffers({ folder: 'D:\\dev\\shop\\', start: 'no' }, entries),
+      hidden: pathOffers({ folder: '/home/ann/', start: '.' }, entries),
+    },
+    {
+      typed: [{ folder: 'D:\\dev\\shop\\', start: 'no' }, undefined, { folder: '~/', start: '' }],
+      offered: [
+        { path: 'D:\\dev\\shop\\Node\\', name: 'Node', kind: 'folder' },
+        { path: 'D:\\dev\\shop\\notes.md', name: 'notes.md', kind: 'file' },
+        { path: 'D:\\dev\\shop\\NOTICE', name: 'NOTICE', kind: 'file' },
+      ],
+      hidden: [{ path: '/home/ann/.nvmrc', name: '.nvmrc', kind: 'file' }],
     },
   );
 });

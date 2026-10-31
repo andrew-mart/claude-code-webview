@@ -11,7 +11,8 @@ const spec = { path: 'D:\\dev\\shop\\docs\\spec.md', at: '2026-10-28T09:00:00.00
 const design = { path: 'D:\\dev\\shop\\docs\\design.pdf', at: '2026-10-28T09:05:00.000Z' };
 
 /**
- * The pinned files' section in a page, what it asks for recorded; a path pinned by hand comes to these outcomes in turn.
+ * The pinned files' section in a page, what it asks for recorded; a path pinned by hand comes to these outcomes in turn;
+ * the disk holds D:\\dev\\shop\\ with docs in it, and spec.md in docs.
  * @param {readonly import('../public/view/pins-store.js').PinOutcome[]} outcomes
  */
 function pinsShown(outcomes = []) {
@@ -26,6 +27,12 @@ function pinsShown(outcomes = []) {
       return left.shift() ?? 'failed';
     },
     rename: (path, name) => void asked.push(['rename', path, name]),
+    pathsOnDisk: async (typed) => {
+      asked.push(['offers', typed]);
+      if (typed === 'D:\\dev\\shop\\') return [{ path: 'D:\\dev\\shop\\docs\\', name: 'docs', kind: 'folder' }];
+      if (typed === 'D:\\dev\\shop\\docs\\') return [{ path: 'D:\\dev\\shop\\docs\\spec.md', name: 'spec.md', kind: 'file' }];
+      return [];
+    },
     iconOf: (name) => Object.assign(window.document.createElement('span'), { className: 'file-icon', title: name }),
   });
   window.document.body.replaceChildren(view.element);
@@ -92,6 +99,42 @@ test('pinsView_Should_PinFileByItsPath_ToProjectOrSession_TellingWhyNot', async 
       ],
       told: 'No file there.',
       asking: false,
+    },
+  );
+});
+
+// The path typed to pin is offered on from the disk under the field: a folder picked goes in the field and offers what
+// is in it, a file picked goes in the field whole, to be pinned
+test('pinsView_Should_OfferPathsOnDisk_ToPin_FolderByFolder', async () => {
+  const { view, asked, element, settled } = pinsShown();
+  view.show({ folder: [], session: [] });
+  element('.pins-add').click();
+  const field = element('input.pins-path');
+  assert.ok(field instanceof window.HTMLInputElement);
+  const offered = () => [...view.element.querySelectorAll('.pins-offers button')].map((one) => one.textContent);
+  /** @param {string} name */
+  const pick = (name) => [...view.element.querySelectorAll('.pins-offers button')].find((one) => one.textContent === name)?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+
+  field.value = 'D:\\dev\\shop\\';
+  field.dispatchEvent(new window.Event('input', { bubbles: true }));
+  await settled();
+  const inShop = offered();
+  pick('docs');
+  await settled();
+  const inDocs = { field: field.value, offered: offered() };
+  pick('spec.md');
+  await settled();
+
+  assert.deepEqual(
+    { inShop, inDocs, picked: { field: field.value, offered: offered() }, asked: asked.filter(([what]) => what === 'offers') },
+    {
+      inShop: ['docs'],
+      inDocs: { field: 'D:\\dev\\shop\\docs\\', offered: ['spec.md'] },
+      picked: { field: 'D:\\dev\\shop\\docs\\spec.md', offered: [] },
+      asked: [
+        ['offers', 'D:\\dev\\shop\\'],
+        ['offers', 'D:\\dev\\shop\\docs\\'],
+      ],
     },
   );
 });
