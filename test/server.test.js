@@ -1850,6 +1850,39 @@ test('seen_Should_KeepAnswerSeenFromViewerPage_ForEveryDevice', async (t) => {
   assert.deepEqual({ elsewhere: elsewhere.status, marked: marked.status, seen }, { elsewhere: 403, marked: 200, seen: { 'w1:p2': 7 } });
 });
 
+// The file panel's files go both ways: one uploaded from the viewer's page — its bytes as they are — lands in the folder
+// asked for, one by that name already there stays unless it is to be replaced, and another site cannot upload; a file
+// downloads under its name, a folder as a zip under its own
+test('files_Should_UploadFromViewerPageIntoFolder_AndDownloadFileAndFolderUnderTheirNames', async (t) => {
+  const { base, port } = await withServer(t);
+  const folder = join(tempDir('csv-transfer-'), 'shop');
+  await mkdir(folder, { recursive: true });
+  const bytes = { origin: `http://127.0.0.1:${port}`, 'x-viewer': '1', 'content-type': 'application/octet-stream' };
+  const into = (/** @type {string} */ name, /** @type {boolean} */ replace) => `/api/file/upload?${new URLSearchParams({ folder, name, ...(replace ? { replace: '1' } : {}) })}`;
+
+  const uploaded = await post(port, into('notes.md', false), bytes, 'first');
+  const again = await post(port, into('notes.md', false), bytes, 'second');
+  const replaced = await post(port, into('notes.md', true), bytes, 'second');
+  const elsewhere = await post(port, into('evil.md', false), { ...bytes, origin: 'https://evil.example' }, 'x');
+  const file = await fetch(`${base}/api/file/download?${new URLSearchParams({ path: join(folder, 'notes.md') })}`);
+  const zip = await fetch(`${base}/api/folder/download?${new URLSearchParams({ path: folder })}`);
+
+  assert.deepEqual(
+    {
+      statuses: [uploaded.status, again.status, replaced.status, elsewhere.status],
+      again: JSON.parse(again.body),
+      file: [file.headers.get('content-disposition'), await file.text()],
+      zip: [zip.status, zip.headers.get('content-type'), zip.headers.get('content-disposition'), (await zip.arrayBuffer()).byteLength > 0],
+    },
+    {
+      statuses: [200, 409, 200, 403],
+      again: { ok: false, error: 'exists', name: 'notes.md' },
+      file: ['attachment; filename="notes.md"; filename*=UTF-8\'\'notes.md', 'second'],
+      zip: [200, 'application/zip', 'attachment; filename="shop.zip"; filename*=UTF-8\'\'shop.zip', true],
+    },
+  );
+});
+
 // An agent kept lit to come back to on one device is lit on every one: the page tells the viewer, which keeps the mark
 // for the others until a page takes it off; another site cannot, and a mark of another shape is refused
 test('kept_Should_KeepAgentLitFromViewerPage_ForEveryDevice_UntilTakenOff', async (t) => {

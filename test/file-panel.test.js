@@ -16,6 +16,9 @@ const noEditor = { reach: async () => 'none', check: async () => 'none', open: a
 
 /** @typedef {import('../public/model/project.js').Match} Match */
 
+/** A project whose files neither download nor upload. @type {import('../public/view/project-view.js').Transfer} */
+const noTransfer = { address: () => '', upload: async () => ({ ok: false, error: 'failed' }) };
+
 /**
  * The panel as app.js creates it, in a page of its own; a file's project is D:/dev/shop, its search finding these lines.
  * @param {EditorOpener} [editor]
@@ -37,13 +40,14 @@ function filePanel(editor = noEditor, lines = [], vscode = Promise.resolve(undef
     vscode,
     fileManager,
     // a folder linked: its files, with nothing in them
-    folder: (root) => ({ root, listFolder: async (path) => ({ ok: true, path, entries: [], more: false }), search: async () => undefined, links: async () => undefined }),
+    folder: (root) => ({ root, listFolder: async (path) => ({ ok: true, path, entries: [], more: false }), search: async () => undefined, links: async () => undefined, transfer: noTransfer }),
     // an icon that tells what it was asked for
     iconOf: (name, kind, open) => Object.assign(window.document.createElement('span'), { className: 'file-icon', title: `${kind}:${name}${open ? ':open' : ''}` }),
     project: () => ({
       root: 'D:/dev/shop',
       listFolder: async (path) => ({ ok: true, path, entries: [], more: false }),
       search: async (query) => ({ ok: true, root: 'D:/dev/shop', matches: lines.filter((line) => line.text.includes(query.text)), more: false }),
+      transfer: noTransfer,
       // limits.ts imports clock.ts and express, and app.ts imports it
       links: async () => ({
         ok: true,
@@ -400,6 +404,7 @@ test('filePanel_Should_ShowProjectFiles_And_GoBackToThemFromFileOpenedThere', as
     root: 'D:/dev/shop',
     listFolder: async (path) => ({ ok: true, path, entries: path === 'D:/dev/shop' ? [{ name: 'README.md', kind: 'file' }] : [], more: false }),
     search: async () => undefined,
+    transfer: noTransfer,
   });
   await new Promise((done) => setTimeout(done, 0));
   const shownFiles = title();
@@ -483,6 +488,7 @@ test('filePanel_Should_ShowFileBesideProjectsTree_TreeStaying', async () => {
     root: 'D:/dev/shop',
     listFolder: async (path) => ({ ok: true, path, entries: path === 'D:/dev/shop' ? [{ name: 'README.md', kind: 'file' }, { name: 'limits.ts', kind: 'file' }] : [], more: false }),
     search: async () => undefined,
+    transfer: noTransfer,
   });
   await new Promise((done) => setTimeout(done, 0));
   /** @param {string} label */
@@ -518,6 +524,7 @@ test('filePanel_Should_HideProjectsTreeBesideFile_AndShowItAgain', async () => {
     root: 'D:/dev/shop',
     listFolder: async (path) => ({ ok: true, path, entries: path === 'D:/dev/shop' ? [{ name: 'README.md', kind: 'file' }] : [], more: false }),
     search: async () => undefined,
+    transfer: noTransfer,
   });
   await new Promise((done) => setTimeout(done, 0));
   const toggle = () => panel.querySelector('.panel-tree');

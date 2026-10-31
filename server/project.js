@@ -148,7 +148,7 @@ function cutAround(text, index) {
  * @param {string} home
  * @returns {Promise<{ ok: true, path: string } | { ok: false, error: FolderRefusal }>}
  */
-async function folderAt(requested, home) {
+export async function folderAt(requested, home) {
   const path = /^~[\\/]/.test(requested) ? join(home, requested.slice(2)) : requested;
   if (!isAbsolute(path)) return { ok: false, error: 'not-absolute' };
   const info = await stat(path).catch(() => undefined);

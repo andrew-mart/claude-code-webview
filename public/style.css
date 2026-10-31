@@ -5076,6 +5076,145 @@ a.file-link:hover {
   list-style: none;
 }
 
+/* a folder's or a file's row with its download — a folder's upload too — at its end, lit as a whole */
+.project-item {
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+}
+
+.project-item > .project-entry {
+  flex: 1;
+  min-width: 0;
+}
+
+.project-item:hover {
+  background: var(--bg-hover);
+}
+
+/* the folder or file chosen in the tree — where the upload beside the search goes — lit as a whole row */
+.project-item:has(> .project-entry.selected) {
+  background: var(--bg-selected);
+}
+
+.project-item > .project-entry:hover,
+.project-item > .project-entry.selected {
+  background: none;
+}
+
+/* shown as the row is pointed at — always there on a touch screen */
+.project-actions {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  padding-right: 4px;
+  opacity: 0;
+}
+
+.project-item:hover .project-actions,
+.project-actions:focus-within {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .project-actions {
+    opacity: 1;
+  }
+}
+
+.project-download,
+.project-upload {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.project-search .project-download,
+.project-search .project-upload {
+  width: 30px;
+  height: 30px;
+}
+
+.project-download:hover,
+.project-upload:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.project-item .project-download:hover,
+.project-item .project-upload:hover {
+  background: var(--bg-selected);
+}
+
+.project-picker {
+  display: none;
+}
+
+/* what an upload came to, under the search: a file uploading, a name already there asked about — replaced, renamed or
+   skipped — the upload's end; the choices wrap under the question in a narrow panel */
+.project-transfer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.project-transfer-question {
+  flex: 1 1 12em;
+  min-width: 0;
+}
+
+.project-transfer-choice {
+  flex: none;
+  max-width: 100%;
+  padding: 3px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.project-transfer-choice:hover {
+  background: var(--bg-hover);
+}
+
+.project-transfer-replace,
+.project-transfer-upload {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--accent);
+}
+
+.project-transfer-name {
+  flex: 1 1 10em;
+  min-width: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  /* 16px: a phone does not zoom the page into the field */
+  font-size: max(12.5px, min(16px, 4vw));
+}
+
 .project-results {
   padding: 4px 6px 24px;
 }

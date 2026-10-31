@@ -4,6 +4,7 @@
 // and answers only requests whose Host is that address: a page from another site cannot read it via DNS rebinding.
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import http from 'node:http';
 import net from 'node:net';
@@ -31,6 +32,7 @@ import { createFileIcons, fileIconAnswer, fileIconsManifest, fileIconsPrefix } f
 import { readImageFile, readTextFile, saveTextFile } from './files.js';
 import { fileLinks } from './links.js';
 import { listFolder, searchProject, searchTimeoutMs } from './project.js';
+import { attachment, fileToDownload, folderToZip, uploadFile, writeZip } from './transfer.js';
 import { readBranch, workTreeOf } from './git.js';
 import { readImage } from './images.js';
 import { rewindTarget } from './rewind.js';
@@ -294,6 +296,10 @@ async function handle(deps, request, response) {
       return withSession(url, response, async (id) => stream(deps, url, id, request, response));
     case '/api/feeds':
       return feedsStream(deps, url, request, response);
+    case '/api/file/download':
+      return sendDownload(url, response);
+    case '/api/folder/download':
+      return sendFolderZip(url, response);
     case '/api/file':
       return sendFile(url, response);
     case '/api/vscode/open':
@@ -531,6 +537,8 @@ async function upgradeToVsCode(deps, request, socket, head) {
  * @param {http.ServerResponse} response
  */
 async function handleWrite(deps, url, request, response) {
+  // a file's bytes as they are: from the viewer's page alone, as its JSON is
+  if (url.pathname === '/api/file/upload') return receiveUpload(deps, url, request, response);
   const fromViewer =
     deps.allowedOrigins.has(request.headers.origin ?? '') &&
     (request.headers['content-type'] ?? '').startsWith('application/json') &&
@@ -1415,6 +1423,79 @@ async function sendFile(url, response) {
   if (outcome.ok) return sendJson(response, outcome);
   return sendJson(response, outcome, refusalStatus[outcome.error]);
 }
+
+/**
+ * A file from any absolute path, as the panel's text is, saved on the device that asked under its own name.
+ * @param {URL} url — ?path=<the file>
+ * @param {http.ServerResponse} response
+ */
+async function sendDownload(url, response) {
+  const found = await fileToDownload(url.searchParams.get('path') ?? '', homedir());
+  if (!found.ok) {
+    response.writeHead(downloadRefusalStatus[found.error]).end(`Cannot download: ${found.error}`);
+    return;
+  }
+  response.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': String(found.size), 'Content-Disposition': attachment(found.name), 'Cache-Control': 'no-store' });
+  // the device gone midway: nothing to tell it
+  await pipeline(createReadStream(found.path), response).catch(() => response.destroy());
+}
+
+/**
+ * A folder as a zip under its own name, written as its files are read (transfer.js).
+ * @param {URL} url — ?path=<the folder>
+ * @param {http.ServerResponse} response
+ */
+async function sendFolderZip(url, response) {
+  const found = await folderToZip(url.searchParams.get('path') ?? '', { home: homedir(), maxBytes: maxZipBytes, maxEntries: maxZipEntries });
+  if (!found.ok) {
+    response.writeHead(zipRefusalStatus[found.error]).end(`Cannot download the folder: ${found.error}`);
+    return;
+  }
+  response.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Disposition': attachment(found.name), 'Cache-Control': 'no-store' });
+  try {
+    await writeZip(found.entries, response);
+    response.end();
+  } catch {
+    // a file gone or unreadable midway, or the device gone: the zip cannot be finished — it is cut, not passed off whole
+    response.destroy();
+  }
+}
+
+/**
+ * A file uploaded from the panel into a folder, its bytes as they are: accepted, as the page's JSON is, only from the
+ * viewer's page — its Origin ours, the X-Viewer header there, which no other site can send without a CORS preflight.
+ * One too big is refused by its length before anything of it is read.
+ * @param {Deps} deps
+ * @param {URL} url — ?folder=<the folder>&name=<the file>&replace=1: one by that name there gives way
+ * @param {http.IncomingMessage} request
+ * @param {http.ServerResponse} response
+ */
+async function receiveUpload(deps, url, request, response) {
+  const fromViewer = deps.allowedOrigins.has(request.headers.origin ?? '') && request.headers['x-viewer'] === '1' && (request.headers['content-type'] ?? '').startsWith('application/octet-stream');
+  if (!fromViewer) {
+    request.resume();
+    response.writeHead(403).end('Forbidden: request did not come from the viewer page');
+    return;
+  }
+  if (Number(request.headers['content-length'] ?? 0) > maxUploadBytes) {
+    request.resume();
+    return sendJson(response, { ok: false, error: 'too-large' }, 413);
+  }
+  const outcome = await uploadFile(url.searchParams.get('folder') ?? '', url.searchParams.get('name') ?? '', request, { existing: url.searchParams.get('replace') === '1' ? 'replace' : 'keep', maxBytes: maxUploadBytes, home: homedir() });
+  if (!outcome.ok) request.resume();
+  return sendJson(response, outcome, outcome.ok ? 200 : uploadRefusalStatus[outcome.error]);
+}
+
+/** @type {Readonly<Record<'not-absolute' | 'not-found' | 'not-a-file', number>>} */
+const downloadRefusalStatus = { 'not-absolute': 400, 'not-found': 404, 'not-a-file': 400 };
+/** @type {Readonly<Record<import('./project.js').FolderRefusal | 'too-large', number>>} */
+const zipRefusalStatus = { 'not-absolute': 400, 'not-found': 404, 'not-a-folder': 400, 'too-large': 413 };
+/** @type {Readonly<Record<import('./project.js').FolderRefusal | 'bad-name' | 'exists' | 'not-a-file' | 'too-large', number>>} */
+const uploadRefusalStatus = { 'not-absolute': 400, 'not-found': 404, 'not-a-folder': 400, 'bad-name': 400, exists: 409, 'not-a-file': 409, 'too-large': 413 };
+/** A folder downloaded at once: no more than a zip without its 64-bit records holds, and a download should. */
+const maxZipBytes = 2 * 1024 ** 3;
+const maxZipEntries = 20_000;
+const maxUploadBytes = 1024 ** 3;
 
 /** @type {Readonly<Record<import('./files.js').FileRefusal, number>>} */
 const refusalStatus = { 'not-absolute': 400, 'not-a-file': 400, 'not-found': 404, 'too-large': 413, binary: 415 };

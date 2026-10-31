@@ -35,6 +35,10 @@ function projectOf(lines = []) {
   const opened = [];
   /** @type {import('../public/model/project.js').SearchQuery[]} */
   const asked = [];
+  /** The files uploaded, as [folder, the name saved under, existing]: the viewer takes them all, but one by a name
+   *  there — told apart from it in no case, as on Windows — only to replace it. */
+  /** @type {[string, string, 'keep' | 'replace'][]} */
+  const uploads = [];
   const view = createProjectView({
     root: 'D:/dev/shop',
     listFolder: async (path) => ({ ok: true, path, entries: folders[path] ?? [], more: false }),
@@ -44,6 +48,17 @@ function projectOf(lines = []) {
     },
     openFile: (target) => opened.push(target),
     iconOf,
+    transfer: {
+      address: (path, kind) => `/download/${kind}?${path}`,
+      upload: async (folder, file, name, existing) => {
+        uploads.push([folder, name, existing]);
+        const there = folders[folder] ?? [];
+        const same = there.find((entry) => entry.name.toLowerCase() === name.toLowerCase());
+        if (existing === 'keep' && same !== undefined) return { ok: false, error: 'exists', name: same.name };
+        folders[folder] = [...there.filter((entry) => entry !== same), { name, kind: 'file' }];
+        return { ok: true };
+      },
+    },
   });
   document.body.replaceChildren(view.element);
   /** Lets the page's promises settle. */
@@ -56,8 +71,227 @@ function projectOf(lines = []) {
     assert.ok(found instanceof window.HTMLElement, `no row ${label}`);
     return found;
   };
-  return { view, opened, asked, settle, tree, row };
+  /** Files picked for an upload, as the browser's file picker gives them. @param {readonly string[]} names */
+  const pick = (names) => {
+    const picker = view.element.querySelector('input.project-picker');
+    assert.ok(picker instanceof window.HTMLInputElement, 'no file picker');
+    Object.defineProperty(picker, 'files', { value: names.map((one) => new window.File(['bytes'], one)), configurable: true });
+    picker.dispatchEvent(new window.Event('change'));
+  };
+  return { view, opened, asked, uploads, settle, tree, row, pick };
 }
+
+// Each file in the tree downloads from its row as it is, each folder as a zip, from the viewer's addresses for them;
+// each under its own name
+test('projectView_Should_OfferDownloadOfEachFileAndFolderInTree', async () => {
+  const project = projectOf();
+  await project.view.reload();
+  project.row('src').click();
+  await project.settle();
+
+  assert.deepEqual(
+    [...project.view.element.querySelectorAll('.project-tree a.project-download')].map((link) => [link.getAttribute('href'), link.getAttribute('download')]),
+    [
+      ['/download/folder?D:/dev/shop/src', 'src.zip'],
+      ['/download/file?D:/dev/shop/src/limits.ts', 'limits.ts'],
+      ['/download/file?D:/dev/shop/README.md', 'README.md'],
+    ],
+  );
+});
+
+// A folder takes the files picked for it — the project's own folder too: one by a name already there is replaced only
+// once that is confirmed, and the folder — open, if it was not — shows what it holds then
+test('projectView_Should_UploadFilesPickedIntoFolder_ReplacingOnlyOnceConfirmed', async () => {
+  const project = projectOf();
+  await project.view.reload();
+
+  project.view.element.querySelector('.project-search .project-upload')?.dispatchEvent(new window.MouseEvent('click'));
+  project.pick(['notes.md', 'README.md']);
+  await project.settle();
+  const asking = project.view.element.querySelector('.project-transfer-question')?.textContent;
+  project.view.element.querySelector('.project-transfer-replace')?.dispatchEvent(new window.MouseEvent('click'));
+  await project.settle();
+  const [uploadIntoSrc] = [...project.view.element.querySelectorAll('.project-tree .project-upload')];
+  uploadIntoSrc?.dispatchEvent(new window.MouseEvent('click'));
+  project.pick(['orders.ts']);
+  await project.settle();
+
+  assert.deepEqual(
+    { asking, uploads: project.uploads, tree: project.tree(), told: project.view.element.querySelector('.project-transfer')?.textContent },
+    {
+      asking: 'Replace README.md in shop?',
+      uploads: [
+        ['D:/dev/shop', 'notes.md', 'keep'],
+        ['D:/dev/shop', 'README.md', 'keep'],
+        ['D:/dev/shop', 'README.md', 'replace'],
+        ['D:/dev/shop/src', 'orders.ts', 'keep'],
+      ],
+      tree: ['src', '  limits.ts', '  orders.ts', 'notes.md', 'README.md'],
+      told: 'Uploaded orders.ts into shop/src',
+    },
+  );
+});
+
+// The download beside the search gives what is chosen in the tree, as its title says: a folder clicked as a zip, the
+// file shown as it is; the project as a zip while nothing is chosen, or the file shown is not in the project
+test('projectView_Should_DownloadFromBesideSearchWhatIsChosenInTree', async () => {
+  const project = projectOf();
+  await project.view.reload();
+  const offered = () => {
+    const link = project.view.element.querySelector('.project-search .project-download');
+    return [link?.getAttribute('href'), link?.getAttribute('download'), link?.getAttribute('title')];
+  };
+
+  const nothing = offered();
+  project.row('src').click();
+  await project.settle();
+  const folder = offered();
+  project.view.select('D:/dev/shop/src/limits.ts');
+  const file = offered();
+  project.view.select('D:/dev/shopping/cart.ts');
+  const elsewhere = offered();
+
+  assert.deepEqual(
+    { nothing, folder, file, elsewhere },
+    {
+      nothing: ['/download/folder?D:/dev/shop', 'shop.zip', 'Download shop as a zip'],
+      folder: ['/download/folder?D:/dev/shop/src', 'src.zip', 'Download shop/src as a zip'],
+      file: ['/download/file?D:/dev/shop/src/limits.ts', 'limits.ts', 'Download shop/src/limits.ts'],
+      elsewhere: ['/download/folder?D:/dev/shop', 'shop.zip', 'Download shop as a zip'],
+    },
+  );
+});
+
+// The upload beside the search goes where its title says: into the folder chosen in the tree — clicked, closed again
+// too — marked there, or into the folder holding the file shown; into the project's own folder while nothing is chosen,
+// or the file shown is not in the project
+test('projectView_Should_UploadFromBesideSearchIntoFolderChosenInTree', async () => {
+  const project = projectOf();
+  await project.view.reload();
+  const upload = project.view.element.querySelector('.project-search .project-upload');
+  assert.ok(upload instanceof window.HTMLElement, 'no upload beside the search');
+  /** @type {string[]} */
+  const titles = [];
+  /** @param {string} name */
+  const uploadFromSearch = async (name) => {
+    titles.push(upload.title);
+    upload.dispatchEvent(new window.MouseEvent('click'));
+    project.pick([name]);
+    await project.settle();
+  };
+  const marked = () => [...project.view.element.querySelectorAll('.project-entry.selected')].map((row) => row.getAttribute('title'));
+
+  await uploadFromSearch('a.ts');
+  project.row('src').click();
+  await project.settle();
+  const markedFolder = marked();
+  await uploadFromSearch('b.ts');
+  project.row('src').click();
+  await project.settle();
+  await uploadFromSearch('c.ts');
+  project.view.select('D:/dev/shop/README.md');
+  await uploadFromSearch('d.ts');
+  project.view.select('D:/dev/shop/src/limits.ts');
+  await uploadFromSearch('e.ts');
+  project.view.select('D:/dev/shopping/cart.ts');
+  await uploadFromSearch('f.ts');
+
+  assert.deepEqual(
+    { titles, markedFolder, uploads: project.uploads.map(([folder, name]) => `${folder} ← ${name}`) },
+    {
+      titles: ['Upload files into shop', 'Upload files into shop/src', 'Upload files into shop/src', 'Upload files into shop', 'Upload files into shop/src', 'Upload files into shop'],
+      markedFolder: ['D:/dev/shop/src'],
+      uploads: ['D:/dev/shop ← a.ts', 'D:/dev/shop/src ← b.ts', 'D:/dev/shop/src ← c.ts', 'D:/dev/shop ← d.ts', 'D:/dev/shop/src ← e.ts', 'D:/dev/shop ← f.ts'],
+    },
+  );
+});
+
+// A name told from the file there only by its case is that file: the question offers both names, and the file
+// replaced is named as chosen — as it came, or as it was there
+test('projectView_Should_OfferBothNames_When_FileThereDiffersOnlyInCase', async () => {
+  const project = projectOf();
+  await project.view.reload();
+  const asked = () => ({
+    question: project.view.element.querySelector('.project-transfer-question')?.textContent,
+    offered: [...project.view.element.querySelectorAll('.project-transfer-replace')].map((button) => button.textContent),
+  });
+  /** @param {string} name */
+  const replaceAs = (name) => [...project.view.element.querySelectorAll('.project-transfer-replace')].find((button) => button.textContent === name)?.dispatchEvent(new window.MouseEvent('click'));
+  /** @param {string} name */
+  const upload = async (name) => {
+    project.view.element.querySelector('.project-search .project-upload')?.dispatchEvent(new window.MouseEvent('click'));
+    project.pick([name]);
+    await project.settle();
+  };
+
+  await upload('readme.md');
+  const first = asked();
+  replaceAs('readme.md');
+  await project.settle();
+  const renamed = project.tree();
+  await upload('README.md');
+  const second = asked();
+  replaceAs('readme.md');
+  await project.settle();
+
+  assert.deepEqual(
+    { first, renamed, second, uploads: project.uploads, tree: project.tree() },
+    {
+      first: { question: 'Replace README.md in shop, named:', offered: ['README.md', 'readme.md'] },
+      renamed: ['src', 'readme.md'],
+      second: { question: 'Replace readme.md in shop, named:', offered: ['readme.md', 'README.md'] },
+      uploads: [
+        ['D:/dev/shop', 'readme.md', 'keep'],
+        ['D:/dev/shop', 'readme.md', 'replace'],
+        ['D:/dev/shop', 'README.md', 'keep'],
+        ['D:/dev/shop', 'readme.md', 'replace'],
+      ],
+      tree: ['src', 'readme.md'],
+    },
+  );
+});
+
+// A file whose name is there can go in under a name of its own instead, the one it came by offered to change; a name
+// that is there too is asked about anew, and Enter uploads as the button does
+test('projectView_Should_UploadFileUnderNewName_AskingAgain_While_ThatNameIsThereToo', async () => {
+  const project = projectOf();
+  await project.view.reload();
+  /** @param {string} name — typed over the one offered @returns {string} the one offered */
+  const rename = (name) => {
+    project.view.element.querySelector('.project-transfer-rename')?.dispatchEvent(new window.MouseEvent('click'));
+    const field = project.view.element.querySelector('input.project-transfer-name');
+    assert.ok(field instanceof window.HTMLInputElement, 'no field for the new name');
+    const offered = field.value;
+    field.value = name;
+    return offered;
+  };
+
+  project.view.element.querySelector('.project-search .project-upload')?.dispatchEvent(new window.MouseEvent('click'));
+  project.pick(['README.md']);
+  await project.settle();
+  const offered = rename('readme.MD');
+  project.view.element.querySelector('.project-transfer-upload')?.dispatchEvent(new window.MouseEvent('click'));
+  await project.settle();
+  const askedAgain = project.view.element.querySelector('.project-transfer-question')?.textContent;
+  rename('README-new.md');
+  project.view.element.querySelector('input.project-transfer-name')?.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter' }));
+  await project.settle();
+
+  assert.deepEqual(
+    { offered, askedAgain, uploads: project.uploads, tree: project.tree(), told: project.view.element.querySelector('.project-transfer')?.textContent },
+    {
+      offered: 'README.md',
+      askedAgain: 'Replace README.md in shop, named:',
+      uploads: [
+        ['D:/dev/shop', 'README.md', 'keep'],
+        ['D:/dev/shop', 'readme.MD', 'keep'],
+        ['D:/dev/shop', 'README-new.md', 'keep'],
+      ],
+      tree: ['src', 'README.md', 'README-new.md'],
+      told: 'Uploaded README-new.md into shop',
+    },
+  );
+});
 
 // The project's folder shows its folders and files; a folder opens in place under its row, and closes again; a file
 // opens in the panel
@@ -206,6 +440,8 @@ function heldProject(folders) {
     search: async () => undefined,
     openFile: () => undefined,
     iconOf,
+    // nothing goes either way here
+    transfer: { address: (path) => `/download?${path}`, upload: async () => ({ ok: false, error: 'failed' }) },
   });
   document.body.replaceChildren(view.element);
   const settle = () => new Promise((resolve) => setTimeout(resolve, 0));

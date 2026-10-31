@@ -37,7 +37,7 @@ import { createNotesView } from './view/notes-view.js';
 import { h } from './view/dom.js';
 import { createFilePanel } from './view/file-panel.js';
 import { parseBranchChanges, parseFileDiff } from './model/branch-changes.js';
-import { parseFileLinks, parseFolderListing, parseSearchFound, projectOfFile } from './model/project.js';
+import { parseFileLinks, parseFolderListing, parseSearchFound, parseUploadOutcome, projectOfFile } from './model/project.js';
 import { createFileIcons } from './view/file-icons.js';
 import { parseMachine } from './model/machine.js';
 import { splitTabIcon } from './model/tab-icon.js';
@@ -1444,12 +1444,34 @@ function filesButton(folder) {
 }
 
 /**
- * A project's folders, its search and a file's links in it, through the viewer.
+ * A project's folders, its search, a file's links in it and its files downloaded and uploaded, through the viewer.
  * @param {string} root — the project's folder
  * @returns {import('./view/file-panel.js').Project}
  */
 function projectSource(root) {
-  return { root, listFolder: fetchFolder, search: (query) => fetchSearch(root, query), links: (path) => fetchLinks(root, path) };
+  return { root, listFolder: fetchFolder, search: (query) => fetchSearch(root, query), links: (path) => fetchLinks(root, path), transfer: { address: downloadAddress, upload: uploadInto } };
+}
+
+/**
+ * Where a file downloads from as it is, or a folder as a zip.
+ * @param {string} path
+ * @param {'file' | 'folder'} kind
+ */
+function downloadAddress(path, kind) {
+  return `/api/${kind}/download?${new URLSearchParams({ path })}`;
+}
+
+/**
+ * A file uploaded into a folder under a name; one by that name there kept — the upload refused — or replaced.
+ * @param {string} folder
+ * @param {File} file
+ * @param {string} name
+ * @param {'keep' | 'replace'} existing
+ */
+async function uploadInto(folder, file, name, existing) {
+  const asked = new URLSearchParams({ folder, name, ...(existing === 'replace' ? { replace: '1' } : {}) });
+  const response = await fetch(`/api/file/upload?${asked}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-Viewer': '1' }, body: file }).catch(() => undefined);
+  return parseUploadOutcome(await response?.json().catch(() => undefined));
 }
 
 /**

@@ -77,6 +77,15 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   the branch it was made from, as git recorded making it; with no such record, the main branch; on the main branch
   itself, what it was pushed to. Another base can be chosen among the repository's branches. A file opened shows its
   diff, and opens in the panel with a way back to the changes.
+- **The project's files.** The folder button over a session shows the session's folder in the side panel as a tree,
+  with a search over the project's text (case, whole word, regex); a file opened from either opens in the panel. Each
+  file downloads as it is and each folder as a zip, `.git` left out; the arrow up beside a folder uploads the files
+  picked into it. The two buttons beside the search go by what is chosen in the tree — the folder clicked last, or the
+  file shown: the download gives that folder or file, the upload goes into that folder or the one holding the file;
+  with nothing chosen, both are for the project's own folder, and their titles say which. A file whose name is there
+  already is asked about: replace the one there, upload it under another name, or skip it; where the file system does
+  not tell case apart (Windows, macOS) a name that differs only in case is the same file, and replacing it asks which
+  of the two names it keeps. A zip holds up to 2 GB and 20,000 files; an upload takes up to 1 GB a file.
 - **VS Code.** Started with `--vscode <the VS Code CLI>`, the viewer runs VS Code in the browser — Microsoft's own
   `code serve-web` — at `/vscode/`, and a button over a session opens it in the session's folder in a tab of its own:
   the whole of VS Code, its search, its git, its extensions and their language servers (go to a definition, find the
@@ -409,6 +418,10 @@ Transcripts contain everything the agent has seen, secrets included. So the view
   and below — no `..` out, no link in it that leads out — in a sandbox, also when opened in a tab of its own. Its
   scripts are off; the button over the panel runs them in an origin of their own, out of reach of the viewer's page:
   such a page can neither read what the viewer serves nor send a prompt;
+- downloads a file or a folder as a zip (`/api/file/download`, `/api/folder/download`) by absolute path, and takes an
+  upload (`/api/file/upload`) only from its own page — its `Origin`, an `X-Viewer` header and a binary body — into a
+  folder by absolute path, under a plain file name: no slash, no `..`. The file is written beside its place first and
+  takes it once whole, so a broken upload leaves no half of it there;
 - reaches VS Code (`--vscode`) only through itself: VS Code's server listens on 127.0.0.1 with a token the viewer makes,
   keeps in a file of its own and adds to each request. VS Code's page gets the token too, as a cookie of the viewer's
   address — its client opens its connection with it — so another site's page cannot read it. A request to `/vscode/` from another

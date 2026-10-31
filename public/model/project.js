@@ -11,6 +11,9 @@ import { count, isRecord, text } from './narrow.js';
  * @typedef {'not-absolute' | 'not-found' | 'not-a-folder'} FolderRefusal
  * @typedef {{ ok: true, path: string, entries: FolderEntry[], more: boolean } | { ok: false, error: FolderRefusal }} FolderListing
  *   — more: the folder holds more than came
+ * @typedef {{ ok: true } | { ok: false, error: 'exists', name: string } | { ok: false, error: 'too-large' | 'bad-name' | 'failed' }} UploadOutcome
+ *   — a file uploaded into a folder: exists — one by its name is there, kept, name: the one it is there by, which may
+ *   differ in case; failed — anything else the viewer did not do
  * @typedef {{ ok: true, root: string, matches: Match[], more: boolean } | { ok: false, error: FolderRefusal | 'bad-pattern' | 'no-git' }} SearchFound
  *   — more: the search stopped at its limit
  */
@@ -52,6 +55,19 @@ export function parseSearchFound(json) {
     return path === undefined || line === undefined || column === undefined || said === undefined ? [] : [{ path, line, column, text: said }];
   });
   return { ok: true, root, matches, more: json.more === true };
+}
+
+/**
+ * The /api/file/upload reply; any refusal the panel does not tell apart, and a reply of another shape, is a failure.
+ * @param {unknown} json
+ * @returns {UploadOutcome}
+ */
+export function parseUploadOutcome(json) {
+  if (!isRecord(json)) return { ok: false, error: 'failed' };
+  if (json.ok === true) return { ok: true };
+  const there = text(json.name);
+  if (json.ok === false && json.error === 'exists' && there !== undefined) return { ok: false, error: 'exists', name: there };
+  return json.ok === false && (json.error === 'too-large' || json.error === 'bad-name') ? { ok: false, error: json.error } : { ok: false, error: 'failed' };
 }
 
 /**

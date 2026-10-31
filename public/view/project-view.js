@@ -2,9 +2,15 @@
 // A session's project in the side panel: its folders as a tree — a folder opens in place, shown at once from what was
 // read ahead under the one opened before it, read again then and drawn anew if it changed — and its text searched, by text or pattern, case and whole word as asked; a match opens its file at its line, a file opens in
 // the panel. The search shows in place of the tree while there is something to search for. A name looked for from the
-// editor shows its definitions first, then its uses (definitions.js).
+// editor shows its definitions first, then its uses (definitions.js). Each file downloads as it is, each folder as a
+// zip; files picked for a folder upload into it, the folder shown as it is then. Beside the search both go by what is
+// chosen in the tree — a folder clicked, the file shown: the download gives it, the upload goes into the folder chosen or
+// the one holding the file; with nothing chosen in the project, the project's own folder. One by a name
+// already there is asked about: replace the file there — named as it was or as it came, when the names differ only in
+// case — upload it under a name of its own, or skip it.
 import { isDefinition } from '../model/definitions.js';
 import { h } from './dom.js';
+import { icon } from './icons.js';
 
 /**
  * @typedef {import('../model/project.js').SearchQuery} SearchQuery
@@ -12,9 +18,15 @@ import { h } from './dom.js';
  * @typedef {import('../model/project.js').SearchFound} SearchFound
  * @typedef {import('../model/project.js').Match} Match
  * @typedef {import('./file-links.js').FileTarget} FileTarget
- * @typedef {{ root: string, listFolder: (path: string) => Promise<FolderListing | undefined>, search: (query: SearchQuery) => Promise<SearchFound | undefined>, openFile: (target: FileTarget) => void, iconOf: import('./file-icons.js').IconOf }} ProjectSource
+ * @typedef {import('../model/project.js').UploadOutcome} UploadOutcome
+ * @typedef {{ address: (path: string, kind: 'file' | 'folder') => string, upload: (folder: string, file: File, name: string, existing: 'keep' | 'replace') => Promise<UploadOutcome> }} Transfer
+ *   — address: where a file, or a folder as a zip, downloads from; upload: a file into a folder under a name, one by
+ *   that name there kept — the upload refused — or replaced
+ * @typedef {{ kind: 'upload', name: string, existing: 'keep' | 'replace' } | { kind: 'skip' }} UploadAnswer — what to do
+ *   with a file whose name is there already
+ * @typedef {{ root: string, listFolder: (path: string) => Promise<FolderListing | undefined>, search: (query: SearchQuery) => Promise<SearchFound | undefined>, openFile: (target: FileTarget) => void, iconOf: import('./file-icons.js').IconOf, transfer: Transfer }} ProjectSource
  *   — root: the project's folder, the session's; openFile: a file into the panel, at a line or not; iconOf: a file's or
- *   folder's icon
+ *   folder's icon; transfer: its files downloaded and uploaded
  */
 
 /** @type {Readonly<Record<string, string>>} */
@@ -25,6 +37,10 @@ const refusals = {
   'bad-pattern': 'The pattern is not one git can read.',
   'no-git': "git is not installed on the viewer's computer: there is no search.",
 };
+
+/** Why a file was not uploaded. */
+/** @type {Readonly<Record<'too-large' | 'bad-name' | 'failed', string>>} */
+const uploadRefusals = { 'too-large': 'too big', 'bad-name': 'a name no folder can hold', failed: 'the viewer did not take it' };
 
 /** A search waits this long after the last key, so a word typed is searched once. */
 const typingMs = 350;
@@ -42,7 +58,7 @@ const notReadAhead = new Set(['node_modules', 'bower_components', '.venv', 'venv
  *   searchFor: a search asked from elsewhere — a name, the editor's word under the cursor: its definitions found come
  *   back; select: the file shown beside the tree, marked in it
  */
-export function createProjectView({ root, listFolder, search, openFile, iconOf }) {
+export function createProjectView({ root, listFolder, search, openFile, iconOf, transfer }) {
   const separator = root.includes('\\') ? '\\' : '/';
   const field = h('input', { className: 'project-query', attrs: { type: 'search', placeholder: 'Search the project', 'aria-label': 'Search the project', enterkeyhint: 'search', autocomplete: 'off', spellcheck: 'false' } });
   const caseToggle = toggle('Aa', 'Match case');
@@ -51,7 +67,12 @@ export function createProjectView({ root, listFolder, search, openFile, iconOf }
   const results = h('div', { className: 'project-results' });
   results.hidden = true;
   const tree = h('ul', { className: 'project-tree' });
-  const element = h('div', { className: 'project' }, [h('div', { className: 'project-search' }, [field, caseToggle, wordToggle, patternToggle]), results, tree]);
+  const rootName = root.replace(/[\\/]$/, '').split(/[\\/]/).pop() ?? root;
+  const picker = h('input', { className: 'project-picker', attrs: { type: 'file', multiple: '', hidden: '', 'aria-hidden': 'true' } });
+  const told = h('div', { className: 'project-transfer', attrs: { hidden: '' } });
+  const chosenDownload = downloadLink(root, 'folder', `${rootName}.zip`);
+  const chosenUpload = uploadButton(`Upload files into ${rootName}`, () => chosenFolder());
+  const element = h('div', { className: 'project' }, [h('div', { className: 'project-search' }, [field, caseToggle, wordToggle, patternToggle, chosenDownload, chosenUpload]), told, picker, results, tree]);
   /** The folders open in the tree, by their paths. */
   /** @type {Set<string>} */
   const open = new Set();
@@ -62,8 +83,8 @@ export function createProjectView({ root, listFolder, search, openFile, iconOf }
   /** The name the search is for, asked from the editor: its definitions show first. A search typed is for text. */
   /** @type {string | undefined} */
   let name;
-  /** The file shown beside the tree, marked in it. */
-  /** @type {string | undefined} */
+  /** What is chosen in the tree — a folder clicked, the file shown beside it — marked there. */
+  /** @type {{ path: string, kind: 'folder' | 'file' } | undefined} */
   let selected;
   /** The folders read — open, or read ahead — by their paths: the tree is drawn from them. */
   /** @type {Map<string, FolderListing>} */
@@ -73,6 +94,152 @@ export function createProjectView({ root, listFolder, search, openFile, iconOf }
   const reading = new Map();
 
   const childOf = (/** @type {string} */ folder, /** @type {string} */ name) => `${folder.replace(/[\\/]$/, '')}${separator}${name}`;
+
+  /**
+   * A file, or a folder as a zip, to download under its own name.
+   * @param {string} path @param {'file' | 'folder'} kind @param {string} saved — the name it is saved under
+   */
+  function downloadLink(path, kind, saved) {
+    const title = kind === 'file' ? `Download ${saved}` : `Download ${saved.replace(/\.zip$/, '')} as a zip`;
+    return h('a', { className: 'project-download', title, attrs: { href: transfer.address(path, kind), download: saved, 'aria-label': title } }, [icon('download')]);
+  }
+
+  /**
+   * The files picked go into a folder: the one it gives as it is pressed.
+   * @param {string} title @param {() => string} folder
+   */
+  function uploadButton(title, folder) {
+    const button = h('button', { className: 'project-upload', title, attrs: { type: 'button', 'aria-label': title } }, [icon('upload')]);
+    button.addEventListener('click', () => {
+      pickingFor = folder();
+      picker.value = '';
+      picker.click();
+    });
+    return button;
+  }
+
+  /** The folder files are picked for. */
+  let pickingFor = root;
+  /** @param {string} path — a folder or a file in the project, as the panel names it: from the project's name */
+  const pathLabel = (path) => (path === root ? rootName : `${rootName}/${relativeTo(root, path).replaceAll('\\', '/')}`);
+  /** Whether a path is the project's folder or under it, either kind of slashes. @param {string} path */
+  const inProject = (path) => {
+    const plain = (/** @type {string} */ one) => one.replaceAll('\\', '/').replace(/\/$/, '');
+    return plain(path) === plain(root) || plain(path).startsWith(`${plain(root)}/`);
+  };
+  /**
+   * What the buttons beside the search are for: the folder or file chosen in the project, else the project's folder.
+   * @returns {{ path: string, kind: 'folder' | 'file' }}
+   */
+  const chosenItem = () => (selected !== undefined && inProject(selected.path) ? selected : { path: root, kind: 'folder' });
+  /** The folder the upload beside the search goes into: the one chosen, or the one holding the file chosen. */
+  const chosenFolder = () => {
+    const item = chosenItem();
+    return item.kind === 'folder' ? item.path : item.path.replace(/[\\/][^\\/]*$/, '');
+  };
+  /** The download beside the search pointed at what is chosen: a folder as a zip, a file as it is. */
+  const pointDownload = () => {
+    const { path, kind } = chosenItem();
+    const name = path === root ? rootName : (path.split(/[\\/]/).pop() ?? path);
+    chosenDownload.setAttribute('href', transfer.address(path, kind));
+    chosenDownload.setAttribute('download', kind === 'file' ? name : `${name}.zip`);
+    chosenDownload.title = kind === 'file' ? `Download ${pathLabel(path)}` : `Download ${pathLabel(path)} as a zip`;
+    chosenDownload.setAttribute('aria-label', chosenDownload.title);
+  };
+  /** What is chosen marked in the tree, and the buttons beside the search pointed at it. */
+  const markChosen = () => {
+    for (const row of tree.querySelectorAll('.project-entry')) row.classList.toggle('selected', row.getAttribute('title') === selected?.path);
+    pointDownload();
+    chosenUpload.title = `Upload files into ${pathLabel(chosenFolder())}`;
+    chosenUpload.setAttribute('aria-label', chosenUpload.title);
+  };
+  /** @param {string} words */
+  const tell = (words) => {
+    told.hidden = false;
+    told.replaceChildren(words);
+  };
+  /**
+   * A choice of what to do with a file whose name is there, the answer once one is pressed.
+   * @param {string} words @param {string} title @param {string} className @param {() => void} answer
+   */
+  const choice = (words, title, className, answer) => {
+    const button = h('button', { className: `project-transfer-choice ${className}`, text: words, title, attrs: { type: 'button' } });
+    button.addEventListener('click', answer);
+    return button;
+  };
+  /**
+   * What to do with a file whose name is there already: replace the file there, or keep it and skip this one. A name
+   * told from the one there only by its case — on Windows, on a Mac — names the file replaced as chosen: as it was
+   * there, or as it came.
+   * @param {string} name — the file's @param {string} there — the name the folder holds it by @param {string} folder
+   * @returns {Promise<UploadAnswer>}
+   */
+  const askAbout = (name, there, folder) =>
+    new Promise((answer) => {
+      /** @param {string} words @param {string} named */
+      const replaceAs = (words, named) => choice(words, `Replace the ${there} there with this one, named ${named}`, 'project-transfer-replace', () => answer({ kind: 'upload', name: named, existing: 'replace' }));
+      const replace = there === name ? [replaceAs('Replace', name)] : [replaceAs(there, there), replaceAs(name, name)];
+      const skip = choice('Skip', `Keep the ${there} there, and not upload this one`, 'project-transfer-skip', () => answer({ kind: 'skip' }));
+      const rename = choice('Rename', 'Upload this one under another name', 'project-transfer-rename', () => void askName(name, folder, skip).then((named) => answer({ kind: 'upload', name: named, existing: 'keep' })));
+      const question = there === name ? `Replace ${name} in ${pathLabel(folder)}?` : `Replace ${there} in ${pathLabel(folder)}, named:`;
+      told.hidden = false;
+      told.replaceChildren(h('span', { className: 'project-transfer-question', text: question }), ...replace, rename, skip);
+      replace[0]?.focus();
+    });
+  /**
+   * The name to upload a file under instead, the one it came by offered to change: the name once Upload or Enter is
+   * pressed.
+   * @param {string} name @param {string} folder @param {HTMLElement} skip — the file skipped instead
+   * @returns {Promise<string>}
+   */
+  const askName = (name, folder, skip) =>
+    new Promise((answer) => {
+      const field = h('input', { className: 'project-transfer-name', attrs: { type: 'text', value: name, 'aria-label': `A name to upload ${name} under`, autocomplete: 'off', spellcheck: 'false' } });
+      field.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        answer(field.value);
+      });
+      const upload = choice('Upload', 'Upload it under this name', 'project-transfer-upload', () => answer(field.value));
+      told.replaceChildren(h('span', { className: 'project-transfer-question', text: `Upload ${name} into ${pathLabel(folder)} as` }), field, upload, skip);
+      field.focus();
+      // the name before its extension, to type over
+      field.setSelectionRange(0, name.lastIndexOf('.') > 0 ? name.lastIndexOf('.') : name.length);
+    });
+  /**
+   * A file uploaded under a name, asked about while one by that name is there: the name it went in by and how that
+   * went, none when it was skipped.
+   * @param {string} folder @param {File} file @param {string} name @param {'keep' | 'replace'} existing
+   * @returns {Promise<{ name: string, outcome: UploadOutcome } | undefined>}
+   */
+  const uploadOne = async (folder, file, name, existing) => {
+    tell(`Uploading ${name}…`);
+    const outcome = await transfer.upload(folder, file, name, existing);
+    if (outcome.ok || outcome.error !== 'exists') return { name, outcome };
+    const answer = await askAbout(name, outcome.name, folder);
+    return answer.kind === 'skip' ? undefined : uploadOne(folder, file, answer.name, answer.existing);
+  };
+  /**
+   * The files picked uploaded into the folder one after another, then the folder — open — shown as it is now.
+   * @param {string} folder @param {readonly File[]} files
+   */
+  const uploadAll = async (folder, files) => {
+    /** @type {string[]} */
+    const uploaded = [];
+    /** @type {string[]} */
+    const refused = [];
+    for (const file of files) {
+      const done = await uploadOne(folder, file, file.name, 'keep');
+      if (done === undefined) continue;
+      if (done.outcome.ok) uploaded.push(done.name);
+      else if (done.outcome.error !== 'exists') refused.push(`${done.name}: ${uploadRefusals[done.outcome.error]}`);
+    }
+    tell([...(uploaded.length === 0 ? [] : [`Uploaded ${uploaded.join(', ')} into ${pathLabel(folder)}`]), ...(refused.length === 0 ? [] : [`Not uploaded — ${refused.join('; ')}`])].join('. ') || 'Nothing uploaded.');
+    if (folder !== root) open.add(folder);
+    await readAgain([folder]);
+    drawTree();
+  };
+  picker.addEventListener('change', () => void uploadAll(pickingFor, [...(picker.files ?? [])]));
 
   /**
    * The folder read from the viewer now, kept; none when the viewer did not answer — what was kept stays.
@@ -128,15 +295,20 @@ export function createProjectView({ root, listFolder, search, openFile, iconOf }
         const path = childOf(folder, entry.name);
         const row = h('button', { className: 'project-entry', title: path, attrs: { type: 'button', 'data-depth': String(depth), 'data-kind': entry.kind } }, [iconOf(entry.name, entry.kind, open.has(path)), entry.name]);
         row.style.setProperty('--depth', String(depth));
-        const item = h('li', {}, [row]);
+        const actions = h('span', { className: 'project-actions' }, entry.kind === 'file' ? [downloadLink(path, 'file', entry.name)] : [downloadLink(path, 'folder', `${entry.name}.zip`), uploadButton('Upload files into this folder', () => path)]);
+        const item = h('li', { className: 'project-item' }, [row, actions]);
+        row.classList.toggle('selected', path === selected?.path);
         if (entry.kind === 'file') {
-          row.classList.toggle('selected', path === selected);
           row.addEventListener('click', () => openFile({ path, line: undefined, endLine: undefined }));
           return [item];
         }
         row.classList.toggle('open', open.has(path));
         row.setAttribute('aria-expanded', String(open.has(path)));
-        row.addEventListener('click', () => void flip(path));
+        row.addEventListener('click', () => {
+          selected = { path, kind: 'folder' };
+          markChosen();
+          void flip(path);
+        });
         return [item, ...(open.has(path) ? rowsOf(path, depth + 1) : [])];
     });
     return [...rows.flat(), ...(listing.more ? [h('li', { className: 'project-note', text: 'The folder holds more than is shown.' })] : [])];
@@ -257,8 +429,8 @@ export function createProjectView({ root, listFolder, search, openFile, iconOf }
     },
     summary: () => root,
     select: (path) => {
-      selected = path;
-      for (const row of tree.querySelectorAll('.project-entry[data-kind="file"]')) row.classList.toggle('selected', row.getAttribute('title') === path);
+      selected = { path, kind: 'file' };
+      markChosen();
     },
     searchFor: (asked, how = {}) => {
       name = how.name;
