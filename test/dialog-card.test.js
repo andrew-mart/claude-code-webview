@@ -101,6 +101,40 @@ test('dialogCard_Should_TickOwnWords_InQuestionWithSeveralAnswers', async () => 
   assert.deepEqual(answers, [[{ key: 'down' }, { key: 'down' }, { text: 'Medium' }, { key: 'up' }]]);
 });
 
+// The card folds to its head — who asks, and the question's own line — leaving the conversation the room; it stays
+// folded as long as something is asked, the question changing or not — a choice ticked, another question gone to — and
+// the next thing asked, once this is answered, shows unfolded
+test('dialogCard_Should_FoldToItsHead_StayFoldedWhileAsked_AndUnfoldForWhatIsAskedNext', () => {
+  const { card } = cardAboveBox();
+  const fold = () => card.element.querySelector('.dialog-card-head')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const seen = () => ({
+    folded: card.element.classList.contains('folded'),
+    expanded: card.element.querySelector('.dialog-card-fold')?.getAttribute('aria-expanded'),
+    question: card.element.querySelector('.dialog-card-question')?.textContent,
+  });
+
+  fold();
+  const folded = seen();
+  card.show({ ...colour, lines: [colour.lines[0] ?? '', 'Which sizes?'] });
+  const otherQuestion = seen();
+  fold();
+  const unfolded = seen();
+  fold();
+  card.show(undefined);
+  card.show(colour);
+  const next = seen();
+
+  assert.deepEqual(
+    { folded, otherQuestion, unfolded, next },
+    {
+      folded: { folded: true, expanded: 'false', question: 'Which colour do you prefer?' },
+      otherQuestion: { folded: true, expanded: 'false', question: 'Which sizes?' },
+      unfolded: { folded: false, expanded: 'true', question: 'Which sizes?' },
+      next: { folded: false, expanded: 'true', question: 'Which colour do you prefer?' },
+    },
+  );
+});
+
 // Several questions are gone through with ← and →; Esc cancels them; with nothing asked the card is gone
 test('dialogCard_Should_GoBetweenQuestions_CancelThem_And_HideWhenNothingIsAsked', async () => {
   const { card, answers, press } = cardAboveBox();
@@ -162,5 +196,5 @@ test('dialogCard_Should_ShowWhatCodexAsks_AndPickWithArrows', async () => {
   quit.click();
   await settled();
 
-  assert.deepEqual({ head: card.element.querySelector('.dialog-card-head')?.textContent, answers }, { head: 'Codex asks', answers: [[{ key: 'down' }, { key: 'enter' }]] });
+  assert.deepEqual({ head: card.element.querySelector('.dialog-card-asker')?.textContent, answers }, { head: 'Codex asks', answers: [[{ key: 'down' }, { key: 'enter' }]] });
 });

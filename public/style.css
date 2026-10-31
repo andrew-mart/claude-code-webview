@@ -2783,6 +2783,44 @@ input.herdr-row-name.failed {
   height: 14px;
 }
 
+/* Wrap and copy at the bar's end; Wrap lit while the block's long lines are wrapped */
+.code-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.code-wrap {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.code-wrap:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.code-wrap[aria-pressed='true'] {
+  color: var(--accent);
+}
+
+.code-wrap .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.code-frame[data-wrap='on'] pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* Any framed code: both blocks from the answer markdown (their pre has no class) and code in tool rows. */
 .code-frame pre,
 pre.output {
@@ -3612,10 +3650,50 @@ table.diff tr.gap td {
   box-shadow: var(--shadow);
 }
 
+/* who asks, the fold at the end; a click anywhere on it folds the card to this line, the question beside who asks */
 .dialog-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
   color: var(--accent);
   font-size: 12.5px;
   font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.dialog-card-asker {
+  flex: none;
+}
+
+.dialog-card-question {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dialog-card:not(.folded) .dialog-card-question {
+  visibility: hidden;
+}
+
+.dialog-card-fold {
+  flex: none;
+  width: 24px;
+  height: 24px;
+}
+
+.dialog-card.folded {
+  padding-block: 6px;
+}
+
+.dialog-card.folded > :not(.dialog-card-head) {
+  display: none;
 }
 
 .dialog-line {

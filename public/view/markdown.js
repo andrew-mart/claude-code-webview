@@ -10,6 +10,25 @@ import { icon } from './icons.js';
 // a line break in an answer is a line break, as the terminal shows it — not a space within the paragraph
 const markdown = new Marked({ gfm: true, breaks: true });
 
+/** Text struck out between two tildes on each side; GFM's single ones are not — "~$2,7" is "about $2.7". */
+const struckOut = /^~~(?=[^\s~])((?:\\.|[^\\])*?(?:\\.|[^\s~\\]))~~(?=[^~]|$)/;
+markdown.use({
+  tokenizer: {
+    /**
+     * As the terminal shows an answer: struck out between double tildes only; anything else is no strikethrough — the
+     * undefined that tells marked so, where false would hand the text to its own, which takes single tildes too.
+     * @this {import('marked').Tokenizer}
+     * @param {string} source
+     * @returns {import('marked').Tokens.Del | undefined}
+     */
+    del(source) {
+      const [raw, text] = struckOut.exec(source) ?? [];
+      if (raw === undefined || text === undefined) return undefined;
+      return { type: 'del', raw, text, tokens: this.lexer.inlineTokens(text) };
+    },
+  },
+});
+
 /** Link URLs that DOMPurify keeps: its default list plus file:, since such links open the file in the panel. */
 const allowedUris = /^(?:(?:(?:f|ht)tps?|mailto|tel|file):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i;
 
@@ -169,7 +188,8 @@ function isWide(frame) {
 }
 
 /**
- * A code block with a language label and a copy button.
+ * A code block with a language label, a Wrap button — its long lines wrapped in its width, not scrolled sideways — and a
+ * copy button.
  * @param {HTMLElement} pre
  * @param {string} text
  * @param {string | undefined} language
@@ -183,8 +203,17 @@ export function codeFrame(pre, text, language) {
       setTimeout(() => copy.replaceChildren(icon('copy')), 1500);
     });
   });
-  const bar = h('div', { className: 'code-bar' }, [h('span', { text: language ?? '' }), copy]);
-  return h('div', { className: 'code-frame' }, [bar, pre]);
+  const wrap = h('button', { className: 'code-wrap', title: 'Wrap long lines', attrs: { type: 'button', 'aria-pressed': 'false', 'aria-label': 'Wrap long lines' } }, [icon('wrap')]);
+  const bar = h('div', { className: 'code-bar' }, [h('span', { text: language ?? '' }), h('span', { className: 'code-tools' }, [wrap, copy])]);
+  const frame = h('div', { className: 'code-frame' }, [bar, pre]);
+  wrap.addEventListener('click', () => {
+    const wrapped = frame.dataset.wrap !== 'on';
+    frame.dataset.wrap = wrapped ? 'on' : 'off';
+    wrap.setAttribute('aria-pressed', String(wrapped));
+    wrap.title = wrapped ? 'Scroll long lines sideways' : 'Wrap long lines';
+    wrap.setAttribute('aria-label', wrap.title);
+  });
+  return frame;
 }
 
 /**

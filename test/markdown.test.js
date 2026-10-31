@@ -38,6 +38,16 @@ test('renderMarkdown_Should_KeepSingleLineBreaksInParagraph', () => {
   );
 });
 
+// As the terminal shows an answer, single tildes strike nothing out — "~$2,7" is "about $2.7" — two on each side do
+test('renderMarkdown_Should_StrikeOutOnlyBetweenDoubleTildes', () => {
+  const holder = html(renderMarkdown('(~5 минут на тесты), сборка (~2 минуты)\n\n~~the old plan~~ the new one'));
+
+  assert.deepEqual(
+    [...holder.querySelectorAll('p')].map((paragraph) => paragraph.innerHTML),
+    ['(~5 минут на тесты), сборка (~2 минуты)', '<del>the old plan</del> the new one'],
+  );
+});
+
 test('renderMarkdown_Should_StripScriptsAndEventHandlersFromTranscriptText', () => {
   const holder = html(renderMarkdown('<img src="x" onerror="alert(1)"><script>alert(2)</script>[link](javascript:alert(3))'));
 
@@ -129,4 +139,20 @@ test('renderMarkdown_Should_WidenTableOnItsButtonAndFitItBackOnNextClick', () =>
   button.click();
 
   assert.deepEqual([widened, frame.dataset.width], ['wide', 'fit']);
+});
+
+// A code block's long lines scroll sideways; the Wrap button over it wraps them in the block's width, pressed again it
+// lets them be as they were
+test('renderMarkdown_Should_WrapCodeBlockLinesOnItsButton_AndUnwrapOnNextPress', () => {
+  const frame = html(renderMarkdown('```text\nThe 14 hours of the move went into the parts that only had to be done once\n```')).querySelector('.code-frame');
+  const button = frame?.querySelector('.code-bar button.code-wrap');
+  assert.ok(frame instanceof window.HTMLElement && button instanceof window.HTMLElement, 'no Wrap over the code');
+  const state = () => [frame.dataset.wrap ?? 'off', button.getAttribute('aria-pressed')];
+
+  const before = state();
+  button.click();
+  const wrapped = state();
+  button.click();
+
+  assert.deepEqual([before, wrapped, state()], [['off', 'false'], ['on', 'true'], ['off', 'false']]);
 });

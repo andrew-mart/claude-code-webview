@@ -40,7 +40,8 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   stay Claude Code's.
 - **The feed**:
   - prompts with images, slash commands and `!` shell commands with their output;
-  - answers in markdown with syntax highlighting, a line break kept as a line break, as in the terminal;
+  - answers in markdown with syntax highlighting, a line break kept as a line break, as in the terminal; a code
+    block's long lines scroll sideways, or wrap in its width with the wrap button over it;
   - thinking with its duration (Claude Code usually does not store the thinking text — then only the duration is shown);
   - tool calls as one-line rows that expand: Bash shows the command and output, Read the file with line numbers,
     Edit and Write a diff with line numbers, Agent its task, report and a live view of the subagent's own transcript;
@@ -381,7 +382,10 @@ herdr pane list + pane process-info  → the herdr pane running that process
 herdr pane send-text + send-keys     → the text and Enter, into that pane
 ```
 
-Questions with options (AskUserQuestion) still need to be answered in the terminal.
+What the agent asks in its terminal — a question with options (AskUserQuestion), a choice Codex waits on — shows above
+the box, its choices as buttons, a click being the key the terminal gets. A click on the card's head folds it to that
+one line, who asks and the question, leaving the conversation the room; it stays so while the question is asked, and
+the next one shows unfolded.
 
 ![What the agent asks over its box, and the same folded to one line](docs/question.png)
 

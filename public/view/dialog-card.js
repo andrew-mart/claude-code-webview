@@ -1,8 +1,10 @@
 // @ts-check
 // What the agent asks in its terminal — Claude Code's AskUserQuestion dialog, a question of Codex's — above the box: the
 // question, its choices as buttons, an answer of one's own, ← and → between several questions, Esc. A click is the key
-// the terminal would get.
+// the terminal would get. A click on its head folds it to that line — who asks, and the question — leaving the
+// conversation the room; it stays folded while something is asked, and the next thing asked shows unfolded.
 import { h } from './dom.js';
+import { icon } from './icons.js';
 
 /** The choice Claude Code's dialog opens a line of words with. */
 const ownWords = /^Type something/;
@@ -14,7 +16,35 @@ const ownWords = /^Type something/;
 export function createDialogCard({ asker, answer }) {
   const element = h('section', { className: 'dialog-card', attrs: { hidden: '', 'aria-label': `${asker} asks`, 'aria-live': 'polite' } });
   let shown = '';
+  /** Whether the card shows its head alone: kept while something is asked. */
+  let folded = false;
   const status = h('div', { className: 'dialog-card-status', attrs: { role: 'status' } });
+
+  /** @param {HTMLElement} fold — the head's button */
+  const showFolded = (fold) => {
+    element.classList.toggle('folded', folded);
+    const title = folded ? 'Unfold the question' : 'Fold the question, for the conversation to have the room';
+    fold.title = title;
+    fold.setAttribute('aria-label', title);
+    fold.setAttribute('aria-expanded', String(!folded));
+    fold.replaceChildren(icon(folded ? 'unfold' : 'fold'));
+  };
+
+  /**
+   * Who asks, the question's own line beside it — seen when the card is folded — and the button that folds it; a click
+   * anywhere on it folds or unfolds the card.
+   * @param {import('../model/dialog.js').Dialog} dialog
+   */
+  const head = (dialog) => {
+    const fold = h('button', { className: 'icon-button dialog-card-fold', attrs: { type: 'button' } });
+    const made = h('header', { className: 'dialog-card-head' }, [h('span', { className: 'dialog-card-asker', text: `${asker} asks` }), h('span', { className: 'dialog-card-question', text: dialog.lines.at(-1) ?? '' }), fold]);
+    made.addEventListener('click', () => {
+      folded = !folded;
+      showFolded(fold);
+    });
+    showFolded(fold);
+    return made;
+  };
 
   /** @param {readonly import('../model/dialog.js').DialogStep[]} steps */
   const send = (steps) => {
@@ -83,9 +113,12 @@ export function createDialogCard({ asker, answer }) {
       if (look === shown) return;
       shown = look;
       element.hidden = dialog === undefined;
-      if (dialog === undefined) return element.replaceChildren();
+      if (dialog === undefined) {
+        folded = false;
+        return element.replaceChildren();
+      }
       element.replaceChildren(
-        h('header', { className: 'dialog-card-head', text: `${asker} asks` }),
+        head(dialog),
         ...dialog.lines.map((line) => h('p', { className: 'dialog-line', text: line })),
         h(
           'div',
