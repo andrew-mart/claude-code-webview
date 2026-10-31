@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
@@ -10,6 +10,9 @@ const { createAsideStore } = await import('../public/view/aside-store.js');
 
 const sessionId = '3f2c9a50-1111-4222-8333-944455556666';
 const settle = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// the tab's storage keeps a question being answered: one test's is not another's
+beforeEach(() => window.sessionStorage.clear());
 
 // A side question's answer belongs to its session, not to the box on the screen: switching to another session and back
 // — even while Claude is still answering — shows it again, until it is closed
@@ -65,9 +68,9 @@ test('composer_Should_KeepSideAnswer_AcrossSwitchingSessions', async () => {
   assert.deepEqual({ answering, answered, again, closed }, { answering: 'Answering…', answered: 'In src/config.ts.', again: 'In src/config.ts.', closed: undefined });
 });
 
-// An answer outlives a reload of the page's tab; a question still being answered does not — its request went with the
-// page — and a closed one is gone
-test('asideStore_Should_KeepAnswersAcrossReload_ButNotQuestionsBeingAnswered', () => {
+// An answer outlives a reload of the page's tab, and so does a question still being answered — the page reloaded asks
+// for its answer again; a closed one is gone
+test('asideStore_Should_KeepAnswersAndQuestionsBeingAnsweredAcrossReload', () => {
   const before = createAsideStore();
   before.set('s1', { question: 'Where is the config?', answer: 'In src/config.ts.' });
   before.set('s2', { question: 'And the tests?', answer: undefined });
@@ -76,7 +79,7 @@ test('asideStore_Should_KeepAnswersAcrossReload_ButNotQuestionsBeingAnswered', (
 
   const after = createAsideStore();
 
-  assert.deepEqual(['s1', 's2', 's3'].map((id) => after.get(id)), [{ question: 'Where is the config?', answer: 'In src/config.ts.' }, undefined, undefined]);
+  assert.deepEqual(['s1', 's2', 's3'].map((id) => after.get(id)), [{ question: 'Where is the config?', answer: 'In src/config.ts.' }, { question: 'And the tests?', answer: undefined }, undefined]);
 });
 
 // A side question leaves the box as it is asked — it shows over the box while Claude answers — and comes back into the
@@ -126,7 +129,7 @@ test('composer_Should_AskBtwAsSideQuestion_InCodexSession', async () => {
     matchMedia: () => ({ matches: false }),
     fetch: async (/** @type {string} */ path, /** @type {RequestInit | undefined} */ init) => {
       if (init?.method === 'POST') posted.push(`${path} ${String(init.body)}`);
-      const reply = path === '/api/send' ? { ok: true, pane: 'w4:p1' } : { state: 'live', status: 'idle', pane: 'w4:p1' };
+      const reply = path === '/api/send' ? { ok: true, pane: 'w4:p1' } : path === '/api/btw' ? { ok: true, answer: 'In config.toml.' } : { state: 'live', status: 'idle', pane: 'w4:p1' };
       return new Response(JSON.stringify(reply), { status: 200, headers: { 'Content-Type': 'application/json' } });
     },
   });
@@ -165,4 +168,86 @@ test('composer_Should_ShowWhatCodexQueued_AboveTheBox', async () => {
   };
 
   assert.deepEqual([await open(['Then update the docs.', 'And the changelog.']), (await open([])).items], [{ items: ['Then update the docs.', 'And the changelog.'], note: 'Codex sends these next, once its turn is over.' }, []]);
+});
+
+/**
+ * The page's box for the session, over a viewer whose /api/btw replies come as given — none: the request lost — each
+ * request's body recorded.
+ * @param {import('../public/view/aside-store.js').AsideStore} asides
+ * @param {readonly (unknown | undefined)[]} replies — in order of the requests
+ */
+async function boxOverViewer(asides, replies) {
+  /** @type {unknown[]} */
+  const asked = [];
+  Object.assign(globalThis, {
+    matchMedia: () => ({ matches: false }),
+    fetch: async (/** @type {string} */ path, /** @type {RequestInit | undefined} */ init) => {
+      if (path === '/api/btw') {
+        asked.push(JSON.parse(String(init?.body)));
+        const reply = replies[asked.length - 1];
+        if (reply === undefined) throw new TypeError('Failed to fetch');
+        return new Response(JSON.stringify(reply), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ state: 'live', status: 'idle', pane: 'w1:p1' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    },
+  });
+  const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides, onSent: () => undefined });
+  window.document.body.append(composer.element);
+  const shown = () => {
+    const aside = composer.element.querySelector('.side-answer');
+    return aside instanceof window.HTMLElement && !aside.hidden ? aside.querySelector('.side-answer-text')?.textContent : undefined;
+  };
+  return { composer, asked, shown };
+}
+
+/** The page's promises settled — setImmediate, not the timers the test has taken over. */
+const flush = async () => {
+  for (let turn = 0; turn < 5; turn++) await new Promise((done) => setImmediate(done));
+};
+
+// The request for a side question lost — the viewer restarted, the network dropped — while Claude answers in the
+// terminal: the question stays over the box, and its answer is asked for again a little later, not the question anew
+test('composer_Should_AskForAnswerAgain_When_RequestIsLost', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { composer, asked, shown } = await boxOverViewer(createAsideStore(), [undefined, undefined, { ok: true, answer: 'In src/config.ts.' }]);
+  t.mock.timers.tick(0);
+  await flush();
+  const box = composer.element.querySelector('.composer-input');
+  const form = composer.element.querySelector('.composer-box');
+  assert.ok(box instanceof window.HTMLTextAreaElement && form instanceof window.HTMLElement);
+  box.value = '/btw where is the config?';
+  box.dispatchEvent(new window.Event('input', { bubbles: true }));
+  form.dispatchEvent(new window.Event('submit', { cancelable: true }));
+  await flush();
+  const lost = [shown(), box.value];
+  for (let wait = 0; wait < 2; wait++) {
+    t.mock.timers.tick(3000);
+    await flush();
+  }
+  const answered = shown();
+  composer.dispose();
+  composer.element.remove();
+
+  assert.deepEqual(
+    { lost, answered, asked },
+    {
+      lost: ['Answering…', ''],
+      answered: 'In src/config.ts.',
+      asked: [{ session: sessionId, question: 'where is the config?' }, { session: sessionId, question: 'where is the config?', resume: true }, { session: sessionId, question: 'where is the config?', resume: true }],
+    },
+  );
+});
+
+// The page reloaded while Claude answered a side question: the box shows the question being answered and asks for its
+// answer again
+test('composer_Should_AskForAnswerAgain_OfQuestionBeingAnsweredBeforeReload', async () => {
+  createAsideStore().set(sessionId, { question: 'where are the tests?', answer: undefined });
+
+  const { composer, asked, shown } = await boxOverViewer(createAsideStore(), [{ ok: true, answer: 'In test/.' }]);
+  await settle();
+  const answered = shown();
+  composer.dispose();
+  composer.element.remove();
+
+  assert.deepEqual({ answered, asked }, { answered: 'In test/.', asked: [{ session: sessionId, question: 'where are the tests?', resume: true }] });
 });

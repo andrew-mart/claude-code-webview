@@ -636,10 +636,21 @@ function createFeed({ thread, waitingBox }, sessionId, hooks) {
     waitingBox.replaceChildren(...waiting.map((prompt) => waitingBubble(prompt, hooks.sendQueueNow)), ...unwritten.map(sentBubble));
     waitingBox.hidden = waiting.length + unwritten.length === 0;
   };
-  /** A sent prompt written down: it goes from the sent ones. @param {string} text */
-  const written = (text) => {
+  /** The prompts written down, by their ids — kept as the feed is laid out anew: a prompt coming again is no new one. */
+  /** @type {Set<string>} */
+  const writtenIds = new Set();
+  /**
+   * A prompt written down: the one sent as it was goes from the sent ones. A new one in their place — a sent one edited
+   * in the terminal before it went, Esc having brought it back to the box — lets them all go: they will not come as
+   * they were sent.
+   * @param {string} text @param {string} id
+   */
+  const written = (text, id) => {
+    const isNew = !writtenIds.has(id);
+    writtenIds.add(id);
     const at = sent.findIndex((one) => spaced(one) === spaced(text));
     if (at !== -1) sent.splice(at, 1);
+    else if (isNew) sent.length = 0;
   };
   /** A call row and the group it sits in: the result arrives later and changes the group layout. */
   /** @type {Map<string, { row: import('./tool-view.js').ToolRow, group: ActivityGroup }>} */
@@ -693,14 +704,14 @@ function createFeed({ thread, waitingBox }, sessionId, hooks) {
         const prompt = { id: event.id, kind: 'prompt', label: anchorLabel(event.text), at: event.at };
         top(hooks.anchor(prompt, promptBubble(event)));
         hooks.onPrompt(prompt);
-        written(event.text);
+        written(event.text, event.id);
         working = true;
         break;
       }
       case 'command':
         top(h('div', { className: 'msg user' }, [h('div', { className: 'slash-command', text: event.text })]));
         // a shell command or a slash command sent from the page is written down as this, not as a prompt
-        written(event.text);
+        written(event.text, event.id);
         break;
       case 'command-output':
         top(h('pre', { className: event.isError ? 'command-output error' : 'command-output', text: event.text }));

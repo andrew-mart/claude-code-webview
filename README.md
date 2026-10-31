@@ -318,12 +318,13 @@ session's folder (`.claude/`), and those of the plugins turned on, as `/<plugin>
 prompts. ↑ and ↓ go through them, Enter or Tab puts one in the box — to send as it is or with arguments — and Esc puts
 the list away.
 
-`/btw <question>` in the box asks a side question, as in the terminal: Claude answers from what the conversation
-already holds, with no tools, even while it is busy, and nothing is added to the conversation. Claude Code shows the
-answer only in a panel over its prompt box, so the viewer reads it off the terminal — scrolling to its end — closes
-the panel and shows the answer above the page's box. Prompts sent meanwhile wait until the panel is closed. The answer
-belongs to its session: opening another session and coming back — even before it came — shows it again, until you close
-it.
+`/btw <question>` in the box asks a side question, as in the terminal: Claude answers from what the conversation already
+holds, with no tools, even while it is busy, and nothing is added to the conversation. Claude Code shows the answer only
+in a panel over its prompt box, so the viewer reads it off the terminal — scrolling to its end — closes the panel and
+shows the answer above the page's box. Prompts sent meanwhile wait until the panel is closed. The answer belongs to its
+session: opening another session and coming back — even before it came — shows it again, until you close it. The
+connection lost while Claude answers — the viewer restarted, the network dropped — or the page reloaded, the page asks
+again for the answer of the question asked, not the question anew: the viewer reads it off the panel still open.
 
 Rewind works as Esc Esc does in the terminal: the ↶ next to one of your messages offers the same choices — restore
 code and conversation, the conversation, or the code, summarize from or up to that message. The viewer drives

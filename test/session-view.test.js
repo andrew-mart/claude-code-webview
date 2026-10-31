@@ -385,3 +385,27 @@ test('mountSession_Should_GoOnAfterReconnect_FromItsCopy_OrStartOverWithEntriesP
 
   assert.deepEqual({ goesOnFrom, wentOn, pastToken, after: seen().prompts }, { goesOnFrom: 't1', wentOn: ['First', 'Second'], pastToken: undefined, after: ['First', 'Second', 'Third'] });
 });
+
+// A prompt sent from the page and written down otherwise — edited in the terminal before it went, Esc having brought it
+// back to the box — will not come as it was sent: a new prompt written down in its place lets it go; the session laid
+// out anew — its prompts coming again after a reset — lets go of nothing
+test('mountSession_Should_LetGoOfPromptSent_When_AnotherIsWrittenDownInItsPlace', async (t) => {
+  const { view, source } = await mounted(t, undefined);
+  source.emit('open');
+  source.emit('entries', [prompt('u1', 'Question')]);
+  source.emit('ready');
+  await settled();
+  const sentShown = () => [...view.element.querySelectorAll('.msg.user.sent .bubble-text')].map((bubble) => bubble.textContent);
+
+  view.expectPrompt('Check the limits');
+  source.emit('reset', null);
+  source.emit('entries', [prompt('u1', 'Question')]);
+  await settled();
+  const laidAnew = sentShown();
+  source.emit('entries', [prompt('u2', 'Check the limits again — edited in the terminal')]);
+  await settled();
+  const after = sentShown();
+  view.dispose();
+
+  assert.deepEqual({ laidAnew, after }, { laidAnew: ['Check the limits'], after: [] });
+});

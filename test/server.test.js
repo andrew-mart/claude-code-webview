@@ -85,6 +85,11 @@ function fakeComposer(takenBack) {
         calls.push(['btw', id, question]);
         return { ok: true, answer: 'In src/config.ts.' };
       },
+      /** @param {string} id @param {string} question @returns {Promise<import('../server/composer.js').BtwReply>} */
+      resumeBtw: async (id, question) => {
+        calls.push(['resumeBtw', id, question]);
+        return { ok: true, answer: 'In src/config.ts.' };
+      },
       /** @param {string} id @param {import('../server/composer.js').RewindRequest} request @returns {Promise<import('../server/composer.js').RewindReply>} */
       rewind: async (id, request) => {
         calls.push(['rewind', id, JSON.stringify(request)]);
@@ -295,6 +300,16 @@ test('btw_Should_PassSideQuestionFromViewerPage_And_GiveAnswerBack', async (t) =
 
   assert.deepEqual({ status: response.status, body: JSON.parse(response.body) }, { status: 200, body: { ok: true, answer: 'In src/config.ts.' } });
   assert.deepEqual(calls, [['btw', sessionId, 'Where is the retry limit?']]);
+});
+
+// The page asking again for its side question — its request lost — gets the answer of the one asked, not a question
+// asked anew
+test('btw_Should_ResumeSideQuestionAskedBefore_When_PageAsksAgain', async (t) => {
+  const { port, calls } = await withServer(t);
+
+  const response = await post(port, '/api/btw', pageHeaders(port), JSON.stringify({ session: sessionId, question: 'Where is the retry limit?', resume: true }));
+
+  assert.deepEqual({ status: response.status, body: JSON.parse(response.body), calls }, { status: 200, body: { ok: true, answer: 'In src/config.ts.' }, calls: [['resumeBtw', sessionId, 'Where is the retry limit?']] });
 });
 
 // A herdr tab named or closed from the page is named or closed in herdr; what is no tab id is refused before herdr
@@ -1298,9 +1313,9 @@ test('interrupt_Should_HideStoppedPromptClaudeGaveBackFromFeedAtOnce', { timeout
   assert.deepEqual(uuids(await next()), ['u1', 'a1']);
 });
 
-// What a session's "/" offers is asked for by its agent and its folder, the one it is in now; a session id that is no
-// id is refused
-test('commands_Should_OfferWhatSessionsAgentHasInItsFolder', async (t) => {
+// What a session's "/" offers is asked for by its agent and the folder it started in — its project's skills and commands
+// are there, as Claude Code has them, though the session moved on with cd; a session id that is no id is refused
+test('commands_Should_OfferWhatSessionsAgentHasInFolderItStartedIn', async (t) => {
   const { file, base } = await withServer(t);
   const folder = tempDir('csv-commands-');
   await appendFile(file, `${JSON.stringify({ type: 'user', uuid: 'u2', timestamp: at, cwd: folder, message: { role: 'user', content: 'Next' } })}\n`);
@@ -1308,7 +1323,7 @@ test('commands_Should_OfferWhatSessionsAgentHasInItsFolder', async (t) => {
   const offered = await (await fetch(`${base}/api/commands?session=${sessionId}`)).json();
   const refused = await fetch(`${base}/api/commands?session=nope`);
 
-  assert.deepEqual({ offered, refused: refused.status }, { offered: [{ name: '/claude', hint: '', about: folder, source: 'built-in' }], refused: 400 });
+  assert.deepEqual({ offered, refused: refused.status }, { offered: [{ name: '/claude', hint: '', about: 'D:\\dev\\x', source: 'built-in' }], refused: 400 });
 });
 
 test('branch_Should_ReadBranchCheckedOutInSessionFolderNotOneTranscriptRecorded', async (t) => {

@@ -62,13 +62,15 @@ test('send_Should_TypeTextIntoSessionPaneAndPressEnter', async () => {
 // line break — nothing is sent. Enter waits until the prompt box shows the text
 test('send_Should_PressEnter_OnceTextHasLandedInPromptBox', async () => {
   const box = (/** @type {string} */ text) => ['● Done.', '────────', `❯ ${text}`, '────────'].join('\n');
-  const herdr = fakeHerdr({ screens: [box(''), box('[Pasted text #1 +40 lines]')] });
+  // the box before typing, as it is typed into, and with the paste in it
+  const herdr = fakeHerdr({ screens: [box(''), box(''), box('[Pasted text #1 +40 lines]'), box('')] });
   const long = Array.from({ length: 40 }, (_, line) => `line ${line} of a long text`).join('\n');
 
   await composerOf([record], herdr).send(sessionId, long);
 
   const commands = herdr.calls.map(([, command]) => command);
-  assert.deepEqual(commands.slice(commands.indexOf('send-text')), ['send-text', 'read', 'read', 'send-keys']);
+  // the box looked at once more after Enter: it let the prompt go
+  assert.deepEqual(commands.slice(commands.indexOf('send-text')), ['send-text', 'read', 'read', 'send-keys', 'read']);
 });
 
 // Claude Code's send-now key (Ctrl+X Ctrl+S, the spelling of Ctrl+Enter every terminal passes on) sends what waits in
@@ -108,8 +110,9 @@ test('interrupt_Should_PressEscapeInSessionPane', async () => {
 test('interrupt_Should_GiveBackPromptThePageSentExactlyWhenClaudeHadNotStartedOnIt', async () => {
   const box = (/** @type {string} */ text) => `● Earlier answer\n────────\n❯ ${text}\n────────\n  ⏵⏵ auto mode on`;
   const sent = box('Explain the failing\n  test in detail');
-  // the send waits for its text in the box; then the box before Esc, the prompt given back into it, the box cleared
-  const herdr = fakeHerdr({ screens: [sent, box(''), sent, box('')] });
+  // the box before typing; the send waits for its text in it, and for the box to let it go after Enter; then the box
+  // before Esc, the prompt given back into it, the box cleared
+  const herdr = fakeHerdr({ screens: [box(''), sent, box(''), box(''), sent, box('')] });
   const composer = composerOf([record], herdr);
   await composer.send(sessionId, 'Explain the failing\ntest in detail');
 
@@ -176,12 +179,13 @@ test('rewind_Should_TouchTerminalOnlyWhileClaudeWaitsForInput', async () => {
  * @param {string} answer
  * @param {string} [suggested] - a reply Claude Code suggests in its empty box: dim when read in ansi, read as text it
  *   looks typed
+ * @param {string} [open] - a side question whose panel is open already, asked before
  */
-function sidePanelHerdr(answer, suggested = '') {
+function sidePanelHerdr(answer, suggested = '', open = undefined) {
   const herdr = fakeHerdr();
   let box = '';
   /** @type {string | undefined} */
-  let asked;
+  let asked = open;
   /** @param {'ansi' | 'text'} format */
   const shownInBox = (format) => (box !== '' || suggested === '' ? box : format === 'ansi' ? `\u001b[2m${suggested}\u001b[0m` : suggested);
   const screen = (/** @type {'ansi' | 'text'} */ format) =>
@@ -226,6 +230,72 @@ test('btw_Should_Ask_When_BoxShowsOnlyClaudeCodesSuggestion', async () => {
   const outcome = await composerOf([record], herdr).btw(sessionId, 'where is the retry limit?');
 
   assert.deepEqual({ outcome, typed: typedInto(herdr.calls) }, { outcome: { ok: true, answer: 'The limit is in src/config.ts.' }, typed: ['/btw where is the retry limit?', 'enter', 'down', 'esc'] });
+});
+
+// The page lost its request while Claude answered and asks again: the question still answered here is joined — asked
+// once, its one answer given to both
+test('resumeBtw_Should_JoinQuestionStillAnswered', async () => {
+  const herdr = sidePanelHerdr('The limit is in src/config.ts.');
+  const composer = composerOf([record], herdr);
+
+  const outcomes = await Promise.all([composer.btw(sessionId, 'where is the retry limit?'), composer.resumeBtw(sessionId, 'where is the retry limit?')]);
+
+  assert.deepEqual({ outcomes, typed: typedInto(herdr.calls) }, { outcomes: [{ ok: true, answer: 'The limit is in src/config.ts.' }, { ok: true, answer: 'The limit is in src/config.ts.' }], typed: ['/btw where is the retry limit?', 'enter', 'down', 'esc'] });
+});
+
+// The viewer restarted while Claude answered: asked again, the answer is read off the panel still open for the question,
+// nothing typed — none open for it, it says so
+test('resumeBtw_Should_ReadPanelStillOpen_When_ViewerRestartedMeanwhile', async () => {
+  const open = sidePanelHerdr('The limit is in src/config.ts.', '', 'where is the retry limit?');
+  const closed = sidePanelHerdr('The limit is in src/config.ts.');
+
+  const outcomes = [await composerOf([record], open).resumeBtw(sessionId, 'where is the retry limit?'), await composerOf([record], closed).resumeBtw(sessionId, 'where is the retry limit?')];
+
+  assert.deepEqual({ outcomes, typed: [typedInto(open.calls), typedInto(closed.calls)] }, { outcomes: [{ ok: true, answer: 'The limit is in src/config.ts.' }, { ok: false, error: 'panel-closed' }], typed: [['down', 'esc'], []] });
+});
+
+// A side panel left open in the terminal — a side question the page gave up on, an answer read there — covers the box and
+// would take the prompt's keys as its own: it is closed first, then the prompt typed
+test('send_Should_CloseSidePanelLeftOpen_ThenType', async () => {
+  const herdr = sidePanelHerdr('The limit is in src/config.ts.', '', 'where is the retry limit?');
+
+  const outcome = await composerOf([record], herdr).send(sessionId, 'fix the flaky test');
+
+  assert.deepEqual({ outcome, typed: typedInto(herdr.calls) }, { outcome: { ok: true, pane: 'w3D:p1' }, typed: ['esc', 'fix the flaky test', 'enter'] });
+});
+
+// Claude Code may take an Enter that comes right after a long paste for none: the prompt stays in its box. Enter is
+// pressed again until the box lets the prompt go — sent, or queued
+test('send_Should_PressEnterAgain_When_ClaudeCodeLeftPromptInItsBox', async () => {
+  const box = (/** @type {string} */ typed) => ['● Done.', '────────', `❯ ${typed}`, '────────'].join('\n');
+  const typed = 'nothing extra in the porridge, it seems';
+  // the box before typing, with the text; after the first Enter still with it, after the second empty
+  const herdr = fakeHerdr({ screens: [box(''), box(typed), ...Array.from({ length: 8 }, () => box(typed)), box('')] });
+
+  const outcome = await composerOf([record], herdr).send(sessionId, typed);
+
+  assert.deepEqual({ outcome, typed: typedInto(herdr.calls) }, { outcome: { ok: true, pane: 'w3D:p1' }, typed: [typed, 'enter', 'enter'] });
+});
+
+// The prompt still in the box after Enter thrice: the page is told it was not sent — the terminal holds it — to keep it
+test('send_Should_RefuseAsNotSent_When_PromptStaysInBoxAfterEnters', async () => {
+  const box = (/** @type {string} */ typed) => ['● Done.', '────────', `❯ ${typed}`, '────────'].join('\n');
+  const herdr = fakeHerdr({ screens: [box(''), box('fix the flaky test')] });
+
+  const outcome = await composerOf([record], herdr).send(sessionId, 'fix the flaky test');
+
+  assert.deepEqual({ outcome, typed: typedInto(herdr.calls) }, { outcome: { ok: false, error: 'not-sent' }, typed: ['fix the flaky test', 'enter', 'enter', 'enter'] });
+});
+
+// The box in view, and the text typed never shows in it — something on the screen took the keys, a dialog over the box:
+// Enter is not pressed, and the page is told the prompt was not typed, to keep it
+test('send_Should_NotPressEnter_When_TextNeverShowsInBox', async () => {
+  const box = ['● Done.', '────────', '❯ ', '────────'].join('\n');
+  const herdr = fakeHerdr({ screens: [box] });
+
+  const outcome = await composerOf([record], herdr).send(sessionId, 'fix the flaky test');
+
+  assert.deepEqual({ outcome, typed: typedInto(herdr.calls) }, { outcome: { ok: false, error: 'not-typed' }, typed: ['fix the flaky test'] });
 });
 
 // The keys of a prompt typed into an open side panel would be the panel's own (f forks, c copies): the prompt waits

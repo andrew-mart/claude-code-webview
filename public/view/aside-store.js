@@ -1,7 +1,8 @@
 // @ts-check
 // Side questions (/btw) and their answers, kept per session for as long as the page is open: the terminal no longer
 // shows an answer once the viewer has read it, so it must not go with the box when another session is opened. An
-// answer — not a question still being answered, whose request goes with the page — also outlives a reload of the tab.
+// answer outlives a reload of the tab, and so does a question still being answered: the page reloaded asks for its
+// answer again (composer-view.js).
 
 /**
  * @typedef {{ question: string, answer: string | undefined }} Aside — answer: none while Claude answers
@@ -25,6 +26,17 @@ export function createAsideStore() {
       return asides.get(sessionId) ?? keptAside(sessionId);
     },
     /**
+     * A question still being answered that a page before this one asked — reloaded, its request gone with it: none
+     * once this page has it.
+     * @param {string} sessionId
+     * @returns {string | undefined} — the question
+     */
+    leftAsking(sessionId) {
+      if (asides.has(sessionId)) return undefined;
+      const kept = keptAside(sessionId);
+      return kept !== undefined && kept.answer === undefined ? kept.question : undefined;
+    },
+    /**
      * A question asked, answered, or closed (none); whoever shows the session's box hears of it.
      * @param {string} sessionId
      * @param {Aside | undefined} aside
@@ -32,7 +44,7 @@ export function createAsideStore() {
     set(sessionId, aside) {
       if (aside === undefined) asides.delete(sessionId);
       else asides.set(sessionId, aside);
-      keep(sessionId, aside?.answer === undefined ? undefined : aside);
+      keep(sessionId, aside);
       for (const listener of listeners.get(sessionId) ?? []) listener(aside);
     },
     /**
@@ -56,7 +68,8 @@ export function createAsideStore() {
 function keptAside(sessionId) {
   try {
     const kept = JSON.parse(sessionStorage.getItem(storageKey(sessionId)) ?? 'null');
-    return typeof kept?.question === 'string' && typeof kept?.answer === 'string' ? { question: kept.question, answer: kept.answer } : undefined;
+    if (typeof kept?.question !== 'string') return undefined;
+    return typeof kept.answer === 'string' ? { question: kept.question, answer: kept.answer } : { question: kept.question, answer: undefined };
   } catch {
     return undefined; // storage is unavailable or holds something else: nothing kept
   }
@@ -64,7 +77,7 @@ function keptAside(sessionId) {
 
 /**
  * @param {string} sessionId
- * @param {Aside | undefined} aside — an answered one, or none to forget it
+ * @param {Aside | undefined} aside — none to forget it
  */
 function keep(sessionId, aside) {
   try {

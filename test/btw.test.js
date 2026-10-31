@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { driveBtw, sidePanel } from '../server/btw.js';
+import { driveBtw, readBtw, sidePanel } from '../server/btw.js';
 
 /**
  * A stand-in for Claude Code's terminal with /btw. Enter on "/btw …" in the box opens the side answer over the box —
@@ -160,4 +160,36 @@ test('driveBtw_Should_CloseSidePanelLeftOpen_ThenAsk', async () => {
   const outcome = await driveBtw(claude.terminal, { question, wait: noWait });
 
   assert.deepEqual({ outcome, first: claude.state.keys[0], typed: claude.state.typed, open: claude.state.overlay !== undefined }, { outcome: { ok: true, answer: answer.join('\n') }, first: 'esc', typed: [`/btw ${question}`], open: false });
+});
+
+// The page lost its request while Claude answered — the viewer restarted, the network dropped — and asks again: the
+// panel open for the question is read to its end and closed, nothing typed into the terminal
+test('readBtw_Should_ReadAnswerOfPanelOpenForQuestion_WithoutAskingAgain_AndCloseIt', async () => {
+  const claude = fakeClaude({ answer, before: [question], open: true });
+
+  const outcome = await readBtw(claude.terminal, { question, wait: noWait });
+
+  assert.deepEqual({ outcome, typed: claude.state.typed, open: claude.state.overlay !== undefined }, { outcome: { ok: true, answer: answer.join('\n') }, typed: [], open: false });
+});
+
+// No panel open for the question — closed in the terminal, or open for another one — is told, nothing pressed: Esc in
+// the prompt box would stop Claude's turn
+test('readBtw_Should_TellPanelClosed_When_NoneIsOpenForQuestion_PressingNothing', async () => {
+  const closed = fakeClaude({ answer });
+  const other = fakeClaude({ answer, before: ['which remote does the repo have?'], open: true });
+
+  const outcomes = [await readBtw(closed.terminal, { question, wait: noWait }), await readBtw(other.terminal, { question, wait: noWait })];
+
+  assert.deepEqual({ outcomes, keys: [closed.state.keys, other.state.keys] }, { outcomes: [{ ok: false, error: 'panel-closed' }, { ok: false, error: 'panel-closed' }], keys: [[], []] });
+});
+
+// A session with many side questions: Claude Code folds the earliest into one line over the list — "(+5 earlier /btw)" —
+// and the panel is still this question's, answering and then answered
+test('sidePanel_Should_ReadPanel_When_EarliestQuestionsAreFoldedIntoOneLine', () => {
+  const earlier = ['how big is the queue?', 'which file holds the timeout?', 'is the cache shared?', 'who calls flush?', 'what does retry do?'].map((one) => `    /btw ${one}`);
+  const top = ['● Done.', '▔'.repeat(80), '', '    (+5 earlier /btw)', ...earlier, `    /btw ${question}`, ''];
+  const answering = [...top, '      * Answering…', '', '    ⇧←/→ to browse · x to clear history · Esc to close'].join('\n');
+  const answered = [...top, '      The limit is in src/config.ts.', '', '    ⇧←/→ to browse · c to copy · f to fork · x to clear history · Esc to close'].join('\n');
+
+  assert.deepEqual([sidePanel(answering, question)?.state, sidePanel(answered, question)], ['answering', { state: 'answered', lines: ['The limit is in src/config.ts.'], width: 74 }]);
 });

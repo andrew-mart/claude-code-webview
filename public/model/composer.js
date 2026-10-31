@@ -13,7 +13,7 @@ import { isRecord, text } from './narrow.js';
  *   shows in its feed
  * @typedef {'claude' | 'codex'} Agent — whose session: Claude Code's or Codex's
  * @typedef {{ id: string, agent: Agent }} ComposedSession — the session the box writes to
- * @typedef {'empty' | 'herdr-missing' | 'offline' | 'no-herdr' | 'outside-herdr' | 'asking' | 'subagent' | 'side' | 'not-taken' | 'send-failed'} SendRefusal
+ * @typedef {'empty' | 'herdr-missing' | 'offline' | 'no-herdr' | 'outside-herdr' | 'asking' | 'subagent' | 'side' | 'not-taken' | 'not-typed' | 'not-sent' | 'send-failed'} SendRefusal
  *   — asking: Codex asks something in its terminal, a picker in its box's place; subagent: Codex's terminal shows a
  *   sub-agent's thread, which takes no input; side: it shows a side conversation (its /btw); not-taken: Codex did not
  *   take the prompt, it was taken back out of its box
@@ -24,7 +24,7 @@ import { isRecord, text } from './narrow.js';
  * @typedef {{ shown: boolean, enabled: boolean, canInterrupt: boolean, canReopen: boolean, placeholder: string, hint: string }} ComposerView
  *   canReopen: the session is not running — it can be opened again in herdr, where it ran
  * @typedef {'physical' | 'touch'} Keyboard
- * @typedef {Exclude<SendRefusal, 'send-failed'> | 'screen-unreadable' | 'box-not-empty' | 'not-asked' | 'no-answer' | 'answer-unreadable'} BtwRefusal
+ * @typedef {Exclude<SendRefusal, 'send-failed'> | 'screen-unreadable' | 'box-not-empty' | 'not-asked' | 'no-answer' | 'answer-unreadable' | 'panel-closed'} BtwRefusal
  *   — why a side question got no answer
  * @typedef {{ ok: true, answer: string } | { ok: false, error: BtwRefusal }} BtwReply — the /api/btw contract
  */
@@ -134,6 +134,10 @@ export function outcomeMessage(outcome) {
       return 'Codex’s terminal shows a side conversation — switch it back to the main thread with Ctrl+/. The text stays in the box.';
     case 'not-taken':
       return 'Codex did not take the message — it was taken back out of its terminal’s box. The text stays in the box.';
+    case 'not-sent':
+      return 'Claude Code kept the message in its box — Enter did not send it. Press Enter in the terminal, or clear its box before sending again. The text stays here too.';
+    case 'not-typed':
+      return 'The message did not show in Claude Code’s box — something on its screen took the keys, a dialog — so it was not sent. The text stays in the box.';
     case 'send-failed':
       return 'herdr did not accept the text — the pane may have closed. The text stays in the box.';
     default:
@@ -160,6 +164,8 @@ export function btwMessage(error) {
       return 'No answer came within three minutes — the side panel in the terminal was closed.';
     case 'answer-unreadable':
       return 'The answer could not be read off the terminal.';
+    case 'panel-closed':
+      return 'The connection to the viewer was lost, and the side panel is no longer open in the terminal — its answer, if it came, is there.';
     default:
       return outcomeMessage({ ok: false, error });
   }
@@ -223,6 +229,8 @@ export function parseOutcome(json) {
     case 'subagent':
     case 'side':
     case 'not-taken':
+    case 'not-typed':
+    case 'not-sent':
     case 'send-failed':
       return { ok: false, error: json.error };
     default:
@@ -272,7 +280,7 @@ export function sideQuestionOf(text) {
 }
 
 /** @type {ReadonlySet<string>} */
-const btwRefusals = new Set(['empty', 'herdr-missing', 'offline', 'no-herdr', 'outside-herdr', 'screen-unreadable', 'box-not-empty', 'not-asked', 'no-answer', 'answer-unreadable']);
+const btwRefusals = new Set(['empty', 'herdr-missing', 'offline', 'no-herdr', 'outside-herdr', 'screen-unreadable', 'box-not-empty', 'not-asked', 'no-answer', 'answer-unreadable', 'panel-closed']);
 
 /**
  * Reply of /api/btw.

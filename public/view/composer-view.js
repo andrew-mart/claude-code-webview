@@ -18,6 +18,10 @@ import { createLaterList } from './later-view.js';
 
 /** How often to check whether the session is running and busy. */
 const liveRefreshMs = 4000;
+/** A side question's answer whose request was lost is asked for again this long after, at most this many times: a viewer
+ * restarting takes a few seconds, a network a while longer. */
+const askAgainMs = 3000;
+const askAgainTimes = 40;
 /** A box taller than this — about three lines — can be folded to it, px. */
 const foldedHeightPx = 80;
 /** After an answer to Claude Code's dialog the terminal redraws: the next question, or the box again. */
@@ -211,7 +215,8 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   };
   /**
    * @param {'/api/send' | '/api/interrupt' | '/api/btw' | '/api/dialog' | '/api/history/reopen'} path
-   * @param {{ text?: string, images?: readonly import('./attachment-picker.js').AttachedImage[], now?: true, question?: string, steps?: readonly import('../model/dialog.js').DialogStep[] }} payload — now: past Claude Code's queue
+   * @param {{ text?: string, images?: readonly import('./attachment-picker.js').AttachedImage[], now?: true, question?: string, resume?: true, steps?: readonly import('../model/dialog.js').DialogStep[] }} payload — now: past
+   *   Claude Code's queue; resume: a side question's answer asked for again, the question not asked anew
    * @param {string} [session] - whose: the box's session unless another
    * @returns {Promise<unknown>} — the reply's JSON; undefined if the server did not answer
    */
@@ -284,19 +289,44 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     fit();
     void post('/api/btw', { question }).then((json) => {
       const reply = parseBtwReply(json);
-      if (reply?.ok === true) {
-        asides.set(sessionId, { question, answer: reply.answer });
-        return;
-      }
-      asides.set(sessionId, undefined);
-      if (input.value === '') {
-        input.value = asked;
-        writeDraft(draftKey, asked);
-        fit();
-        refreshButtons();
-      }
-      say(reply === undefined ? 'The viewer server did not answer. The question is back in the box.' : btwMessage(reply.error), 'error');
+      // the request lost — the viewer restarted, the network dropped — while Claude answers in the terminal
+      if (reply === undefined) setTimeout(() => askAgain(question, asked, askAgainTimes), askAgainMs);
+      else answered(question, asked, reply);
     });
+  };
+  /**
+   * The answer of a side question asked before, asked for again — the question not asked anew — until the viewer
+   * answers, a little later each time it does not.
+   * @param {string} question
+   * @param {string} asked — what the box held: it comes back there if the question is not answered
+   * @param {number} left — how many times more
+   */
+  const askAgain = (question, asked, left) => {
+    void post('/api/btw', { question, resume: true }).then((json) => {
+      const reply = parseBtwReply(json);
+      if (reply === undefined && left > 1) setTimeout(() => askAgain(question, asked, left - 1), askAgainMs);
+      else answered(question, asked, reply);
+    });
+  };
+  /**
+   * The side question's answer shown over the box; refused — or the viewer not answering at all — the question back in
+   * the box, to be asked again.
+   * @param {string} question @param {string} asked
+   * @param {import('../model/composer.js').BtwReply | undefined} reply
+   */
+  const answered = (question, asked, reply) => {
+    if (reply?.ok === true) {
+      asides.set(sessionId, { question, answer: reply.answer });
+      return;
+    }
+    asides.set(sessionId, undefined);
+    if (input.value === '') {
+      input.value = asked;
+      writeDraft(draftKey, asked);
+      fit();
+      refreshButtons();
+    }
+    say(reply === undefined ? 'The viewer server did not answer. The question is back in the box.' : btwMessage(reply.error), 'error');
   };
 
   reopen.addEventListener('click', () => {
@@ -471,6 +501,12 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   };
   showAsked(asides.get(sessionId));
   const unwatchAsides = asides.watch(sessionId, showAsked);
+  // a question being answered when the page reloaded: its answer asked for again
+  const leftAsking = asides.leftAsking(sessionId);
+  if (leftAsking !== undefined) {
+    asides.set(sessionId, { question: leftAsking, answer: undefined });
+    askAgain(leftAsking, `/btw ${leftAsking}`, askAgainTimes);
+  }
 
   void refreshLive();
   const timer = setInterval(() => void refreshLive(), liveRefreshMs);

@@ -16,10 +16,10 @@ import { readLineAt } from './tail.js';
  * @typedef {'interactive' | 'sdk'} SessionKind
  * lastActivity — when the last prompt or answer was written; the file's own time moves also when Claude Code adds
  * service records to an old session (a summary on restart, a bridge note)
- * @typedef {{ title: string | undefined, cwd: string | undefined, branch: string | undefined, kind: SessionKind, lastActivity: number | undefined }} SessionSummary
+ * @typedef {{ title: string | undefined, cwd: string | undefined, startedIn: string | undefined, branch: string | undefined, kind: SessionKind, lastActivity: number | undefined }} SessionSummary
  * activeAt — the last prompt or answer; the file's time while that is not known yet
  * @typedef {'claude' | 'codex'} Agent — whose session it is: Claude Code's, or Codex's
- * @typedef {{ id: string, project: string, agent: Agent, title: string | undefined, cwd: string | undefined, branch: string | undefined, kind: SessionKind, modifiedAt: number, size: number, activeAt: number }} SessionInfo
+ * @typedef {{ id: string, project: string, agent: Agent, title: string | undefined, cwd: string | undefined, startedIn: string | undefined, branch: string | undefined, kind: SessionKind, modifiedAt: number, size: number, activeAt: number }} SessionInfo
  * @typedef {{ agentId: string, toolUseId: string | undefined, agentType: string | undefined, description: string | undefined }} SubagentInfo
  * @typedef {{ path: string, project: string, agent: Agent, id: string, modifiedAt: number, size: number }} SessionFile
  * @typedef {{ id: string, cwd: string, startedAt: number }} StartedSession — a session Claude Code has open: its folder,
@@ -34,7 +34,7 @@ const tailBytes = 64 * 1024;
 const maxTailBytes = 4 * 1024 * 1024;
 const summaryBatch = 16;
 /** @type {SessionSummary} */
-const unknownSummary = { title: undefined, cwd: undefined, branch: undefined, kind: 'interactive', lastActivity: undefined };
+const unknownSummary = { title: undefined, cwd: undefined, startedIn: undefined, branch: undefined, kind: 'interactive', lastActivity: undefined };
 
 /**
  * Session index with a summary cache: a file is reread only if its size or modification time changed.
@@ -401,7 +401,7 @@ function omitPath({ path, ...rest }) {
  * @returns {SessionInfo}
  */
 function startedInfo({ id, cwd, startedAt }) {
-  return { id, project: cwd.replace(/[^a-zA-Z0-9]/g, '-'), agent: 'claude', title: undefined, cwd, branch: undefined, kind: 'interactive', modifiedAt: startedAt, size: 0, activeAt: startedAt };
+  return { id, project: cwd.replace(/[^a-zA-Z0-9]/g, '-'), agent: 'claude', title: undefined, cwd, startedIn: cwd, branch: undefined, kind: 'interactive', modifiedAt: startedAt, size: 0, activeAt: startedAt };
 }
 
 /**
@@ -422,18 +422,20 @@ async function exists(path) {
 
 /**
  * Title: the one set by the user, otherwise the latest one Claude Code generated, otherwise the first line of the first prompt.
- * Folder and branch are the last recorded ones: the session may have been moved with /cd.
+ * Folder and branch are the last recorded ones: the session may have been moved with /cd; the folder it started in —
+ * its project's, where Claude Code finds the project's skills and commands — the first.
  * A session is an SDK one when every record that names how Claude Code was started names the SDK.
  * @param {readonly string[]} lines — JSONL lines (start and end of the file)
  * @returns {SessionSummary}
  */
 export function summarizeSession(lines) {
-  /** @type {{ custom: string | undefined, ai: string | undefined, prompt: string | undefined, cwd: string | undefined, branch: string | undefined, sdk: boolean, interactive: boolean, lastActivity: number | undefined }} */
-  const seen = { custom: undefined, ai: undefined, prompt: undefined, cwd: undefined, branch: undefined, sdk: false, interactive: false, lastActivity: undefined };
+  /** @type {{ custom: string | undefined, ai: string | undefined, prompt: string | undefined, cwd: string | undefined, startedIn: string | undefined, branch: string | undefined, sdk: boolean, interactive: boolean, lastActivity: number | undefined }} */
+  const seen = { custom: undefined, ai: undefined, prompt: undefined, cwd: undefined, startedIn: undefined, branch: undefined, sdk: false, interactive: false, lastActivity: undefined };
   for (const line of lines) {
     const raw = parse(line);
     if (!isRecord(raw)) continue;
     seen.cwd = text(raw.cwd) ?? seen.cwd;
+    if (seen.startedIn === undefined) seen.startedIn = seen.cwd;
     seen.branch = text(raw.gitBranch) ?? seen.branch;
     const stamp = raw.type === 'user' || raw.type === 'assistant' ? text(raw.timestamp) : undefined;
     const written = stamp === undefined ? Number.NaN : Date.parse(stamp);
@@ -447,7 +449,7 @@ export function summarizeSession(lines) {
       if (event.kind === 'prompt' && seen.prompt === undefined && event.text !== '') seen.prompt = event.text.split('\n', 1)[0];
     }
   }
-  return { title: seen.custom ?? seen.ai ?? seen.prompt, cwd: seen.cwd, branch: seen.branch, kind: seen.sdk && !seen.interactive ? 'sdk' : 'interactive', lastActivity: seen.lastActivity };
+  return { title: seen.custom ?? seen.ai ?? seen.prompt, cwd: seen.cwd, startedIn: seen.startedIn, branch: seen.branch, kind: seen.sdk && !seen.interactive ? 'sdk' : 'interactive', lastActivity: seen.lastActivity };
 }
 
 /**

@@ -6,8 +6,8 @@
 //   the herdr view                 → the pane a Codex session runs in (herdr-view.js: codexPlace)
 //   herdr pane send-text / send-keys → the text and Enter, as if the user typed them
 import { setTimeout as delay } from 'node:timers/promises';
-import { driveBtw } from './btw.js';
-import { inputBox, plainScreen, settleOn, squash } from './claude-screen.js';
+import { driveBtw, readBtw, withPanelClosed } from './btw.js';
+import { inputBox, plainScreen, settleOn, settleWithin, squash } from './claude-screen.js';
 import { driveCodexBtw } from './codex-btw.js';
 import { driveCodexRewind } from './codex-rewind.js';
 import { codexDialog, codexInputBox, codexQueued, showsSideConversation, showsSubagent } from './codex-screen.js';
@@ -41,6 +41,9 @@ const recentLines = 400;
 const answerStepMs = 150;
 /** How many of the latest prompts sent from the page are kept per session: Esc gives back the one Claude had not started on. */
 const keptPrompts = 5;
+/** How many Enters a prompt is sent with at most, and the looks at the box after each for it to let the prompt go. */
+const enterTries = 3;
+const enterLooks = 8;
 
 /**
  * @param {{ readRecords: () => Promise<readonly unknown[]>, herdr: RunHerdr, codexPlace: (sessionId: string) => Promise<import('./herdr-view.js').CodexPlace> }} deps
@@ -57,6 +60,9 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
   /** Prompts the page typed into each session, newest last. */
   /** @type {Map<string, readonly string[]>} */
   const sentPrompts = new Map();
+  /** The side questions being answered, by session: the page asking again — its request lost — joins the one asked. */
+  /** @type {Map<string, { question: string, reply: Promise<BtwReply> }>} */
+  const asidesAnswered = new Map();
   /**
    * What the page does in a session's terminal goes one thing at a time: the keys of a prompt typed while a side
    * panel or the /rewind menu is open would be the panel's or the menu's.
@@ -178,16 +184,30 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
   /**
    * The text typed into the session's prompt box, and a wait until the box shows it. A long text comes into Claude Code
    * — and Codex — as a paste, and a key that comes while it is still being pasted joins it — Enter as a line break, and
-   * nothing is sent. At most a few seconds: then the next key goes anyway.
+   * nothing is sent. At most a few seconds: then the next key goes anyway — unless the text was to land in a box in
+   * view and never showed there: it went to something over the box, and the prompt is not typed.
    * @param {Place} place
    * @param {string} input
+   * @param {'required' | 'hoped'} landing — required: the box was in view before the text was typed
    * @returns {Promise<SendOutcome>}
    */
-  async function typeIn(place, input) {
+  async function typeIn(place, input, landing) {
     const typed = await press(place, [['send-text', input]]);
+    if (!typed.ok) return typed;
     const boxOf = place.agent === 'codex' ? codexInputBox : inputBox;
-    if (typed.ok) await settleOn(terminalOf(place.pane), (ms) => delay(ms), (screen) => showsTyped(boxOf(screen), input));
-    return typed;
+    const landed = await settleOn(terminalOf(place.pane), (ms) => delay(ms), (screen) => showsTyped(boxOf(screen), input));
+    return landed === undefined && landing === 'required' ? { ok: false, error: 'not-typed' } : typed;
+  }
+
+  /**
+   * How a prompt for Claude Code is to land in its box: with the box in view, its text must show there — what does not
+   * was taken by something over the box, a dialog; a screen with no box made out is typed into as it is.
+   * @param {Place} place
+   * @returns {Promise<'required' | 'hoped'>} — the side panel left open over the box closed first
+   */
+  async function claudeLanding(place) {
+    const screen = await withPanelClosed(terminalOf(place.pane), (ms) => delay(ms));
+    return screen !== undefined && inputBox(screen) !== undefined ? 'required' : 'hoped';
   }
 
   /**
@@ -207,7 +227,8 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
     if (screen === undefined || codexInputBox(screen) === undefined) return { ok: false, error: 'asking' };
     if (showsSubagent(screen)) return { ok: false, error: 'subagent' };
     if (showsSideConversation(screen)) return { ok: false, error: 'side' };
-    const typed = await typeIn(place, input);
+    // Codex's box is looked at after the key: a prompt it did not take is taken back out
+    const typed = await typeIn(place, input, 'hoped');
     if (!typed.ok) return typed;
     const sent = await press(place, [['send-keys', key]]);
     if (!sent.ok) return sent;
@@ -253,8 +274,27 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
    * @returns {Promise<SendOutcome>}
    */
   async function sendToClaude(place, input) {
-    const typed = await typeIn(place, input);
-    return typed.ok ? press(place, [['send-keys', 'enter']]) : typed;
+    const typed = await typeIn(place, input, await claudeLanding(place));
+    return typed.ok ? enterUntilTaken(place, input) : typed;
+  }
+
+  /**
+   * Enter for the prompt in Claude Code's box, again while the box holds it: an Enter right after a long paste Claude
+   * Code may take for none. The box letting the prompt go — sent, or queued — is the prompt sent; still holding it after
+   * a few, it is not, and the page is told: the terminal has it.
+   * @param {Place} place
+   * @param {string} input
+   * @returns {Promise<SendOutcome>}
+   */
+  async function enterUntilTaken(place, input) {
+    const terminal = terminalOf(place.pane);
+    for (let tries = 0; tries < enterTries; tries++) {
+      const sent = await press(place, [['send-keys', 'enter']]);
+      if (!sent.ok) return sent;
+      const letGo = await settleWithin(terminal, (ms) => delay(ms), (screen) => !holdsTyped(inputBox(screen), input), enterLooks);
+      if (letGo !== undefined) return sent;
+    }
+    return { ok: false, error: 'not-sent' };
   }
 
   /**
@@ -266,7 +306,7 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
   async function sendNowToClaude(place, input) {
     // into the box without Enter: Enter would only queue it as well
     /** @type {SendOutcome} */
-    const typed = input === '' ? { ok: true, pane: place.pane } : await typeIn(place, input);
+    const typed = input === '' ? { ok: true, pane: place.pane } : await typeIn(place, input, await claudeLanding(place));
     return typed.ok
       ? press(place, [
           ['send-keys', 'ctrl+x'],
@@ -385,13 +425,37 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
      */
     async btw(sessionId, question) {
       if (question.trim() === '') return { ok: false, error: 'empty' };
-      return inTurn(sessionId, async () => {
+      const reply = inTurn(sessionId, /** @returns {Promise<BtwReply>} */ async () => {
         const where = await locate(sessionId);
         if (where.kind !== 'live') return { ok: false, error: where.kind };
         const terminal = terminalOf(where.place.pane);
         // Codex answers it in a side conversation of its own (codex-btw.js)
         const recent = () => recentOf(where.place.pane);
         return where.place.agent === 'codex' ? driveCodexBtw(terminal, { question, wait: (ms) => delay(ms), recent }) : driveBtw(terminal, { question, wait: (ms) => delay(ms) });
+      });
+      asidesAnswered.set(sessionId, { question, reply });
+      try {
+        return await reply;
+      } finally {
+        if (asidesAnswered.get(sessionId)?.reply === reply) asidesAnswered.delete(sessionId);
+      }
+    },
+    /**
+     * The answer of a side question asked before, the page's request for it lost — the viewer restarted, the network
+     * dropped: the question still answered here is joined; else its answer is read off the panel still open for it in
+     * Claude Code's terminal, nothing asked again. Codex's side conversation is not read again.
+     * @param {string} sessionId
+     * @param {string} question
+     * @returns {Promise<BtwReply>}
+     */
+    resumeBtw(sessionId, question) {
+      const answering = asidesAnswered.get(sessionId);
+      if (answering !== undefined && answering.question === question) return answering.reply;
+      return inTurn(sessionId, async () => {
+        const where = await locate(sessionId);
+        if (where.kind !== 'live') return { ok: false, error: where.kind };
+        if (where.place.agent === 'codex') return { ok: false, error: 'panel-closed' };
+        return readBtw(terminalOf(where.place.pane), { question, wait: (ms) => delay(ms) });
       });
     },
     /**
@@ -494,5 +558,5 @@ function dialogOf(agent, screen) {
  * @param {string} text
  */
 function holdsTyped(box, text) {
-  return box !== undefined && (box.includes('[Pasted Content') || squash(box).includes(squash(text).slice(-24)));
+  return box !== undefined && (/\[Pasted (text|Content)/.test(box) || squash(box).includes(squash(text).slice(-24)));
 }

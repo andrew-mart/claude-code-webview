@@ -45,7 +45,19 @@ const settleTries = 20;
  * @returns {Promise<string | undefined>}
  */
 export async function settleOn(terminal, wait, ready) {
-  for (let attempt = 0; attempt < settleTries; attempt++) {
+  return settleWithin(terminal, wait, ready, settleTries);
+}
+
+/**
+ * The screen once it is ready; undefined if it is not within so many looks.
+ * @param {Terminal} terminal
+ * @param {(ms: number) => Promise<void>} wait
+ * @param {(screen: string) => boolean} ready
+ * @param {number} tries — the looks, a pause between them
+ * @returns {Promise<string | undefined>}
+ */
+export async function settleWithin(terminal, wait, ready, tries) {
+  for (let attempt = 0; attempt < tries; attempt++) {
     const screen = await terminal.read();
     if (screen !== undefined && ready(screen)) return screen;
     await wait(stepMs);

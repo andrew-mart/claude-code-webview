@@ -106,7 +106,7 @@ const agentIdPattern = /^[0-9a-z]{1,64}$/i;
 const paneIdPattern = /^[\w:-]{1,40}$/;
 
 /**
- * @typedef {{ liveState: (sessionId: string) => Promise<import('./composer.js').LiveState>, send: (sessionId: string, text: string) => Promise<import('./composer.js').SendOutcome>, sendNow: (sessionId: string, text: string) => Promise<import('./composer.js').SendOutcome>, interrupt: (sessionId: string) => Promise<import('./composer.js').StopReply>, rewind: (sessionId: string, request: import('./composer.js').RewindRequest) => Promise<import('./composer.js').RewindReply>, btw: (sessionId: string, question: string) => Promise<import('./composer.js').BtwReply>, answer: (sessionId: string, steps: readonly import('../public/model/dialog.js').DialogStep[]) => Promise<import('../public/model/dialog.js').DialogReply> }} Composer
+ * @typedef {{ liveState: (sessionId: string) => Promise<import('./composer.js').LiveState>, send: (sessionId: string, text: string) => Promise<import('./composer.js').SendOutcome>, sendNow: (sessionId: string, text: string) => Promise<import('./composer.js').SendOutcome>, interrupt: (sessionId: string) => Promise<import('./composer.js').StopReply>, rewind: (sessionId: string, request: import('./composer.js').RewindRequest) => Promise<import('./composer.js').RewindReply>, btw: (sessionId: string, question: string) => Promise<import('./composer.js').BtwReply>, resumeBtw: (sessionId: string, question: string) => Promise<import('./composer.js').BtwReply>, answer: (sessionId: string, steps: readonly import('../public/model/dialog.js').DialogStep[]) => Promise<import('../public/model/dialog.js').DialogReply> }} Composer
  * @typedef {{ name: string, version: string }} About
  * @typedef {() => Promise<import('../public/model/usage.js').Usage | undefined>} ReadUsage — none until Claude Code has read it
  * @typedef {(sessionId: string) => Promise<import('../public/model/session-status.js').SessionStatus | undefined>} ReadSessionStatus
@@ -220,11 +220,12 @@ async function handle(deps, request, response) {
       const version = Number(since);
       return sendJson(response, await deps.index.changes(since === '' || !Number.isFinite(version) ? undefined : version));
     }
-    // what the session's "/" offers: its agent's commands, the skills in its folder
+    // what the session's "/" offers: its agent's commands, the skills of the folder it started in — its project's, where
+    // Claude Code finds them, though the session moved on with cd
     case '/api/commands':
       return withSession(url, response, async (id) => {
         const session = (await deps.index.list()).find((one) => one.id === id);
-        return sendJson(response, await deps.commands({ agent: session?.agent ?? 'claude', cwd: session?.cwd }));
+        return sendJson(response, await deps.commands({ agent: session?.agent ?? 'claude', cwd: session?.startedIn }));
       });
     case '/api/branch':
       // The branch checked out in the session's folder now, for the header.
@@ -635,7 +636,8 @@ async function handleWrite(deps, url, request, response) {
     case '/api/session/restart':
       return sendJson(response, await deps.herdrView.restart(sessionId, isRecord(body) && body.variables === 'none' ? 'none' : 'given'));
     case '/api/btw':
-      return askAside(deps, sessionId, isRecord(body) && typeof body.question === 'string' ? body.question : '', response);
+      // resume: asked again, the page's request for it lost — its answer, not the question asked anew
+      return askAside(deps, sessionId, isRecord(body) && typeof body.question === 'string' ? body.question : '', isRecord(body) && body.resume === true ? 'resume' : 'ask', response);
     case '/api/bookmarks': {
       const change = parseBookmarkChange(isRecord(body) ? body.change : undefined);
       if (change === undefined) {
@@ -677,13 +679,14 @@ async function handleWrite(deps, url, request, response) {
  * @param {Deps} deps
  * @param {string} sessionId
  * @param {string} question
+ * @param {'ask' | 'resume'} how — resume: the question asked before, its answer read
  * @param {http.ServerResponse} response
  */
-async function askAside(deps, sessionId, question, response) {
+async function askAside(deps, sessionId, question, how, response) {
   response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   const keepAlive = setInterval(() => response.write(' '), keepAliveMs);
   try {
-    response.end(JSON.stringify(await deps.composer.btw(sessionId, question)));
+    response.end(JSON.stringify(await (how === 'resume' ? deps.composer.resumeBtw(sessionId, question) : deps.composer.btw(sessionId, question))));
   } finally {
     clearInterval(keepAlive);
   }

@@ -23,7 +23,9 @@ test('summarizeSession_Should_PreferCustomTitleThenLatestAiTitle', () => {
   assert.equal(summarizeSession(lines.filter((l) => !l.includes('custom-title'))).title, 'New title');
 });
 
-test('summarizeSession_Should_FallBackToFirstPromptLineAndTakeLatestCwd', () => {
+// The folder a session is in is the latest one recorded — it may have moved with cd; the folder it started in, its
+// project's, the first one
+test('summarizeSession_Should_FallBackToFirstPromptLineAndTakeLatestCwd_AndFolderStartedIn', () => {
   const lines = [
     line({ type: 'user', uuid: 'm', timestamp: at, isMeta: true, message: { role: 'user', content: 'internal' } }),
     prompt('Build a viewer\ndetails below', 'C:\\projects\\shop'),
@@ -31,7 +33,7 @@ test('summarizeSession_Should_FallBackToFirstPromptLineAndTakeLatestCwd', () => 
     '{"broken line',
   ];
 
-  assert.deepEqual(summarizeSession(lines), { title: 'Build a viewer', cwd: 'C:\\projects\\blog', branch: 'master', kind: 'interactive', lastActivity: Date.parse(at) });
+  assert.deepEqual(summarizeSession(lines), { title: 'Build a viewer', cwd: 'C:\\projects\\blog', startedIn: 'C:\\projects\\shop', branch: 'master', kind: 'interactive', lastActivity: Date.parse(at) });
 });
 
 test('summarizeSession_Should_TakeLastActivityFromMessagesNotFromServiceRecords', () => {

@@ -3,11 +3,13 @@
 // without adding to it. Claude Code shows the answer only in a panel over its prompt box — nothing is written to the
 // transcript — so it is read off the screen: scrolled through with ↓ to the end, then the panel is closed with Esc.
 // Claude Code keeps the side questions asked: its panel lists the earlier ones over the latest, whose answer it shows. A
-// panel left open in the terminal covers the prompt box: it is closed before the question is asked.
+// panel left open in the terminal covers the prompt box: it is closed before the question is asked. A question asked
+// and not answered to the page — the viewer restarted, the network dropped — is read off its panel still open.
 import { inputBox, settleOn, squash } from './claude-screen.js';
 
 /**
- * @typedef {'screen-unreadable' | 'box-not-empty' | 'not-asked' | 'no-answer' | 'answer-unreadable'} BtwRefusal
+ * @typedef {'screen-unreadable' | 'box-not-empty' | 'not-asked' | 'no-answer' | 'answer-unreadable' | 'panel-closed'} BtwRefusal
+ *   — panel-closed: no side panel is open for the question to read its answer off
  * @typedef {{ ok: true, answer: string } | { ok: false, error: BtwRefusal }} BtwOutcome
  * @typedef {{ state: 'answering' } | { state: 'answered', lines: readonly string[], width: number }} SidePanel — width: the
  *   columns the panel wraps the answer at
@@ -42,6 +44,32 @@ export async function driveBtw(terminal, { question, wait }) {
   await terminal.text(`/btw ${asked}`);
   await terminal.keys('enter');
   if ((await settleOn(terminal, wait, (next) => sidePanel(next, asked) !== undefined)) === undefined) return { ok: false, error: 'not-asked' };
+  return answerOf(terminal, wait, asked);
+}
+
+/**
+ * The answer of a side question already asked, read off the panel still open for it: nothing is typed. With none open
+ * for it, nothing is pressed either — Esc in the prompt box would stop Claude's turn.
+ * @param {import('./claude-screen.js').Terminal} terminal
+ * @param {{ question: string, wait: (ms: number) => Promise<void> }} options
+ * @returns {Promise<BtwOutcome>}
+ */
+export async function readBtw(terminal, { question, wait }) {
+  const asked = question.replace(/\s+/g, ' ').trim();
+  const screen = await terminal.read();
+  if (screen === undefined || sidePanel(screen, asked) === undefined) return { ok: false, error: 'panel-closed' };
+  return answerOf(terminal, wait, asked);
+}
+
+/**
+ * The answer in the panel open for the question, once Claude has written it, scrolled through to its end; the panel
+ * closed after it, the terminal free for the next prompt.
+ * @param {import('./claude-screen.js').Terminal} terminal
+ * @param {(ms: number) => Promise<void>} wait
+ * @param {string} asked — the question as typed after /btw
+ * @returns {Promise<BtwOutcome>}
+ */
+async function answerOf(terminal, wait, asked) {
   const first = await answerShown(terminal, wait, asked);
   const lines = first === undefined ? undefined : await readToEnd(terminal, wait, asked, first.lines);
   await closePanel(terminal, wait, asked);
@@ -78,7 +106,8 @@ export function sidePanel(screen, question) {
 
 /**
  * Where the side panel is on the screen: its top edge; the question whose answer it shows — the latest asked, under a
- * blank line, the earlier ones listed over it a line each; its footer. None without one.
+ * blank line, the earlier ones listed over it a line each, the earliest of many folded into one line over them,
+ * "(+5 earlier /btw)"; its footer. None without one.
  * @param {readonly string[]} lines
  * @returns {{ top: number, echoAt: number, bottom: number } | undefined}
  */
@@ -86,11 +115,14 @@ function panelOf(lines) {
   const top = lines.findLastIndex((line) => /▔{8,}/.test(line));
   if (top < 0) return undefined;
   const bottom = lines.findIndex((line, index) => index > top && /Esc to close\s*$/.test(line));
-  const first = lines.findIndex((line, index) => index > top && line.trim() !== '');
+  const first = lines.findIndex((line, index) => index > top && line.trim() !== '' && !folded.test(line));
   if (bottom < 0 || first < 0 || first >= bottom || !isAsked(lines[first])) return undefined;
   const latest = lines.findIndex((line, index) => index >= first && !isAsked(lines[index + 1]));
   return { top, echoAt: latest, bottom };
 }
+
+/** The line the panel folds the earliest side questions into, over the ones it lists. */
+const folded = /^\s*\(\+\d+ earlier \/btw\)\s*$/;
 
 /**
  * Whether the line is a side question as the panel lists it.
@@ -101,13 +133,14 @@ function isAsked(line) {
 }
 
 /**
- * The screen once a side panel left open over the prompt box — an answer read in the terminal — is closed with Esc;
- * with none open, Esc is not pressed: in the prompt box it would stop Claude's turn.
+ * The screen once a side panel left open over the prompt box — an answer read in the terminal, a side question the page
+ * gave up on — is closed with Esc; with none open, Esc is not pressed: in the prompt box it would stop Claude's turn. A
+ * prompt typed into the panel would be its keys (f forks, x clears its history), not a prompt.
  * @param {import('./claude-screen.js').Terminal} terminal
  * @param {(ms: number) => Promise<void>} wait
  * @returns {Promise<string | undefined>}
  */
-async function withPanelClosed(terminal, wait) {
+export async function withPanelClosed(terminal, wait) {
   const screen = await terminal.read();
   if (screen === undefined || panelOf(screen.split('\n')) === undefined) return screen;
   await terminal.keys('esc');
