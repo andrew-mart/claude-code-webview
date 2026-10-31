@@ -25,7 +25,7 @@ import { createResizer, restoreWidth } from './resizer.js';
  * @typedef {Omit<import('./project-view.js').ProjectSource, 'openFile' | 'iconOf'>} ProjectSource
  * @typedef {ProjectSource & { links: (path: string) => Promise<import('../model/project.js').FileLinks | undefined> }} Project
  *   — a file's project: its folders, its search, a file's links in it
- * @typedef {{ open: (target: FileTarget) => void, showChanges: (source: Omit<import('./changes-view.js').ChangesSource, 'openFile'>) => void, showHistory: (history: ShownList) => void, showProject: (source: ProjectSource) => void, showFolder: (path: string) => void, findName: (intent: 'definition' | 'uses', name: string, path: string) => Promise<void>, close: () => void, isOpen: () => boolean }} FilePanel
+ * @typedef {{ open: (target: FileTarget) => void, showChanges: (source: Omit<import('./changes-view.js').ChangesSource, 'openFile'>) => void, showHistory: (history: ShownList) => void, showNote: (note: ShownList & { name: string }) => void, showNotesHistory: (history: ShownList) => void, showProject: (source: ProjectSource) => void, showFolder: (path: string) => void, findName: (intent: 'definition' | 'uses', name: string, path: string) => Promise<void>, close: () => void, isOpen: () => boolean }} FilePanel
  *   — showChanges: the branch's changes in place of a file, read from the source; showHistory: the conversations of
  *   herdr's tabs (history-view.js); showProject: the project's files;
  *   findName: a name in a file looked for in its project — its one definition opened, or its definitions and uses shown
@@ -413,6 +413,14 @@ export function createFilePanel({ panel, layout, editor, vscode, fileManager, pr
     /** @param {ShownList} history */
     showHistory(history) {
       showListing({ name: 'History', icon: 'history', back: '← History', backTitle: 'Back to the history', beside: false, ...history });
+    },
+    /** @param {ShownList & { name: string }} note — a note opened from its name among the notes (note-panel.js) */
+    showNote(note) {
+      showListing({ icon: 'edit', back: '← Note', backTitle: 'Back to the note', beside: false, ...note });
+    },
+    /** @param {ShownList} history — the changes of the session's notes (notes-history-view.js) */
+    showNotesHistory(history) {
+      showListing({ name: 'Notes history', icon: 'history', back: '← Notes history', backTitle: 'Back to the notes history', beside: false, ...history });
     },
     /** @param {string} path — a folder: its files, as a project of its own */
     showFolder(path) {

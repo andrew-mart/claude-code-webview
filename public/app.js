@@ -34,6 +34,8 @@ import { rewindMessage } from './model/rewind.js';
 import { createOutline } from './view/outline-view.js';
 import { createNotesStore } from './view/notes-store.js';
 import { createNotesView } from './view/notes-view.js';
+import { createNoteDraft, createNotePanel } from './view/note-panel.js';
+import { createNotesHistoryPanel } from './view/notes-history-view.js';
 import { h } from './view/dom.js';
 import { createFilePanel } from './view/file-panel.js';
 import { parseBranchChanges, parseFileDiff } from './model/branch-changes.js';
@@ -682,9 +684,43 @@ function createPage() {
     });
     outline.setBookmarks(bookmarks.list());
     const unsubscribe = bookmarks.onChange(() => outline.setBookmarks(bookmarks.list()));
-    // the notes of the session's project folder, first in the outline
-    const notesView = createNotesView({ add: (text) => notes.add(text), edit: (noteId, text) => notes.edit(noteId, text), remove: (noteId) => notes.remove(noteId) });
-    const notes = createNotesStore(id, (list) => notesView.show(list));
+    // the notes of the session's project folder, first in the outline, each its own way: in full, or set apart — listed
+    // by its name, the name opening it in the side panel, written there from the start; their history there too, any
+    // change undone — the note, or the history, shown kept up with the notes as they change
+    /** @type {readonly import('./model/notes.js').Note[]} */
+    let notesNow = [];
+    /** @type {{ reload: () => Promise<void> } | undefined} */
+    let noteShown;
+    /** A note set apart opened in the side panel. @param {string} noteId */
+    const openNote = (noteId) => {
+      const panel = createNotePanel({ note: () => notesNow.find((one) => one.id === noteId), edit: (shownId, text) => notes.edit(shownId, text), remove: (shownId) => notes.remove(shownId) });
+      noteShown = panel;
+      drawers.close();
+      filePanel.showNote(panel);
+    };
+    const notesView = createNotesView({
+      add: (text) => void notes.add(text, 'inline'),
+      edit: (noteId, text) => notes.edit(noteId, text),
+      remove: (noteId) => notes.remove(noteId),
+      open: openNote,
+      setShown: (noteId, shown) => notes.setShown(noteId, shown),
+      writeApart: () => {
+        noteShown = undefined;
+        drawers.close();
+        filePanel.showNote(createNoteDraft({ keep: (text) => openNote(notes.add(text, 'panel')), leave: () => filePanel.close() }));
+      },
+      showHistory: () => {
+        const history = createNotesHistoryPanel({ steps: () => notes.history(), undo: (step) => notes.undo(step) });
+        noteShown = history;
+        drawers.close();
+        filePanel.showNotesHistory(history);
+      },
+    });
+    const notes = createNotesStore(id, (list) => {
+      notesNow = list;
+      notesView.show(list);
+      void noteShown?.reload();
+    });
     outlineElement.prepend(notesView.element);
     const spy = createScrollSpy(scroller, () => view.promptElements(), outline.setCurrent);
     // While the history loads, finding the prompt on screen would lay out the growing feed on every frame:

@@ -10,11 +10,11 @@ const { createNotesView } = await import('../public/view/notes-view.js');
 /** @typedef {import('../public/model/notes.js').Note} Note */
 
 /** @type {Note} */
-const todo = { id: 'n2', text: '**TODO** check the build\n- the table test', at: '2026-10-27T09:05:00.000Z' };
+const todo = { id: 'n2', text: '**TODO** check the build\n- the table test', at: '2026-10-27T09:05:00.000Z', shown: 'inline' };
 /** @type {Note} */
-const idea = { id: 'n1', text: 'idea: `herdr tab focus`', at: '2026-10-27T09:00:00.000Z' };
+const idea = { id: 'n1', text: 'idea: `herdr tab focus`', at: '2026-10-27T09:00:00.000Z', shown: 'inline' };
 
-/** A notes section in the page, showing todo and idea, whose changes are recorded. */
+/** A notes section in the page, showing todo and idea in full, whose changes — and notes opened — are recorded. */
 function notesShown() {
   /** @type {string[][]} */
   const asked = [];
@@ -22,6 +22,10 @@ function notesShown() {
     add: (text) => void asked.push(['add', text]),
     edit: (id, text) => void asked.push(['edit', id, text]),
     remove: (id) => void asked.push(['remove', id]),
+    open: (id) => void asked.push(['open', id]),
+    setShown: (id, shown) => void asked.push(['shown', id, shown]),
+    writeApart: () => void asked.push(['write apart']),
+    showHistory: () => void asked.push(['history']),
   });
   window.document.body.replaceChildren(view.element);
   view.show([todo, idea]);
@@ -70,6 +74,17 @@ test('notesView_Should_AddNoteWritten_WithCtrlEnter_AndNothingForEmptyBox', () =
   assert.deepEqual(asked, [['add', '## Plan\n1. notes']]);
 });
 
+// Beside "+", one button writes a note set apart from the start — elsewhere, the side panel — and another shows the
+// history of the notes' changes
+test('notesView_Should_OfferNoteSetApartFromStart_AndHistoryOfChanges', () => {
+  const { asked, element } = notesShown();
+
+  element('.notes-add-apart').click();
+  element('.notes-history').click();
+
+  assert.deepEqual(asked, [['write apart'], ['history']]);
+});
+
 // A click on a note edits its markdown in place: a click elsewhere keeps the change, Escape leaves the note as it was;
 // a note left as it was sends nothing
 test('notesView_Should_EditNoteInPlace_KeepingOnBlur_AndLeavingOnEscape', () => {
@@ -110,4 +125,28 @@ test('notesView_Should_KeepTextBeingTyped_When_NotesComeAgain', () => {
   press('Enter', { ctrlKey: true });
 
   assert.deepEqual({ asked, notes: [...view.element.querySelectorAll('.note-text')].length }, { asked: [['edit', 'n2', '**TODO** check the deploy too']], notes: 1 });
+});
+
+// Each note is shown its own way, in the order of the notes: one set apart is listed by its name, a press opening it —
+// the whole of it shown elsewhere; a note in full is set apart by its button, a name brought back inline by its own
+test('notesView_Should_ShowEachNoteItsOwnWay_AndSetItApartOrBackInline', () => {
+  const { view, asked, element } = notesShown();
+  view.show([todo, { ...idea, shown: 'panel' }]);
+
+  const drawn = [...element('.notes-list').children].map((one) => (one.matches('.note') ? `in full: ${one.querySelector('strong')?.textContent}` : `by name: ${one.querySelector('.note-row')?.textContent}`));
+  element('.note-row').click();
+  element('.note-apart').click();
+  element('.note-inline').click();
+
+  assert.deepEqual(
+    { drawn, asked },
+    {
+      drawn: ['in full: TODO', 'by name: idea: herdr tab focus'],
+      asked: [
+        ['open', 'n1'],
+        ['shown', 'n2', 'panel'],
+        ['shown', 'n1', 'inline'],
+      ],
+    },
+  );
 });

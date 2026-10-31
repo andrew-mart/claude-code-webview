@@ -385,6 +385,22 @@ test('filePanel_Should_ShowBranchChanges_And_GoBackToThemFromFileOpenedThere', a
   );
 });
 
+// A note opened from its name among the notes shows in the panel in place of a file, under its name, when it was written
+// under that
+test('filePanel_Should_ShowNoteOpenedFromItsName_UnderItsName', async () => {
+  const { panel, files } = filePanel();
+  const shown = window.document.createElement('div');
+  shown.className = 'note-panel';
+
+  files.showNote({ element: shown, name: 'Plan for the week', reload: async () => undefined, summary: () => 'Written 27 Oct 2026, 09:05' });
+  await new Promise((done) => setTimeout(done, 0));
+
+  assert.deepEqual(
+    { title: [panel.querySelector('.panel-name')?.textContent, panel.querySelector('.panel-path')?.textContent], shown: panel.querySelector('.panel-body > .note-panel') === shown, open: !panel.hidden },
+    { title: ['Plan for the week', 'Written 27 Oct 2026, 09:05'], shown: true, open: true },
+  );
+});
+
 // A text file — code, a document's source, a table — is edited in the panel; a picture, a PDF, a Word document is not
 test('filePanel_Should_OfferEditingOfTextFilesOnly', () => {
   const offered = ['D:/dev/x/src/limits.ts', 'D:/dev/x/README.md', 'D:/dev/x/orders.csv', 'D:/dev/x/docs/mobile.png', 'D:/dev/x/docs/spec.pdf', 'D:/dev/x/docs/spec.docx'].map((path) => {

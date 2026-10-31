@@ -101,8 +101,15 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   device that opens it sees the same ones.
 - **Notes.** First in the outline, notes in markdown on the session's project folder: every session in the folder —
   Claude Code's, whose project stays the folder it started in after a `cd`, and Codex's — shows the same ones, the latest
-  first. **+** writes one, a click on a note edits it in place (Ctrl+Enter or a click elsewhere keeps it, Esc leaves
-  it), × removes it once ✓ confirms. Kept in `~/.claude-code-webview/notes.json`, as the bookmarks are.
+  first. Each note is shown its own way, chosen as it is written: **+** writes one inline, in full in the outline, and
+  the button beside it one set apart — written in the side panel (Ctrl+Enter or ✓ keeps it; a click elsewhere, to
+  fetch what goes in it, does not), then listed by its name, its first line, the name opening it in the side panel to
+  read, edit or remove. A click on a note inline edits it in place (Ctrl+Enter or a click elsewhere keeps it, Esc
+  leaves it), × removes it once ✓ confirms; the button beside × sets it apart, the one at the end of a name brings it
+  back inline. The clock lists the notes' changes, the latest first — added, edited, removed, set apart — each with the
+  text it had before and ↶, which puts the note back as it was: a note removed comes back, an edit is undone. Kept in
+  `~/.claude-code-webview/notes.json`, as the bookmarks are, each note with its way, so every device shows it alike;
+  the last 200 changes of each folder in `notes-history.json` beside it.
 - **Session header.** Under the title, one line of facts: the folder, the branch checked out there now, the model and
   its effort, a ring that fills as the context window does (`412k/1M`; amber past 70%, red past 90%) and the cost.
   A click opens the details: the full path and how much context is used and left. The window comes from the model

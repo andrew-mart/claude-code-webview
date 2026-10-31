@@ -292,6 +292,12 @@ async function handle(deps, request, response) {
         const folder = await notesFolder(deps, id);
         return sendJson(response, folder === undefined ? [] : await deps.notes.list(folder));
       });
+    // the changes of the folder's notes, the latest first
+    case '/api/notes/history':
+      return withSession(url, response, async (id) => {
+        const folder = await notesFolder(deps, id);
+        return sendJson(response, folder === undefined ? [] : await deps.notes.history(folder));
+      });
     case '/api/stream':
       return withSession(url, response, async (id) => stream(deps, url, id, request, response));
     case '/api/feeds':

@@ -4311,6 +4311,162 @@ table.diff tr.gap td {
   outline: none;
 }
 
+/* a note set apart, listed by its name: one line, cut short; a press opens it in the side panel, the button at its end —
+   on hover, always there on a touch screen — shows it in full again; names one after another sit close together */
+.note-line {
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+}
+
+.note-line + .note-line {
+  margin-top: -5px;
+}
+
+.note-line:hover {
+  background: var(--bg-hover);
+}
+
+.note-inline {
+  flex: none;
+  margin-right: 3px;
+  opacity: 0;
+}
+
+.note-line:hover .note-inline,
+.note-inline:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .note-inline {
+    opacity: 1;
+  }
+}
+
+.note-row {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.note-row:hover,
+.note-row:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+
+.note-row:focus-visible {
+  background: var(--bg-hover);
+}
+
+/* a note open in the side panel, the whole of it */
+.note-panel {
+  padding: 10px 18px 24px;
+}
+
+.note-panel-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.note-panel-text {
+  font-size: 15px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.note-panel-editor {
+  min-height: 50vh;
+  font-size: 13px;
+}
+
+.note-panel-gone {
+  color: var(--text-3);
+}
+
+/* the history of the notes' changes in the side panel: a row a change — what, which note, when, ↶ — the text before
+   folded under it */
+.notes-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px 24px;
+}
+
+.notes-step {
+  padding: 4px 6px;
+  border-radius: 8px;
+}
+
+.notes-step:hover {
+  background: var(--bg-hover);
+}
+
+.notes-step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.notes-step-what {
+  flex: none;
+  min-width: 5.5em;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.notes-step-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notes-step-when {
+  flex: none;
+  color: var(--text-4);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.notes-step-undo {
+  flex: none;
+  width: 26px;
+  height: 26px;
+}
+
+.notes-step-text > summary {
+  width: fit-content;
+  color: var(--text-3);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.notes-step-text > .md {
+  margin: 4px 0 6px;
+  padding: 6px 10px;
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-2);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
 /* Message bookmark flag: visible on hover, and always on a bookmarked message. */
 .anchor {
   scroll-margin-top: 16px;
