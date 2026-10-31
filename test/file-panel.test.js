@@ -27,14 +27,16 @@ const noTransfer = { address: () => '', upload: async () => ({ ok: false, error:
  * @param {Promise<import('../public/view/file-panel.js').OpenInVsCode | undefined>} [vscode] - none: the viewer runs no
  *   VS Code
  * @param {import('../public/view/file-panel.js').FileManager} [fileManager] - the browser elsewhere by default
+ * @param {() => void} [onDocs] - its documents changed, or it was opened or put away
  */
-function filePanel(editor = noEditor, lines = [], vscode = Promise.resolve(undefined), fileManager = { places: { known: async () => 'none', find: async () => 'none' }, show: () => undefined }) {
+function filePanel(editor = noEditor, lines = [], vscode = Promise.resolve(undefined), fileManager = { places: { known: async () => 'none', find: async () => 'none' }, show: () => undefined }, onDocs = () => undefined) {
   const layout = window.document.createElement('main');
   const panel = window.document.createElement('aside');
   panel.hidden = true;
   layout.append(panel);
   window.document.body.append(layout);
   const files = createFilePanel({
+    onDocs,
     // no markdown file is edited in these
     markdownEditor: async () => {
       throw new Error('no markdown file is edited in these tests');
@@ -400,7 +402,7 @@ test('filePanel_Should_ShowNoteOpenedFromItsName_UnderItsNameAsItIsNow', async (
   const shown = window.document.createElement('div');
   shown.className = 'note-panel';
   const named = { now: 'Plan for the week' };
-  const note = { element: shown, actions: window.document.createElement('span'), name: () => named.now, reload: async () => undefined, summary: () => 'Written 27 Oct 2026, 09:05' };
+  const note = { id: 'n2', element: shown, actions: window.document.createElement('span'), name: () => named.now, reload: async () => undefined, summary: () => 'Written 27 Oct 2026, 09:05' };
   const title = () => [panel.querySelector('.panel-name')?.textContent, panel.querySelector('.panel-path')?.textContent];
 
   files.showNote(note);
@@ -432,7 +434,7 @@ test('filePanel_Should_ShowNotesButtonsInItsHeadBeforeReload_AndNoneForAFile', a
   /** The head's buttons shown, of the note's ✎ and ↻, in their order. */
   const shown = () => [...(head?.querySelectorAll('.note-panel-edit, .panel-reload') ?? [])].filter((one) => one.closest('[hidden]') === null).map((one) => (one.classList.contains('panel-reload') ? '↻' : '✎'));
 
-  files.showNote({ element: window.document.createElement('div'), actions, name: () => 'Plan', reload: async () => undefined, summary: () => undefined });
+  files.showNote({ id: 'n1', element: window.document.createElement('div'), actions, name: () => 'Plan', reload: async () => undefined, summary: () => undefined });
   await new Promise((done) => setTimeout(done, 0));
   const note = shown();
   files.open({ path: 'D:/dev/shop/src/limits.ts', line: undefined, endLine: undefined });
@@ -622,4 +624,59 @@ test('filePanel_Should_ShowFolderLinkedAsItsFiles', async () => {
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+// The panel closed keeps what it showed last: reopened — a phone's second swipe from the right edge — it shows it again,
+// a file or a note; with nothing shown yet, nothing reopens
+// What the side panel shows — a file, a note — stays among its documents once the panel is put away, the latest first,
+// each once: on a phone they wait docked under the feed, to be opened again as they were. × closes the one shown for
+// good; one closed from the dock goes too; one opened again comes first
+test('filePanel_Should_KeepDocumentsShown_LatestFirst_UntilClosedForGood', async () => {
+  /** @type {string[]} */
+  const told = [];
+  const { panel, files } = filePanel(undefined, [], undefined, undefined, () => void told.push('docs'));
+  const shown = window.document.createElement('div');
+  const note = { id: 'n3', element: shown, actions: window.document.createElement('span'), name: () => 'Plan for the week', reload: async () => undefined, summary: () => 'Written 27 Oct 2026, 09:05' };
+  const docs = () => files.docs().map((doc) => `${doc.kind} ${doc.name}`);
+
+  files.open({ path: 'D:/dev/shop/src/limits.ts', line: 42, endLine: undefined });
+  files.showNote(note);
+  files.open({ path: 'D:/dev/shop/README.md', line: undefined, endLine: undefined });
+  files.open({ path: 'D:/dev/shop/src/limits.ts', line: 7, endLine: undefined });
+  const opened = docs();
+  panel.querySelector('button[title="Close (Esc)"]')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const closed = { docs: docs(), hidden: panel.hidden };
+  files.forgetDoc(files.docs()[0]?.key ?? '');
+  const forgotten = docs();
+  files.showDoc(files.docs()[0]?.key ?? '');
+  const again = { hidden: panel.hidden, note: panel.querySelector('.panel-body > div') === shown, docs: docs() };
+
+  assert.deepEqual(
+    { opened, closed, forgotten, again, told: told.length > 0 },
+    {
+      opened: ['file limits.ts', 'file README.md', 'note Plan for the week'],
+      closed: { docs: ['file README.md', 'note Plan for the week'], hidden: true },
+      forgotten: ['note Plan for the week'],
+      again: { hidden: false, note: true, docs: ['note Plan for the week'] },
+      told: true,
+    },
+  );
+});
+
+test('filePanel_Should_ReopenWhatItShowedLast', async () => {
+  const fresh = filePanel();
+  const nothing = fresh.files.reopen();
+  const { panel, files } = filePanel();
+  const shown = window.document.createElement('div');
+  shown.className = 'note-panel';
+  const note = { id: 'n3', element: shown, actions: window.document.createElement('span'), name: () => 'Plan for the week', reload: async () => undefined, summary: () => 'Written 27 Oct 2026, 09:05' };
+
+  files.open({ path: 'D:/dev/shop/src/limits.ts', line: 42, endLine: undefined });
+  files.close();
+  const file = [files.reopen(), panel.hidden, panel.querySelector('.panel-path')?.textContent];
+  files.showNote(note);
+  files.close();
+  const reopenedNote = [files.reopen(), panel.hidden, panel.querySelector('.panel-body > .note-panel') === shown];
+
+  assert.deepEqual({ nothing, file, reopenedNote }, { nothing: false, file: [true, false, 'D:/dev/shop/src/limits.ts'], reopenedNote: [true, false, true] });
 });

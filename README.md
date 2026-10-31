@@ -261,10 +261,12 @@ agent changes state — it starts working, say — on every device (`~/.claude-c
 head tells how many are hidden, and a press on that brings them all back.
 
 A terminal mirrors the one in herdr, at its size: the keys you type go to it as they are — Enter, arrows, Ctrl+C — and
-what herdr shows comes back within a few hundredths of a second (the viewer talks to herdr through its socket; where
-the socket is not known, through the herdr program, a fifth of a second). herdr does not tell where the cursor is, so no
+what herdr shows comes back within a few hundredths of a second (the viewer talks to herdr through its socket; where the
+socket is not known, through the herdr program, a fifth of a second). herdr does not tell where the cursor is, so no
 cursor is drawn. On a phone the terminal's font shrinks to fit the width, down to a readable size, and it scrolls
-sideways past that. A tab split into several panes shows the one running Claude Code, or else its first pane.
+sideways past that. Under it a phone has the keys its keyboard lacks — Esc, Tab, the arrows, Enter, Ctrl+C — and one
+that pastes what the clipboard holds; a long press on the terminal brings up the phone's own menu, with Paste. A tab
+split into several panes shows the one running Claude Code, or else its first pane.
 
 ![A herdr tab's terminal next to the herdr sidebar](docs/terminal.png)
 
@@ -435,8 +437,17 @@ Home Screen). It gets an icon in the viewer's palette, and Safari keeps its save
 page still opens and shows what it saved, and catches up once the computer is back (see **Offline** above).
 
 On a phone the session list and the outline slide in from the sides, and the swipe from the left edge — the browser's
-Back — brings back the list the session was chosen in. On the touch keyboard Enter starts a new line and ↑ sends; the
-paperclip takes photos from the gallery or the camera.
+Back — brings back the list the session was chosen in; the swipe from the right edge, to the left, slides in the outline
+— the notes, the files pinned, the bookmarks, the prompts — and the same swipe again opens the document the side panel
+showed last, a file or a note. A swipe back toward its side closes either — not one begun on a table or a code block
+that scrolls sideways. On the touch keyboard Enter starts a new line and ↑ sends; the paperclip takes photos from the
+gallery or the camera.
+
+A file or a note opens on a phone in a sheet from the bottom, the session's head in sight above it, its own head in two
+rows — the name and ×, its buttons in a row under it scrolling sideways. Pulled down by its top, the sheet is put away
+and its document waits as a card under the feed, over the box, so the session can go on; the documents put away — files
+and notes — line up there as cards to leaf through sideways, the latest first. A card opens its document again; its ×,
+or × on the sheet, closes it for good.
 
 ![On a phone: a session with its herdr tabs, the herdr sidebar, a terminal](docs/mobile.png)
 

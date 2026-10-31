@@ -1,6 +1,7 @@
 // @ts-check
 // On a narrow screen the session list and the outline do not fit beside the feed: they slide over it as drawers,
-// one at a time, and close on a tap outside, Esc, or once something in them is chosen.
+// one at a time, and close on a tap outside, Esc, a swipe toward the side they came from (edge-swipe.js), or once
+// something in them is chosen.
 // The open drawer is kept in the browser's history entry (the only thing the page keeps there): going back to a page
 // shows it as it was left. On a phone the swipe from the left edge is the browser's Back, and it slides in a picture of
 // that page — usually with the session list open, since the session was chosen in it. Not in the iPhone's home-screen
@@ -25,6 +26,8 @@ export function createDrawers({ root, backdrop, history }) {
   return {
     close,
     isOpen: () => root.dataset.drawer !== undefined,
+    /** @returns {Drawer | undefined} — the drawer open, none while none is */
+    shown: () => drawerNamed(root.dataset.drawer),
     /** @param {Drawer} name */
     toggle(name) {
       show(root.dataset.drawer === name ? undefined : name);
@@ -41,6 +44,13 @@ export function createDrawers({ root, backdrop, history }) {
  * @returns {Drawer | undefined}
  */
 function drawerIn(state) {
-  if (!isRecord(state)) return undefined;
-  return state.drawer === 'sessions' || state.drawer === 'outline' ? state.drawer : undefined;
+  return isRecord(state) && typeof state.drawer === 'string' ? drawerNamed(state.drawer) : undefined;
+}
+
+/**
+ * @param {string | undefined} name — the page's data-drawer
+ * @returns {Drawer | undefined}
+ */
+function drawerNamed(name) {
+  return name === 'sessions' || name === 'outline' ? name : undefined;
 }

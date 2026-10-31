@@ -26,12 +26,17 @@ import { createPinButton } from './pin-button.js';
  * @typedef {Omit<import('./project-view.js').ProjectSource, 'openFile' | 'iconOf'>} ProjectSource
  * @typedef {ProjectSource & { links: (path: string) => Promise<import('../model/project.js').FileLinks | undefined> }} Project
  *   — a file's project: its folders, its search, a file's links in it
- * @typedef {{ open: (target: FileTarget) => void, showChanges: (source: Omit<import('./changes-view.js').ChangesSource, 'openFile'>) => void, showHistory: (history: ShownList) => void, showNote: (note: ShownList & { name: () => string, actions: HTMLElement }) => void, listChanged: (list: ShownList) => Promise<void>, showNotesHistory: (history: ShownList) => void, showProject: (source: ProjectSource) => void, showFolder: (path: string) => void, pinsChanged: () => void, findName: (intent: 'definition' | 'uses', name: string, path: string) => Promise<void>, close: () => void, isOpen: () => boolean }} FilePanel
+ * @typedef {{ open: (target: FileTarget) => void, showChanges: (source: Omit<import('./changes-view.js').ChangesSource, 'openFile'>) => void, showHistory: (history: ShownList) => void, showNote: (note: ShownList & { id: string, name: () => string, actions: HTMLElement }) => void, listChanged: (list: ShownList) => Promise<void>, showNotesHistory: (history: ShownList) => void, showProject: (source: ProjectSource) => void, showFolder: (path: string) => void, pinsChanged: () => void, findName: (intent: 'definition' | 'uses', name: string, path: string) => Promise<void>, close: () => void, isOpen: () => boolean, reopen: () => boolean, docs: () => readonly DocShown[], showDoc: (key: string) => void, forgetDoc: (key: string) => void, top: HTMLElement }} FilePanel
  *   — showChanges: the branch's changes in place of a file, read from the source; showHistory: the conversations of
  *   herdr's tabs (history-view.js); showProject: the project's files; pinsChanged: the pin over a file drawn again for
  *   the files pinned now; listChanged: a list drawn again, changed elsewhere — the panel's title too, if it is the one
  *   shown;
- *   findName: a name in a file looked for in its project — its one definition opened, or its definitions and uses shown
+ *   findName: a name in a file looked for in its project — its one definition opened, or its definitions and uses shown;
+ *   docs: the documents shown — files, notes — the latest first, kept once the panel is put away until closed for good
+ *   by ×, docked under the feed on a phone; showDoc: one of them shown again; forgetDoc: one closed for good; top: its
+ *   grip and head — on a phone, what the sheet is pulled down by
+ * @typedef {{ key: string, kind: 'file' | 'note', name: string }} DocShown — a document the panel holds: a file, by its
+ *   path; a note, by its id
  * @typedef {{ places: import('./editor-opener.js').PlaceFinder, show: (path: string) => void }} FileManager — where the
  *   browser is; show: a file shown in its folder in the computer's file manager
  * @typedef {(path: string, line: number | undefined) => void} OpenInVsCode — a file opened in VS Code in the browser at
@@ -44,6 +49,17 @@ import { createPinButton } from './pin-button.js';
  *   — beside: a file opened from the list shows beside it, the list staying on the left — the project's files
  *   — a list in place of a file; name: the panel's title over it; back: the button's word for the way back to it
  */
+
+/** The documents kept once shown, at most: the earliest go past them. */
+const keptDocs = 8;
+
+/**
+ * @param {string} path
+ * @returns {string} — its last part
+ */
+function fileNameOf(path) {
+  return path.split(/[\\/]/).filter((part) => part !== '').at(-1) ?? path;
+}
 
 /** @type {Readonly<Record<string, string>>} */
 const refusals = {
@@ -92,15 +108,16 @@ function remember(key, value) {
 }
 
 /**
- * @param {{ markdownEditor: import('./file-editor.js').MakeEditor, panel: HTMLElement, layout: HTMLElement, editor: import('./editor-opener.js').EditorOpener, vscode: Promise<OpenInVsCode | undefined>, fileManager: FileManager, project: (path: string) => Project, folder: (root: string) => Project, iconOf: import('./file-icons.js').IconOf, pins: import('./pin-button.js').PinFiles }} parts —
+ * @param {{ onDocs: () => void, markdownEditor: import('./file-editor.js').MakeEditor, panel: HTMLElement, layout: HTMLElement, editor: import('./editor-opener.js').EditorOpener, vscode: Promise<OpenInVsCode | undefined>, fileManager: FileManager, project: (path: string) => Project, folder: (root: string) => Project, iconOf: import('./file-icons.js').IconOf, pins: import('./pin-button.js').PinFiles }} parts —
  *   folder: a folder linked, as a project of its own; vscode: none when the viewer runs no VS Code; fileManager: the
  *   file shown in its folder, from a browser on the viewer's computer;
  *   editor: opens the file at its line in the editor of the viewer's computer, from a browser there; project: the
  *   project a file is in, its folders and its search; pins: the files pinned beside the open session (pin-button.js);
- *   markdownEditor: a markdown file edited as a note is, in the notes' editor (markdown-file-editor.js)
+ *   markdownEditor: a markdown file edited as a note is, in the notes' editor (markdown-file-editor.js); onDocs: its
+ *   documents changed, or it was opened or put away — the dock under the feed drawn anew
  * @returns {FilePanel}
  */
-export function createFilePanel({ markdownEditor, panel, layout, editor, vscode, fileManager, project, folder, iconOf, pins }) {
+export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor, vscode, fileManager, project, folder, iconOf, pins }) {
   const name = h('div', { className: 'panel-name' });
   /** What the panel shows, at the head of its title: the file's icon, or the list's */
   const headIcon = h('span', { className: 'panel-icon' }, [icon('read')]);
@@ -174,11 +191,18 @@ export function createFilePanel({ markdownEditor, panel, layout, editor, vscode,
     label: 'File panel width',
     className: 'panel-resizer',
   });
+  close.classList.add('panel-close');
+  // the panel's top: a grip — on a phone, where the panel is a sheet to pull down — and the head, its buttons in a row of
+  // their own there, under the file's name
+  const top = h('div', { className: 'panel-top' }, [
+    h('div', { className: 'panel-grip', attrs: { 'aria-hidden': 'true' } }),
+    h('header', { className: 'panel-head' }, [back, treeToggle, h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [headIcon, name, where]), path]), h('div', { className: 'panel-tools' }, [scripts, view, editHere, linksButton, inEditor, inVsCode, inFolderSlot, listActions, reload, pin.element, copy]), close]),
+  ]);
   panel.replaceChildren(
     resizer,
     side,
     h('div', { className: 'panel-main' }, [
-      h('header', { className: 'panel-head' }, [back, treeToggle, h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [headIcon, name, where]), path]), scripts, view, editHere, linksButton, inEditor, inVsCode, inFolderSlot, listActions, reload, pin.element, copy, close]),
+      top,
       note,
       body,
     ]),
@@ -198,6 +222,19 @@ export function createFilePanel({ markdownEditor, panel, layout, editor, vscode,
   /** @type {Listing | undefined} */
   let listing;
   let showingList = false;
+  /**
+   * The documents the panel showed — files, notes — the latest first, kept once it is put away, until closed for good;
+   * the one shown now, if it is one of them.
+   */
+  /** @type {({ key: string, kind: 'file', target: FileTarget } | { key: string, kind: 'note', listing: Listing })[]} */
+  let docs = [];
+  /** @type {string | undefined} */
+  let docShown;
+  /** @param {(typeof docs)[number]} doc */
+  const keepDoc = (doc) => {
+    docs = [doc, ...docs.filter((one) => one.key !== doc.key)].slice(0, keptDocs);
+    docShown = doc.key;
+  };
   /** The file drawn: let go of before the panel shows something else. */
   /** @type {import('file-views').FileView | undefined} */
   let shown;
@@ -371,10 +408,12 @@ export function createFilePanel({ markdownEditor, panel, layout, editor, vscode,
   /** @param {Listing} shownList */
   const showListing = (shownList) => {
     listing = shownList;
+    docShown = undefined;
     back.textContent = shownList.back;
     back.title = shownList.backTitle;
     showList();
     void readList();
+    onDocs();
   };
   /** @param {ProjectSource} source */
   const projectViewOf = (source) => {
@@ -405,6 +444,8 @@ export function createFilePanel({ markdownEditor, panel, layout, editor, vscode,
         return;
       }
       current = target;
+      keepDoc({ key: `file:${target.path}`, kind: 'file', target });
+      onDocs();
       showingList = false;
       dropListActions();
       note.hidden = true;
@@ -444,9 +485,12 @@ export function createFilePanel({ markdownEditor, panel, layout, editor, vscode,
     showHistory(history) {
       showListing({ ...history, name: () => 'History', icon: 'history', back: '← History', backTitle: 'Back to the history', beside: false, actions: undefined });
     },
-    /** @param {ShownList & { name: () => string, actions: HTMLElement }} note — a note opened from its name among the notes (note-panel.js) */
+    /** @param {ShownList & { id: string, name: () => string, actions: HTMLElement }} note — a note opened from its name among the notes (note-panel.js), by its id */
     showNote(note) {
-      showListing({ ...note, icon: 'note', back: '← Note', backTitle: 'Back to the note', beside: false });
+      const noteListing = { ...note, icon: 'note', back: '← Note', backTitle: 'Back to the note', beside: false };
+      showListing(noteListing);
+      keepDoc({ key: `note:${note.id}`, kind: 'note', listing: noteListing });
+      onDocs();
     },
     /** @param {ShownList} history — the changes of the session's notes (notes-history-view.js) */
     showNotesHistory(history) {
@@ -506,8 +550,40 @@ export function createFilePanel({ markdownEditor, panel, layout, editor, vscode,
       stopEditing();
       panel.hidden = true;
       layout.classList.remove('with-panel');
+      docShown = undefined;
+      onDocs();
     },
     isOpen: () => current !== undefined || showingList,
+    /**
+     * What the panel showed last shown again — a file, a note — after it was closed: a phone's second swipe from the
+     * right edge.
+     * @returns {boolean} — whether there was something to show
+     */
+    reopen() {
+      const [latest] = docs;
+      if (latest === undefined) return false;
+      api.showDoc(latest.key);
+      return true;
+    },
+    docs: () => docs.map((doc) => ({ key: doc.key, kind: doc.kind, name: doc.kind === 'file' ? fileNameOf(doc.target.path) : doc.listing.name() })),
+    /** @param {string} key */
+    showDoc(key) {
+      const doc = docs.find((one) => one.key === key);
+      if (doc === undefined) return;
+      if (doc.kind === 'file') {
+        api.open(doc.target);
+        return;
+      }
+      showListing(doc.listing);
+      keepDoc(doc);
+      onDocs();
+    },
+    top,
+    /** @param {string} key */
+    forgetDoc(key) {
+      docs = docs.filter((one) => one.key !== key);
+      onDocs();
+    },
   };
 
   /** @param {'document' | 'source'} next */
@@ -543,7 +619,12 @@ export function createFilePanel({ markdownEditor, panel, layout, editor, vscode,
   copy.addEventListener('click', () => {
     if (current !== undefined) void navigator.clipboard.writeText(current.path);
   });
-  close.addEventListener('click', () => api.close());
+  // × closes the document shown for good: put away otherwise — Esc, a swipe down on a phone — it stays among the docs
+  close.addEventListener('click', () => {
+    const closing = docShown;
+    api.close();
+    if (closing !== undefined) api.forgetDoc(closing);
+  });
   return api;
 }
 

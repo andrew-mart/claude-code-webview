@@ -62,3 +62,19 @@ test('drawers_Should_KeepPageClosed_When_GoingBackToPageLeftAfterClosingDrawer',
 
   assert.equal(root.dataset.drawer, undefined);
 });
+
+// The drawer open is told by its name — the session list, the outline — and none once it is closed: a swipe closes it
+// toward the side it came from
+test('drawers_Should_TellDrawerOpen', (t) => {
+  const { drawers } = pageAtSession(t);
+
+  const told = [drawers.shown()];
+  drawers.toggle('outline');
+  told.push(drawers.shown());
+  drawers.toggle('sessions');
+  told.push(drawers.shown());
+  drawers.close();
+  told.push(drawers.shown());
+
+  assert.deepEqual(told, [undefined, 'outline', 'sessions', undefined]);
+});

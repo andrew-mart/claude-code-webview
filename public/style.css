@@ -1709,6 +1709,39 @@ input.herdr-row-name.failed {
   .terminal-key:active {
     background: #3a3936;
   }
+
+  .terminal-paste {
+    display: grid;
+    place-items: center;
+  }
+
+  .terminal-paste .icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* The box xterm types through — off the screen, as xterm puts it — over the whole terminal, seen through: a long
+     press lands in it, and the phone brings up its own menu with Paste, which xterm takes as a paste. A box not seen
+     at all would get no menu. */
+  .terminal-view .xterm .xterm-helpers {
+    inset: 0;
+  }
+
+  .terminal-view .xterm .xterm-helper-textarea {
+    left: 0 !important;
+    top: 0 !important;
+    z-index: 1;
+    width: 100% !important;
+    height: 100% !important;
+    border: 0;
+    background: transparent;
+    color: transparent;
+    caret-color: transparent;
+    opacity: 1;
+    resize: none;
+    -webkit-user-select: text;
+    user-select: text;
+  }
 }
 
 .main {
@@ -5630,6 +5663,18 @@ a.file-link:hover {
   background: var(--bg-elev);
   /* beside the project's files only when there is room for both */
   container-type: inline-size;
+}
+
+/* The panel's top — a grip and the head, its buttons among them — laid out as their own only on a phone, where the panel
+   is a sheet; here they are the head's, as they stand */
+.panel-top,
+.panel-tools {
+  display: contents;
+}
+
+.panel-grip,
+.doc-dock {
+  display: none;
 }
 
 /* the file — its head, its body */
@@ -12215,12 +12260,138 @@ a.file-link:hover {
     white-space: nowrap;
   }
 
+  /* The side panel a sheet from the bottom over the session, the session's head in sight above it: pulled down by its
+     top — the grip, the head — it is put away, its document docked under the feed (app.js, doc-dock.js) */
   .file-panel {
     position: fixed;
-    inset: 0;
+    inset: calc(env(safe-area-inset-top) + 28px) 0 0;
     z-index: 40;
-    padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
+    border-left: 0;
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.35);
+  }
+
+  .file-panel .panel-top {
+    display: block;
+    flex: none;
+    border-bottom: 1px solid var(--border);
+    touch-action: pan-x;
+  }
+
+  .file-panel .panel-grip {
+    display: block;
+    width: 36px;
+    height: 4px;
+    margin: 8px auto 2px;
+    border-radius: 2px;
+    background: var(--border-strong);
+  }
+
+  /* the head in two rows: the name, and × at its end; the buttons under it in one row scrolling sideways — no path */
+  .file-panel .panel-head {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    row-gap: 2px;
+    padding: 2px 6px 6px 12px;
+    border-bottom: 0;
+  }
+
+  .file-panel .panel-head > .panel-back {
+    grid-row: 1;
+    grid-column: 1;
+  }
+
+  .file-panel .panel-head > .panel-title {
+    grid-row: 1;
+    grid-column: 2;
+    flex-basis: auto;
+    order: 0;
+  }
+
+  .file-panel .panel-head > .panel-close {
+    grid-row: 1;
+    grid-column: 3;
+  }
+
+  .file-panel .panel-tools {
+    display: flex;
+    grid-row: 2;
+    grid-column: 1 / -1;
+    align-items: center;
+    gap: 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .file-panel .panel-tools::-webkit-scrollbar {
+    display: none;
+  }
+
+  .file-panel .panel-path {
+    display: none;
+  }
+
+  /* The documents put away, under the feed over the box: cards in a row to leaf through sideways, the latest first. */
+  .doc-dock:not([hidden]) {
+    display: flex;
+    flex: none;
+    gap: 8px;
+    padding: 6px 12px 2px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scroll-padding: 0 12px;
+    scrollbar-width: none;
+  }
+
+  .doc-dock::-webkit-scrollbar {
+    display: none;
+  }
+
+  .doc-card {
+    display: flex;
+    flex: none;
+    align-items: center;
+    max-width: 78%;
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    background: var(--bg-elev);
+    box-shadow: var(--shadow);
+    scroll-snap-align: start;
+  }
+
+  .doc-card-open {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 8px 2px 8px 12px;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .doc-card-open .icon,
+  .doc-card-open .file-icon {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+  }
+
+  .doc-card-open span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .doc-card-close {
+    flex: none;
   }
 
   .resizer {

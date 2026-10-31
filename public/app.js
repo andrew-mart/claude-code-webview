@@ -13,7 +13,7 @@ import { createAsideStore } from './view/aside-store.js';
 import { listenForCopies } from './view/markdown-copy.js';
 import { revalidatedPolls } from './view/revalidated-polls.js';
 import { createDrawers } from './view/drawers.js';
-import { watchEdgeSwipe } from './view/edge-swipe.js';
+import { watchCloseSwipe, watchEdgeSwipe, watchPullDown } from './view/edge-swipe.js';
 import { createPageAddress } from './view/page-address.js';
 import { agentOfSession, openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf, successorIn } from './model/herdr.js';
 import { folderChoices, folderSearch, foundFolders, rememberFolder, systemFolder } from './model/folders.js';
@@ -31,6 +31,7 @@ import { openOfflineStore } from './view/offline-store.js';
 import { createRewindDialog } from './view/rewind-dialog.js';
 import { createSessionHeader } from './view/session-header.js';
 import { createTextSizeControl } from './view/text-size.js';
+import { createDocDock } from './view/doc-dock.js';
 import { rewindMessage } from './model/rewind.js';
 import { createOutline } from './view/outline-view.js';
 import { createNotesStore } from './view/notes-store.js';
@@ -149,8 +150,27 @@ const drawers = createDrawers({ root: document.documentElement, backdrop: byId('
 // the page's own, and opens the session list.
 const address = createPageAddress({ location, history: 'standalone' in navigator && navigator.standalone === true ? 'replaced' : 'kept' });
 address.followLinksIn(document);
-watchEdgeSwipe(document, () => {
-  if (matchMedia('(max-width: 820px)').matches && document.documentElement.dataset.view === 'session' && !drawers.isOpen()) drawers.toggle('sessions');
+/** Whether a phone shows a session, nothing slid in over it: a swipe from an edge slides in what is there. */
+const swipeOpens = () => matchMedia('(max-width: 820px)').matches && document.documentElement.dataset.view === 'session' && !drawers.isOpen();
+watchEdgeSwipe(window, {
+  fromLeft: () => {
+    if (swipeOpens()) drawers.toggle('sessions');
+  },
+  // the outline: the notes, the files pinned, the bookmarks, the prompts — and again, the outline open, the document the
+  // side panel showed last, a file or a note
+  fromRight: () => {
+    if (swipeOpens()) drawers.toggle('outline');
+    else if (drawers.shown() === 'outline' && filePanel.reopen()) drawers.close();
+  },
+});
+// a drawer slid in closes by a swipe back toward its side: the session list to the left, the outline to the right
+watchCloseSwipe(window, {
+  side: () => {
+    if (!matchMedia('(max-width: 820px)').matches) return undefined;
+    const shown = drawers.shown();
+    return shown === 'sessions' ? 'left' : shown === 'outline' ? 'right' : undefined;
+  },
+  close: () => drawers.close(),
 });
 /** The editor of the notes chosen anew in the view settings: the notes open are made anew with it. */
 const notesEditorEvent = 'viewer:notes-editor';
@@ -188,7 +208,21 @@ const mountNotesEditor = async (host, options) =>
   options.shown === 'preview' && settings.get('notes') === 'blocks'
     ? (await import('./view/note-editor-blocks.js')).mountBlocksEditor(host, options)
     : (await import('./view/note-editor-cm.js')).mountNoteEditor(host, options);
-const filePanel = createFilePanel({ markdownEditor: async (host, options) => (await import('./view/markdown-file-editor.js')).mountMarkdownFileEditor(host, options, { mount: mountNotesEditor, onOpen: openFromNote }), panel: byId('file-panel', HTMLElement), layout, editor: createEditorOpener(machine, places), fileManager: { places, show: (path) => void openFileManager({ path }) }, vscode: machine.then((known) => (known?.vscode === true ? (path, line) => vscodeOpener.open({ path, line }) : undefined)), project: (path) => projectSource(projectOfFile(path, page.folder())), folder: projectSource, iconOf, pins: { scopesOf: (path) => { const pins = page.pins(); return pins === undefined ? undefined : scopesOf(pins.now(), path); }, pin: async (path, scope) => { const pins = page.pins(); return pins === undefined ? 'failed' : pins.pin(scope, path); }, unpin: (path) => page.pins()?.unpin(path) } });
+/** On a phone, the documents the side panel showed, put away under the feed as cards to leaf through (doc-dock.js). */
+const dock = createDocDock({ docs: () => filePanel.docs(), open: (key) => filePanel.showDoc(key), close: (key) => filePanel.forgetDoc(key), iconOf: (name) => iconOf(name, 'file', false) });
+const filePanel = createFilePanel({ onDocs: () => dock.show(filePanel.isOpen()), markdownEditor: async (host, options) => (await import('./view/markdown-file-editor.js')).mountMarkdownFileEditor(host, options, { mount: mountNotesEditor, onOpen: openFromNote }), panel: byId('file-panel', HTMLElement), layout, editor: createEditorOpener(machine, places), fileManager: { places, show: (path) => void openFileManager({ path }) }, vscode: machine.then((known) => (known?.vscode === true ? (path, line) => vscodeOpener.open({ path, line }) : undefined)), project: (path) => projectSource(projectOfFile(path, page.folder())), folder: projectSource, iconOf, pins: { scopesOf: (path) => { const pins = page.pins(); return pins === undefined ? undefined : scopesOf(pins.now(), path); }, pin: async (path, scope) => { const pins = page.pins(); return pins === undefined ? 'failed' : pins.pin(scope, path); }, unpin: (path) => page.pins()?.unpin(path) } });
+// On a phone the side panel is a sheet over the session: pulled down by its top it follows the finger, and drawn far
+// enough it is put away — its document docked under the feed, to come back from there
+const sidePanel = byId('file-panel', HTMLElement);
+const panelIsSheet = () => matchMedia('(max-width: 820px)').matches;
+watchPullDown(filePanel.top, {
+  follow: (down) => {
+    sidePanel.style.transform = down > 0 && panelIsSheet() ? `translateY(${down}px)` : '';
+  },
+  pulled: () => {
+    if (panelIsSheet()) filePanel.close();
+  },
+});
 /** @type {import('./view/resizer.js').PanelWidth} */
 const outlineWidth = { property: '--outline-width', storageKey: 'viewer.outlineWidth' };
 restoreWidth(layout, outlineWidth);
@@ -806,7 +840,7 @@ function createPage() {
       });
       noteShown = panel;
       drawers.close();
-      filePanel.showNote(panel);
+      filePanel.showNote({ ...panel, id: noteId });
       return panel;
     };
     const notesView = createNotesView({
@@ -890,7 +924,7 @@ function createPage() {
       className: 'outline-resizer',
     });
     part.queue.send = () => composer.sendQueue();
-    showSessionParts(header.element, scroller, [tasks.element, composer.element], [outlineResizer, outlineElement]);
+    showSessionParts(header.element, scroller, [tasks.element, dock.element, composer.element], [outlineResizer, outlineElement]);
     // shown at once as it was, the reader where they were
     if (part === kept) view.restore(places.get(id) ?? { kind: 'bottom' });
     // what the feed told while out of sight — or before — told to the header and outline first, then what comes

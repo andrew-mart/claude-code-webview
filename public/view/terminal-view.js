@@ -57,7 +57,7 @@ export function mountTerminal({ pane, size }) {
   const keys = createKeySender(pane);
   const typing = terminal.onData(keys.send);
   // the terminal, scrolling as it needs, over the keys a phone's keyboard lacks — style.css shows them to a finger only
-  const element = h('div', { className: 'terminal-pane' }, [view, createKeyBar(keys.send)]);
+  const element = h('div', { className: 'terminal-pane' }, [view, createKeyBar({ send: keys.send, paste: (text) => terminal.paste(text), readClipboard: () => navigator.clipboard.readText() })]);
   return {
     element,
     resize(next) {
