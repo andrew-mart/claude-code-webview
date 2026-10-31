@@ -98,6 +98,49 @@ const byName = {
   'nginx.conf': 'nginx',
 };
 
+/** Names a code block's language goes by besides its files' extensions and its own name. */
+/** @type {Readonly<Record<string, CodeLanguage>>} */
+const byFenceName = {
+  'c#': 'csharp',
+  dotnet: 'csharp',
+  'c++': 'cpp',
+  c: 'cpp',
+  js: 'javascript',
+  node: 'javascript',
+  py: 'python',
+  python3: 'python',
+  sh: 'shell',
+  bash: 'shell',
+  zsh: 'shell',
+  console: 'shell',
+  pwsh: 'powershell',
+  ps: 'powershell',
+  yml: 'yaml',
+  docker: 'dockerfile',
+  rs: 'rust',
+  golang: 'go',
+  kt: 'kotlin',
+  rb: 'ruby',
+  patch: 'diff',
+  ini: 'properties',
+};
+
+/** The languages by their own names. */
+const languages = new Set(Object.values(byExtension));
+
+/**
+ * The language a code block's first line names after its ``` — its name, an alias, a file's extension; any case, what
+ * follows a space left out.
+ * @param {string} info — the words after the ```
+ * @returns {CodeLanguage | undefined} — none: plain text, or a language not known
+ */
+export function languageOfFence(info) {
+  const word = (info.trim().split(/\s+/)[0] ?? '').toLowerCase();
+  if (Object.hasOwn(byFenceName, word)) return byFenceName[word];
+  if (Object.hasOwn(byExtension, word)) return byExtension[word];
+  return [...languages].find((language) => language === word);
+}
+
 /**
  * @param {string} path — a file's, either kind of slashes
  * @returns {CodeLanguage | undefined} — none: plain text

@@ -13,8 +13,8 @@ import { isRecord, text } from './narrow.js';
  */
 
 /**
- * Notes from stored JSON — the server's file, its reply: entries of any other shape, or with no words, are dropped; a
- * note kept before notes could be set apart, or with a way not known, is shown inline.
+ * Notes from stored JSON — the server's file, its reply: entries of any other shape are dropped — a note with no words
+ * is one, written to be filled in; a note kept before notes could be set apart, or with a way not known, is shown inline.
  * @param {unknown} stored — result of JSON.parse
  * @returns {readonly Note[]}
  */
@@ -26,7 +26,7 @@ export function parseNotes(stored) {
     const at = text(item.at);
     /** @type {NoteShown} */
     const shown = item.shown === 'panel' ? 'panel' : 'inline';
-    return id === undefined || words === undefined || words.trim() === '' || at === undefined ? [] : [withName({ id, text: words, at, shown }, text(item.name))];
+    return id === undefined || words === undefined || at === undefined ? [] : [withName({ id, text: words, at, shown }, text(item.name))];
   });
 }
 
@@ -34,7 +34,7 @@ export function parseNotes(stored) {
  * The change is stated explicitly: when two devices send the same one, the second keeps the result. The notes stand in
  * the order they are put in: a note written comes first, a note moved goes before the one it is let go before — with
  * none, or one gone meanwhile, last — and the others stay where they stand; an edit keeps when it was written; a note an
- * edit leaves without words is gone; a note set apart or back inline keeps its place; a change of a note removed
+ * edit leaves without words stays, empty — only its removal takes it away; a note set apart or back inline keeps its place; a change of a note removed
  * meanwhile changes nothing; a note put back as it was takes its place — if gone, before the first note written before it.
  * @param {readonly Note[]} list
  * @param {NoteChange} change
@@ -46,7 +46,6 @@ export function changeNotes(list, change) {
       if (list.some((note) => note.id === change.note.id)) return list;
       return [change.note, ...list];
     case 'edit':
-      if (change.text.trim() === '') return list.filter((note) => note.id !== change.id);
       return list.map((note) => (note.id === change.id ? withName({ ...note, text: change.text }, change.name ?? note.name) : note));
     case 'remove':
       return list.filter((note) => note.id !== change.id);

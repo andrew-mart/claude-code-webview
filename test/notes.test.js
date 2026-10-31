@@ -24,10 +24,23 @@ test('parseNotes_Should_ShowNoteInline_UnlessSetApart', () => {
   );
 });
 
+// A note with no words is a note: written empty, to be filled in, it is kept; one with no text at all is no note
+test('parseNotes_Should_KeepNoteWithNoWords_AndDropOneWithNoText', () => {
+  const { text: _none, ...textless } = older;
+
+  assert.deepEqual(
+    parseNotes([{ ...older, text: '' }, { ...newer, text: ' \n ' }, { ...textless, id: 'n3' }, { ...older, id: 'n4', text: 42 }]).map((note) => [note.id, note.text]),
+    [
+      ['n1', ''],
+      ['n2', ' \n '],
+    ],
+  );
+});
+
 // The latest note written comes first; the same one twice is kept once — two devices sending one change must not double
-// it; an edit keeps when the note was written; a note emptied by an edit is gone; an edit or a removal of a note removed
-// on another device changes nothing
-test('changeNotes_Should_KeepLatestFirst_AddOnce_EditKeepingWhen_AndDropNoteEmptied', () => {
+// it; an edit keeps when the note was written; a note emptied by an edit stays, empty — the bin removes a note; an edit
+// or a removal of a note removed on another device changes nothing
+test('changeNotes_Should_KeepLatestFirst_AddOnce_EditKeepingWhen_AndKeepNoteEmptied', () => {
   const added = changeNotes(changeNotes([older], { action: 'add', note: newer }), { action: 'add', note: newer });
   const edited = changeNotes(added, { action: 'edit', id: 'n1', text: '**TODO** check the build and the deploy' });
 
@@ -42,7 +55,7 @@ test('changeNotes_Should_KeepLatestFirst_AddOnce_EditKeepingWhen_AndDropNoteEmpt
     {
       added: [newer, older],
       edited: [newer, { ...older, text: '**TODO** check the build and the deploy' }],
-      emptied: [older],
+      emptied: [{ ...newer, text: ' \n ' }, older],
       removed: [newer],
       gone: [[newer, older], [newer, older]],
     },
@@ -140,7 +153,7 @@ test('parseNoteChange_Should_ReadOnlyWellFormedChanges', () => {
       parseNoteChange({ action: 'show', id: 'n1', shown: 'sideways' }),
       parseNoteChange({ action: 'put', note: older }),
       parseNoteChange({ action: 'put', note: { id: 'n1' } }),
-      parseNoteChange({ action: 'add', note: { ...older, text: '  ' } }),
+      parseNoteChange({ action: 'add', note: { ...older, text: 42 } }),
       parseNoteChange({ action: 'edit', id: 'n1' }),
       parseNoteChange({ action: 'move', id: 'n1', before: 'n2' }),
       parseNoteChange({ action: 'move', id: 'n1' }),

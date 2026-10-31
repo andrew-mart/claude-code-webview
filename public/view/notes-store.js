@@ -66,6 +66,15 @@ export function createNotesStore(sessionId, onChange) {
     edit(id, text, name) {
       change({ action: 'edit', id, text, ...(name === undefined ? {} : { name }) });
     },
+    /**
+     * A note's new name — a blank one none, its first line then naming it — its text as it stands; a note removed
+     * meanwhile is renamed nothing.
+     * @param {string} id @param {string} name
+     */
+    rename(id, name) {
+      const note = notes.find((one) => one.id === id);
+      if (note !== undefined) change({ action: 'edit', id, text: note.text, name });
+    },
     /** @param {string} id */
     remove(id) {
       change({ action: 'remove', id });

@@ -38,14 +38,30 @@ export function undoStep(step) {
   return step.before === undefined ? { action: 'remove', id: step.after.id } : { action: 'put', note: step.before };
 }
 
+/** How long after a note's step its next edit is still the same step: a note is saved as it is typed. */
+const editsJoinedWithin = 10 * 60_000;
+
 /**
+ * The steps with a new one, the latest first: a note's edit right after its own step — its writing or its edit, within
+ * ten minutes of it — joins it, the step then reaching from the note before it to the note after the edit.
  * @param {readonly NoteStep[]} steps — the latest first
  * @param {NoteStep} step — a new one
  * @param {number} limit — how many are kept
  * @returns {readonly NoteStep[]}
  */
 export function recordStep(steps, step, limit) {
+  const [latest, ...earlier] = steps;
+  if (latest !== undefined && step.after !== undefined && joins(latest, step)) return [{ ...latest, at: step.at, after: step.after }, ...earlier];
   return [step, ...steps].slice(0, limit);
+}
+
+/**
+ * Whether an edit goes on from the step before it: its note's writing or edit, a little before.
+ * @param {NoteStep} latest @param {NoteStep} step
+ * @returns {boolean}
+ */
+function joins(latest, step) {
+  return step.action === 'edit' && (latest.action === 'edit' || latest.action === 'add') && latest.after?.id === step.after?.id && Date.parse(step.at) - Date.parse(latest.at) <= editsJoinedWithin;
 }
 
 /**

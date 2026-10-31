@@ -1,167 +1,137 @@
 // @ts-check
-// A note in the side panel, the whole of it — opened from its name among the notes: drawn as markdown, titled by its
-// name; ✎ edits it in place, its name above its markdown — ✓, Ctrl+Enter, Enter in the name or a click elsewhere keeps
-// it, ✕ or Escape leaves it as it was — and the bin removes it once ✓ confirms. The notes coming again — another
-// device's change — draw it anew, unless it is being edited; a note removed says so.
-// A note set apart from the start is written here too, under a name given above it — Enter there goes on to the
-// markdown: kept by Ctrl+Enter or ✓ alone — a click elsewhere, to fetch what goes in it, leaves it being written — and
-// left unwritten by Escape or ✕.
+// A note in the side panel, the whole of it — opened from its name among the notes, or written new: its name in a field
+// above it, the note in its editor (note-editor.js), always there to be typed in — what is typed, and the name, saved as
+// they go; its buttons in the panel's head, in one row with ↻ and ×: its source, the fallback, and the bin, which removes
+// it once ✓ confirms. The notes coming again — another device's change — show the note as it is now; what is being typed
+// stays. A note removed says so.
 import { h } from './dom.js';
 import { icon } from './icons.js';
-import { renderMarkdown } from './markdown.js';
 import { noteName, noteTitle } from '../model/notes.js';
-import { keepOrLeave } from './keep-or-leave.js';
 
 /**
  * @typedef {import('../model/notes.js').Note} Note
+ * @typedef {import('./notes-view.js').EditorOf} EditorOf
  */
+
+/** How long after the last key a name typed is saved. */
+const saveAfter = 1000;
 
 /**
- * @param {{ note: () => Note | undefined, edit: (id: string, text: string, name: string) => void, remove: (id: string) => void }} source
- *   — note: the note as the page has it now, none once it is removed; edit: its new text and name, a blank name none;
- *   remove: it removed
- * @returns {{ element: HTMLElement, name: () => string, reload: () => Promise<void>, summary: () => string | undefined }}
- *   — the side panel's list in place of a file (file-panel.js: ShownList): name — the panel's title, the note's name as
- *   it is now
+ * @param {{ note: () => Note | undefined, edit: (id: string, text: string) => void, rename: (id: string, name: string) => void, remove: (id: string) => void, editorOf: EditorOf }} source
+ *   — note: the note as the page has it now, none once it is removed; edit: its new text; rename: its new name, a blank
+ *   one none; remove: it removed
+ * @returns {{ element: HTMLElement, actions: HTMLElement, name: () => string, reload: () => Promise<void>, summary: () => string | undefined, focus: () => void }}
+ *   — the side panel's list in place of a file (file-panel.js: ShownList): actions — its buttons, for the panel's head;
+ *   name — the panel's title, the note's name as it is now; focus: the cursor in the note, to write it
  */
-export function createNotePanel({ note, edit, remove }) {
+export function createNotePanel({ note, edit, rename, remove, editorOf }) {
+  const first = note();
   const element = h('div', { className: 'note-panel' });
-  let busy = false;
+  const actions = h('span', { className: 'note-panel-actions' });
+  if (first === undefined) {
+    element.replaceChildren(gone());
+    return { element, actions, name: () => 'Note', reload: async () => undefined, summary: () => undefined, focus: () => undefined };
+  }
+  const id = first.id;
+  const field = h('input', { className: 'note-panel-name', attrs: { type: 'text', 'aria-label': 'Name — its first line names the note if none', autocomplete: 'off', spellcheck: 'false' } });
+  field.value = first.name ?? '';
+  field.placeholder = placeholderOf(first);
+  const editor = editorOf({ text: first.text, save: (text) => edit(id, text) });
+  element.replaceChildren(field, editor.element);
 
-  const draw = () => {
-    busy = false;
-    const now = note();
-    if (now === undefined) {
-      element.replaceChildren(h('div', { className: 'note-panel-gone', text: 'This note was removed.' }));
-      return;
-    }
-    const editing = button('note-panel-edit', 'edit', 'Edit the note — its name and its text');
-    const removing = button('note-panel-remove', 'trash', 'Remove the note');
-    const actions = h('div', { className: 'note-panel-actions' }, [editing, removing]);
-    const text = h('div', { className: 'md note-panel-text' }, [renderMarkdown(now.text)]);
-    editing.addEventListener('click', () => startEditing(now, text, actions));
-    removing.addEventListener('click', () => askRemoving(now, actions));
-    element.replaceChildren(actions, text);
+  /** The name as last saved: the field differs from it while a save waits. */
+  let savedName = field.value;
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let waiting;
+  const saveName = () => {
+    clearTimeout(waiting);
+    waiting = undefined;
+    if (field.value === savedName) return;
+    savedName = field.value;
+    rename(id, field.value);
   };
+  field.addEventListener('input', () => {
+    clearTimeout(waiting);
+    waiting = setTimeout(saveName, saveAfter);
+  });
+  field.addEventListener('blur', saveName);
+  field.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    // the name given, on to what the note says
+    event.preventDefault();
+    saveName();
+    editor.focus();
+  });
 
-  /**
-   * The note's name and markdown in place of it, ✓ and ✕ in place of its buttons.
-   * @param {Note} now @param {HTMLElement} text @param {HTMLElement} actions
-   */
-  const startEditing = (now, text, actions) => {
-    busy = true;
-    const field = nameField(noteTitle(now.text));
-    field.value = now.name ?? '';
-    const box = h('textarea', { className: 'notes-editor note-panel-editor', attrs: { rows: '14', placeholder: 'Markdown — Ctrl+Enter keeps it, Esc leaves it', 'aria-label': 'Note' } });
-    box.value = now.text;
-    const editor = h('div', { className: 'note-panel-editing' }, [field, box]);
-    let over = false;
-    const keep = () => {
-      if (over) return;
-      over = true;
-      if (box.value !== now.text || field.value.trim() !== (now.name ?? '')) edit(now.id, box.value, field.value);
-      draw();
-    };
-    const leave = () => {
-      over = true;
-      draw();
-    };
-    editor.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') {
-        // the panel's Escape, which closes it, is not this one's
-        event.preventDefault();
-        event.stopPropagation();
-        leave();
-      } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey || event.target === field)) {
-        event.preventDefault();
-        keep();
-      }
-    });
-    // a click elsewhere keeps it; from the name to the markdown, or back, it goes on being edited
-    editor.addEventListener('focusout', (event) => {
-      if (!(event.relatedTarget instanceof window.Node && editor.contains(event.relatedTarget))) keep();
-    });
-    actions.replaceChildren(...keepOrLeave({ keep, leave, keepTitle: 'Keep it (Ctrl+Enter)', leaveTitle: 'Leave it as it was (Esc)' }));
-    text.replaceWith(editor);
-    box.focus();
-  };
-
-  /**
-   * The note's buttons give way to the question whether to remove it: ✓ removes it, ✕ keeps it.
-   * @param {Note} now @param {HTMLElement} actions
-   */
-  const askRemoving = (now, actions) => {
-    busy = true;
+  const source = h('button', { className: 'icon-button note-source', title: 'Show its markdown as typed', attrs: { type: 'button', 'aria-label': 'Show its markdown as typed', 'aria-pressed': 'false' } }, [icon('code')]);
+  const removing = h('button', { className: 'icon-button note-panel-remove', title: 'Remove the note', attrs: { type: 'button', 'aria-label': 'Remove the note' } }, [icon('trash')]);
+  const showButtons = () => actions.replaceChildren(source, removing);
+  showButtons();
+  source.addEventListener('click', () => {
+    editor.setShown(editor.shown() === 'source' ? 'preview' : 'source');
+    source.setAttribute('aria-pressed', String(editor.shown() === 'source'));
+  });
+  // the note's buttons give way to the question whether to remove it: ✓ removes it, ✕ keeps it
+  removing.addEventListener('click', () => {
     const yes = button('note-confirm-remove', 'check', 'Remove the note');
     const no = button('note-keep', 'cross', 'Keep it');
     yes.addEventListener('click', () => {
-      remove(now.id);
-      draw();
+      showButtons();
+      remove(id);
     });
-    no.addEventListener('click', draw);
+    no.addEventListener('click', showButtons);
     actions.replaceChildren(yes, no);
     yes.focus();
-  };
+  });
 
-  draw();
+  let removed = false;
   return {
     element,
+    actions,
     name() {
       const now = note();
       const named = now === undefined ? '' : noteName(now);
       return named === '' ? 'Note' : named;
     },
     async reload() {
-      if (!busy) draw();
+      const now = note();
+      if (removed) return;
+      if (now === undefined) {
+        removed = true;
+        clearTimeout(waiting);
+        editor.dispose();
+        actions.replaceChildren();
+        element.replaceChildren(gone());
+        return;
+      }
+      editor.show(now.text);
+      field.placeholder = placeholderOf(now);
+      if (window.document.activeElement !== field && field.value === savedName) {
+        field.value = now.name ?? '';
+        savedName = field.value;
+      }
     },
     summary() {
       const now = note();
       return now === undefined ? undefined : `Written ${new Date(now.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`;
     },
+    focus: () => editor.focus(),
   };
 }
 
 /**
- * A new note set apart, written in the side panel.
- * @param {{ keep: (text: string, name: string) => void, leave: () => void }} actions — keep: the note written, under its
- *   name, a blank one none; leave: none written
- * @returns {{ element: HTMLElement, name: () => string, reload: () => Promise<void>, summary: () => string | undefined }}
- *   — the side panel's list in place of a file (file-panel.js: ShownList)
+ * What names the note while its field is empty: its first line.
+ * @param {Note} note
+ * @returns {string}
  */
-export function createNoteDraft({ keep, leave }) {
-  const field = nameField('Its first line, if no name');
-  const box = h('textarea', { className: 'notes-editor note-panel-editor', attrs: { rows: '18', placeholder: 'Markdown — Ctrl+Enter keeps it, Esc leaves it', 'aria-label': 'New note' } });
-  const written = () => {
-    if (box.value.trim() !== '') keep(box.value, field.value);
-  };
-  const [keeping, leaving] = keepOrLeave({ keep: written, leave, keepTitle: 'Keep the note (Ctrl+Enter)', leaveTitle: 'Leave it unwritten (Esc)' });
-  keeping.classList.add('note-draft-keep');
-  leaving.classList.add('note-draft-leave');
-  const element = h('div', { className: 'note-panel note-draft' }, [h('div', { className: 'note-panel-actions' }, [keeping, leaving]), field, box]);
-  element.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') {
-      // the panel's Escape, which closes it, is not this one's
-      event.preventDefault();
-      event.stopPropagation();
-      leave();
-    } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-      event.preventDefault();
-      written();
-    } else if (event.key === 'Enter' && event.target === field) {
-      // the name given, on to what the note says
-      event.preventDefault();
-      box.focus();
-    }
-  });
-  // shown first, then focused: a box not yet in the page takes no focus
-  setTimeout(() => box.focus(), 0);
-  return {
-    element,
-    name: () => 'New note',
-    // the notes coming again leave what is being written
-    reload: async () => undefined,
-    summary: () => 'Set apart: listed by its name among the notes',
-  };
+function placeholderOf(note) {
+  const title = noteTitle(note.text);
+  return title === '' ? 'Its first line, if no name' : title;
+}
+
+/** @returns {HTMLElement} */
+function gone() {
+  return h('div', { className: 'note-panel-gone', text: 'This note was removed.' });
 }
 
 /**
@@ -170,13 +140,4 @@ export function createNoteDraft({ keep, leave }) {
  */
 function button(className, iconName, label) {
   return h('button', { className: `icon-button ${className}`, title: label, attrs: { type: 'button', 'aria-label': label } }, [icon(iconName)]);
-}
-
-/**
- * The field a note is named in, above its markdown.
- * @param {string} instead — what names the note while the field is empty
- * @returns {HTMLInputElement}
- */
-function nameField(instead) {
-  return h('input', { className: 'note-panel-name', attrs: { type: 'text', placeholder: instead, 'aria-label': 'Name — its first line names the note if none', autocomplete: 'off', spellcheck: 'false' } });
 }

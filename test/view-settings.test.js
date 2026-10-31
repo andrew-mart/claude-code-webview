@@ -21,6 +21,8 @@ const labels = [
   ['copy', 'plain', 'Ctrl+C copies selections as markdown, as Ctrl+Shift+C does'],
   ['lamps', 'robots', 'Show lamps instead of robots'],
   ['lamps', 'lamps', 'Show robots at work and at rest'],
+  ['notes', 'live', 'Edit notes as blocks, as Notion does (Milkdown)'],
+  ['notes', 'blocks', 'Edit notes with a live preview, as Obsidian does (CodeMirror)'],
 ];
 
 for (const [key, current, expected] of labels) {

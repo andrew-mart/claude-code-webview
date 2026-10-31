@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { languageOfPath } from '../public/model/code-language.js';
+import { languageOfFence, languageOfPath } from '../public/model/code-language.js';
 
 // The editor colours a file by the language its name tells — its extension, or a name of its own — on either kind of
 // path, in any case; a file whose name tells none is plain text, a name like an object's own property too
@@ -46,4 +46,13 @@ test('languageOfPath_Should_TellLanguageByExtensionOrName', () => {
     undefined,
     undefined,
   ]);
+});
+
+// A code block in a note is coloured by the language its first line names — by name, alias or a file's extension, in
+// any case, the words after a space left out; one not known is plain text
+test('languageOfFence_Should_TellLanguageByNameAliasOrExtension', () => {
+  assert.deepEqual(
+    ['cs', 'C#', 'csharp', 'ts', 'TypeScript', 'py', 'bash', 'json title="x"', 'yml', '', 'tasks', 'constructor'].map(languageOfFence),
+    ['csharp', 'csharp', 'csharp', 'typescript', 'typescript', 'python', 'shell', 'json', 'yaml', undefined, undefined, undefined],
+  );
 });

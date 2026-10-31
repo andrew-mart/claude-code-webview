@@ -16,5 +16,5 @@
     "skipLibCheck": true
   },
   "include": ["bin", "cli", "server", "public", "test", "scripts", "types"],
-  "exclude": ["public/sw.js"]
+  "exclude": ["public/sw.js", "public/lib/milkdown/crepe.js"]
 }

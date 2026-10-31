@@ -5,6 +5,7 @@ import { parseSteps, recordStep, stepOf, undoStep } from '../public/model/notes-
 
 /** @typedef {import('../public/model/notes.js').Note} Note */
 /** @typedef {import('../public/model/notes.js').NoteChange} NoteChange */
+/** @typedef {import('../public/model/notes-history.js').NoteStep} NoteStep */
 
 /** @type {Note} */
 const plan = { id: 'n1', text: '# Plan', at: '2026-10-27T09:00:00.000Z', shown: 'inline' };
@@ -61,6 +62,35 @@ test('undoStep_Should_LeaveNotesAsTheyWereBeforeStep', () => {
   });
 
   assert.deepEqual(undone, [[ideas], [ideas, plan], [ideas, plan], [ideas, plan]]);
+});
+
+// A note saved as it is typed is edited every few seconds: its edits one after another — within ten minutes of each
+// other — are one step, from the note before the first to the note after the last, and a note written and then filled
+// in is one step of its writing; an edit after another note's step, or after ten minutes, is a step of its own
+test('recordStep_Should_JoinNotesEditsFollowingEachOther_IntoOneStep', () => {
+  const at = (/** @type {string} */ time) => `2026-10-27T10:${time}.000Z`;
+  const empty = { ...plan, text: '' };
+  /** @type {NoteStep[]} */
+  const typed = [
+    { id: 's1', at: at('00:00'), action: 'add', before: undefined, after: empty },
+    { id: 's2', at: at('00:05'), action: 'edit', before: empty, after: { ...plan, text: '# Pl' } },
+    { id: 's3', at: at('00:09'), action: 'edit', before: { ...plan, text: '# Pl' }, after: plan },
+    { id: 's4', at: at('01:00'), action: 'add', before: undefined, after: ideas },
+    { id: 's5', at: at('02:00'), action: 'edit', before: plan, after: { ...plan, text: '# Plan\n- one' } },
+    { id: 's6', at: at('15:00'), action: 'edit', before: { ...plan, text: '# Plan\n- one' }, after: { ...plan, text: '# Plan\n- one\n- two' } },
+  ];
+
+  const kept = typed.reduce((/** @type {readonly NoteStep[]} */ steps, step) => recordStep(steps, step, 10), []);
+
+  assert.deepEqual(
+    kept.map((step) => [step.id, step.at, step.action, step.before?.text, step.after?.text]),
+    [
+      ['s6', at('15:00'), 'edit', '# Plan\n- one', '# Plan\n- one\n- two'],
+      ['s5', at('02:00'), 'edit', '# Plan', '# Plan\n- one'],
+      ['s4', at('01:00'), 'add', undefined, '# Ideas'],
+      ['s1', at('00:09'), 'add', undefined, '# Plan'],
+    ],
+  );
 });
 
 // The steps are kept the latest first, as many as the limit; steps of another shape are dropped as read

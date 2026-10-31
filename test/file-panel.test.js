@@ -396,7 +396,7 @@ test('filePanel_Should_ShowNoteOpenedFromItsName_UnderItsNameAsItIsNow', async (
   const shown = window.document.createElement('div');
   shown.className = 'note-panel';
   const named = { now: 'Plan for the week' };
-  const note = { element: shown, name: () => named.now, reload: async () => undefined, summary: () => 'Written 27 Oct 2026, 09:05' };
+  const note = { element: shown, actions: window.document.createElement('span'), name: () => named.now, reload: async () => undefined, summary: () => 'Written 27 Oct 2026, 09:05' };
   const title = () => [panel.querySelector('.panel-name')?.textContent, panel.querySelector('.panel-path')?.textContent];
 
   files.showNote(note);
@@ -416,6 +416,24 @@ test('filePanel_Should_ShowNoteOpenedFromItsName_UnderItsNameAsItIsNow', async (
     },
     { first: ['Plan for the week', 'Written 27 Oct 2026, 09:05'], renamed: ['Week plan', 'Written 27 Oct 2026, 09:05'], marked: true, reload: 'Reload', shown: true, open: true },
   );
+});
+
+// A note's own buttons show in the panel's head, in one row with its own, before ↻; a file opened in its place shows
+// none of them
+test('filePanel_Should_ShowNotesButtonsInItsHeadBeforeReload_AndNoneForAFile', async () => {
+  const { panel, files } = filePanel();
+  const actions = window.document.createElement('span');
+  actions.append(Object.assign(window.document.createElement('button'), { className: 'note-panel-edit' }));
+  const head = panel.querySelector('.panel-head');
+  /** The head's buttons shown, of the note's ✎ and ↻, in their order. */
+  const shown = () => [...(head?.querySelectorAll('.note-panel-edit, .panel-reload') ?? [])].filter((one) => one.closest('[hidden]') === null).map((one) => (one.classList.contains('panel-reload') ? '↻' : '✎'));
+
+  files.showNote({ element: window.document.createElement('div'), actions, name: () => 'Plan', reload: async () => undefined, summary: () => undefined });
+  await new Promise((done) => setTimeout(done, 0));
+  const note = shown();
+  files.open({ path: 'D:/dev/shop/src/limits.ts', line: undefined, endLine: undefined });
+
+  assert.deepEqual({ note, file: shown() }, { note: ['✎', '↻'], file: ['↻'] });
 });
 
 // A text file — code, a document's source, a table — is edited in the panel; a picture, a PDF, a Word document is not

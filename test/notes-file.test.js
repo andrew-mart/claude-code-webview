@@ -23,8 +23,9 @@ test('notesFile_Should_KeepStepOfEachChange_PerFolder_UpToLimit_OneAfterAnother'
   const notes = notesFile(3);
 
   await notes.change('D--dev-shop', { action: 'add', note: plan });
-  await notes.change('D--dev-shop', { action: 'edit', id: 'n1', text: '# Plan' });
-  await Promise.all([notes.change('D--dev-shop', { action: 'edit', id: 'n1', text: '# Plan v2' }), notes.change('D--dev-shop', { action: 'edit', id: 'n1', text: '# Plan v3' })]);
+  await notes.change('D--dev-shop', { action: 'show', id: 'n1', shown: 'panel' });
+  // sent at once: the second change's step starts from the note the first one left
+  await Promise.all([notes.change('D--dev-shop', { action: 'edit', id: 'n1', text: '# Plan v2' }), notes.change('D--dev-shop', { action: 'show', id: 'n1', shown: 'inline' })]);
   await notes.change('D--dev-shop', { action: 'remove', id: 'n1' });
   await notes.change('D--dev-blog', { action: 'add', note: { ...plan, text: '# Blog plan' } });
 
@@ -32,8 +33,8 @@ test('notesFile_Should_KeepStepOfEachChange_PerFolder_UpToLimit_OneAfterAnother'
     { shop: told(await notes.history('D--dev-shop')), blog: told(await notes.history('D--dev-blog')), left: await notes.list('D--dev-shop') },
     {
       shop: [
-        ['remove', '# Plan v3', undefined],
-        ['edit', '# Plan v2', '# Plan v3'],
+        ['remove', '# Plan v2', undefined],
+        ['show', '# Plan v2', '# Plan v2'],
         ['edit', '# Plan', '# Plan v2'],
       ],
       blog: [['add', undefined, '# Blog plan']],

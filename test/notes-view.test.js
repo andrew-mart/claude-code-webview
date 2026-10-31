@@ -9,25 +9,68 @@ const { createNotesView } = await import('../public/view/notes-view.js');
 const { icon } = await import('../public/view/icons.js');
 
 /** @typedef {import('../public/model/notes.js').Note} Note */
+/** @typedef {import('../public/view/note-editor.js').NoteShownAs} NoteShownAs */
 
 /** @type {Note} */
 const todo = { id: 'n2', text: '**TODO** check the build\n- the table test', at: '2026-10-27T09:05:00.000Z', shown: 'inline' };
 /** @type {Note} */
 const idea = { id: 'n1', text: 'idea: `herdr tab focus`', at: '2026-10-27T09:00:00.000Z', shown: 'inline' };
 
+/**
+ * A note's editor in place of CodeMirror: its text in its element; what it is shown, how, and whether it was let go of,
+ * recorded; type saves as typing does.
+ * @param {{ text: string, save: (text: string) => void }} given
+ */
+function fakeEditor({ text, save }) {
+  const element = Object.assign(window.document.createElement('div'), { className: 'note-editor', textContent: text });
+  /** @type {NoteShownAs} */
+  let shownAs = 'preview';
+  const editor = {
+    element,
+    /** @type {string[]} */
+    shownTexts: [],
+    disposed: false,
+    /** @param {string} next */
+    show(next) {
+      editor.shownTexts.push(next);
+    },
+    focus: () => undefined,
+    remake: () => undefined,
+    shown: () => shownAs,
+    /** @param {NoteShownAs} next */
+    setShown(next) {
+      shownAs = next;
+    },
+    dispose() {
+      editor.disposed = true;
+    },
+    /** @param {string} typed */
+    type(typed) {
+      save(typed);
+    },
+  };
+  return editor;
+}
+
 /** A notes section in the page, showing todo and idea in full, whose changes — and notes opened — are recorded. */
 function notesShown() {
   /** @type {string[][]} */
   const asked = [];
+  /** @type {ReturnType<typeof fakeEditor>[]} */
+  const editors = [];
   const view = createNotesView({
-    add: (text) => void asked.push(['add', text]),
+    add: () => void asked.push(['add']),
     edit: (id, text) => void asked.push(['edit', id, text]),
     remove: (id) => void asked.push(['remove', id]),
     open: (id) => void asked.push(['open', id]),
     setShown: (id, shown) => void asked.push(['shown', id, shown]),
-    writeApart: () => void asked.push(['write apart']),
     showHistory: () => void asked.push(['history']),
     move: (id, before) => void asked.push(['move', id, String(before)]),
+    editorOf: (given) => {
+      const editor = fakeEditor(given);
+      editors.push(editor);
+      return editor;
+    },
   });
   window.document.body.replaceChildren(view.element);
   view.show([todo, idea]);
@@ -37,155 +80,115 @@ function notesShown() {
     assert.ok(found instanceof window.HTMLElement, `no ${selector} #${at}`);
     return found;
   };
-  /** @param {string} key @param {{ ctrlKey?: boolean }} [modifiers] */
-  const press = (key, modifiers = {}) => element('textarea').dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true, ...modifiers }));
-  /** @param {string} value */
-  const type = (value) => {
-    const box = element('textarea');
-    assert.ok(box instanceof window.HTMLTextAreaElement);
-    box.value = value;
-  };
-  return { view, asked, element, press, type };
+  return { view, asked, editors, element };
 }
 
-// The notes are drawn as markdown, the latest first as the server sends them, their count in the title
-test('notesView_Should_DrawEachNoteAsMarkdown_WithCount', () => {
-  const { view } = notesShown();
+// A note in full is its editor, always there to be typed in, in the order of the notes, their count in the title; what is
+// typed in it is saved as the note's text
+test('notesView_Should_ShowNotesInFullAsTheirEditors_AndSaveWhatIsTypedAsTheirText', () => {
+  const { view, asked, editors } = notesShown();
+
+  editors[0]?.type('**TODO** check the build and the deploy');
 
   assert.deepEqual(
-    {
-      count: view.element.querySelector('.outline-count')?.textContent,
-      notes: [...view.element.querySelectorAll('.note-text')].map((text) => [text.querySelector('strong, code')?.outerHTML, text.querySelectorAll('li').length]),
-    },
-    { count: '2', notes: [['<strong>TODO</strong>', 1], ['<code>herdr tab focus</code>', 0]] },
+    { count: view.element.querySelector('.outline-count')?.textContent, notes: [...view.element.querySelectorAll('.note > .note-editor')].map((one) => one.textContent), asked },
+    { count: '2', notes: [todo.text, idea.text], asked: [['edit', 'n2', '**TODO** check the build and the deploy']] },
   );
 });
 
-// "+" opens an empty box over the notes: Ctrl+Enter keeps what is written there as a new note; a box left empty adds
-// nothing
-test('notesView_Should_AddNoteWritten_WithCtrlEnter_AndNothingForEmptyBox', () => {
-  const { asked, element, press, type } = notesShown();
+// The notes coming again — a save's reply, another device's change — leave each note still there its editor, which is
+// shown the note as it came, so what is typed is not taken away; a note gone lets its editor go, a new one gets its own
+test('notesView_Should_KeepEditorsOfNotesStillThere_WhenNotesComeAgain', () => {
+  const { view, editors } = notesShown();
+  const [first, second] = editors;
+  /** @type {Note} */
+  const plan = { id: 'n3', text: '# Plan', at: '2026-10-27T09:10:00.000Z', shown: 'inline' };
 
-  element('.notes-add').click();
-  type('  ');
-  press('Enter', { ctrlKey: true });
-  element('.notes-add').click();
-  type('## Plan\n1. notes');
-  press('Enter', { ctrlKey: true });
+  view.show([plan, { ...todo, text: 'changed on the phone' }]);
 
-  assert.deepEqual(asked, [['add', '## Plan\n1. notes']]);
+  assert.deepEqual(
+    { made: editors.map((one) => one.element.textContent), shownToFirst: first?.shownTexts, secondLetGo: second?.disposed, kept: first?.element.isConnected },
+    { made: [todo.text, idea.text, '# Plan'], shownToFirst: ['changed on the phone'], secondLetGo: true, kept: true },
+  );
 });
 
-// Beside "+", one button writes a note set apart from the start — elsewhere, the side panel — and another shows the
-// history of the notes' changes
-test('notesView_Should_OfferNoteSetApartFromStart_AndHistoryOfChanges', () => {
-  const { asked, element } = notesShown();
+// "+" writes a new note — set apart from the start, written in the side panel; how it shows is the fold and unfold
+// buttons' then; the clock shows the history of the notes' changes
+test('notesView_Should_WriteNewNoteSetApart_AndShowHistoryOfChanges', () => {
+  const { view, asked, element } = notesShown();
 
-  element('.notes-add-apart').click();
+  element('.notes-add').click();
   element('.notes-history').click();
 
-  assert.deepEqual(asked, [['write apart'], ['history']]);
+  assert.deepEqual({ asked, buttons: [...view.element.querySelectorAll('.notes-title-end button')].length }, { asked: [['add'], ['history']], buttons: 2 });
 });
 
-// A click on a note edits its markdown in place: a click elsewhere keeps the change, Escape leaves the note as it was;
-// a note left as it was sends nothing
-test('notesView_Should_EditNoteInPlace_KeepingOnBlur_AndLeavingOnEscape', () => {
-  const { asked, element, press, type } = notesShown();
+// A note in full is shown as its source — its markdown as typed, the fallback — by its button, pressed while it is, and
+// back as it reads by the button again
+test('notesView_Should_ShowNoteAsItsSource_AndBack_ByItsButton', () => {
+  const { editors, element } = notesShown();
+  const source = element('.note-source');
 
-  element('.note-text', 1).click();
-  const shown = /** @type {HTMLTextAreaElement} */ (element('textarea')).value;
-  type('idea: `herdr tab focus` — in the header now');
-  element('textarea').dispatchEvent(new window.FocusEvent('blur'));
-  element('.note-text', 0).click();
-  type('changed my mind');
-  press('Escape');
-  element('.note-text', 0).click();
-  element('textarea').dispatchEvent(new window.FocusEvent('blur'));
+  source.click();
+  const asSource = [editors[0]?.shown(), source.getAttribute('aria-pressed')];
+  source.click();
 
-  assert.deepEqual({ shown, asked, editing: element('.note-text', 0).textContent?.includes('TODO') }, { shown: idea.text, asked: [['edit', 'n1', 'idea: `herdr tab focus` — in the header now']], editing: true });
+  assert.deepEqual({ asSource, back: [editors[0]?.shown(), source.getAttribute('aria-pressed')], icon: source.innerHTML === icon('code').outerHTML }, { asSource: ['source', 'true'], back: ['preview', 'false'], icon: true });
 });
 
 // The bin asks first: ✓ removes the note, ✕ keeps it
 test('notesView_Should_RemoveNote_OnlyOnceConfirmed', () => {
-  const { asked, element } = notesShown();
+  const { view, asked, element } = notesShown();
   const bin = element('.note-remove').innerHTML === icon('trash').outerHTML;
 
-  element('.note-remove', 0).click();
+  element('.note-remove').click();
   element('.note-keep').click();
-  element('.note-remove', 1).click();
+  element('.note-remove').click();
   element('.note-confirm-remove').click();
 
-  assert.deepEqual({ bin, asked }, { bin: true, asked: [['remove', 'n1']] });
+  assert.deepEqual({ bin, asked, notes: view.element.querySelectorAll('.note').length }, { bin: true, asked: [['remove', 'n2']], notes: 2 });
 });
 
-// The notes coming again from the server — another device's change — do not take away what is being typed
-test('notesView_Should_KeepTextBeingTyped_When_NotesComeAgain', () => {
-  const { view, asked, element, press, type } = notesShown();
+// A note set apart is marked by a note's icon on the left of its name — as the side panel has it open — telling it from
+// a note in full at a glance
+test('notesView_Should_MarkNoteSetApart_ByNoteIconLeftOfItsName', () => {
+  const { view, element } = notesShown();
+  view.show([todo, { ...idea, shown: 'panel', name: 'Header ideas' }]);
 
-  element('.note-text', 0).click();
-  type('**TODO** check the deploy too');
-  view.show([idea]);
-  press('Enter', { ctrlKey: true });
+  const row = element('.note-row');
 
-  assert.deepEqual({ asked, notes: [...view.element.querySelectorAll('.note-text')].length }, { asked: [['edit', 'n2', '**TODO** check the deploy too']], notes: 1 });
+  assert.deepEqual({ first: row.firstElementChild?.outerHTML === icon('note').outerHTML, name: row.textContent }, { first: true, name: 'Header ideas' });
 });
 
 // Each note is shown its own way, in the order of the notes: one set apart is listed by its name — the one given it, else
-// its first line — a press opening it —
-// the whole of it shown elsewhere; a note in full is set apart by its button, a name brought back inline by its own
+// its first line, Untitled while it has none — a press opening it in the side panel; a note in full is set apart by its
+// button — its editor let go of — a name brought back inline by its own
 test('notesView_Should_ShowEachNoteItsOwnWay_AndSetItApartOrBackInline', () => {
-  const { view, asked, element } = notesShown();
-  view.show([todo, { ...idea, shown: 'panel', name: 'Header ideas' }]);
+  const { view, asked, editors, element } = notesShown();
+  view.show([todo, { ...idea, shown: 'panel', name: 'Header ideas' }, { id: 'n4', text: '', at: '2026-10-27T08:00:00.000Z', shown: 'panel' }]);
 
-  const drawn = [...element('.notes-list').children].map((one) => (one.matches('.note') ? `in full: ${one.querySelector('strong')?.textContent}` : `by name: ${one.querySelector('.note-row')?.textContent}`));
+  const drawn = [...element('.notes-list').children].map((one) => (one.matches('.note') ? `in full: ${one.querySelector('.note-editor')?.textContent}` : `by name: ${one.querySelector('.note-row')?.textContent}`));
   element('.note-row').click();
   element('.note-apart').click();
   element('.note-inline').click();
 
   assert.deepEqual(
-    { drawn, asked },
+    { drawn, asked, ideaLetGo: editors[1]?.disposed },
     {
-      drawn: ['in full: TODO', 'by name: Header ideas'],
+      drawn: [`in full: ${todo.text}`, 'by name: Header ideas', 'by name: Untitled'],
       asked: [
         ['open', 'n1'],
         ['shown', 'n2', 'panel'],
         ['shown', 'n1', 'inline'],
       ],
+      ideaLetGo: true,
     },
   );
 });
 
-// Writing or editing a note needs no keyboard to end: ✓ under it keeps it, ✕ leaves it — pressed, neither takes the focus
-// from the note, which would keep it first
-test('notesView_Should_KeepNoteOnCheck_AndLeaveItOnCross_WithoutKeyboard', () => {
-  const { asked, element, type } = notesShown();
-  /** @param {string} selector */
-  const press = (selector) => {
-    const pressed = element(selector);
-    const taken = !pressed.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-    pressed.click();
-    return taken;
-  };
-
-  element('.notes-add').click();
-  type('## Plan');
-  const adding = press('.note-keep-edit');
-  element('.note-text', 0).click();
-  type('changed my mind');
-  const leaving = press('.note-leave-edit');
-  element('.note-text', 1).click();
-  type('idea: `herdr tab focus` — done');
-  const editing = press('.note-keep-edit');
-
-  assert.deepEqual(
-    { focusKept: [adding, leaving, editing], asked },
-    { focusKept: [true, true, true], asked: [['add', '## Plan'], ['edit', 'n1', 'idea: `herdr tab focus` — done']] },
-  );
-});
-
 // A note is dragged by its grip to another place among the notes — in full or set apart alike: it goes there at once and
-// the move is told, before the note it is let go before; the click the drag ends with edits nothing. Dragged across its
-// text, a note in full is not moved: that picks its words — the grip picks up none
+// the move is told, before the note it is let go before. Dragged across its text, a note in full is not moved: that picks
+// its words — the grip picks up none
 test('notesView_Should_MoveNoteDraggedByItsGrip_ToWhereItIsLetGo', () => {
   const { view, asked, element } = notesShown();
   /** @type {Note} */
@@ -210,16 +213,37 @@ test('notesView_Should_MoveNoteDraggedByItsGrip_ToWhereItIsLetGo', () => {
   const ids = () => [...list.children].map((one) => one.getAttribute('data-id')).join(' ');
   layOut();
 
-  const textPicked = drag(element('.note-text', 0), 15, [30, 70]);
+  const textPicked = drag(element('.note-editor', 0), 15, [30, 70]);
   const byText = ids();
   const gripPicked = drag(element('.note-grip', 0), 15, [30, 70]);
-  element('.note-text', 0).click();
-  const editing = list.querySelector('textarea') !== null;
   layOut();
   drag(element('.note-grip', 2), 95, [80, 5]);
 
   assert.deepEqual(
-    { byText, wordsPicked: [textPicked, gripPicked], editing, order: ids(), asked },
-    { byText: 'n2 n1 n3', wordsPicked: [true, false], editing: false, order: 'n3 n1 n2', asked: [['move', 'n2', 'n3'], ['move', 'n3', 'n1']] },
+    { byText, wordsPicked: [textPicked, gripPicked], order: ids(), asked },
+    { byText: 'n2 n1 n3', wordsPicked: [true, false], order: 'n3 n1 n2', asked: [['move', 'n2', 'n3'], ['move', 'n3', 'n1']] },
+  );
+});
+
+// The notes coming again — the window come back to, a save's reply — while a note in full is typed in leave it where it
+// is: taken out of the page and put back, it would lose the cursor, though the notes set apart around it are drawn anew
+test('notesView_Should_LeaveNoteInFullInPlace_WhenNotesComeAgain', async () => {
+  const { view, element } = notesShown();
+  /** @type {Note} */
+  const plan = { id: 'n3', text: '# Plan', at: '2026-10-27T08:00:00.000Z', shown: 'inline' };
+  const notes = [todo, { ...idea, shown: /** @type {const} */ ('panel') }, plan];
+  view.show(notes);
+  /** @type {Node[]} */
+  const takenOut = [];
+  const watching = new window.MutationObserver((records) => records.forEach((record) => takenOut.push(...record.removedNodes)));
+  watching.observe(element('.notes-list'), { childList: true });
+
+  view.show([...notes]);
+  await Promise.resolve();
+  watching.disconnect();
+
+  assert.deepEqual(
+    takenOut.map((node) => (node instanceof window.HTMLElement ? `${node.className} ${node.dataset.id}` : 'text')),
+    ['note-line n1'],
   );
 });

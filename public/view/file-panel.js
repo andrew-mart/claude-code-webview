@@ -26,7 +26,7 @@ import { createPinButton } from './pin-button.js';
  * @typedef {Omit<import('./project-view.js').ProjectSource, 'openFile' | 'iconOf'>} ProjectSource
  * @typedef {ProjectSource & { links: (path: string) => Promise<import('../model/project.js').FileLinks | undefined> }} Project
  *   — a file's project: its folders, its search, a file's links in it
- * @typedef {{ open: (target: FileTarget) => void, showChanges: (source: Omit<import('./changes-view.js').ChangesSource, 'openFile'>) => void, showHistory: (history: ShownList) => void, showNote: (note: ShownList & { name: () => string }) => void, listChanged: (list: ShownList) => Promise<void>, showNotesHistory: (history: ShownList) => void, showProject: (source: ProjectSource) => void, showFolder: (path: string) => void, pinsChanged: () => void, findName: (intent: 'definition' | 'uses', name: string, path: string) => Promise<void>, close: () => void, isOpen: () => boolean }} FilePanel
+ * @typedef {{ open: (target: FileTarget) => void, showChanges: (source: Omit<import('./changes-view.js').ChangesSource, 'openFile'>) => void, showHistory: (history: ShownList) => void, showNote: (note: ShownList & { name: () => string, actions: HTMLElement }) => void, listChanged: (list: ShownList) => Promise<void>, showNotesHistory: (history: ShownList) => void, showProject: (source: ProjectSource) => void, showFolder: (path: string) => void, pinsChanged: () => void, findName: (intent: 'definition' | 'uses', name: string, path: string) => Promise<void>, close: () => void, isOpen: () => boolean }} FilePanel
  *   — showChanges: the branch's changes in place of a file, read from the source; showHistory: the conversations of
  *   herdr's tabs (history-view.js); showProject: the project's files; pinsChanged: the pin over a file drawn again for
  *   the files pinned now; listChanged: a list drawn again, changed elsewhere — the panel's title too, if it is the one
@@ -38,8 +38,9 @@ import { createPinButton } from './pin-button.js';
  *   its line, in its project's folder, in a tab of its own
  * @typedef {{ element: HTMLElement, reload: () => Promise<void>, summary: () => string | undefined }} ShownList — a list drawn
  *   by its own view: reload draws it anew, summary goes under the panel's title
- * @typedef {ShownList & { name: () => string, icon: string, back: string, backTitle: string, beside: boolean }} Listing
+ * @typedef {ShownList & { name: () => string, icon: string, back: string, backTitle: string, beside: boolean, actions: HTMLElement | undefined }} Listing
  *   — name: the panel's title, as it is now
+ *   — actions: the list's own buttons — a note's — in the panel's head before ↻, in one row with the panel's
  *   — beside: a file opened from the list shows beside it, the list staying on the left — the project's files
  *   — a list in place of a file; name: the panel's title over it; back: the button's word for the way back to it
  */
@@ -141,6 +142,8 @@ export function createFilePanel({ panel, layout, editor, vscode, fileManager, pr
   treeToggle.hidden = true;
   const reload = panelButton('reload', 'Reload file');
   reload.classList.add('panel-reload');
+  // a list's own buttons — a note's — before ↻, in one row with the panel's
+  const listActions = h('span', { className: 'panel-list-actions', attrs: { hidden: '' } });
   const copy = panelButton('copy', 'Copy path');
   // the file pinned beside the open session, in its outline
   const pin = createPinButton(pins);
@@ -174,7 +177,7 @@ export function createFilePanel({ panel, layout, editor, vscode, fileManager, pr
     resizer,
     side,
     h('div', { className: 'panel-main' }, [
-      h('header', { className: 'panel-head' }, [back, treeToggle, h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [headIcon, name, where]), path]), scripts, view, editHere, linksButton, inEditor, inVsCode, inFolderSlot, reload, pin.element, copy, close]),
+      h('header', { className: 'panel-head' }, [back, treeToggle, h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [headIcon, name, where]), path]), scripts, view, editHere, linksButton, inEditor, inVsCode, inFolderSlot, listActions, reload, pin.element, copy, close]),
       note,
       body,
     ]),
@@ -346,6 +349,8 @@ export function createFilePanel({ panel, layout, editor, vscode, fileManager, pr
     where.textContent = '';
     for (const button of [view, scripts, editHere, linksButton, inEditor, inVsCode, inFolderSlot, copy, back]) button.hidden = true;
     pin.show(undefined);
+    listActions.replaceChildren(...(listing.actions === undefined ? [] : [listing.actions]));
+    listActions.hidden = listing.actions === undefined;
     reload.hidden = false;
     panel.hidden = false;
     layout.classList.add('with-panel');
@@ -376,7 +381,12 @@ export function createFilePanel({ panel, layout, editor, vscode, fileManager, pr
     return view;
   };
   /** @param {ReturnType<typeof createProjectView>} view @returns {Listing} */
-  const filesListing = (view) => ({ ...view, name: () => 'Files', icon: 'folder', back: '← Files', backTitle: "Back to the project's files", beside: true });
+  const filesListing = (view) => ({ ...view, name: () => 'Files', icon: 'folder', back: '← Files', backTitle: "Back to the project's files", beside: true, actions: undefined });
+  /** A file, or nothing, in place of the list: its buttons go with it. */
+  const dropListActions = () => {
+    listActions.hidden = true;
+    listActions.replaceChildren();
+  };
   /** A file opened from the list, with the way back to it — beside it, for the project's files. @param {FileTarget} target */
   const openFromList = (target) => {
     if (listing?.beside === true) showBeside();
@@ -394,6 +404,7 @@ export function createFilePanel({ panel, layout, editor, vscode, fileManager, pr
       }
       current = target;
       showingList = false;
+      dropListActions();
       note.hidden = true;
       // beside the project's files, the way back stays: a narrow panel shows one of them at a time
       back.hidden = !panel.classList.contains('split');
@@ -425,19 +436,19 @@ export function createFilePanel({ panel, layout, editor, vscode, fileManager, pr
     showChanges(source) {
       const changes = createChangesView({ ...source, openFile: (file) => openFromList({ path: file, line: undefined, endLine: undefined }) });
       changes.element.replaceChildren(h('div', { className: 'panel-message', text: 'Reading the branch…' }));
-      showListing({ ...changes, name: () => 'Branch changes', icon: 'branch', back: '← Changes', backTitle: "Back to the branch's changes", beside: false });
+      showListing({ ...changes, name: () => 'Branch changes', icon: 'branch', back: '← Changes', backTitle: "Back to the branch's changes", beside: false, actions: undefined });
     },
     /** @param {ShownList} history */
     showHistory(history) {
-      showListing({ ...history, name: () => 'History', icon: 'history', back: '← History', backTitle: 'Back to the history', beside: false });
+      showListing({ ...history, name: () => 'History', icon: 'history', back: '← History', backTitle: 'Back to the history', beside: false, actions: undefined });
     },
-    /** @param {ShownList & { name: () => string }} note — a note opened from its name among the notes (note-panel.js) */
+    /** @param {ShownList & { name: () => string, actions: HTMLElement }} note — a note opened from its name among the notes (note-panel.js) */
     showNote(note) {
       showListing({ ...note, icon: 'note', back: '← Note', backTitle: 'Back to the note', beside: false });
     },
     /** @param {ShownList} history — the changes of the session's notes (notes-history-view.js) */
     showNotesHistory(history) {
-      showListing({ ...history, name: () => 'Notes history', icon: 'history', back: '← Notes history', backTitle: 'Back to the notes history', beside: false });
+      showListing({ ...history, name: () => 'Notes history', icon: 'history', back: '← Notes history', backTitle: 'Back to the notes history', beside: false, actions: undefined });
     },
     pinsChanged() {
       pin.refresh();
@@ -486,6 +497,7 @@ export function createFilePanel({ panel, layout, editor, vscode, fileManager, pr
       current = undefined;
       listing = undefined;
       showingList = false;
+      dropListActions();
       back.hidden = true;
       shown?.dispose();
       shown = undefined;
@@ -519,7 +531,7 @@ export function createFilePanel({ panel, layout, editor, vscode, fileManager, pr
     const path = current.path;
     const { root, links } = project(path);
     const view = createLinksView({ path, root, load: () => links(path), openFile: openFromList, iconOf });
-    showListing({ ...view, name: () => 'Links', icon: 'links', back: '← Links', backTitle: "Back to the file's links", beside: false });
+    showListing({ ...view, name: () => 'Links', icon: 'links', back: '← Links', backTitle: "Back to the file's links", beside: false, actions: undefined });
   });
   reload.addEventListener('click', () => {
     if (current !== undefined) load(current);

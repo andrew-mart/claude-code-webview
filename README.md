@@ -107,19 +107,25 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   one click away. Bookmarks are kept by the viewer in `~/.claude-code-webview/bookmarks.json`, so every browser and
   device that opens it sees the same ones.
 - **Notes.** First in the outline, notes in markdown on the session's project folder: every session in the folder —
-  Claude Code's, whose project stays the folder it started in after a `cd`, and Codex's — shows the same ones. Each note
-  is shown its own way, chosen as it is written: **+** writes one inline, in full in the outline, and the button beside
-  it one set apart — written in the side panel under a name given above it (Ctrl+Enter or ✓ keeps it; a click
-  elsewhere, to fetch what goes in it, does not), then listed by that name — with none given, by its first line — the
-  name opening it in the side panel to read, edit — its name too — or remove. A click on a note inline edits it in
-  place; ✓ under it, Ctrl+Enter or a click elsewhere keeps what is typed, ✕ or Esc leaves the note as it was — a note
-  written with **+** the same. The bin removes a note once ✓ confirms; the button beside the bin sets it apart, the one
-  at the end of a name brings it back inline. The notes stand in the order they are put in — a new one first: the grip
-  among a note's buttons moves it among the others, dragged with the mouse or with a finger resting on it a moment, and
-  every device shows the order alike. The clock lists the notes' changes, the latest first — added, edited, removed,
-  set apart — each with the text it had before and ↶, which puts the note back as it was: a note removed comes back, an
-  edit is undone. Kept in `~/.claude-code-webview/notes.json`, as the bookmarks are, each note with its way, so every
-  device shows it alike; the last 200 changes of each folder in `notes-history.json` beside it.
+  Claude Code's, whose project stays the folder it started in after a `cd`, and Codex's — shows the same ones. A note is
+  always there to be typed in, shown as it reads — a heading as a heading, a list's bullets as dots, a task's [ ] as a
+  box to tick, a code block coloured by its language, a table as a table — its markdown's marks showing only where the
+  cursor is, as Obsidian's live preview has it; what is saved is the markdown as typed. It is saved a second after the
+  typing stops, and at once when it is left; a note may be empty. A link in a note — and a file's path — opens on
+  Ctrl+click: a file in the side panel at its line, a page in a tab. The `</>` button shows a note's markdown as typed,
+  and back. The note button in the session's head switches the notes to blocks, as Notion has them — Milkdown's Crepe:
+  **/** makes a block, a handle on its left drags it, a toolbar comes over the words selected, a table is edited in
+  place; a note typed into there is saved as Milkdown writes markdown — its lists' marks and escapes its own — and a
+  note only read is not saved. **+** writes a new note set apart — in the side panel, under a name in the field above it
+  (with none, its first line names it) — listed in the outline by its name, which opens it in the side panel; the button
+  at the end of a name shows the note in full in the outline, and the one beside the bin sets it apart again. The bin
+  removes a note once ✓ confirms. The notes stand in the order they are put in — a new one first: the grip among a
+  note's buttons moves it among the others, dragged with the mouse or with a finger resting on it a moment, and every
+  device shows the order alike. The clock lists the notes' changes, the latest first — added, edited, removed, set
+  apart; a note's edits one after another, within ten minutes, are one — each with the text it had before and ↶, which
+  puts the note back as it was: a note removed comes back, an edit is undone. Kept in
+  `~/.claude-code-webview/notes.json`, as the bookmarks are, each note with its way, so every device shows it alike; the
+  last 200 changes of each folder in `notes-history.json` beside it.
 
   ![The notes' changes in the side panel, the latest first, the text of a note removed opened](docs/notes-history.png)
 - **Pinned files.** Under the notes, the files pinned beside the session — a spec, a design, a README; any file the side
@@ -499,6 +505,7 @@ npm install          # with the development tools: TypeScript, jsdom
 npm start            # run from the working copy
 npm test             # node:test — transcript parsing, file links, server, markdown (jsdom), CLI
 npm run check        # TypeScript checks the JavaScript through JSDoc in strict mode
+node scripts/build-milkdown.mjs  # rebuilds public/lib/milkdown — the notes' blocks editor — after updating Milkdown
 ```
 
 | Folder | Contents |
@@ -507,7 +514,8 @@ npm run check        # TypeScript checks the JavaScript through JSDoc in strict 
 | `server/` | HTTP server, session list, transcript stream, file panel; through herdr: its layout, terminals, sending prompts |
 | `public/model/` | pure functions: transcript parsing, tool rows and diffs, file links, outline, formatting |
 | `public/view/` | rendering of the feed, tool rows, markdown, file panel, outline, input box, herdr view, terminal |
-| `assets/`, `scripts/` | shortcut icon, and the script that draws it and the home screen icons (`public/favicons/*.png`) |
+| `public/lib/` | Milkdown's Crepe bundled into one module and one stylesheet: kept built, as the viewer has no build step |
+| `assets/`, `scripts/` | shortcut icon, and the script that draws it and the home screen icons (`public/favicons/*.png`); the Milkdown bundle's build |
 | `test/` | tests |
 
 ## License

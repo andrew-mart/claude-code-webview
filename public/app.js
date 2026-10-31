@@ -39,7 +39,9 @@ import { scopesOf } from './model/pins.js';
 import { createNotesView } from './view/notes-view.js';
 import { createTabSwitcher } from './view/tab-switcher.js';
 import { noteOpened, parseRecent, switcherEntries } from './model/recent-tabs.js';
-import { createNoteDraft, createNotePanel } from './view/note-panel.js';
+import { createNotePanel } from './view/note-panel.js';
+import { createNoteEditor } from './view/note-editor.js';
+import { fileRefFromHref, findFileRefs } from './model/file-ref.js';
 import { createNotesHistoryPanel } from './view/notes-history-view.js';
 import { h } from './view/dom.js';
 import { createFilePanel } from './view/file-panel.js';
@@ -149,6 +151,8 @@ address.followLinksIn(document);
 watchEdgeSwipe(document, () => {
   if (matchMedia('(max-width: 820px)').matches && document.documentElement.dataset.view === 'session' && !drawers.isOpen()) drawers.toggle('sessions');
 });
+/** The editor of the notes chosen anew in the view settings: the notes open are made anew with it. */
+const notesEditorEvent = 'viewer:notes-editor';
 // A view setting that resizes the feed keeps the reader at the message they were at.
 const settings = createSettings((change) => page.keepPlace(change));
 /** The answers seen: herdr's finished agents' lamps put out. */
@@ -743,31 +747,67 @@ function createPage() {
     outline.setBookmarks(bookmarks.list());
     const unsubscribe = bookmarks.onChange(() => outline.setBookmarks(bookmarks.list()));
     // the notes of the session's project folder, first in the outline, each its own way: in full, or set apart — listed
-    // by its name, the name opening it in the side panel, written there from the start; their history there too, any
-    // change undone — the note, or the history, shown kept up with the notes as they change
+    // by its name, the name opening it in the side panel, written there from the start; each in its editor, always there
+    // to be typed in; their history in the panel too, any change undone — the note, or the history, shown kept up with
+    // the notes as they change
     /** @type {readonly import('./model/notes.js').Note[]} */
     let notesNow = [];
     /** @type {import('./view/file-panel.js').ShownList | undefined} */
     let noteShown;
+    /** The notes' editors open: made anew when another editor is chosen in the settings. */
+    /** @type {Set<import('./view/note-editor.js').NoteEditor>} */
+    const noteEditors = new Set();
+    const remakeNoteEditors = () => noteEditors.forEach((editor) => editor.remake());
+    document.addEventListener(notesEditorEvent, remakeNoteEditors);
+    /**
+     * A note's editor, as it reads — the one chosen in the settings: CodeMirror's live preview, its marks giving way
+     * where the cursor is, or Milkdown's blocks; its source CodeMirror's always.
+     * @type {import('./view/notes-view.js').EditorOf}
+     */
+    const noteEditorOf = ({ text, save }) => {
+      const editor = createNoteEditor({
+        text,
+        shown: 'preview',
+        placeholder: 'Markdown: # a heading, - a list, ``` code',
+        save,
+        onOpen: openFromNote,
+        mount: async (host, options) =>
+          options.shown === 'preview' && settings.get('notes') === 'blocks'
+            ? (await import('./view/note-editor-blocks.js')).mountBlocksEditor(host, options)
+            : (await import('./view/note-editor-cm.js')).mountNoteEditor(host, options),
+      });
+      noteEditors.add(editor);
+      return {
+        ...editor,
+        dispose: () => {
+          noteEditors.delete(editor);
+          editor.dispose();
+        },
+      };
+    };
     /** A note set apart opened in the side panel. @param {string} noteId */
     const openNote = (noteId) => {
-      const panel = createNotePanel({ note: () => notesNow.find((one) => one.id === noteId), edit: (shownId, text, name) => notes.edit(shownId, text, name), remove: (shownId) => notes.remove(shownId) });
+      const panel = createNotePanel({
+        note: () => notesNow.find((one) => one.id === noteId),
+        edit: (shownId, text) => notes.edit(shownId, text),
+        rename: (shownId, name) => notes.rename(shownId, name),
+        remove: (shownId) => notes.remove(shownId),
+        editorOf: noteEditorOf,
+      });
       noteShown = panel;
       drawers.close();
       filePanel.showNote(panel);
+      return panel;
     };
     const notesView = createNotesView({
-      add: (text) => void notes.add(text, 'inline', ''),
+      // a note written set apart, in the side panel, the cursor in it: unfolded, it shows in full here
+      add: () => openNote(notes.add('', 'panel', '')).focus(),
       edit: (noteId, text) => notes.edit(noteId, text),
       remove: (noteId) => notes.remove(noteId),
       open: openNote,
       setShown: (noteId, shown) => notes.setShown(noteId, shown),
       move: (noteId, before) => notes.move(noteId, before),
-      writeApart: () => {
-        noteShown = undefined;
-        drawers.close();
-        filePanel.showNote(createNoteDraft({ keep: (text, name) => openNote(notes.add(text, 'panel', name)), leave: () => filePanel.close() }));
-      },
+      editorOf: noteEditorOf,
       showHistory: () => {
         const history = createNotesHistoryPanel({ steps: () => notes.history(), undo: (step) => notes.undo(step) });
         noteShown = history;
@@ -865,6 +905,7 @@ function createPage() {
       tasks.dispose();
       unsubscribe();
       notes.dispose();
+      document.removeEventListener(notesEditorEvent, remakeNoteEditors);
       pins.dispose();
       spy.dispose();
     };
@@ -1178,6 +1219,7 @@ const headerSettingGroups = [
     ['width', 'widen'],
     ['tables', 'table'],
     ['outline', 'list'],
+    ['notes', 'note'],
   ],
   [['copy', 'copy']],
   [
@@ -1215,6 +1257,11 @@ function createSettings(keepPlace) {
     root.dataset.tables = get('tables');
     root.dataset.width = get('width');
     root.dataset.lamps = get('lamps');
+    // the notes open made anew with the editor chosen
+    if (root.dataset.notes !== get('notes')) {
+      root.dataset.notes = get('notes');
+      document.dispatchEvent(new Event(notesEditorEvent));
+    }
     relabelTables(document);
     const activity = get('activity');
     const edits = get('edits');
@@ -1272,6 +1319,7 @@ function settingKeyOf(value) {
     case 'width':
     case 'copy':
     case 'lamps':
+    case 'notes':
       return value;
     default:
       return undefined;
@@ -1852,6 +1900,22 @@ function parseSessions(json) {
     const agent = item.agent === 'codex' ? 'codex' : 'claude';
     return [{ id, project, agent, title: text(item.title), cwd: text(item.cwd), branch: text(item.branch), kind, modifiedAt: item.modifiedAt, size: item.size, activeAt: item.activeAt }];
   });
+}
+
+/**
+ * What a link Ctrl+clicked in a note names: a file — its path in the text, a file: link, a path as a link's address —
+ * opens in the side panel at its line; a page on the web in a tab of its own; any other address nowhere.
+ * @param {import('./view/note-editor.js').OpenTarget} target
+ */
+function openFromNote(target) {
+  if ('path' in target) {
+    filePanel.open({ path: target.path, line: target.line, endLine: undefined });
+    return;
+  }
+  const [whole] = findFileRefs(target.href);
+  const file = fileRefFromHref(target.href) ?? (whole !== undefined && whole.index === 0 && whole.text === target.href ? whole : undefined);
+  if (file !== undefined) filePanel.open({ path: file.path, line: file.line, endLine: undefined });
+  else if (/^(?:https?:|mailto:)/i.test(target.href)) window.open(target.href, '_blank', 'noopener,noreferrer');
 }
 
 /**

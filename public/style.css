@@ -4536,7 +4536,14 @@ table.diff tr.gap td {
   background: var(--bg-elev);
 }
 
-.note-text {
+/* a note being typed in: its edge in the accent */
+.note:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+}
+
+/* A note in its editor (note-editor.js, note-editor-cm.js): in the outline's card, smaller; in the side panel, as a
+   document reads. What it says shows as it reads while the editor is being made, not to jump when it comes. */
+.note-editor {
   color: var(--text-2);
   font-size: 13px;
   line-height: 1.45;
@@ -4544,81 +4551,329 @@ table.diff tr.gap td {
   cursor: text;
 }
 
-.note-text > :first-child {
+.note-editor-waiting > :first-child {
   margin-top: 0;
 }
 
-.note-text > :last-child {
+.note-editor-waiting > :last-child {
   margin-bottom: 0;
 }
 
-.note-text p {
-  margin: 0 0 0.4em;
+.note-editor-waiting p {
+  margin: 0;
 }
 
-.note-text :is(h1, h2, h3, h4) {
-  margin: 0.5em 0 0.25em;
-  font-size: 1.05em;
+.note-editor .cm-editor {
+  background: transparent;
+  color: inherit;
 }
 
-.note-text :is(ul, ol) {
-  margin: 0.2em 0 0.4em;
-  padding-left: 1.3em;
+.note-editor .cm-editor.cm-focused {
+  outline: none;
 }
 
-/* × over the card's corner on hover — always there on a touch screen */
+.note-editor .cm-scroller {
+  font-family: var(--font-ui);
+  line-height: inherit;
+}
+
+.note-editor .cm-content {
+  padding: 0;
+  caret-color: var(--text);
+}
+
+.note-editor .cm-line {
+  padding: 0;
+}
+
+.note-editor .cm-placeholder {
+  color: var(--text-4);
+}
+
+/* the cursor CodeMirror draws itself, in the text's colour — its own is black, lost on the dark theme */
+.note-editor .cm-cursor,
+.note-editor .cm-dropCursor {
+  border-left: 1.5px solid var(--text);
+}
+
+.note-editor .cm-selectionBackground,
+.note-editor .cm-editor.cm-focused .cm-selectionBackground,
+.note-editor .cm-content ::selection {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* its source, the fallback: the markdown as typed, in the code's letters */
+.note-editor-host.source .cm-scroller {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+/* The live preview's marks (live-preview.js): headings by their level, code and quotes as the conversation draws them. */
+.note-editor .cm-lp-h1 {
+  font-size: 1.4em;
+  font-weight: 650;
+}
+
+.note-editor .cm-lp-h2 {
+  font-size: 1.22em;
+  font-weight: 650;
+}
+
+.note-editor .cm-lp-h3 {
+  font-size: 1.1em;
+  font-weight: 650;
+}
+
+.note-editor :is(.cm-lp-h4, .cm-lp-h5, .cm-lp-h6) {
+  font-weight: 650;
+}
+
+.note-editor :is(.cm-lp-h1, .cm-lp-h2, .cm-lp-h3) {
+  padding-top: 0.25em;
+  color: var(--text);
+}
+
+.note-editor .cm-lp-inline-code {
+  padding: 0.1em 0.3em;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-code);
+  color: var(--inline-code);
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+}
+
+.note-editor .cm-lp-link {
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 2px;
+}
+
+/* Ctrl held over a link: it opens on a click */
+.note-editor:is(:hover, :focus-within) .cm-lp-link:hover {
+  text-decoration-color: currentColor;
+}
+
+.note-editor .cm-lp-bullet {
+  display: inline-block;
+  width: 1ch;
+  color: var(--text-3);
+}
+
+.note-editor .cm-lp-checkbox {
+  width: 13px;
+  height: 13px;
+  margin: 0 6px 0 0;
+  vertical-align: -2px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.note-editor .cm-lp-hr {
+  display: inline-block;
+  width: 100%;
+  border-top: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.note-editor .cm-lp-code {
+  padding: 0 10px;
+  background: var(--bg-code);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.note-editor .cm-lp-code-first {
+  padding-top: 3px;
+  border-radius: 6px 6px 0 0;
+}
+
+.note-editor .cm-lp-code-last {
+  padding-bottom: 3px;
+  border-radius: 0 0 6px 6px;
+}
+
+.note-editor .cm-lp-code-first.cm-lp-code-last {
+  border-radius: 6px;
+}
+
+.note-editor .cm-lp-fence-label {
+  color: var(--text-4);
+  font: 10px var(--font-ui);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.note-editor .cm-lp-quote {
+  padding-left: 12px;
+  border-left: 3px solid var(--border-strong);
+  color: var(--text-2);
+}
+
+.note-editor .cm-lp-callout {
+  --callout: var(--accent);
+  padding-left: 12px;
+  border-left: 3px solid var(--callout);
+  background: color-mix(in srgb, var(--callout) 8%, transparent);
+}
+
+.note-editor :is(.cm-lp-callout-warning, .cm-lp-callout-caution, .cm-lp-callout-danger) {
+  --callout: var(--warning);
+}
+
+.note-editor .cm-lp-callout-title {
+  font-weight: 600;
+}
+
+.note-editor .cm-lp-callout-label {
+  margin-right: 6px;
+  color: var(--callout);
+  font-weight: 650;
+}
+
+.note-editor .cm-lp-html {
+  color: var(--hl-tag);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+/* a table, drawn as the conversation draws one — its spaces between tags no line of their own, as the editor's text has */
+.note-editor .cm-lp-table {
+  margin: 4px 0;
+  overflow-x: auto;
+  white-space: normal;
+  cursor: text;
+}
+
+.note-editor .cm-lp-table table {
+  font-size: 0.92em;
+}
+
+/* a note's table fits the note: no width button under it */
+.note-editor .cm-lp-table .table-width {
+  display: none;
+}
+
+/* A note as blocks — Milkdown's Crepe (note-editor-blocks.js): its colours and letters the viewer's, by its theme; no
+   page margins of its own — the room on the left is its blocks' handle's. */
+.note-editor .milkdown {
+  --crepe-color-background: var(--bg-elev);
+  --crepe-color-on-background: var(--text);
+  --crepe-color-surface: var(--bg-elev);
+  --crepe-color-surface-low: var(--bg-code);
+  --crepe-color-on-surface: var(--text);
+  --crepe-color-on-surface-variant: var(--text-2);
+  --crepe-color-outline: var(--border-strong);
+  --crepe-color-primary: var(--accent);
+  --crepe-color-secondary: var(--bg-selected);
+  --crepe-color-on-secondary: var(--text);
+  --crepe-color-inverse: var(--text);
+  --crepe-color-on-inverse: var(--bg);
+  --crepe-color-inline-code: var(--inline-code);
+  --crepe-color-error: var(--danger);
+  --crepe-color-hover: var(--bg-hover);
+  --crepe-color-selected: var(--bg-selected);
+  --crepe-color-inline-area: var(--bg-code);
+  --crepe-font-title: var(--font-ui);
+  --crepe-font-default: var(--font-ui);
+  --crepe-font-code: var(--font-mono);
+  --crepe-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.18);
+  --crepe-shadow-2: 0 4px 14px rgba(0, 0, 0, 0.22);
+  --crepe-base-font-size: 13px;
+  background: transparent;
+  color: inherit;
+}
+
+/* the cursor Milkdown draws itself, in the text's colour as CodeMirror's is — its own is red */
+.note-editor .milkdown .ProseMirror-focused {
+  --prosemirror-virtual-cursor-color: var(--text);
+}
+
+.note-editor .milkdown .ProseMirror {
+  padding: 0 0 0 22px;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.note-panel .note-editor .milkdown {
+  --crepe-base-font-size: 15px;
+}
+
+/* headings as a note's, not a page's: a size above the text, in the viewer's letters */
+.note-editor .milkdown .ProseMirror :is(h1, h2, h3, h4, h5, h6) {
+  margin: 0;
+  padding: 0.3em 0 0.1em;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.note-editor .milkdown .ProseMirror h1 {
+  font-size: 1.4em;
+}
+
+.note-editor .milkdown .ProseMirror h2 {
+  font-size: 1.22em;
+}
+
+.note-editor .milkdown .ProseMirror h3 {
+  font-size: 1.1em;
+}
+
+.note-editor .milkdown .ProseMirror :is(h4, h5, h6) {
+  font-size: 1em;
+}
+
+/* in the outline's card, the blocks close together */
+.note .note-editor .milkdown .ProseMirror :is(p, li) {
+  padding: 1px 0;
+}
+
+.note-panel .note-editor .milkdown .ProseMirror {
+  padding-left: 40px;
+}
+
+/* a note's buttons over the card's corner on hover — always there on a touch screen; unseen, they take no click: it goes
+   to the note under them */
 .note-actions {
   position: absolute;
   top: 3px;
   right: 3px;
   display: flex;
+  align-items: center;
   gap: 2px;
   border-radius: 6px;
   background: var(--bg-elev);
   opacity: 0;
+  pointer-events: none;
+}
+
+/* the grip among a note's buttons as small as they are, its dots centred on their line */
+.note-actions > .note-grip {
+  width: 20px;
+  height: 20px;
+}
+
+.note-actions > .note-grip .icon {
+  width: 14px;
+  height: 14px;
 }
 
 .note:hover .note-actions,
 .note-actions:focus-within {
   opacity: 1;
+  pointer-events: auto;
 }
 
 @media (hover: none) {
   .note-actions {
     opacity: 1;
+    pointer-events: auto;
   }
 }
 
 .note-remove:hover,
 .note-confirm-remove:hover {
   color: var(--danger);
-}
-
-.notes-editor {
-  display: block;
-  width: 100%;
-  min-height: 5.5em;
-  max-height: 60vh;
-  padding: 6px 8px;
-  border: 1px solid var(--accent);
-  border-radius: 8px;
-  background: var(--bg-elev);
-  color: var(--text);
-  font: 12.5px/1.45 var(--font-mono);
-  field-sizing: content;
-  resize: vertical;
-}
-
-.notes-editor:focus {
-  outline: none;
-}
-
-/* ✓ and ✕ under a note being written or edited in the outline: it ends without a keyboard too */
-.notes-editor-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 2px;
-  margin-top: 2px;
 }
 
 .note-keep-edit:hover {
@@ -4707,21 +4962,37 @@ table.diff tr.gap td {
   box-shadow: 0 2px 0 0 var(--accent);
 }
 
+/* a note set apart: its name, a note's icon on its left as the pinned files have theirs */
 .note-row {
-  display: block;
+  display: flex;
   flex: 1;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
   padding: 5px 8px;
-  overflow: hidden;
   border: 0;
   border-radius: 8px;
   background: transparent;
   color: var(--text-2);
   font: inherit;
   text-align: left;
+  cursor: pointer;
+}
+
+.note-row > .icon {
+  color: var(--text-3);
+}
+
+.note-row:hover > .icon,
+.note-row:focus-visible > .icon {
+  color: var(--text-2);
+}
+
+.note-row-name {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: pointer;
 }
 
 .note-row:hover,
@@ -4739,21 +5010,19 @@ table.diff tr.gap td {
   padding: 10px 18px 24px;
 }
 
+/* a note's buttons, in the side panel's head before ↻ (file-panel.js: listActions) */
+.panel-list-actions,
 .note-panel-actions {
   display: flex;
-  justify-content: flex-end;
   gap: 2px;
 }
 
-.note-panel-text {
+/* the note in the side panel: as a document reads, the whole panel under it a place to click into it */
+.note-panel .note-editor {
+  min-height: 60vh;
+  color: var(--text);
   font-size: 15px;
   line-height: 1.55;
-  overflow-wrap: anywhere;
-}
-
-.note-panel-editor {
-  min-height: 50vh;
-  font-size: 13px;
 }
 
 /* the note's name, above its markdown: empty, its first line names it, as the placeholder shows */

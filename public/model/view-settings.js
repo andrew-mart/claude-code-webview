@@ -17,6 +17,7 @@ export const choices = /** @type {const} */ ({
   workspaces: ['flat', 'grouped'],
   sidebar: ['herdr', 'sessions'],
   closed: ['all', 'only'],
+  notes: ['live', 'blocks'],
 });
 
 /**
@@ -40,6 +41,7 @@ const resultNames = {
   workspaces: { flat: 'List sessions by time', grouped: 'Group sessions by herdr workspace' },
   sidebar: { herdr: "Show herdr's workspaces and tabs", sessions: 'Show every session' },
   closed: { all: 'List every session', only: 'List only the sessions closed in herdr' },
+  notes: { live: 'Edit notes with a live preview, as Obsidian does (CodeMirror)', blocks: 'Edit notes as blocks, as Notion does (Milkdown)' },
 };
 
 /**

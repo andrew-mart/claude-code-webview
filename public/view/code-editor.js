@@ -5,18 +5,17 @@
 // its light or dark theme.
 import { closeBrackets, closeBracketsKeymap, completionKeymap, autocompletion } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentWithTab, redo, undo } from '@codemirror/commands';
-import { bracketMatching, foldGutter, foldKeymap, HighlightStyle, indentOnInput, StreamLanguage, syntaxHighlighting } from '@codemirror/language';
+import { bracketMatching, foldGutter, foldKeymap, HighlightStyle, indentOnInput, syntaxHighlighting } from '@codemirror/language';
 import { highlightSelectionMatches, openSearchPanel, searchKeymap } from '@codemirror/search';
 import { EditorSelection, EditorState } from '@codemirror/state';
 import { crosshairCursor, drawSelection, dropCursor, EditorView, highlightActiveLine, highlightActiveLineGutter, highlightSpecialChars, keymap, lineNumbers, rectangularSelection } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
 import { languageOfPath } from '../model/code-language.js';
+import { languageSupport } from './language-support.js';
 
 /**
  * @typedef {import('./file-editor.js').CodeEditor} CodeEditor
  * @typedef {import('./file-editor.js').EditorOptions} EditorOptions
- * @typedef {import('@codemirror/state').Extension} Extension
- * @typedef {import('../model/code-language.js').CodeLanguage} CodeLanguage
  */
 
 /** The viewer's code colours — the ones its highlighted code blocks have — by tag. */
@@ -115,77 +114,4 @@ export async function createCodeEditor(host, { text, path, line, onChange, onSav
     focus: () => view.focus(),
     dispose: () => view.destroy(),
   };
-}
-
-/**
- * The language's colours and structure, its package loaded when a file of it opens.
- * @param {CodeLanguage} language
- * @returns {Promise<Extension>}
- */
-async function languageSupport(language) {
-  switch (language) {
-    case 'javascript':
-      return (await import('@codemirror/lang-javascript')).javascript();
-    case 'jsx':
-      return (await import('@codemirror/lang-javascript')).javascript({ jsx: true });
-    case 'typescript':
-      return (await import('@codemirror/lang-javascript')).javascript({ typescript: true });
-    case 'tsx':
-      return (await import('@codemirror/lang-javascript')).javascript({ jsx: true, typescript: true });
-    case 'json':
-      return (await import('@codemirror/lang-json')).json();
-    case 'python':
-      return (await import('@codemirror/lang-python')).python();
-    case 'css':
-      return (await import('@codemirror/lang-css')).css();
-    case 'html':
-      return (await import('@codemirror/lang-html')).html();
-    case 'markdown':
-      return (await import('@codemirror/lang-markdown')).markdown();
-    case 'sql':
-      return (await import('@codemirror/lang-sql')).sql();
-    case 'xml':
-      return (await import('@codemirror/lang-xml')).xml();
-    case 'yaml':
-      return (await import('@codemirror/lang-yaml')).yaml();
-    case 'rust':
-      return (await import('@codemirror/lang-rust')).rust();
-    case 'go':
-      return (await import('@codemirror/lang-go')).go();
-    case 'java':
-      return (await import('@codemirror/lang-java')).java();
-    case 'cpp':
-      return (await import('@codemirror/lang-cpp')).cpp();
-    case 'php':
-      return (await import('@codemirror/lang-php')).php();
-    case 'csharp':
-      return StreamLanguage.define((await import('@codemirror/legacy-modes/mode/clike')).csharp);
-    case 'kotlin':
-      return StreamLanguage.define((await import('@codemirror/legacy-modes/mode/clike')).kotlin);
-    case 'scala':
-      return StreamLanguage.define((await import('@codemirror/legacy-modes/mode/clike')).scala);
-    case 'shell':
-      return StreamLanguage.define((await import('@codemirror/legacy-modes/mode/shell')).shell);
-    case 'powershell':
-      return StreamLanguage.define((await import('@codemirror/legacy-modes/mode/powershell')).powerShell);
-    case 'toml':
-      return StreamLanguage.define((await import('@codemirror/legacy-modes/mode/toml')).toml);
-    case 'dockerfile':
-      return StreamLanguage.define((await import('@codemirror/legacy-modes/mode/dockerfile')).dockerFile);
-    case 'properties':
-      return StreamLanguage.define((await import('@codemirror/legacy-modes/mode/properties')).properties);
-    case 'lua':
-      return StreamLanguage.define((await import('@codemirror/legacy-modes/mode/lua')).lua);
-    case 'ruby':
-      return StreamLanguage.define((await import('@codemirror/legacy-modes/mode/ruby')).ruby);
-    case 'diff':
-      return StreamLanguage.define((await import('@codemirror/legacy-modes/mode/diff')).diff);
-    case 'nginx':
-      return StreamLanguage.define((await import('@codemirror/legacy-modes/mode/nginx')).nginx);
-    default: {
-      /** @type {never} */
-      const unknown = language;
-      return unknown;
-    }
-  }
 }

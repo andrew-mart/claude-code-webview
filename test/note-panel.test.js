@@ -5,156 +5,147 @@ import { JSDOM } from 'jsdom';
 const { window } = new JSDOM('<!doctype html><html><body></body></html>');
 // DOMPurify and the icons look for the DOM as their modules load: it is set up first
 Object.assign(globalThis, { window, document: window.document, NodeFilter: window.NodeFilter, Text: window.Text });
-const { createNoteDraft, createNotePanel } = await import('../public/view/note-panel.js');
+const { createNotePanel } = await import('../public/view/note-panel.js');
 const { icon } = await import('../public/view/icons.js');
 
 /** @typedef {import('../public/model/notes.js').Note} Note */
+/** @typedef {import('../public/view/note-editor.js').NoteShownAs} NoteShownAs */
 
 /** @type {Note} */
 const plan = { id: 'n3', text: '# Plan\n- **check** the build', at: '2026-10-27T09:05:00.000Z', shown: 'panel' };
 
-/** A note open in the side panel, whose changes are recorded; the note as the page has it now can be changed. */
+/**
+ * A note open in the side panel over an editor standing in for CodeMirror; its changes recorded, the note as the page has
+ * it now changeable.
+ */
 function noteOpen() {
   /** @type {string[][]} */
   const asked = [];
   /** @type {{ now: Note | undefined }} */
   const kept = { now: plan };
-  const panel = createNotePanel({ note: () => kept.now, edit: (id, text, name) => void asked.push(['edit', id, text, name]), remove: (id) => void asked.push(['remove', id]) });
-  window.document.body.replaceChildren(panel.element);
+  /** @type {NoteShownAs} */
+  let shownAs = 'preview';
+  const editor = {
+    element: Object.assign(window.document.createElement('div'), { className: 'note-editor' }),
+    /** @type {string[]} */
+    shownTexts: [],
+    /** @type {((text: string) => void) | undefined} */
+    save: undefined,
+    focused: false,
+    disposed: false,
+    /** @param {string} text */
+    show: (text) => void editor.shownTexts.push(text),
+    focus: () => void (editor.focused = true),
+    remake: () => undefined,
+    shown: () => shownAs,
+    /** @param {NoteShownAs} next */
+    setShown: (next) => void (shownAs = next),
+    dispose: () => void (editor.disposed = true),
+  };
+  const panel = createNotePanel({
+    note: () => kept.now,
+    edit: (id, text) => void asked.push(['edit', id, text]),
+    rename: (id, name) => void asked.push(['rename', id, name]),
+    remove: (id) => void asked.push(['remove', id]),
+    editorOf: ({ text, save }) => {
+      editor.element.textContent = text;
+      editor.save = save;
+      return editor;
+    },
+  });
+  // its buttons in the side panel's head, above it
+  window.document.body.replaceChildren(panel.actions, panel.element);
   /** @param {string} selector */
   const element = (selector) => {
-    const found = panel.element.querySelector(selector);
+    const found = window.document.body.querySelector(selector);
     assert.ok(found instanceof window.HTMLElement, `no ${selector}`);
     return found;
   };
-  /** @param {string} key @param {{ ctrlKey?: boolean }} [modifiers] */
-  const press = (key, modifiers = {}) => element('textarea').dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true, ...modifiers }));
-  /** @param {string} value */
-  const type = (value) => {
-    const box = element('textarea');
-    assert.ok(box instanceof window.HTMLTextAreaElement);
-    box.value = value;
+  const field = () => {
+    const found = element('input.note-panel-name');
+    assert.ok(found instanceof window.HTMLInputElement);
+    return found;
   };
-  return { panel, asked, kept, element, press, type };
+  return { panel, asked, kept, editor, element, field };
 }
 
-// The note opened from its name shows in full as markdown, named by its first line; ✎ edits its markdown in place —
-// Escape leaves it as it was, Ctrl+Enter keeps the change — and the notes coming again meanwhile leave what is typed
-test('notePanel_Should_ShowNoteInFull_AndEditItInPlace_KeepingWhatIsTyped', async () => {
-  const { panel, asked, element, press, type } = noteOpen();
-  const drawn = [panel.name(), element('.note-panel-text h1').textContent, element('.note-panel-text strong').textContent];
+// The note opened shows in its editor, always there to be typed in — what is typed saved as its text — titled by its
+// name, its first line while it has none
+test('notePanel_Should_ShowNoteInItsEditor_SavingWhatIsTyped', () => {
+  const { panel, asked, editor } = noteOpen();
 
-  element('.note-panel-edit').click();
-  const shown = /** @type {HTMLTextAreaElement} */ (element('textarea')).value;
-  type('changed my mind');
-  press('Escape');
-  element('.note-panel-edit').click();
-  type('# Plan\n- check the build\n- and the deploy');
-  await panel.reload();
-  press('Enter', { ctrlKey: true });
+  editor.save?.('# Plan\n- check the build and the deploy');
 
-  assert.deepEqual({ drawn, shown, asked }, { drawn: ['Plan', 'Plan', 'check'], shown: plan.text, asked: [['edit', 'n3', '# Plan\n- check the build\n- and the deploy', '']] });
+  assert.deepEqual({ title: panel.name(), shown: editor.element.textContent, asked }, { title: 'Plan', shown: plan.text, asked: [['edit', 'n3', '# Plan\n- check the build and the deploy']] });
 });
 
-// The bin — not the panel's × — asks first: ✕ keeps the note, ✓ removes it; a note removed — here or on another device — says so in its place
-test('notePanel_Should_RemoveNoteOnceConfirmed_AndTellWhenItIsGone', async () => {
-  const { panel, asked, kept, element } = noteOpen();
+// The note is named in a field above it: empty, its first line standing in, while it has none; the name is saved a
+// second after the typing stops — at once on Enter, which goes on to the note, or when the field is left
+test('notePanel_Should_NameNoteInFieldAboveIt_SavedAsItIsTyped', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { asked, editor, field } = noteOpen();
+  const offered = [field().value, field().placeholder];
+
+  field().value = 'Week';
+  field().dispatchEvent(new window.Event('input', { bubbles: true }));
+  t.mock.timers.tick(900);
+  const typing = [...asked];
+  t.mock.timers.tick(100);
+  field().value = 'Week plan';
+  field().dispatchEvent(new window.Event('input', { bubbles: true }));
+  field().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  field().value = 'Week plan, v2';
+  field().dispatchEvent(new window.Event('input', { bubbles: true }));
+  field().dispatchEvent(new window.FocusEvent('blur'));
+
+  assert.deepEqual(
+    { offered, typing, asked, onToNote: editor.focused },
+    { offered: ['', 'Plan'], typing: [], asked: [['rename', 'n3', 'Week'], ['rename', 'n3', 'Week plan'], ['rename', 'n3', 'Week plan, v2']], onToNote: true },
+  );
+});
+
+// The note coming again — changed on another device — is shown to its editor, its name in the field; a note removed —
+// here or elsewhere — says so in its place, its editor let go of, its buttons gone
+test('notePanel_Should_ShowNoteAsItCameAgain_AndTellWhenItIsGone', async () => {
+  const { panel, kept, editor, field } = noteOpen();
+
+  kept.now = { ...plan, text: '# Plan from the phone', name: 'Phone plan' };
+  await panel.reload();
+  const named = field().value;
+  kept.now = undefined;
+  await panel.reload();
+
+  assert.deepEqual(
+    { shown: editor.shownTexts, named, title: panel.name(), gone: panel.element.textContent, letGo: editor.disposed, buttons: panel.actions.children.length },
+    { shown: ['# Plan from the phone'], named: 'Phone plan', title: 'Note', gone: 'This note was removed.', letGo: true, buttons: 0 },
+  );
+});
+
+// The note's buttons are its own, for the side panel's head beside ↻ and ×: its source — the fallback — pressed while it
+// shows, and the bin; the body is its name and the note alone
+test('notePanel_Should_GiveItsButtonsForPanelHead_SourceAndBin', () => {
+  const { panel, editor, element } = noteOpen();
+  const buttons = () => [...panel.actions.querySelectorAll('button')].map((one) => [...one.classList].find((name) => name.startsWith('note-')));
+
+  const shown = buttons();
+  element('.note-source').click();
+  const asSource = [editor.shown(), element('.note-source').getAttribute('aria-pressed')];
+
+  assert.deepEqual(
+    { shown, asSource, code: element('.note-source').innerHTML === icon('code').outerHTML, inBody: panel.element.querySelectorAll('button').length },
+    { shown: ['note-source', 'note-panel-remove'], asSource: ['source', 'true'], code: true, inBody: 0 },
+  );
+});
+
+// The bin — not the panel's × — asks first: ✕ keeps the note, ✓ removes it
+test('notePanel_Should_RemoveNoteOnceConfirmed', () => {
+  const { asked, element } = noteOpen();
   const bin = element('.note-panel-remove').innerHTML === icon('trash').outerHTML;
 
   element('.note-panel-remove').click();
   element('.note-keep').click();
   element('.note-panel-remove').click();
   element('.note-confirm-remove').click();
-  kept.now = undefined;
-  await panel.reload();
 
-  assert.deepEqual({ bin, asked, gone: panel.element.textContent }, { bin: true, asked: [['remove', 'n3']], gone: 'This note was removed.' });
-});
-
-// The note is named by hand in its editor, above its markdown: the name field shows the name it has — empty, the first
-// line standing in, while it has none; going from the name to the markdown goes on editing, Enter in the name keeps both;
-// the panel's title is the note's name as it is now
-test('notePanel_Should_NameNoteInItsEditor_AndTitlePanelByNameAsItIsNow', async () => {
-  const { panel, asked, kept, element } = noteOpen();
-  const before = panel.name();
-
-  element('.note-panel-edit').click();
-  const field = element('input.note-panel-name');
-  assert.ok(field instanceof window.HTMLInputElement);
-  const offered = [field.value, field.placeholder];
-  field.value = 'Week plan';
-  field.dispatchEvent(new window.FocusEvent('focusout', { bubbles: true, relatedTarget: element('textarea') }));
-  const editing = panel.element.querySelector('textarea') !== null;
-  field.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-  kept.now = { ...plan, name: 'Week plan' };
-  await panel.reload();
-
-  assert.deepEqual(
-    { before, offered, editing, asked, after: panel.name() },
-    { before: 'Plan', offered: ['', 'Plan'], editing: true, asked: [['edit', 'n3', plan.text, 'Week plan']], after: 'Week plan' },
-  );
-});
-
-// A note set apart from the start is written in the side panel, under a name given above it — Enter there goes on to
-// the markdown: Ctrl+Enter or ✓ keeps what is written — nothing while
-// the box is empty — a click elsewhere, or the notes coming again, leave it being written; Escape or ✕ leave it unwritten
-test('noteDraft_Should_KeepWrittenOnCtrlEnterOrCheck_NotOnBlur_AndLeaveOnEscapeOrCross', async () => {
-  /** @type {string[][]} */
-  const asked = [];
-  const draft = createNoteDraft({ keep: (text, name) => void asked.push(['keep', text, name]), leave: () => void asked.push(['leave']) });
-  window.document.body.replaceChildren(draft.element);
-  const box = draft.element.querySelector('textarea');
-  assert.ok(box instanceof window.HTMLTextAreaElement, 'no box to write in');
-  /** @param {string} key @param {{ ctrlKey?: boolean }} [modifiers] */
-  const press = (key, modifiers = {}) => box.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true, ...modifiers }));
-  /** @param {string} selector */
-  const click = (selector) => draft.element.querySelector(selector)?.dispatchEvent(new window.MouseEvent('click'));
-
-  const field = draft.element.querySelector('input.note-panel-name');
-  assert.ok(field instanceof window.HTMLInputElement, 'no field to name it in');
-  box.value = '  ';
-  press('Enter', { ctrlKey: true });
-  field.value = 'Deploy runbook';
-  field.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-  const onToMarkdown = window.document.activeElement === box;
-  box.value = '# Deploy\n- step one';
-  box.dispatchEvent(new window.FocusEvent('blur'));
-  await draft.reload();
-  const still = box.value;
-  press('Enter', { ctrlKey: true });
-  click('.note-draft-keep');
-  press('Escape');
-  click('.note-draft-leave');
-
-  assert.deepEqual(
-    { name: draft.name(), onToMarkdown, still, asked },
-    {
-      name: 'New note',
-      onToMarkdown: true,
-      still: '# Deploy\n- step one',
-      asked: [['keep', '# Deploy\n- step one', 'Deploy runbook'], ['keep', '# Deploy\n- step one', 'Deploy runbook'], ['leave'], ['leave']],
-    },
-  );
-});
-
-// Editing needs no keyboard to end: ✓ keeps the name and markdown, ✕ leaves the note as it was — pressed, neither takes
-// the focus from what is being edited, which would keep it first
-test('notePanel_Should_KeepEditOnCheck_AndLeaveItOnCross_WithoutKeyboard', () => {
-  const { asked, element, type } = noteOpen();
-  /** @param {string} selector */
-  const press = (selector) => {
-    const pressed = element(selector);
-    const taken = !pressed.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-    pressed.click();
-    return taken;
-  };
-
-  element('.note-panel-edit').click();
-  type('# Plan\n- nothing yet');
-  const leaving = press('.note-leave-edit');
-  element('.note-panel-edit').click();
-  type('# Plan\n- check the deploy');
-  const keeping = press('.note-keep-edit');
-
-  assert.deepEqual({ focusKept: [leaving, keeping], asked }, { focusKept: [true, true], asked: [['edit', 'n3', '# Plan\n- check the deploy', '']] });
+  assert.deepEqual({ bin, asked }, { bin: true, asked: [['remove', 'n3']] });
 });

@@ -118,3 +118,19 @@ test('notesStore_Should_ShowNoteMovedAtOnce_AndTellServer', async () => {
     { shown: [['# Ideas', '# Plan', '# Deploy'], ['# Plan', '# Deploy', '# Ideas']], before: { action: 'move', id: '3', before: '1' }, last: { action: 'move', id: '2' } },
   );
 });
+
+// A note renamed — in the field above it — keeps its text as it stands, typed into since, the name going with it; a note
+// removed meanwhile is renamed nothing
+test('notesStore_Should_RenameNote_KeepingItsTextAsItStands', async () => {
+  const { store, request } = storeAnsweredByHand();
+  await request('list').answer([note('# Plan', '1')]);
+
+  store.edit('1', '# Plan\n- more');
+  request('edit');
+  store.rename('1', 'Week plan');
+  const renamed = request('edit').change;
+  store.rename('9', 'Gone');
+
+  assert.deepEqual(renamed, { action: 'edit', id: '1', text: '# Plan\n- more', name: 'Week plan' });
+  assert.throws(() => request('edit'), /no request to edit/);
+});
