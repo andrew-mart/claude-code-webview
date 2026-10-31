@@ -33,19 +33,22 @@ const statusLooks = {
 const branchRefreshMs = 15_000;
 
 /**
- * @param {{ sessionId: string, place: SessionPlace | undefined, currentBranch: () => Promise<string | undefined>, tables: SessionTables, leading: HTMLElement, navigation: readonly HTMLElement[], tools: readonly HTMLElement[] }} parts
+ * @param {{ sessionId: string, place: SessionPlace | undefined, currentBranch: () => Promise<string | undefined>, tables: SessionTables, leading: HTMLElement, navigation: readonly HTMLElement[], folds: readonly HTMLElement[], tools: readonly HTMLElement[] }} parts
  *   sessionId — the agent's id of the session, as its transcript is named;
  *   currentBranch — the branch checked out in the session's folder now (the transcript keeps the one it saw first);
  *   tables — how this session shows its tables, chosen in the details;
  *   leading — before the title (the session list's drawer button); navigation — buttons that always stay in view;
- *   tools — the view settings, folded into a menu on a narrow screen
+ *   folds — those of navigation's buttons used less on a narrow screen: there they fold into the view menu, as its first
+ *   group, for the title to have room, and come back to their places on a wide one; tools — the view settings, folded
+ *   into a menu on a narrow screen
  */
-export function createSessionHeader({ sessionId, place, currentBranch, tables, leading, navigation, tools }) {
+export function createSessionHeader({ sessionId, place, currentBranch, tables, leading, navigation, folds, tools }) {
   const title = h('h1', { className: 'title' });
   const facts = h('button', { className: 'head-facts', attrs: { type: 'button', 'aria-expanded': 'false', title: 'Show session details' } });
   const details = h('dl', { className: 'head-details', attrs: { hidden: '' } });
   const status = h('span', { className: 'status', attrs: { role: 'status' } });
-  const toolbox = h('div', { className: 'head-tools', attrs: { role: 'group', 'aria-label': 'View' } }, [...tools]);
+  const folded = h('span', { className: 'head-group head-folded' });
+  const toolbox = h('div', { className: 'head-tools', attrs: { role: 'group', 'aria-label': 'View' } }, [folded, ...tools]);
   const more = h('button', { className: 'icon-button head-more', title: 'View settings', attrs: { type: 'button', 'aria-label': 'View settings', 'aria-expanded': 'false' } }, [icon('more')]);
   const actions = h('div', { className: 'head-actions' }, [status, ...navigation, more, toolbox]);
   const element = h('header', { className: 'session-head' }, [leading, title, facts, actions, details]);
@@ -88,6 +91,19 @@ export function createSessionHeader({ sessionId, place, currentBranch, tables, l
   };
   document.addEventListener('pointerdown', onPointer);
   document.addEventListener('keydown', onKey);
+  // where each button that folds stands on a wide screen: put back there the last first, each before what followed it
+  const homes = folds.map((button) => ({ button, parent: button.parentNode, next: button.nextSibling }));
+  const narrowScreen = window.matchMedia('(max-width: 820px)');
+  const fold = (/** @type {{ matches: boolean }} */ screen) => {
+    if (screen.matches) folded.append(...folds);
+    else for (const { button, parent, next } of [...homes].reverse()) parent?.insertBefore(button, next);
+  };
+  narrowScreen.addEventListener('change', fold);
+  fold(narrowScreen);
+  // a folded button opens what takes the screen — a panel, another window: the menu goes
+  folded.addEventListener('click', (event) => {
+    if (event.target instanceof window.Element && event.target.closest('button') !== null) closeMenu();
+  });
   const lookAtBranch = async () => {
     const next = await currentBranch();
     if (next === branch) return;
@@ -122,6 +138,7 @@ export function createSessionHeader({ sessionId, place, currentBranch, tables, l
       clearInterval(branchTimer);
       document.removeEventListener('pointerdown', onPointer);
       document.removeEventListener('keydown', onKey);
+      narrowScreen.removeEventListener('change', fold);
     },
   };
 }

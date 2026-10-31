@@ -159,7 +159,13 @@ keeps no record of its processes: a Codex pane shows the thread Codex holds open
 has more than one, the one whose name Codex put in the pane's title. The search finds
 workspaces and sessions by name and by what runs in them.
 
-A second click on the open tab shows its buttons: ✎ names it — so does **F2**, anywhere but in a terminal — the next
+A finished agent's lamp goes out once its answer is seen — its session opened in the page, on any device. To come back
+to one later, keep its lamp lit — blue, steady: the clock over the session, the one among an open session's buttons in the sidebar, or
+**Ctrl+Q**. It stays lit — its tab's and its workspace's too — until you press it again or the agent starts working
+again; kept by the viewer in `~/.claude-code-webview/kept.json`, so every device shows it.
+
+A second click on the open tab shows its buttons: the first is its icon (☺ while it has none), picked there and then
+without naming the tab; ✎ names it — so does **F2**, anywhere but in a terminal — the next
 one duplicates it, × closes it (after asking with ✓ and ✕ — what runs in it stops), and the page moves to the tab next
 to it. A duplicate is a new tab of the workspace, in the same folder, named `<name>::1` (then `::2`, …; a copy of a copy
 counts on from the same name), with the session in it forked: `claude --resume <id> --fork-session` — the conversation

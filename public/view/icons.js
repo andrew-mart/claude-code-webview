@@ -57,6 +57,7 @@ const paths = {
   links: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
   uses: '<circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="12" r="2"/><path d="M8 6.5 16 11M8 17.5l8-4.5"/>',
   redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/>',
+  smile: '<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>',
 };
 
 /**
@@ -74,6 +75,28 @@ export function icon(name) {
   const copy = (templates[name] ?? templates.other)?.cloneNode(true);
   if (!(copy instanceof window.HTMLSpanElement)) throw new Error(`No icon "${name}" and no fallback icon`);
   return copy;
+}
+
+/**
+ * An emoji drawn as the icons are: in the same 24×24 box, centred in it — as text it would sit on its line's baseline,
+ * lower than the line icons beside it.
+ * @param {string} emoji — a tab's, from its name: set as text, never as markup
+ * @returns {HTMLSpanElement}
+ */
+export function emojiIcon(emoji) {
+  const holder = document.createElement('span');
+  holder.className = 'icon';
+  holder.setAttribute('aria-hidden', 'true');
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  /** @type {readonly (readonly [string, string])[]} */
+  const centred = [['x', '12'], ['y', '12'], ['text-anchor', 'middle'], ['dominant-baseline', 'central'], ['font-size', '22']];
+  for (const [name, value] of centred) text.setAttribute(name, value);
+  text.textContent = emoji;
+  svg.append(text);
+  holder.append(svg);
+  return holder;
 }
 
 /**

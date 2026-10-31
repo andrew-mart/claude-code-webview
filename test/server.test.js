@@ -15,6 +15,7 @@ import { createBookmarkFile } from '../server/bookmarks.js';
 import { createLaterFile } from '../server/later.js';
 import { createNotesFile } from '../server/notes.js';
 import { createSeenFile } from '../server/seen.js';
+import { createKeptFile } from '../server/kept.js';
 import { createUploads } from '../server/uploads.js';
 import { createVsCode } from '../server/vscode.js';
 import net from 'node:net';
@@ -221,7 +222,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // the file manager opens what is asked
   /** @type {import('../server/file-manager.js').FileManagerTarget[]} */
   const shownInFileManager = [];
-  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), later: createLaterFile(join(root, 'later.json')), notes: createNotesFile(join(root, 'notes.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, sessionStatus: async (id) => {
+  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), later: createLaterFile(join(root, 'later.json')), notes: createNotesFile(join(root, 'notes.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), kept: createKeptFile(join(root, 'kept.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, sessionStatus: async (id) => {
       await statusRead;
       return id === sessionId ? sessionStatus : undefined;
     } });
@@ -1847,6 +1848,26 @@ test('seen_Should_KeepAnswerSeenFromViewerPage_ForEveryDevice', async (t) => {
   const seen = await (await fetch(`${base}/api/seen`)).json();
 
   assert.deepEqual({ elsewhere: elsewhere.status, marked: marked.status, seen }, { elsewhere: 403, marked: 200, seen: { 'w1:p2': 7 } });
+});
+
+// An agent kept lit to come back to on one device is lit on every one: the page tells the viewer, which keeps the mark
+// for the others until a page takes it off; another site cannot, and a mark of another shape is refused
+test('kept_Should_KeepAgentLitFromViewerPage_ForEveryDevice_UntilTakenOff', async (t) => {
+  const { base, port } = await withServer(t);
+  const kept = async () => (await fetch(`${base}/api/kept`)).json();
+
+  const elsewhere = await post(port, '/api/kept', { ...pageHeaders(port), origin: 'https://evil.example' }, JSON.stringify({ pane: 'w1:p1', count: 5 }));
+  await post(port, '/api/kept', pageHeaders(port), JSON.stringify({ pane: 'w1:p1', count: 5 }));
+  await post(port, '/api/kept', pageHeaders(port), JSON.stringify({ pane: 'w1:p2', count: 3 }));
+  const marked = await kept();
+  await post(port, '/api/kept', pageHeaders(port), JSON.stringify({ pane: 'w1:p1', count: null }));
+  const takenOff = await kept();
+  const odd = await post(port, '/api/kept', pageHeaders(port), JSON.stringify({ pane: 'w1:p1', count: 'five' }));
+
+  assert.deepEqual(
+    { elsewhere: elsewhere.status, marked, takenOff, odd: odd.status },
+    { elsewhere: 403, marked: { 'w1:p1': 5, 'w1:p2': 3 }, takenOff: { 'w1:p2': 3 }, odd: 400 },
+  );
 });
 
 // A Codex session is rewound as Claude Code's: its prompt found among the prompts of its transcript, counted from the

@@ -33,7 +33,7 @@ const web = {
 };
 
 /** A sidebar nobody opens a workspace from. @type {import('../public/view/herdr-panel.js').SidebarActions} */
-const noActions = { createWorkspace: async () => ({ ok: false, error: 'failed' }), open: () => undefined, folders: () => [], renameWorkspace: async () => ({ ok: false, error: 'failed' }), closeWorkspace: async () => ({ ok: false, error: 'failed' }), setWorkspaceIcon: async () => ({ ok: false, error: 'failed' }), iconTags: async () => ({}), renameTab: async () => ({ ok: false, error: 'failed' }), closeTab: async () => ({ ok: false, error: 'failed' }), hidePane: async () => ({ ok: false, error: 'failed' }), showHidden: async () => ({ ok: false, error: 'failed' }) };
+const noActions = { createWorkspace: async () => ({ ok: false, error: 'failed' }), open: () => undefined, folders: () => [], renameWorkspace: async () => ({ ok: false, error: 'failed' }), closeWorkspace: async () => ({ ok: false, error: 'failed' }), setWorkspaceIcon: async () => ({ ok: false, error: 'failed' }), iconTags: async () => ({}), renameTab: async () => ({ ok: false, error: 'failed' }), closeTab: async () => ({ ok: false, error: 'failed' }), hidePane: async () => ({ ok: false, error: 'failed' }), showHidden: async () => ({ ok: false, error: 'failed' }), keptLit: () => false, keepLit: () => undefined };
 
 test('tabBar_Should_OfferSeparateGptStartOnlyWhenConfigured', async () => {
   const { bar, asked, click } = barAboveSession();
@@ -420,6 +420,8 @@ test('herdrSidebar_Should_OpenNewWorkspace_FromItsNameAndFolder', async () => {
     closeTab: async () => ({ ok: false, error: 'failed' }),
     hidePane: async () => ({ ok: false, error: 'failed' }),
     showHidden: async () => ({ ok: false, error: 'failed' }),
+    keptLit: () => false,
+    keepLit: () => undefined,
   });
   const layout = { herdr: true, workspaces: [web] };
   sidebar.render(layout, undefined, '', new Map());
@@ -607,6 +609,39 @@ test('tabBar_Should_PutPickedIconAheadOfTabName_WhenNamingOrOpeningIt', async ()
   ]);
 });
 
+// The click on the open tab that shows its buttons shows its icon among them — a drawn smile, no text, while it has
+// none: a press on it opens the icons at once, no naming first, and the one picked goes ahead of the tab's name in
+// herdr, the name kept; ✕ takes the icon off
+test('tabBar_Should_PickTabsIcon_FromItsButtons_NoNamingFirst', async () => {
+  const withBug = { ...web, tabs: web.tabs.map((tab) => (tab.id === 'w2:t3' ? { ...tab, label: '🐞 notes' } : tab)) };
+  /** @param {import('../public/model/herdr.js').HerdrWorkspace} workspace @param {string} icon */
+  const pickOn = async (workspace, icon) => {
+    const { bar, asked, click } = barAboveSession('s3', workspace);
+    window.document.body.append(bar.element);
+    click('.herdr-chip.selected');
+    const shown = bar.element.querySelector('.herdr-tab-icon-pick')?.textContent;
+    click('.herdr-tab-icon-pick');
+    const naming = bar.element.querySelector('input.herdr-tab-name') !== null;
+    const choice = [...window.document.querySelectorAll('.herdr-icon-palette .herdr-icon-at-hand button')].find((button) => button.textContent === icon || button.getAttribute('aria-label') === icon);
+    assert.ok(choice instanceof window.HTMLElement, `no ${icon} to pick`);
+    choice.click();
+    await settled();
+    bar.element.remove();
+    return { shown, naming, asked, left: window.document.querySelector('.herdr-icon-palette') === null };
+  };
+
+  const picked = await pickOn(web, '🐞');
+  const takenOff = await pickOn(withBug, 'No icon');
+
+  assert.deepEqual(
+    { picked, takenOff },
+    {
+      picked: { shown: '', naming: false, asked: [['rename', 'w2:t3', '🐞 notes']], left: true },
+      takenOff: { shown: '🐞', naming: false, asked: [['rename', 'w2:t3', 'notes']], left: true },
+    },
+  );
+});
+
 /**
  * A sidebar whose changes to workspaces and tabs are recorded and done.
  * @returns {{ element: HTMLElement, sidebar: ReturnType<typeof createHerdrSidebar>, changes: string[][] }}
@@ -698,6 +733,33 @@ test('herdrSidebar_Should_NameAndCloseOpenWorkspaceAndSession_FromButtonsShownOn
     tabName: '',
     changes: [['rename workspace', 'w2', 'shop'], ['close workspace', 'w2'], ['rename tab', 'w2:t1', 'checkout'], ['close tab', 'w2:t1']],
   });
+});
+
+// The open session's buttons keep its agent's lamp lit to come back to: pressed while it is kept, a press takes the mark
+// off; a workspace has none — its agents are kept one by one
+test('herdrSidebar_Should_KeepSessionsAgentLit_FromItsButtons', () => {
+  const element = window.document.createElement('div');
+  /** @type {Set<string>} */
+  const kept = new Set();
+  /** @type {string[]} */
+  const toggled = [];
+  const sidebar = createHerdrSidebar(element, { ...noActions, keptLit: (pane) => kept.has(pane.id), keepLit: (pane) => void toggled.push(pane.id) });
+  sidebar.render({ herdr: true, workspaces: [web] }, { kind: 'session', id: 's1' }, '', new Map());
+  /** @returns {string | null | undefined} — none: no such button */
+  const keepShown = () => element.querySelector('.herdr-row-keep')?.getAttribute('aria-pressed');
+
+  clickOn(element, '.herdr-workspace.selected');
+  const workspace = keepShown();
+  clickOn(element, '.herdr-workspace.selected');
+  clickOn(element, '.herdr-tab.selected');
+  const notKept = keepShown();
+  pressIn(element, '.herdr-row-keep');
+  kept.add('w2:p1');
+  clickOn(element, '.herdr-tab.selected');
+  const keptNow = keepShown();
+  pressIn(element, '.herdr-row-keep');
+
+  assert.deepEqual({ workspace, notKept, keptNow, toggled }, { workspace: undefined, notKept: 'false', keptNow: 'true', toggled: ['w2:p1', 'w2:p1'] });
 });
 
 // The buttons go on another click on the row; while a name is being typed, a fresh look at herdr leaves the box as it

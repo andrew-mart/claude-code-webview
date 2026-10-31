@@ -20,7 +20,7 @@ import { folderChoices, rememberFolder } from './model/folders.js';
 import { parseHistory, tabNeighbours } from './model/history.js';
 import { parseUsage, usageView } from './model/usage.js';
 import { createHerdrSidebar, createTabBar } from './view/herdr-panel.js';
-import { mergeSeen, parseSeen, seeOpened } from './model/lamps.js';
+import { keepToggled, keptLit, keptNow, mergeSeen, parseSeen, seeOpened } from './model/lamps.js';
 import { createSeenStore, tellSeen } from './view/seen-store.js';
 import { workingRobots } from './view/robot.js';
 import { storyAt, storyOf } from './model/stories.js';
@@ -59,6 +59,7 @@ import { createSidebarHead } from './view/sidebar-head.js';
 import { createTasksView } from './view/tasks-view.js';
 import { createHistoryView, earlierLink } from './view/history-view.js';
 import { herdrTabButton } from './view/herdr-tab-button.js';
+import { keepLitButton } from './view/keep-lit-button.js';
 
 /**
  * activeAt — the session's last prompt or answer; agent — whose session it is: Claude Code's, or Codex's
@@ -188,6 +189,12 @@ document.addEventListener('keydown', (event) => {
     event.preventDefault();
     page.nameOpenTab();
   }
+  // Ctrl+Q — one hand, at the keyboard's left — keeps the open agent's lamp lit to come back to, or lets it go out; by
+  // the key's place: Ctrl+Й too
+  if (event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey && event.code === 'KeyQ' && !(event.target instanceof Element && event.target.closest('.terminal-view') !== null)) {
+    event.preventDefault();
+    page.toggleKeptOpen();
+  }
 });
 follow.checked = settings.get('follow') === 'on';
 showSdk.checked = settings.get('sdk') === 'shown';
@@ -258,7 +265,7 @@ function createPage() {
   let listVersion;
   let listMinute = 0;
   /** agent: whose the session was taken for when it was opened; putAway: out of sight, kept as shown (warm) */
-  /** @type {{ id: string, agent: SessionInfo['agent'], dispose: () => void, putAway: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, keepPlace: (change: () => void) => void, rewound: (reply: import('./model/rewind.js').RewindReply) => void, stop: () => boolean, forgetSent: () => void, showTab: () => void, showHerdrTab: () => void } | undefined} */
+  /** @type {{ id: string, agent: SessionInfo['agent'], dispose: () => void, putAway: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, keepPlace: (change: () => void) => void, rewound: (reply: import('./model/rewind.js').RewindReply) => void, stop: () => boolean, forgetSent: () => void, showTab: () => void, showHerdr: () => void } | undefined} */
   let current;
   /** How long each session has been written to: its robots' story goes on as its row is drawn again. */
   const workClock = createWorkClock(() => Date.now());
@@ -303,6 +310,9 @@ function createPage() {
   /** @type {import('./model/herdr.js').HerdrLayout} */
   let herdrLayout = { herdr: false, workspaces: [] };
   let herdrKnown = '';
+  /** The agents kept lit to come back to, as the viewer keeps them for every device (model/lamps.js: keptLit). */
+  /** @type {import('./model/lamps.js').KeptPanes} */
+  let keptPanes = new Map();
   /** The words Lucide's icons are found by: asked for the first time its icons are, once. */
   /** @type {Promise<Readonly<Record<string, readonly string[]>>> | undefined} */
   let lucideWords;
@@ -330,6 +340,8 @@ function createPage() {
     closeTab: (tab) => changeTab('/api/tab/close', { tab }),
     hidePane: (pane) => changeTab('/api/herdr/hide', { pane }),
     showHidden: () => changeTab('/api/herdr/show', {}),
+    keptLit: (pane) => keptNow(pane, keptPanes),
+    keepLit: (pane) => page.toggleKept(pane),
   });
   // the sidebar's head, one row: 🔍, ⇄ to the other list, and the list's own — ⚙ for the sessions', herdr's ＋ for a new
   // workspace; there is no herdr list before herdr is heard from
@@ -649,11 +661,15 @@ function createPage() {
     const tables = sessionTables(id, scroller, (change) => (current === undefined ? change() : current.keepPlace(change)));
     tables.apply();
     const herdrTab = herdrTabButtonFor(id);
+    const keepLit = keepLitButtonFor(id);
     const folder = () => sessions.find((session) => session.id === id)?.cwd;
     // from the conversation outward: the side panels of this conversation, its tab, its branch, its project; then where
     // the session runs and its folder lie, opened outside the page
-    const navigation = [headGroup([drawerButton('outline', 'list', 'Outline'), historyButton(historyView), changesButton(id), filesButton(folder)]), headGroup([herdrTab.button, vscodeButton(folder), fileManagerButton(folder)])];
-    const header = createSessionHeader({ sessionId: id, place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation, tools: settings.buttons() });
+    // those used less on a phone fold into the view menu there, with the words of what they do, for the title to have room
+    const [tabHistory, branchChanges, vscode, fileManager] = [historyButton(historyView), changesButton(id), vscodeButton(folder), fileManagerButton(folder)];
+    const folds = [tabHistory, branchChanges, herdrTab.button, vscode, fileManager].map(labelled);
+    const navigation = [headGroup([drawerButton('outline', 'list', 'Outline'), tabHistory, branchChanges, filesButton(folder)]), headGroup([herdrTab.button, keepLit.button, vscode, fileManager])];
+    const header = createSessionHeader({ sessionId: id, place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation, folds, tools: settings.buttons() });
     const outlineElement = h('aside', { className: 'outline', attrs: { 'aria-label': 'Outline' } });
     const outline = createOutline({
       element: outlineElement,
@@ -757,7 +773,10 @@ function createPage() {
         const listed = earlier === undefined ? undefined : listedOf(earlier.id);
         view.setLead(earlier === undefined || listed === undefined ? undefined : earlierLink({ id: earlier.id, title: listed.title ?? 'Untitled', activeAt: listed.activeAt }, Date.now()));
       },
-      showHerdrTab: () => herdrTab.show(herdrLayout),
+      showHerdr() {
+        herdrTab.show(herdrLayout);
+        keepLit.show(herdrLayout, keptPanes);
+      },
       // Like the terminal, the rewound message comes back into the box to be edited and sent again.
       rewound(reply) {
         composer.say(rewindMessage(reply), 'ok');
@@ -774,7 +793,7 @@ function createPage() {
       },
     };
     current.showTab();
-    current.showHerdrTab();
+    current.showHerdr();
     renderList();
     redrawHistory();
   };
@@ -906,9 +925,11 @@ function createPage() {
         tellSeen(seenAnswers.get(), seen);
         seenAnswers.set(seen);
       }
-      if (mode === 'herdr') herdrSidebar.render(herdrLayout, opened, search.value, seenAnswers.get());
-      current?.showHerdrTab();
-      tabBar.render(herdrLayout, opened, seenAnswers.get());
+      // the agents kept lit to come back to show their lamps lit, though their answers were seen
+      const lit = keptLit(herdrLayout, keptPanes);
+      if (mode === 'herdr') herdrSidebar.render(lit, opened, search.value, seenAnswers.get());
+      current?.showHerdr();
+      tabBar.render(lit, opened, seenAnswers.get());
       // A terminal opened before the page heard from herdr takes its pane's size and name now.
       if (currentPane === undefined) return;
       const size = paneSize(currentPane.id);
@@ -918,6 +939,7 @@ function createPage() {
     /** What herdr shows now: its workspaces, tabs, panes and their agents' status. */
     async refreshHerdr() {
       void this.refreshSeen();
+      void this.refreshKept();
       const reply = await pollReply('/api/herdr');
       // Out of the viewer's reach the page keeps what it knew.
       if (reply === undefined) return;
@@ -940,6 +962,36 @@ function createPage() {
       this.renderHerdr();
     },
     /** The answers seen on the other devices: their lamps go out here too. */
+    /** The agents kept lit on the other devices: lit here too, or out once their marks were taken off there. */
+    async refreshKept() {
+      const reply = await pollReply('/api/kept');
+      if (reply === undefined) return;
+      const next = parseSeen(reply);
+      if (JSON.stringify([...next]) === JSON.stringify([...keptPanes])) return;
+      keptPanes = next;
+      this.renderHerdr();
+    },
+    /**
+     * An agent kept lit to come back to, or its mark taken off: at once on the page, then told to the viewer for the
+     * other devices.
+     * @param {import('./model/herdr.js').HerdrPane} pane
+     */
+    toggleKept(pane) {
+      const { pane: id, count } = keepToggled(pane, keptPanes);
+      const next = new Map(keptPanes);
+      if (count === undefined) next.delete(id);
+      else next.set(id, count);
+      keptPanes = next;
+      this.renderHerdr();
+      void fetch('/api/kept', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Viewer': '1' }, body: JSON.stringify({ pane: id, count: count ?? null }) }).catch(() => undefined);
+    },
+    /** Ctrl+Q: the agent of what the page shows — a session, a terminal — kept lit to come back to, or let go out. */
+    toggleKeptOpen() {
+      const opened = openedAt(location.hash);
+      const place = opened === undefined ? undefined : placeOf(herdrLayout, opened);
+      const pane = place?.tab.panes.find((one) => (opened?.kind === 'session' ? one.session === opened.id : one.id === opened?.id));
+      if (pane !== undefined) this.toggleKept(pane);
+    },
     async refreshSeen() {
       const reply = await pollReply('/api/seen');
       if (reply === undefined) return;
@@ -1481,6 +1533,20 @@ function herdrTabButtonFor(sessionId) {
 }
 
 /**
+ * The button over a session that keeps its agent's lamp lit to come back to — pressed while it is — and lets it go out;
+ * there while the session runs in herdr.
+ * @param {string} sessionId
+ * @returns {{ button: HTMLButtonElement, show: (layout: import('./model/herdr.js').HerdrLayout, kept: import('./model/lamps.js').KeptPanes) => void }}
+ */
+function keepLitButtonFor(sessionId) {
+  const button = iconButton('later');
+  button.classList.add('head-keep-lit');
+  button.title = 'Keep its lamp lit, to come back to later — again to let it go out (Ctrl+Q)';
+  button.setAttribute('aria-label', button.title);
+  return { button, show: keepLitButton(button, sessionId, (pane) => page.toggleKept(pane)) };
+}
+
+/**
  * The changes of the branch checked out in the session's folder, against a base chosen or the one it was made from.
  * @param {string} sessionId
  * @param {string | undefined} base
@@ -1518,6 +1584,18 @@ function iconButton(iconName) {
  */
 function headGroup(buttons) {
   return h('span', { className: 'head-group' }, [...buttons]);
+}
+
+/**
+ * A button over a session with the words of what it does beside its icon — shown once it folds into the view menu on a
+ * narrow screen, as the view buttons have them (style.css: .head-tool-label).
+ * @template {HTMLElement} Button
+ * @param {Button} button
+ * @returns {Button}
+ */
+function labelled(button) {
+  button.append(h('span', { className: 'head-tool-label', text: button.title }));
+  return button;
 }
 
 /**

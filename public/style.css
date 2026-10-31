@@ -60,6 +60,8 @@
   /* the amber a lamp waiting for its user had before it went red: a joke's bit keeps it */
   --amber: #e09b00;
   --lamp-done: #1fae5a;
+  /* kept lit to come back to (lamps.js: keptLit) */
+  --lamp-kept: #2f7df6;
   --lamp-glow: 55%;
 
   --font-ui: "Anthropic Sans", "Styrene B", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -116,6 +118,7 @@
     --lamp-wait: #ff4d45;
     --amber: #ffc21a;
     --lamp-done: #3ee086;
+    --lamp-kept: #5aa2ff;
     --lamp-glow: 80%;
   }
 }
@@ -167,6 +170,7 @@
   --lamp-wait: #ff4d45;
   --amber: #ffc21a;
   --lamp-done: #3ee086;
+  --lamp-kept: #5aa2ff;
   --lamp-glow: 80%;
 }
 
@@ -889,6 +893,33 @@ button {
   box-shadow: inset 0 0 0 1.5px var(--text-4);
 }
 
+/* kept lit to come back to, its answer seen (lamps.js: keptLit): a blue lamp lit steadily — not blinking as an answer
+   not seen yet does — with robots and with lamps alike; its row's edge lit with it, still */
+.herdr-status[data-status="kept"] {
+  --lamp: var(--lamp-kept);
+  background: var(--lamp);
+  box-shadow: 0 0 6px 1px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
+}
+
+.tinted:is(.herdr-workspace, .herdr-tab):has(> .herdr-status[data-status="kept"]) {
+  position: relative;
+  isolation: isolate;
+}
+
+.tinted:is(.herdr-workspace, .herdr-tab):has(> .herdr-status[data-status="kept"])::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: linear-gradient(to right, color-mix(in srgb, var(--edge-lit) 65%, transparent), transparent 11px);
+  box-shadow:
+    inset 3px 0 0 var(--edge-lit),
+    0 0 4px 1px var(--edge-lit);
+  clip-path: inset(1px 1px 1px -8px round 8px);
+  pointer-events: none;
+}
+
 /* The tabs of the open session's or terminal's herdr workspace, above it. */
 .herdr-tab-bar {
   display: flex;
@@ -1008,7 +1039,7 @@ button {
   color: var(--text);
 }
 
-/* The open tab's ✎ and ×, right after it: small, not to crowd the other tabs. */
+/* The open tab's icon, ✎ and ×, right after it: small, not to crowd the other tabs. */
 .herdr-tab-actions {
   display: flex;
   flex: none;
@@ -1020,7 +1051,14 @@ button {
   height: 24px;
 }
 
-.herdr-tab-duplicate-failed {
+/* the tab's icon as its name has it, drawn as the icons beside it (icons.js: emojiIcon); a smile, faint, while it has
+   none */
+.herdr-tab-actions .herdr-tab-icon-pick.empty {
+  color: var(--text-3);
+}
+
+.herdr-tab-duplicate-failed,
+.herdr-tab-icon-failed {
   align-self: center;
   margin-left: 4px;
   color: var(--danger);
@@ -1898,6 +1936,12 @@ input.herdr-row-name.failed {
 
 .head-group:not(:has(> :not([hidden]))) {
   display: none;
+}
+
+/* An agent kept lit to come back to: its buttons pressed, in its lamp's blue (model/lamps.js: keptLit). */
+.head-keep-lit[aria-pressed="true"],
+.herdr-row-keep[aria-pressed="true"] {
+  color: var(--lamp-kept);
 }
 
 .head-group + .head-group::before,
