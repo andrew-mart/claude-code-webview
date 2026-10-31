@@ -493,6 +493,16 @@ test('closeTab_Should_CloseTabInHerdr_And_LeaveItOutAtOnce', async () => {
   assert.deepEqual({ outcome, changes: herdr.changes, names: tabNames(await view.layout()) }, { outcome: { ok: true }, changes: ['tab close w2:t2'], names: ['1'] });
 });
 
+// "Open in herdr" over a session takes herdr to its tab — the tab's workspace with it; what herdr refuses is told
+test('focusTab_Should_TakeHerdrToTab_And_TellWhatWasNotDone', async () => {
+  const herdr = tabsHerdr();
+  const refusing = tabsHerdr({ fails: true });
+
+  const outcomes = [await (await tabsView(herdr)).focusTab('w2:t2'), await (await tabsView(refusing)).focusTab('w2:t2')];
+
+  assert.deepEqual({ outcomes, changes: herdr.changes }, { outcomes: [{ ok: true }, { ok: false, error: 'failed' }], changes: ['tab focus w2:t2'] });
+});
+
 // A name of nothing but spaces is not sent; what herdr refuses is told, and the page keeps the tabs as they are
 test('renameTab_And_closeTab_Should_TellWhatWasNotDone', async () => {
   const quiet = tabsHerdr();

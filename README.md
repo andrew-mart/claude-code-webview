@@ -131,7 +131,7 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   on a phone especially — "Wide" under the table gives each column a comfortable width and lets the table scroll
   sideways. The same choice can be made for all tables of a session (in the header's details) or of the whole viewer
   (a view button); the table's own button overrides the session, the session overrides the viewer.
-- Light and dark themes, serif or sans answers, optional display of Claude Code's service messages.
+- Light and dark themes, optional display of Claude Code's service messages.
 - **Palettes.** `--palette sea` (or `moss`, `plum`; `clay`, Claude's own, is the default) changes the accent colour, tints the
   session list a little and colours the tab icon and the iPhone home screen icon — two viewers, say on two computers, are
   told apart at a glance.
@@ -273,7 +273,8 @@ its workspace, its latest conversation resumed and the others still its own. A c
 in the box's place, "Resume here" — `/resume` typed into the tab, which keeps the conversation it ran in its history —
 and "New tab", a copy of the tab with Claude Code resuming the conversation there. A tab is told from the others by
 herdr's id of its terminal, kept with every session in `~/.claude-code-webview/workspaces.json`; a session seen before
-the viewer kept it is a closed tab of its own.
+the viewer kept it is a closed tab of its own. While a session runs in a herdr tab, a button over it takes herdr to that
+tab, its workspace with it (`herdr tab focus`).
 
 ### Workspaces in the session list
 

@@ -136,7 +136,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // tabs renamed and closed are recorded
   /** @type {string[][]} */
   const tabChanges = [];
-  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'createWorkspace' | 'history' | 'reopen'>} */
+  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'focusTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'createWorkspace' | 'history' | 'reopen'>} */
   const herdrView = {
     workspacesOf: async (listed) => ({ herdr: true, sessions: Object.fromEntries(listed.map(({ id }) => [id, 'web'])), icons: {} }),
     layout: async () => ({ herdr: true, workspaces: [webWorkspace] }),
@@ -151,6 +151,10 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
     },
     closeTab: async (tab) => {
       tabChanges.push(['close', tab]);
+      return { ok: true };
+    },
+    focusTab: async (tab) => {
+      tabChanges.push(['focus', tab]);
       return { ok: true };
     },
     moveTab: async (tab, place) => {
@@ -295,6 +299,19 @@ test('tabs_Should_PassRenameAndCloseFromViewerPage_And_RefuseWhatIsNoTab', async
   assert.deepEqual(
     { replies: [renamed, closed].map((reply) => [reply.status, JSON.parse(reply.body)]), refused: [strange.status, nameless.status], tabChanges },
     { replies: [[200, { ok: true }], [200, { ok: true }]], refused: [400, 400], tabChanges: [['rename', 'w1:t1', 'viewer'], ['close', 'w1:t1']] },
+  );
+});
+
+// "Open in herdr" from the page takes herdr to the tab; what is no tab id is refused before herdr
+test('tabFocus_Should_PassFromViewerPage_And_RefuseWhatIsNoTab', async (t) => {
+  const { port, tabChanges } = await withServer(t);
+
+  const focused = await post(port, '/api/tab/focus', pageHeaders(port), JSON.stringify({ tab: 'w1:t2' }));
+  const strange = await post(port, '/api/tab/focus', pageHeaders(port), JSON.stringify({ tab: '../w1 t2' }));
+
+  assert.deepEqual(
+    { reply: [focused.status, JSON.parse(focused.body)], refused: strange.status, tabChanges },
+    { reply: [200, { ok: true }], refused: 400, tabChanges: [['focus', 'w1:t2']] },
   );
 });
 

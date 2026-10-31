@@ -175,7 +175,7 @@ export async function startServer({ index, host, port, pollMs, composer, bookmar
  * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, chatgptUsage: ReadUsage, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, codexInUse: () => Promise<boolean> }} Deps
  *   instance: this run of the viewer, told apart from any other — see /api/machine; vscode: VS Code's web server
  *   behind /vscode/, none when the viewer runs none
- * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'createWorkspace' | 'history' | 'reopen'>} HerdrView
+ * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'focusTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'createWorkspace' | 'history' | 'reopen'>} HerdrView
  * @typedef {Pick<ReturnType<typeof import('./terminal.js').createTerminals>, 'stream' | 'type'>} Terminals
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
  * @typedef {{ origin: string, host: string }} PublicAddress — where the page is opened from outside, behind a tunnel:
@@ -535,6 +535,7 @@ async function handleWrite(deps, url, request, response) {
   if (url.pathname === '/api/pane/input') return typeIntoPane(deps, body, response);
   if (url.pathname === '/api/tab/rename') return renameTab(deps, body, response);
   if (url.pathname === '/api/tab/close') return closeTab(deps, body, response);
+  if (url.pathname === '/api/tab/focus') return focusTab(deps, body, response);
   if (url.pathname === '/api/tab/move') return moveTab(deps, body, response);
   if (url.pathname === '/api/tab/new') return newTab(deps, body, response);
   if (url.pathname === '/api/tab/duplicate') return duplicateTab(deps, body, response);
@@ -720,6 +721,21 @@ async function closeTab(deps, body, response) {
     return;
   }
   return sendJson(response, await deps.herdrView.closeTab(tab));
+}
+
+/**
+ * herdr taken to a tab from the button over a session that runs in it.
+ * @param {Deps} deps
+ * @param {unknown} body — { tab }
+ * @param {http.ServerResponse} response
+ */
+async function focusTab(deps, body, response) {
+  const tab = tabOf(body);
+  if (tab === undefined) {
+    response.writeHead(400).end('Bad tab');
+    return;
+  }
+  return sendJson(response, await deps.herdrView.focusTab(tab));
 }
 
 /**

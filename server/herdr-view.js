@@ -373,6 +373,14 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
       return changed(await herdr(['tab', 'close', tabId]));
     },
     /**
+     * Takes herdr to a tab — its workspace with it — as a click on it in herdr would.
+     * @param {string} tabId
+     * @returns {Promise<import('../public/model/herdr.js').TabChange>}
+     */
+    async focusTab(tabId) {
+      return changed(await herdr(['tab', 'focus', tabId]));
+    },
+    /**
      * A closed session opened again where it ran: a new tab of its workspace — the workspace opened again if it is gone,
      * or named after the folder for a session never seen in herdr — named as the tab was, or as a copy of it while it is
      * open, in its folder, Claude Code — or Codex — resuming it there. The page stays on the session's feed.

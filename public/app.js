@@ -56,6 +56,7 @@ import { createWarmSessions } from './view/warm-sessions.js';
 import { createSidebarHead } from './view/sidebar-head.js';
 import { createTasksView } from './view/tasks-view.js';
 import { createHistoryView, earlierLink } from './view/history-view.js';
+import { herdrTabButton } from './view/herdr-tab-button.js';
 
 /**
  * activeAt — the session's last prompt or answer; agent — whose session it is: Claude Code's, or Codex's
@@ -255,7 +256,7 @@ function createPage() {
   let listVersion;
   let listMinute = 0;
   /** agent: whose the session was taken for when it was opened; putAway: out of sight, kept as shown (warm) */
-  /** @type {{ id: string, agent: SessionInfo['agent'], dispose: () => void, putAway: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, keepPlace: (change: () => void) => void, rewound: (reply: import('./model/rewind.js').RewindReply) => void, stop: () => boolean, forgetSent: () => void, showTab: () => void } | undefined} */
+  /** @type {{ id: string, agent: SessionInfo['agent'], dispose: () => void, putAway: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, keepPlace: (change: () => void) => void, rewound: (reply: import('./model/rewind.js').RewindReply) => void, stop: () => boolean, forgetSent: () => void, showTab: () => void, showHerdrTab: () => void } | undefined} */
   let current;
   /** How long each session has been written to: its robots' story goes on as its row is drawn again. */
   const workClock = createWorkClock(() => Date.now());
@@ -645,7 +646,12 @@ function createPage() {
     const { scroller, view, bookmarks } = part;
     const tables = sessionTables(id, scroller, (change) => (current === undefined ? change() : current.keepPlace(change)));
     tables.apply();
-    const header = createSessionHeader({ sessionId: id, place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation: [vscodeButton(() => sessions.find((session) => session.id === id)?.cwd), fileManagerButton(() => sessions.find((session) => session.id === id)?.cwd), filesButton(() => sessions.find((session) => session.id === id)?.cwd), changesButton(id), historyButton(historyView), drawerButton('outline', 'list', 'Outline')], tools: settings.buttons() });
+    const herdrTab = herdrTabButtonFor(id);
+    const folder = () => sessions.find((session) => session.id === id)?.cwd;
+    // from the conversation outward: the side panels of this conversation, its tab, its branch, its project; then where
+    // the session runs and its folder lie, opened outside the page
+    const navigation = [headGroup([drawerButton('outline', 'list', 'Outline'), historyButton(historyView), changesButton(id), filesButton(folder)]), headGroup([herdrTab.button, vscodeButton(folder), fileManagerButton(folder)])];
+    const header = createSessionHeader({ sessionId: id, place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation, tools: settings.buttons() });
     const outlineElement = h('aside', { className: 'outline', attrs: { 'aria-label': 'Outline' } });
     const outline = createOutline({
       element: outlineElement,
@@ -744,6 +750,7 @@ function createPage() {
         const listed = earlier === undefined ? undefined : listedOf(earlier.id);
         view.setLead(earlier === undefined || listed === undefined ? undefined : earlierLink({ id: earlier.id, title: listed.title ?? 'Untitled', activeAt: listed.activeAt }, Date.now()));
       },
+      showHerdrTab: () => herdrTab.show(herdrLayout),
       // Like the terminal, the rewound message comes back into the box to be edited and sent again.
       rewound(reply) {
         composer.say(rewindMessage(reply), 'ok');
@@ -760,6 +767,7 @@ function createPage() {
       },
     };
     current.showTab();
+    current.showHerdrTab();
     renderList();
     redrawHistory();
   };
@@ -892,6 +900,7 @@ function createPage() {
         seenAnswers.set(seen);
       }
       if (mode === 'herdr') herdrSidebar.render(herdrLayout, opened, search.value, seenAnswers.get());
+      current?.showHerdrTab();
       tabBar.render(herdrLayout, opened, seenAnswers.get());
       // A terminal opened before the page heard from herdr takes its pane's size and name now.
       if (currentPane === undefined) return;
@@ -975,25 +984,32 @@ function createScrollSpy(scroller, prompts, onCurrent) {
 }
 
 /**
- * The view buttons in the header and their icons.
- * @type {readonly (readonly [SettingKey, string])[]}
+ * The view buttons in the header and their icons, in groups: what the feed shows, how it is laid out, what copying
+ * takes, how the page looks.
+ * @type {readonly (readonly (readonly [SettingKey, string])[])[]}
  */
-const headerSettings = [
-  ['activity', 'unfold'],
-  ['edits', 'edit'],
-  ['outline', 'list'],
-  ['service', 'eye'],
-  ['font', 'type'],
-  ['theme', 'moon'],
-  ['tables', 'table'],
-  ['width', 'widen'],
-  ['copy', 'copy'],
-  ['lamps', 'agent'],
+const headerSettingGroups = [
+  [
+    ['activity', 'unfold'],
+    ['edits', 'edit'],
+    ['service', 'eye'],
+  ],
+  [
+    ['width', 'widen'],
+    ['tables', 'table'],
+    ['outline', 'list'],
+  ],
+  [['copy', 'copy']],
+  [
+    ['lamps', 'agent'],
+    ['theme', 'moon'],
+  ],
 ];
+const headerSettings = headerSettingGroups.flat();
 
 /**
- * View settings remembered by the browser: agent actions brief or detailed, theme, answer font,
- * service messages, following, SDK sessions in the list.
+ * View settings remembered by the browser: agent actions brief or detailed, theme, service messages, following, SDK
+ * sessions in the list.
  */
 /** @param {(change: () => void) => void} keepPlace — runs a change keeping the reader's place in the feed */
 function createSettings(keepPlace) {
@@ -1014,7 +1030,6 @@ function createSettings(keepPlace) {
     const theme = get('theme');
     if (theme === 'auto') delete root.dataset.theme;
     else root.dataset.theme = theme;
-    root.dataset.font = get('font');
     root.dataset.service = get('service');
     root.dataset.outline = get('outline');
     root.dataset.tables = get('tables');
@@ -1056,7 +1071,7 @@ function createSettings(keepPlace) {
     labelButton(button);
     return button;
   };
-  const buttons = () => headerSettings.map(([key, glyph]) => settingButton(key, iconButton(glyph)));
+  const buttons = () => headerSettingGroups.map((group) => headGroup(group.map(([key, glyph]) => settingButton(key, iconButton(glyph)))));
   return { get, set, applyAll, buttons };
 }
 
@@ -1070,7 +1085,6 @@ function settingKeyOf(value) {
     case 'edits':
     case 'outline':
     case 'theme':
-    case 'font':
     case 'service':
     case 'follow':
     case 'sdk':
@@ -1446,6 +1460,20 @@ function historyButton(history) {
 }
 
 /**
+ * The button over a session that takes herdr to the tab the session runs in — the tab's workspace with it — while it
+ * runs in one.
+ * @param {string} sessionId
+ * @returns {{ button: HTMLButtonElement, show: (layout: import('./model/herdr.js').HerdrLayout) => void }}
+ */
+function herdrTabButtonFor(sessionId) {
+  const button = iconButton('shell');
+  button.classList.add('head-herdr-tab');
+  button.title = "Open the session's tab in herdr";
+  button.setAttribute('aria-label', button.title);
+  return { button, show: herdrTabButton(button, sessionId, (tab) => void changeTab('/api/tab/focus', { tab })) };
+}
+
+/**
  * The changes of the branch checked out in the session's folder, against a base chosen or the one it was made from.
  * @param {string} sessionId
  * @param {string | undefined} base
@@ -1474,6 +1502,15 @@ async function fetchFileDiff(sessionId, base, file) {
  */
 function iconButton(iconName) {
   return h('button', { className: 'icon-button', attrs: { type: 'button' } }, [icon(iconName)]);
+}
+
+/**
+ * Buttons over a session that belong together: a thin line parts them from the group before (style.css).
+ * @param {readonly HTMLElement[]} buttons
+ * @returns {HTMLElement}
+ */
+function headGroup(buttons) {
+  return h('span', { className: 'head-group' }, [...buttons]);
 }
 
 /**
@@ -1618,9 +1655,10 @@ function typedFolders() {
 }
 
 /**
- * A herdr tab or workspace named or closed — or a workspace's icon picked, an idle session hidden, the hidden shown again
- * — from the tab bar or the sidebar; once done the page looks at herdr again, so the change shows at once.
- * @param {'/api/tab/rename' | '/api/tab/close' | '/api/tab/move' | '/api/workspace/rename' | '/api/workspace/close' | '/api/workspace/icon' | '/api/herdr/hide' | '/api/herdr/show'} path
+ * A herdr tab or workspace named or closed — or a workspace's icon picked, an idle session hidden, the hidden shown again,
+ * herdr taken to a tab — from the tab bar, the sidebar or over a session; once done the page looks at herdr again, so the
+ * change shows at once.
+ * @param {'/api/tab/rename' | '/api/tab/close' | '/api/tab/focus' | '/api/tab/move' | '/api/workspace/rename' | '/api/workspace/close' | '/api/workspace/icon' | '/api/herdr/hide' | '/api/herdr/show'} path
  * @param {{ tab: string, label?: string } | { tab: string, place: number } | { workspace: string, label?: string } | { workspace: string, icon: string | null } | { pane: string } | Record<string, never>} change
  *   — an icon: one of Lucide's, kept for the workspace; null: none
  * @returns {Promise<import('./model/herdr.js').TabChange>}

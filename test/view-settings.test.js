@@ -8,8 +8,6 @@ const labels = [
   ['activity', 'detailed', 'Show briefly'],
   ['service', 'hidden', 'Show Claude Code service messages'],
   ['service', 'shown', 'Hide Claude Code service messages'],
-  ['font', 'serif', 'Sans-serif answers'],
-  ['font', 'sans', 'Serif answers'],
   ['theme', 'auto', 'Light theme'],
   ['theme', 'light', 'Dark theme'],
   ['theme', 'dark', 'System theme'],

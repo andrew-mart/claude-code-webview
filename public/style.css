@@ -1,5 +1,5 @@
-/* Styled after Claude Desktop: warm light background, the prompt bubble on the right, the answer in a serif font,
-   agent actions as compact rows inside a shared frame. */
+/* Styled after Claude Desktop: warm light background, the prompt bubble on the right, agent actions as compact rows
+   inside a shared frame; the answer reads as Notion does. */
 
 :root {
   color-scheme: light;
@@ -63,9 +63,7 @@
   --lamp-glow: 55%;
 
   --font-ui: "Anthropic Sans", "Styrene B", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-serif: "Anthropic Serif", "Tiempos Text", ui-serif, Georgia, Cambria, "Times New Roman", serif;
   --font-mono: "Anthropic Mono", ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-  --font-answer: var(--font-serif);
   /* Notion's text font: the system's own sans — SF Pro on Apple devices, Segoe UI on Windows. */
   --font-notion: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display", "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
 }
@@ -170,10 +168,6 @@
   --amber: #ffc21a;
   --lamp-done: #3ee086;
   --lamp-glow: 80%;
-}
-
-:root[data-font="sans"] {
-  --font-answer: var(--font-notion);
 }
 
 * {
@@ -1894,6 +1888,28 @@ input.herdr-row-name.failed {
   gap: 4px;
 }
 
+/* The buttons over a session in groups by what they are for: a thin line before each group but the first, and before
+   the view buttons; a group with none of its buttons shown takes no room. */
+.head-group {
+  display: flex;
+  align-items: center;
+  gap: inherit;
+}
+
+.head-group:not(:has(> :not([hidden]))) {
+  display: none;
+}
+
+.head-group + .head-group::before,
+.head-tools::before {
+  content: "";
+  flex: none;
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--border);
+}
+
 .head-tool-label,
 .head-actions .head-more {
   display: none;
@@ -2296,55 +2312,50 @@ input.herdr-row-name.failed {
   overflow-wrap: anywhere;
 }
 
+/* Answers look like Notion: its font at 16px and 1.5, tight paragraphs, headings in its proportions, inline code in red
+   on grey without a frame. */
 .md.answer {
-  font-family: var(--font-answer);
-  font-size: 16.5px;
-  line-height: 1.68;
-}
-
-/* Sans-serif answers look like Notion: its font at 16px and 1.5, tight paragraphs, headings in its proportions,
-   inline code in red on grey without a frame. */
-:root[data-font="sans"] .md.answer {
+  font-family: var(--font-notion);
   font-size: 16px;
   line-height: 1.5;
 }
 
-:root[data-font="sans"] .md.answer p {
+.md.answer p {
   margin: 0 0 0.6em;
 }
 
-:root[data-font="sans"] .md.answer :is(h1, h2, h3, h4) {
+.md.answer :is(h1, h2, h3, h4) {
   margin: 1.1em 0 0.3em;
   font-family: var(--font-notion);
   line-height: 1.3;
 }
 
-:root[data-font="sans"] .md.answer h1 {
+.md.answer h1 {
   font-size: 1.6em;
 }
 
-:root[data-font="sans"] .md.answer h2 {
+.md.answer h2 {
   font-size: 1.35em;
 }
 
-:root[data-font="sans"] .md.answer h3 {
+.md.answer h3 {
   font-size: 1.15em;
 }
 
-:root[data-font="sans"] .md.answer :is(ul, ol) {
+.md.answer :is(ul, ol) {
   padding-left: 1.6em;
 }
 
-:root[data-font="sans"] .md.answer li {
+.md.answer li {
   margin: 0.15em 0;
 }
 
-:root[data-font="sans"] .md.answer blockquote {
+.md.answer blockquote {
   border-left-color: currentColor;
   color: inherit;
 }
 
-:root[data-font="sans"] .md.answer :not(pre) > code {
+.md.answer :not(pre) > code {
   padding: 0.2em 0.4em;
   border: 0;
   border-radius: 4px;
@@ -2563,9 +2574,9 @@ input.herdr-row-name.failed {
 }
 
 /* A heading that is only a file path (### path:line) is the caption of the code below it, not a heading.
-   The second selector outweighs the headings of sans-serif answers. */
+   The second selector outweighs the headings of answers. */
 .md .file-caption,
-:root[data-font] .md.answer .file-caption {
+.md.answer .file-caption {
   margin: 1.1em 0 0.4em;
   color: var(--text-2);
   font: 500 13px/1.45 var(--font-mono);
@@ -3059,10 +3070,6 @@ table.diff tr.gap td {
 .subagent .session {
   max-width: none;
   padding: 14px 14px 20px;
-}
-
-.subagent .md.answer {
-  font-size: 15px;
 }
 
 .inline-image {
@@ -10797,6 +10804,22 @@ a.file-link:hover {
   .head-tools .head-tool-label {
     display: inline;
     text-align: left;
+  }
+
+  /* In the menu the groups stack, a line across between them. */
+  .head-tools::before {
+    display: none;
+  }
+
+  .head-tools .head-group {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .head-tools .head-group + .head-group::before {
+    width: auto;
+    height: 1px;
+    margin: 4px 6px;
   }
 
   .session {
