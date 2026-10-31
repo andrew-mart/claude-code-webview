@@ -9,7 +9,7 @@ window.matchMedia = () => /** @type {MediaQueryList} */ (/** @type {unknown} */ 
 globalThis.matchMedia = window.matchMedia;
 const { createEditorOpener, createPlaceFinder } = await import('../public/view/editor-opener.js');
 
-const viewer = { instance: '6f1c2a3b-0000-4000-8000-000000000001', port: 7788, editor: true, vscode: false };
+const viewer = { instance: '6f1c2a3b-0000-4000-8000-000000000001', port: 7788, editor: true, vscode: false, separator: /** @type {const} */ ('/') };
 
 /**
  * The browser: the viewer at its 127.0.0.1 answers once the page is let reach this computer's apps; the permission is

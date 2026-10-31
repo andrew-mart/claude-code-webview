@@ -11,17 +11,17 @@ test('isTemporaryInstall_Should_RecognizeNpxCacheOnEverySystem', () => {
 });
 
 test('parseCommand_Should_ServeAndOpenBrowserByDefault', () => {
-  assert.deepEqual(parseCommand([]), { ok: true, command: { action: 'serve', port: 7788, open: true, startMenu: false, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', codexCommand: 'codex', editor: undefined, vscode: undefined } });
+  assert.deepEqual(parseCommand([]), { ok: true, command: { action: 'serve', port: 7788, open: true, startMenu: false, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', codexCommand: 'codex', restartEnv: [], editor: undefined, vscode: undefined } });
 });
 
 test('parseCommand_Should_ReadActionPortAndBrowserFlag', () => {
   assert.deepEqual(parseCommand(['--background', '--port', '7800', '--no-open']), {
     ok: true,
-    command: { action: 'background', port: 7800, open: false, startMenu: false, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', codexCommand: 'codex', editor: undefined, vscode: undefined },
+    command: { action: 'background', port: 7800, open: false, startMenu: false, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', codexCommand: 'codex', restartEnv: [], editor: undefined, vscode: undefined },
   });
   assert.deepEqual(parseCommand(['--install-shortcut', '--start-menu']), {
     ok: true,
-    command: { action: 'install-shortcut', port: 7788, open: true, startMenu: true, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', codexCommand: 'codex', editor: undefined, vscode: undefined },
+    command: { action: 'install-shortcut', port: 7788, open: true, startMenu: true, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', codexCommand: 'codex', restartEnv: [], editor: undefined, vscode: undefined },
   });
   assert.deepEqual(
     [parseCommand(['-v']), parseCommand(['--help'])].map((parsed) => parsed.ok && parsed.command.action),
@@ -116,6 +116,24 @@ test('parseCommand_Should_KeepSeparateGptLauncher_AndRejectMultilineCommands', (
   const multiline = parseCommand(['--claude-gpt-command', 'claude\nother']);
 
   assert.deepEqual([given.ok && given.command.claudeGptCommand, given.ok && given.command.chatgptUsageFile, multiline.ok], ['claude-via-gpt', 'C:/agent/quota.json', false]);
+});
+
+// A session restarted from the page starts again with the variables given, each NAME=VALUE: a name a shell takes, a
+// value with nothing a shell would read otherwise than as written — no space, quote or $
+test('parseCommand_Should_ReadVariablesSessionsRestartWith_AndRejectThoseAShellWouldReadOtherwise', () => {
+  const given = parseCommand(['--restart-env', 'CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1', '--restart-env', 'SHOP_ENV=staging-2']);
+  const refused = ['1ST=a', 'NAME', 'A=b c', "A='x'", 'A=$HOME'].map((variable) => parseCommand(['--restart-env', variable]).ok);
+
+  assert.deepEqual(
+    { variables: given.ok && given.command.restartEnv, refused },
+    {
+      variables: [
+        { name: 'CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP', value: '1' },
+        { name: 'SHOP_ENV', value: 'staging-2' },
+      ],
+      refused: [false, false, false, false, false],
+    },
+  );
 });
 
 // Codex as well: "codex", or the command the viewer is given — with options of one's own; a command of nothing is no

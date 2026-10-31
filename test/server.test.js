@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { execFile } from 'node:child_process';
 import { appendFile, mkdir, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, join, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { gunzipSync } from 'node:zlib';
 import { tempDir } from '../test-support/temp-dir.js';
@@ -138,7 +138,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // tabs renamed and closed are recorded
   /** @type {string[][]} */
   const tabChanges = [];
-  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'focusTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'createWorkspace' | 'history' | 'reopen'>} */
+  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'focusTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'createWorkspace' | 'history' | 'reopen' | 'restart'>} */
   const herdrView = {
     workspacesOf: async (listed) => ({ herdr: true, sessions: Object.fromEntries(listed.map(({ id }) => [id, 'web'])), icons: {} }),
     layout: async () => ({ herdr: true, workspaces: [webWorkspace] }),
@@ -157,6 +157,10 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
     },
     focusTab: async (tab) => {
       tabChanges.push(['focus', tab]);
+      return { ok: true };
+    },
+    restart: async (session) => {
+      tabChanges.push(['restart', session]);
       return { ok: true };
     },
     moveTab: async (tab, place) => {
@@ -301,6 +305,20 @@ test('tabs_Should_PassRenameAndCloseFromViewerPage_And_RefuseWhatIsNoTab', async
   assert.deepEqual(
     { replies: [renamed, closed].map((reply) => [reply.status, JSON.parse(reply.body)]), refused: [strange.status, nameless.status], tabChanges },
     { replies: [[200, { ok: true }], [200, { ok: true }]], refused: [400, 400], tabChanges: [['rename', 'w1:t1', 'viewer'], ['close', 'w1:t1']] },
+  );
+});
+
+// A session restarted from its page: herdr's view restarts it where it runs; what is no session id is refused before
+// herdr
+test('sessionRestart_Should_PassFromViewerPage_And_RefuseWhatIsNoSession', async (t) => {
+  const { port, tabChanges } = await withServer(t);
+
+  const restarted = await post(port, '/api/session/restart', pageHeaders(port), JSON.stringify({ session: sessionId }));
+  const strange = await post(port, '/api/session/restart', pageHeaders(port), JSON.stringify({ session: '$(reboot)' }));
+
+  assert.deepEqual(
+    { reply: [restarted.status, JSON.parse(restarted.body)], refused: strange.status, tabChanges },
+    { reply: [200, { ok: true }], refused: 400, tabChanges: [['restart', sessionId]] },
   );
 });
 
@@ -524,7 +542,8 @@ test('taskOutput_Should_ReadCommandOutputOnFromWherePageStopped', async (t) => {
 });
 
 // The page tells whether it is opened on the viewer's own computer: it asks the viewer at 127.0.0.1 which instance
-// answers there — from its public address as well — and learns whether the viewer has an editor to open files in
+// answers there — from its public address as well — and learns whether the viewer has an editor to open files in, and
+// how its computer parts a path
 test('machine_Should_NameViewerInstance_ToItsOwnPagesOnly', async (t) => {
   const publicAddresses = [{ origin: 'https://viewer.example.com', host: 'viewer.example.com' }];
   const { port } = await withServer(t, { publicAddresses });
@@ -540,7 +559,7 @@ test('machine_Should_NameViewerInstance_ToItsOwnPagesOnly', async (t) => {
   const told = JSON.parse(own.body.toString());
   assert.deepEqual(
     { told, sameAgain: JSON.parse(again.body.toString()).instance === told.instance, allowed: own.headers['access-control-allow-origin'], foreign: foreign.headers['access-control-allow-origin'], plain: JSON.parse(plain.body.toString()).editor },
-    { told: { instance: told.instance, port, editor: true, vscode: false }, sameAgain: true, allowed: 'https://viewer.example.com', foreign: undefined, plain: false },
+    { told: { instance: told.instance, port, editor: true, vscode: false, separator: sep }, sameAgain: true, allowed: 'https://viewer.example.com', foreign: undefined, plain: false },
   );
   assert.match(told.instance, /^[0-9a-f-]{36}$/);
 });

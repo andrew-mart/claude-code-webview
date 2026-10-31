@@ -16,7 +16,7 @@ import { createDrawers } from './view/drawers.js';
 import { watchEdgeSwipe } from './view/edge-swipe.js';
 import { createPageAddress } from './view/page-address.js';
 import { openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf, successorIn } from './model/herdr.js';
-import { folderChoices, rememberFolder } from './model/folders.js';
+import { folderChoices, folderSearch, foundFolders, rememberFolder, systemFolder } from './model/folders.js';
 import { parseHistory, tabNeighbours } from './model/history.js';
 import { parseUsage, usageView } from './model/usage.js';
 import { createHerdrSidebar, createTabBar } from './view/herdr-panel.js';
@@ -61,6 +61,7 @@ import { createSidebarHead } from './view/sidebar-head.js';
 import { createTasksView } from './view/tasks-view.js';
 import { createHistoryView, earlierLink } from './view/history-view.js';
 import { herdrTabButton } from './view/herdr-tab-button.js';
+import { restartButton } from './view/restart-button.js';
 import { keepLitButton } from './view/keep-lit-button.js';
 
 /**
@@ -148,12 +149,15 @@ const settings = createSettings((change) => page.keepPlace(change));
 /** The answers seen: herdr's finished agents' lamps put out. */
 const seenAnswers = createSeenStore(storageOrNone());
 
-const page = createPage();
-const layout = byId('layout', HTMLElement);
-/** What the viewer says of itself: whether it has an editor, whether it runs VS Code in the browser. */
+/**
+ * What the viewer says of itself: whether it has an editor, whether it runs VS Code in the browser, how its computer
+ * parts a path — asked before the page is made, which waits for it.
+ */
 const machine = fetch('/api/machine')
   .then((response) => (response.ok ? response.json() : undefined))
   .then(parseMachine, () => undefined);
+const page = createPage();
+const layout = byId('layout', HTMLElement);
 // a file's project: the open session's folder when the file is in it, else the file's own folder
 // files' icons, Material Icon Theme's: its light theme's own on the light page
 const iconOf = createFileIcons({ light: () => document.documentElement.dataset.theme === 'light' || (document.documentElement.dataset.theme !== 'dark' && !window.matchMedia('(prefers-color-scheme: dark)').matches) });
@@ -324,16 +328,37 @@ function createPage() {
       .then(parseLucideTags);
     return lucideWords;
   };
+  /** How the viewer's computer parts a path, once it has said: until then, with forward slashes. */
+  /** @type {import('./model/folders.js').PathSeparator} */
+  let pathSeparator = '/';
+  void machine.then((known) => {
+    if (known !== undefined) pathSeparator = known.separator;
+  });
+  /** The folders worked in — typed before, where sessions ran — as the viewer's computer writes paths. */
+  const knownFolders = () => folderChoices(typedFolders(), history).map((folder) => systemFolder(folder, pathSeparator));
+  /**
+   * The folders on the viewer's computer for what is typed: in the folder a path is typed in, or beside the folders
+   * worked in lately for a word (model/folders.js: folderSearch).
+   * @param {string} typed
+   */
+  const foldersOnDisk = async (typed) => {
+    const search = folderSearch(typed, pathSeparator, knownFolders().slice(0, 12));
+    const listed = await Promise.all(search.lists.map(async (folder) => /** @type {const} */ ([folder, await subfolderNames(folder)])));
+    return foundFolders(search, new Map(listed));
+  };
   const herdrSidebar = createHerdrSidebar(herdrPanel, {
     createWorkspace: async (label, folder, start, missing) => {
-      const outcome = await newWorkspace(label, folder, start, missing);
-      if (outcome.ok) writeStorage(foldersKey, JSON.stringify(rememberFolder(typedFolders(), folder)));
+      const written = systemFolder(folder, pathSeparator);
+      const outcome = await newWorkspace(label, written, start, missing);
+      if (outcome.ok) writeStorage(foldersKey, JSON.stringify(rememberFolder(typedFolders(), written)));
       return outcome;
     },
     open: (target) => {
       address.go(target);
     },
-    folders: () => folderChoices(typedFolders(), history),
+    folders: knownFolders,
+    foldersOnDisk,
+    separator: () => pathSeparator,
     renameWorkspace: (workspace, label) => changeTab('/api/workspace/rename', { workspace, label }),
     closeWorkspace: (workspace) => changeTab('/api/workspace/close', { workspace }),
     setWorkspaceIcon: (workspace, icon) => changeTab('/api/workspace/icon', { workspace, icon: icon === undefined ? null : icon }),
@@ -663,14 +688,15 @@ function createPage() {
     const tables = sessionTables(id, scroller, (change) => (current === undefined ? change() : current.keepPlace(change)));
     tables.apply();
     const herdrTab = herdrTabButtonFor(id);
+    const restart = restartButtonFor(id);
     const keepLit = keepLitButtonFor(id);
     const folder = () => sessions.find((session) => session.id === id)?.cwd;
     // from the conversation outward: the side panels of this conversation, its tab, its branch, its project; then where
     // the session runs and its folder lie, opened outside the page
     // those used less on a phone fold into the view menu there, with the words of what they do, for the title to have room
     const [tabHistory, branchChanges, vscode, fileManager] = [historyButton(historyView), changesButton(id), vscodeButton(folder), fileManagerButton(folder)];
-    const folds = [tabHistory, branchChanges, herdrTab.button, vscode, fileManager].map(labelled);
-    const navigation = [headGroup([drawerButton('outline', 'list', 'Outline'), tabHistory, branchChanges, filesButton(folder)]), headGroup([herdrTab.button, keepLit.button, vscode, fileManager])];
+    const folds = [tabHistory, branchChanges, herdrTab.button, restart.button, vscode, fileManager].map(labelled);
+    const navigation = [headGroup([drawerButton('outline', 'list', 'Outline'), tabHistory, branchChanges, filesButton(folder)]), headGroup([herdrTab.button, restart.button, keepLit.button, vscode, fileManager])];
     const header = createSessionHeader({ sessionId: id, place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation, folds, tools: settings.buttons() });
     const outlineElement = h('aside', { className: 'outline', attrs: { 'aria-label': 'Outline' } });
     const outline = createOutline({
@@ -811,6 +837,7 @@ function createPage() {
       },
       showHerdr() {
         herdrTab.show(herdrLayout);
+        restart.show(herdrLayout);
         keepLit.show(herdrLayout, keptPanes);
       },
       // Like the terminal, the rewound message comes back into the box to be edited and sent again.
@@ -1521,6 +1548,16 @@ async function fetchLinks(root, path) {
 }
 
 /**
+ * The names of the folders in a folder; none when the viewer could not list it.
+ * @param {string} folder
+ * @returns {Promise<readonly string[]>}
+ */
+async function subfolderNames(folder) {
+  const listing = await fetchFolder(folder);
+  return listing?.ok === true ? listing.entries.filter((entry) => entry.kind === 'folder').map((entry) => entry.name) : [];
+}
+
+/**
  * A folder's folders and files.
  * @param {string} path
  */
@@ -1588,6 +1625,18 @@ function herdrTabButtonFor(sessionId) {
   button.title = "Open the session's tab in herdr";
   button.setAttribute('aria-label', button.title);
   return { button, show: herdrTabButton(button, sessionId, (tab) => void changeTab('/api/tab/focus', { tab })) };
+}
+
+/**
+ * The button over a session that restarts it — Claude Code quits in its herdr tab and resumes it there, with the
+ * variables the viewer was given — once a second press confirms it; there while it runs in Claude Code in herdr.
+ * @param {string} sessionId
+ * @returns {{ button: HTMLButtonElement, show: (layout: import('./model/herdr.js').HerdrLayout) => void }}
+ */
+function restartButtonFor(sessionId) {
+  const button = iconButton('reload');
+  button.classList.add('head-restart');
+  return { button, show: restartButton(button, sessionId, () => changeTab('/api/session/restart', { session: sessionId })) };
 }
 
 /**
@@ -1801,8 +1850,8 @@ function typedFolders() {
  * A herdr tab or workspace named or closed — or a workspace's icon picked, an idle session hidden, the hidden shown again,
  * herdr taken to a tab — from the tab bar, the sidebar or over a session; once done the page looks at herdr again, so the
  * change shows at once.
- * @param {'/api/tab/rename' | '/api/tab/close' | '/api/tab/focus' | '/api/tab/move' | '/api/workspace/rename' | '/api/workspace/close' | '/api/workspace/icon' | '/api/herdr/hide' | '/api/herdr/show'} path
- * @param {{ tab: string, label?: string } | { tab: string, place: number } | { workspace: string, label?: string } | { workspace: string, icon: string | null } | { pane: string } | Record<string, never>} change
+ * @param {'/api/tab/rename' | '/api/tab/close' | '/api/tab/focus' | '/api/tab/move' | '/api/workspace/rename' | '/api/workspace/close' | '/api/workspace/icon' | '/api/herdr/hide' | '/api/herdr/show' | '/api/session/restart'} path
+ * @param {{ tab: string, label?: string } | { tab: string, place: number } | { workspace: string, label?: string } | { workspace: string, icon: string | null } | { pane: string } | { session: string } | Record<string, never>} change
  *   — an icon: one of Lucide's, kept for the workspace; null: none
  * @returns {Promise<import('./model/herdr.js').TabChange>}
  */

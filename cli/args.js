@@ -6,7 +6,7 @@ import { parseEditorCommand } from '../server/editor.js';
 
 /**
  * @typedef {'serve' | 'background' | 'stop' | 'restart' | 'install-shortcut' | 'help' | 'version'} Action
- * @typedef {{ action: Action, port: number, open: boolean, startMenu: boolean, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[], herdr: 'on' | 'off', claudeCommand: string, claudeGptCommand?: string | undefined, chatgptUsageFile?: string | undefined, codexCommand: string, editor: Editor | undefined, vscode: string | undefined }} Command — herdr: off —
+ * @typedef {{ action: Action, port: number, open: boolean, startMenu: boolean, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[], herdr: 'on' | 'off', claudeCommand: string, claudeGptCommand?: string | undefined, chatgptUsageFile?: string | undefined, codexCommand: string, restartEnv: readonly import('../server/herdr-view.js').ShellVariable[], editor: Editor | undefined, vscode: string | undefined }} Command — herdr: off —
  *   not used even when found, the page only reads sessions; claudeCommand: what starts Claude Code in a tab opened from
  *   the page; editor: what opens a file of the file panel in an editor, none if not given; vscode: the VS Code CLI
  *   that runs VS Code in the browser at /vscode/, none if not given
@@ -52,13 +52,31 @@ export function parseCommand(argv) {
   if (chatgptUsageFile === '') return { ok: false, error: 'Invalid --chatgpt-usage-file: expected a file path.' };
   if (claudeGptCommand !== undefined && (claudeGptCommand === '' || /[\r\n]/.test(claudeGptCommand))) return { ok: false, error: 'Invalid --claude-gpt-command: expected a command on one line.' };
   if (codexCommand === '' || /[\r\n]/.test(codexCommand)) return { ok: false, error: `Invalid --codex-command value "${values['codex-command']}": expected the command that starts Codex in a terminal, such as codex.` };
+  /** @type {import('../server/herdr-view.js').ShellVariable[]} */
+  const restartEnv = [];
+  for (const value of values['restart-env']) {
+    const variable = shellVariableOf(value);
+    if (variable === undefined) return { ok: false, error: `Invalid --restart-env value "${value}": expected NAME=VALUE, the value with no space, quote or $ in it.` };
+    restartEnv.push(variable);
+  }
   const editorText = values['editor-command']?.trim();
   const editorCommand = editorText === undefined ? undefined : parseEditorCommand(editorText);
   if (editorText !== undefined && editorCommand === undefined) return { ok: false, error: `Invalid --editor-command value "${values['editor-command']}": expected the command of an editor with {path} for the file — and {line}, {project} if it takes them — such as "code --goto {path}:{line}".` };
   const editor = editorText === undefined || editorCommand === undefined ? undefined : { text: editorText, command: editorCommand };
   const vscode = values.vscode?.trim();
   if (vscode === '') return { ok: false, error: `Invalid --vscode value "${values.vscode}": expected the VS Code CLI that runs its web server — code-tunnel.exe of VS Code on Windows, code elsewhere.` };
-  return { ok: true, command: { action: chosen[0] ?? 'serve', port, open: !values['no-open'], startMenu: values['start-menu'], palette, publicAddresses, herdr: values['no-herdr'] ? 'off' : 'on', claudeCommand, ...(claudeGptCommand === undefined ? {} : { claudeGptCommand }), ...(chatgptUsageFile === undefined ? {} : { chatgptUsageFile }), codexCommand, editor, vscode } };
+  return { ok: true, command: { action: chosen[0] ?? 'serve', port, open: !values['no-open'], startMenu: values['start-menu'], palette, publicAddresses, herdr: values['no-herdr'] ? 'off' : 'on', claudeCommand, ...(claudeGptCommand === undefined ? {} : { claudeGptCommand }), ...(chatgptUsageFile === undefined ? {} : { chatgptUsageFile }), codexCommand, restartEnv, editor, vscode } };
+}
+
+/**
+ * A variable a session restarted starts with, typed into a shell ahead of its command: a name a shell takes, and a
+ * value with nothing in it a shell would read otherwise than as written.
+ * @param {string} text — a --restart-env value, NAME=VALUE
+ * @returns {import('../server/herdr-view.js').ShellVariable | undefined}
+ */
+function shellVariableOf(text) {
+  const parts = /^([A-Za-z_][A-Za-z0-9_]*)=([A-Za-z0-9_.,:\/@%+=-]*)$/.exec(text);
+  return parts === null ? undefined : { name: parts[1] ?? '', value: parts[2] ?? '' };
 }
 
 /**
@@ -88,6 +106,7 @@ function parseOptions(argv) {
       'claude-gpt-command': { type: 'string' },
       'chatgpt-usage-file': { type: 'string' },
       'codex-command': { type: 'string', default: 'codex' },
+      'restart-env': { type: 'string', multiple: true, default: [] },
       'editor-command': { type: 'string' },
       vscode: { type: 'string' },
       background: { type: 'boolean', short: 'b', default: false },

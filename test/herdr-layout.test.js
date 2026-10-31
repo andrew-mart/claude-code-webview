@@ -92,6 +92,15 @@ test('parseHerdrLayout_Should_KeepWhatFitsContract_AndDropTheRest', () => {
   assert.deepEqual(parseHerdrLayout('a proxy error page'), { herdr: false, workspaces: [] });
 });
 
+// The variables a session restarted starts with, as the viewer tells them: each NAME=VALUE; anything else is left out
+test('parseHerdrLayout_Should_KeepVariablesSessionsRestartWith', () => {
+  assert.deepEqual(parseHerdrLayout({ herdr: true, restartEnv: ['CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1', 7], workspaces: [] }), {
+    herdr: true,
+    restartEnv: ['CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1'],
+    workspaces: [],
+  });
+});
+
 // As herdr lists its agents: every session of every workspace, the one whose agent changed state last first; a pane
 // without an agent — a shell, nvim — is no session
 test('sessionsByActivity_Should_ListEverySessionOfEveryWorkspace_LatestActivityFirst', () => {

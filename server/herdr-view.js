@@ -31,16 +31,25 @@ import { observed } from './session-history.js';
  * @typedef {{ found: 'pane', pane: string, working: boolean } | { found: 'elsewhere' | 'none' }} CodexPlace — where a
  *   Codex session runs: in a herdr pane, its agent at work or not; elsewhere — Codex has it open outside herdr; none —
  *   closed
+ * @typedef {{ name: string, value: string }} ShellVariable — set for a command typed into a shell: a name and value
+ *   no shell reads otherwise than as written
+ * @typedef {{ env: readonly ShellVariable[], shell: 'powershell' | 'posix', endProcess: (pid: number) => Promise<boolean> }} Restarting
+ *   — how a session is restarted: env — the variables its agent starts again with; shell — the panes' shell, which
+ *   sets them its way; endProcess — a process ended, true once it is gone
  */
 
+/** A viewer told nothing of restarting: no process of its is ended, so no session restarts. */
+/** @type {Restarting} */
+const noRestarting = { env: [], shell: 'posix', endProcess: async () => false };
+
 /**
- * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, codexThreads: () => Promise<readonly import('./codex-live.js').LiveThread[]>, icons: { iconsOf: (workspaces: readonly import('./workspace-icons.js').IconedWorkspace[]) => Promise<ReadonlyMap<string, string>>, setIcon: (folder: string, icon: string | undefined) => Promise<void> }, hidden: ReturnType<typeof import('./hidden-panes.js').createHiddenPanes>, file: string, refreshMs: number, claudeCommand: string, claudeGptCommand?: string | undefined, claudeModelOf?: ((session: string) => Promise<string | undefined>) | undefined, codexCommand: string, trust: { looks: number, stepMs: number } }} deps
+ * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, codexThreads: () => Promise<readonly import('./codex-live.js').LiveThread[]>, icons: { iconsOf: (workspaces: readonly import('./workspace-icons.js').IconedWorkspace[]) => Promise<ReadonlyMap<string, string>>, setIcon: (folder: string, icon: string | undefined) => Promise<void> }, hidden: ReturnType<typeof import('./hidden-panes.js').createHiddenPanes>, file: string, refreshMs: number, claudeCommand: string, claudeGptCommand?: string | undefined, claudeModelOf?: ((session: string) => Promise<string | undefined>) | undefined, codexCommand: string, trust: { looks: number, stepMs: number }, restart?: Restarting }} deps
  *   readRecords — contents of ~/.claude/sessions/*.json; codexThreads — the threads Codex has open now; icons — each
  *   workspace's (workspace-icons.js); hidden — the panes hidden from the page's list (hidden-panes.js); file — where the
  *   workspaces of sessions seen running are kept; refreshMs — herdr is asked at most this often; claudeCommand,
- *   codexCommand — what starts Claude Code, and Codex, in a new tab
+ *   codexCommand — what starts Claude Code, and Codex, in a new tab; restart — how a session is restarted where it runs
  */
-export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidden, file, refreshMs, claudeCommand, claudeGptCommand, claudeModelOf = async () => undefined, codexCommand, trust }) {
+export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidden, file, refreshMs, claudeCommand, claudeGptCommand, claudeModelOf = async () => undefined, codexCommand, trust, restart = noRestarting }) {
   /**
    * A process's pane does not change while it runs: process-info is asked once for each Claude process — by its key
    * (registry.js): the number goes to another process once it is gone.
@@ -164,9 +173,10 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
    * @param {string} pane
    * @param {Exclude<import('../public/model/herdr.js').TabStart, 'shell'>} agent
    * @param {GoOn | undefined} goOn — the session it goes on with: resumed, or forked into a new one; none for a new session
+   * @param {string} [ahead] - typed ahead of the command in the same line: the variables it starts with
    * @returns {Promise<boolean>} — whether herdr took the keys
    */
-  const startAgent = async (pane, agent, goOn) => {
+  const startAgent = async (pane, agent, goOn, ahead = '') => {
     const model = agent !== 'codex' && goOn !== undefined ? await claudeModelOf(goOn.session) : undefined;
     const gptModel = isGptModel(model) ? model : undefined;
     const remembered = goOn === undefined ? undefined : (await keptHistory()).history[goOn.session]?.claudeGpt;
@@ -179,7 +189,7 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
       await delay(shellStepMs);
     }
     const command = [launcher, ...(agent === 'codex' ? codexGoingOn(goOn) : claudeGoingOn(goOn)), ...(gptModel === undefined ? [] : ['--model', gptModel])];
-    const started = succeeded(await herdr(['pane', 'send-text', pane, command.join(' ')])) && succeeded(await herdr(['pane', 'send-keys', pane, 'enter']));
+    const started = succeeded(await herdr(['pane', 'send-text', pane, `${ahead}${command.join(' ')}`])) && succeeded(await herdr(['pane', 'send-keys', pane, 'enter']));
     if (started && gpt) gptPanes.add(pane);
     if (started && agent !== 'codex') void acceptTrust(herdr, pane, trust).catch(() => undefined); // herdr gone meanwhile: nothing to answer
     return started;
@@ -381,6 +391,26 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
       return changed(await herdr(['tab', 'focus', tabId]));
     },
     /**
+     * A Claude Code session restarted where it runs: its process ended — its turn and its background commands with it —
+     * and Claude Code started again in its tab resuming it, the variables asked for set ahead of it. A session running
+     * in no herdr tab, or whose process did not end, is not: nothing is typed over a Claude Code still there.
+     * @param {string} sessionId
+     * @returns {Promise<import('../public/model/herdr.js').TabChange>}
+     */
+    async restart(sessionId) {
+      const view = await currentView();
+      const pane = view?.snapshot.panes.find((one) => one.agent === 'claude' && view.sessionByPane.get(one.paneId) === sessionId);
+      const record = latestRecords(await readRecords()).get(sessionId);
+      // a session's id is typed into a shell: one that is no id is not
+      if (pane === undefined || record === undefined || !sessionIdPattern.test(sessionId)) return { ok: false, error: 'failed' };
+      if (!(await restart.endProcess(record.pid))) return { ok: false, error: 'failed' };
+      latest = undefined;
+      // the shell is back once Claude Code is gone: what is typed meanwhile waits for it
+      await delay(shellStepMs);
+      const started = await startAgent(pane.paneId, 'claude', { session: sessionId, as: 'resume' }, shellVariables(restart.env, restart.shell));
+      return started ? { ok: true } : { ok: false, error: 'failed' };
+    },
+    /**
      * A closed session opened again where it ran: a new tab of its workspace — the workspace opened again if it is gone,
      * or named after the folder for a session never seen in herdr — named as the tab was, or as a copy of it while it is
      * open, in its folder, Claude Code — or Codex — resuming it there. The page stays on the session's feed.
@@ -433,7 +463,7 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
     /** @returns {Promise<import('../public/model/herdr.js').HerdrLayout>} */
     async layout() {
       const view = await currentView();
-      return view === undefined ? { herdr: false, workspaces: [] } : { herdr: true, ...(claudeGptCommand === undefined ? {} : { claudeGpt: /** @type {const} */ (true) }), workspaces: layoutOf(view.snapshot, view.sessionByPane, view.icons, view.hidden) };
+      return view === undefined ? { herdr: false, workspaces: [] } : { herdr: true, ...(claudeGptCommand === undefined ? {} : { claudeGpt: /** @type {const} */ (true) }), ...(restart.env.length === 0 ? {} : { restartEnv: restart.env.map(({ name, value }) => `${name}=${value}`) }), workspaces: layoutOf(view.snapshot, view.sessionByPane, view.icons, view.hidden) };
     },
   };
 }
@@ -590,6 +620,17 @@ function folderName(folder) {
  * @typedef {{ session: string, as: 'resume' | 'fork' }} GoOn — a session an agent goes on with: resumed, or forked into
  *   a new session of its own
  */
+
+/**
+ * Variables set ahead of a command typed into a shell, as the shell sets them: PowerShell's for the rest of the shell's
+ * life, a POSIX shell's for the command alone.
+ * @param {readonly ShellVariable[]} env
+ * @param {'powershell' | 'posix'} shell
+ * @returns {string}
+ */
+function shellVariables(env, shell) {
+  return env.map(({ name, value }) => (shell === 'powershell' ? `$env:${name}='${value}'; ` : `${name}=${value} `)).join('');
+}
 
 /**
  * What follows Claude Code's command to go on with a session.

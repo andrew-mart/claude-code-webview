@@ -405,6 +405,44 @@ async function tabsView(herdr, claudeCommand = 'claude') {
   return createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand, codexCommand: 'codex-yolo' });
 }
 
+// A session restarted where it runs: its Claude Code ended, then started again in its tab resuming it, the variables
+// asked for set ahead of it as the computer's shell sets them — PowerShell's on Windows, a POSIX shell's elsewhere — the
+// page told them. A session running nowhere in herdr is not restarted; one whose Claude Code did not end gets nothing
+// typed over it
+test('restart_Should_EndClaudeInItsTab_AndResumeSessionThere_WithVariablesSet', async () => {
+  const herdr = tabsHerdr({ panes: [{ pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:/shop', agent: 'claude', pid: 101 }] });
+  /** @type {number[]} */
+  const ended = [];
+  const env = [
+    { name: 'CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP', value: '1' },
+    { name: 'SHOP_ENV', value: 'staging' },
+  ];
+  /** @param {'powershell' | 'posix'} shell @param {boolean} ends */
+  const viewer = (shell, ends) =>
+    createHerdrView({ herdr: herdr.run, readRecords: async () => [runningRecord], codexThreads: async () => [], icons: noIcons, hidden: noHidden, file: join(tempDir('ccw-restart-'), 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'my-claude', codexCommand: 'codex', restart: { env, shell, endProcess: async (pid) => (ended.push(pid), ends) } });
+
+  const told = (await viewer('posix', true).layout()).restartEnv;
+  const outcomes = [
+    await viewer('powershell', true).restart(running),
+    await viewer('posix', true).restart(running),
+    await viewer('posix', true).restart('9a1c2a10-1111-4222-8333-000000000099'),
+    await viewer('posix', false).restart(running),
+  ];
+
+  assert.deepEqual(
+    { told, outcomes, ended, typed: herdr.changes.filter((change) => change.startsWith('pane send-text')) },
+    {
+      told: ['CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1', 'SHOP_ENV=staging'],
+      outcomes: [{ ok: true }, { ok: true }, { ok: false, error: 'failed' }, { ok: false, error: 'failed' }],
+      ended: [101, 101, 101],
+      typed: [
+        `pane send-text w2:p1 $env:CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP='1'; $env:SHOP_ENV='staging'; my-claude --resume ${running}`,
+        `pane send-text w2:p1 CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1 SHOP_ENV=staging my-claude --resume ${running}`,
+      ],
+    },
+  );
+});
+
 test('createTab_Should_StartClaudeGptSeparatelyFromOrdinaryClaude', async () => {
   const herdr = tabsHerdr();
   const folder = tempDir('ccw-gpt-');

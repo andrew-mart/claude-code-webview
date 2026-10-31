@@ -2,7 +2,7 @@
 // herdr as herdr itself lays it out: in the sidebar its workspaces, and under them every session of every workspace with
 // its agent's status, the latest active first; above the open session or terminal, the tabs of its workspace to switch
 // between, the open one to name or close.
-import { workspaceNameOf } from '../model/folders.js';
+import { folderOffers, workspaceNameOf } from '../model/folders.js';
 import { iconColors, iconValue, parseIcon, searchIcons } from '../model/icon-choice.js';
 import { placeOf, searchLayout, sessionsByActivity, tabTarget } from '../model/herdr.js';
 import { groupLamp, paneLamp } from '../model/lamps.js';
@@ -356,9 +356,10 @@ function link(target, className, children) {
 
 /**
  * @typedef {import('../model/herdr.js').TabChange} TabChange
- * @typedef {{ createWorkspace: (label: string, folder: string, start: import('../model/herdr.js').TabStart, missing: import('../model/herdr.js').MissingFolder) => Promise<import('../model/herdr.js').NewWorkspace>, open: (target: string) => void, folders: () => readonly string[], renameWorkspace: (workspaceId: string, label: string) => Promise<TabChange>, closeWorkspace: (workspaceId: string) => Promise<TabChange>, setWorkspaceIcon: (workspaceId: string, icon: string | undefined) => Promise<TabChange>, iconTags: () => Promise<Readonly<Record<string, readonly string[]>>>, renameTab: (tabId: string, label: string) => Promise<TabChange>, closeTab: (tabId: string) => Promise<TabChange>, hidePane: (paneId: string) => Promise<TabChange>, showHidden: () => Promise<TabChange>, keptLit: (pane: import('../model/herdr.js').HerdrPane) => boolean, keepLit: (pane: import('../model/herdr.js').HerdrPane) => void }} SidebarActions
+ * @typedef {{ createWorkspace: (label: string, folder: string, start: import('../model/herdr.js').TabStart, missing: import('../model/herdr.js').MissingFolder) => Promise<import('../model/herdr.js').NewWorkspace>, open: (target: string) => void, folders: () => readonly string[], foldersOnDisk: (typed: string) => Promise<readonly string[]>, separator: () => import('../model/folders.js').PathSeparator, renameWorkspace: (workspaceId: string, label: string) => Promise<TabChange>, closeWorkspace: (workspaceId: string) => Promise<TabChange>, setWorkspaceIcon: (workspaceId: string, icon: string | undefined) => Promise<TabChange>, iconTags: () => Promise<Readonly<Record<string, readonly string[]>>>, renameTab: (tabId: string, label: string) => Promise<TabChange>, closeTab: (tabId: string) => Promise<TabChange>, hidePane: (paneId: string) => Promise<TabChange>, showHidden: () => Promise<TabChange>, keptLit: (pane: import('../model/herdr.js').HerdrPane) => boolean, keepLit: (pane: import('../model/herdr.js').HerdrPane) => void }} SidebarActions
  *   — createWorkspace, and the renames and closings, resolve once the page shows the change; open goes to a page address;
- *   folders: the folders to offer for a new workspace — typed before, where sessions ran; keptLit: whether an agent is
+ *   folders: the folders to offer for a new workspace — typed before, where sessions ran; foldersOnDisk: those on the
+ *   viewer's computer for what is typed, offered after them; separator: how that computer parts a path; keptLit: whether an agent is
  *   kept lit to come back to now; keepLit: it marked so, or its mark taken off (model/lamps.js)
  * @typedef {{ atHand: readonly string[], current: string | undefined, setIcon: (icon: string | undefined) => Promise<TabChange>, tags: () => Promise<Readonly<Record<string, readonly string[]>>> }} RowIcon
  *   — a row's icon, picked as it is named: the emoji at hand; the icon now; how one its name cannot hold — Lucide's — is
@@ -436,13 +437,6 @@ async function renameWith(subject, naming) {
 /** How many of the folders offered for a new workspace are listed at once: the rest are found by typing. */
 const offeredFolders = 8;
 
-/**
- * A folder's path as typed or offered, to compare whatever its case and however its slashes lean.
- * @param {string} path
- */
-function comparablePath(path) {
-  return path.replaceAll('\\', '/').toLowerCase();
-}
 
 /** Why a workspace was not opened. */
 /** @type {Readonly<Record<'empty' | 'no-folder' | 'not-created' | 'failed', string>>} */
@@ -462,7 +456,7 @@ const newWorkspaceRefusals = {
  * @param {HTMLElement} element — the sidebar's place for it
  * @param {SidebarActions} actions
  */
-export function createHerdrSidebar(element, { createWorkspace, open, folders, renameWorkspace, closeWorkspace, setWorkspaceIcon, iconTags, renameTab, closeTab, hidePane, showHidden, keptLit, keepLit }) {
+export function createHerdrSidebar(element, { createWorkspace, open, folders, foldersOnDisk, separator, renameWorkspace, closeWorkspace, setWorkspaceIcon, iconTags, renameTab, closeTab, hidePane, showHidden, keptLit, keepLit }) {
   /** How long each workspace and agent has been at work: their robots' story goes on across redrawing. */
   const clock = createWorkClock(() => Date.now());
   let shown = '';
@@ -663,7 +657,8 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
   };
   const startForm = () => {
     const name = h('input', { className: 'herdr-new-name', attrs: { type: 'text', maxlength: '60', placeholder: 'Name', 'aria-label': 'Name of the new workspace' } });
-    const folder = h('input', { className: 'herdr-new-folder', attrs: { type: 'text', placeholder: 'Folder: D:/dev/app or ~/app', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Folder of the new workspace' } });
+    const example = separator() === '\\' ? 'Folder: D:\\dev\\app or ~\\app' : 'Folder: /home/me/app or ~/app';
+    const folder = h('input', { className: 'herdr-new-folder', attrs: { type: 'text', placeholder: example, spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Folder of the new workspace' } });
     // no name given — or only the one the folder gave — follows the folder chosen
     let fromFolder = '';
     const followFolder = () => {
@@ -672,25 +667,33 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
       name.value = fromFolder;
     };
     // The folder typed, or picked from those the page offers: listed under the box — a phone shows no list of a box's
-    // own — narrowed by what is typed; none once one of them is in the box.
-    const offered = folders().map((path) => {
-      const button = h('button', { text: path, title: path, attrs: { type: 'button' } });
-      button.addEventListener('click', () => {
-        folder.value = path;
-        followFolder();
+    // own — the folders worked in that hold what is typed, read anew each time — the page may learn of more meanwhile —
+    // then those on the disk found for it as they come, an answer for what was typed before dropped; none once one of
+    // them is in the box.
+    /** @type {readonly string[]} */
+    let found = [];
+    let asked = 0;
+    const choices = h('div', { className: 'herdr-new-folders' });
+    const narrow = () => {
+      choices.replaceChildren(
+        ...folderOffers(folders(), found, folder.value, offeredFolders).map((path) => {
+          const button = h('button', { text: path, title: path, attrs: { type: 'button' } });
+          button.addEventListener('click', () => {
+            folder.value = path;
+            followFolder();
+            narrow();
+          });
+          return button;
+        }),
+      );
+    };
+    const lookOnDisk = () => {
+      const turn = ++asked;
+      void foldersOnDisk(folder.value).then((now) => {
+        if (turn !== asked) return;
+        found = now;
         narrow();
       });
-      return { path, button };
-    });
-    const choices = h('div', { className: 'herdr-new-folders' }, offered.map(({ button }) => button));
-    const narrow = () => {
-      const typed = comparablePath(folder.value);
-      const picked = offered.some(({ path }) => comparablePath(path) === typed);
-      let shown = 0;
-      for (const { path, button } of offered) {
-        button.hidden = picked || shown === offeredFolders || !comparablePath(path).includes(typed);
-        if (!button.hidden) shown += 1;
-      }
     };
     narrow();
     const error = h('div', { className: 'herdr-new-error', attrs: { role: 'alert' } });
@@ -702,6 +705,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, re
     folder.addEventListener('input', () => {
       followFolder();
       narrow();
+      lookOnDisk();
       // the offer was for the folder typed before
       create.hidden = true;
     });

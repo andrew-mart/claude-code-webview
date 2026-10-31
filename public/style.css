@@ -1944,6 +1944,16 @@ input.herdr-row-name.failed {
   color: var(--lamp-kept);
 }
 
+/* A session's restart asking for the second press that confirms it, and one that failed (restart-button.js). */
+.head-restart.asking {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.head-restart.failed {
+  color: var(--danger);
+}
+
 .head-group + .head-group::before,
 .head-tools::before {
   content: "";

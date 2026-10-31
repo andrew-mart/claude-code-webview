@@ -14,7 +14,8 @@ import { isRecord, text } from './narrow.js';
  * @typedef {{ id: string, number: number, label: string, status: AgentStatus, panes: readonly HerdrPane[] }} HerdrTab
  * @typedef {{ id: string, number: number, label: string, icon?: string | undefined, status: AgentStatus, activeTab: string | undefined, tabs: readonly HerdrTab[] }} HerdrWorkspace
  *   icon: the emoji it is marked with (server/workspace-icons.js)
- * @typedef {{ herdr: boolean, claudeGpt?: true, workspaces: readonly HerdrWorkspace[] }} HerdrLayout — herdr: whether it answers
+ * @typedef {{ herdr: boolean, claudeGpt?: true, restartEnv?: readonly string[], workspaces: readonly HerdrWorkspace[] }} HerdrLayout — herdr: whether it answers;
+ *   restartEnv: the variables a session restarted from the page starts with, each NAME=VALUE, none when there are none
  * @typedef {{ ok: true, target: string } | { ok: false, error: 'failed' }} NewTab — a tab opened from the page; target: its page address
  * @typedef {'shell' | 'claude' | 'claude-gpt' | 'codex'} TabStart — the shell, ordinary Claude Code, Claude Code through GPT, or Codex
  * @typedef {'refuse' | 'create'} MissingFolder — what a new workspace does of a folder that is not there: opens nothing,
@@ -127,7 +128,8 @@ export function openedAt(hash) {
  */
 export function parseHerdrLayout(json) {
   if (!isRecord(json) || json.herdr !== true || !Array.isArray(json.workspaces)) return { herdr: false, workspaces: [] };
-  return { herdr: true, ...(json.claudeGpt === true ? { claudeGpt: /** @type {const} */ (true) } : {}), workspaces: json.workspaces.filter(isRecord).flatMap(parseWorkspace) };
+  const restartEnv = Array.isArray(json.restartEnv) ? json.restartEnv.filter((variable) => typeof variable === 'string') : [];
+  return { herdr: true, ...(json.claudeGpt === true ? { claudeGpt: /** @type {const} */ (true) } : {}), ...(restartEnv.length === 0 ? {} : { restartEnv }), workspaces: json.workspaces.filter(isRecord).flatMap(parseWorkspace) };
 }
 
 const statuses = /** @type {const} */ (['idle', 'working', 'blocked', 'done', 'unknown']);

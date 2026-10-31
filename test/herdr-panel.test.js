@@ -33,7 +33,7 @@ const web = {
 };
 
 /** A sidebar nobody opens a workspace from. @type {import('../public/view/herdr-panel.js').SidebarActions} */
-const noActions = { createWorkspace: async () => ({ ok: false, error: 'failed' }), open: () => undefined, folders: () => [], renameWorkspace: async () => ({ ok: false, error: 'failed' }), closeWorkspace: async () => ({ ok: false, error: 'failed' }), setWorkspaceIcon: async () => ({ ok: false, error: 'failed' }), iconTags: async () => ({}), renameTab: async () => ({ ok: false, error: 'failed' }), closeTab: async () => ({ ok: false, error: 'failed' }), hidePane: async () => ({ ok: false, error: 'failed' }), showHidden: async () => ({ ok: false, error: 'failed' }), keptLit: () => false, keepLit: () => undefined };
+const noActions = { createWorkspace: async () => ({ ok: false, error: 'failed' }), open: () => undefined, folders: () => [], foldersOnDisk: async () => [], separator: () => '/', renameWorkspace: async () => ({ ok: false, error: 'failed' }), closeWorkspace: async () => ({ ok: false, error: 'failed' }), setWorkspaceIcon: async () => ({ ok: false, error: 'failed' }), iconTags: async () => ({}), renameTab: async () => ({ ok: false, error: 'failed' }), closeTab: async () => ({ ok: false, error: 'failed' }), hidePane: async () => ({ ok: false, error: 'failed' }), showHidden: async () => ({ ok: false, error: 'failed' }), keptLit: () => false, keepLit: () => undefined };
 
 test('tabBar_Should_OfferSeparateGptStartOnlyWhenConfigured', async () => {
   const { bar, asked, click } = barAboveSession();
@@ -412,6 +412,8 @@ test('herdrSidebar_Should_OpenNewWorkspace_FromItsNameAndFolder', async () => {
     },
     open: (target) => opened.push(target),
     folders: () => [],
+    foldersOnDisk: async () => [],
+    separator: () => '/',
     renameWorkspace: async () => ({ ok: false, error: 'failed' }),
     closeWorkspace: async () => ({ ok: false, error: 'failed' }),
     setWorkspaceIcon: async () => ({ ok: false, error: 'failed' }),
@@ -802,6 +804,62 @@ test('herdrSidebar_Should_OfferFoldersForNewWorkspace_ListedUnderItsBox', () => 
   assert.deepEqual(
     { all, narrowed, picked: { folder: folder.value, name: name.value }, after: offered() },
     { all: ['D:/dev/billing', '/home/ann/notes', 'D:/dev/shop'], narrowed: ['D:/dev/billing', 'D:/dev/shop'], picked: { folder: 'D:/dev/shop', name: 'shop' }, after: [] },
+  );
+});
+
+// The folders worked in are read again as the box changes: those the page learns of while the form is open — the
+// history of sessions come late — are offered too
+test('herdrSidebar_Should_OfferFoldersWorkedIn_AsThePageLearnsOfThem', () => {
+  /** @type {readonly string[]} */
+  let known = [];
+  const element = window.document.createElement('div');
+  const sidebar = createHerdrSidebar(element, { ...noActions, folders: () => known });
+  sidebar.render({ herdr: true, workspaces: [web] }, undefined, '', new Map());
+  sidebar.newButton.click();
+  const folder = element.querySelector('.herdr-new-folder');
+  assert.ok(folder instanceof window.HTMLInputElement);
+
+  known = ['D:/dev/shop', 'D:/dev/billing'];
+  folder.value = 'shop';
+  folder.dispatchEvent(new window.Event('input', { bubbles: true }));
+
+  assert.deepEqual([...element.querySelectorAll('.herdr-new-folders button')].map((one) => one.textContent), ['D:/dev/shop']);
+});
+
+// After the folders worked in, those found on the disk for what is typed are offered — as the viewer's computer writes
+// paths, its example in the empty box too; an answer for what was typed before, coming later, is dropped
+test('herdrSidebar_Should_OfferFoldersFoundOnDisk_AfterThoseWorkedIn', async () => {
+  /** @type {Map<string, (found: readonly string[]) => void>} */
+  const answers = new Map();
+  const element = window.document.createElement('div');
+  const sidebar = createHerdrSidebar(element, {
+    ...noActions,
+    separator: () => '\\',
+    folders: () => ['D:\\dev\\shop', 'D:\\dev\\billing'],
+    foldersOnDisk: (typed) => new Promise((answer) => void answers.set(typed, answer)),
+  });
+  sidebar.render({ herdr: true, workspaces: [web] }, undefined, '', new Map());
+  sidebar.newButton.click();
+  const folder = element.querySelector('.herdr-new-folder');
+  assert.ok(folder instanceof window.HTMLInputElement);
+  const offered = () => [...element.querySelectorAll('.herdr-new-folders button:not([hidden])')].map((one) => one.textContent);
+  /** @param {string} typed */
+  const type = (typed) => {
+    folder.value = typed;
+    folder.dispatchEvent(new window.Event('input', { bubbles: true }));
+  };
+
+  type('D:/dev/s');
+  type('D:/dev/sh');
+  answers.get('D:/dev/sh')?.(['D:\\dev\\Shop', 'D:\\dev\\shopping']);
+  await settled();
+  const found = offered();
+  answers.get('D:/dev/s')?.(['D:\\dev\\site']);
+  await settled();
+
+  assert.deepEqual(
+    { example: folder.placeholder, found, late: offered() },
+    { example: 'Folder: D:\\dev\\app or ~\\app', found: ['D:\\dev\\shop', 'D:\\dev\\shopping'], late: ['D:\\dev\\shop', 'D:\\dev\\shopping'] },
   );
 });
 

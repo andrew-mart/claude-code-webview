@@ -30,6 +30,7 @@ import { openInEditor } from '../server/editor.js';
 import { createSystemEditor, shellOpen, startApart, windowsHandlers } from '../server/system-editor.js';
 import { openInFileManager } from '../server/file-manager.js';
 import { claudeCommands, codexCommands } from '../server/commands.js';
+import { endProcess } from '../server/end-process.js';
 
 /**
  * The viewer's settings and log folder: the remembered herdr (herdr.json), bookmarks of all sessions (bookmarks.json),
@@ -67,12 +68,14 @@ const herdrSources = {
 const herdrRefreshMs = 3_000;
 /** Claude Code started from the page is watched this long for the question whether to trust its folder: 30 s. */
 const claudeTrustPace = { looks: 60, stepMs: 500 };
+/** A session restarted from the page: its Claude Code is waited for this long to end before it is started again. */
+const claudeEndPace = { waitMs: 10_000, stepMs: 100 };
 
 /**
- * @param {{ port: number, about: import('../server/app.js').About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[], herdr: 'on' | 'off', claudeCommand: string, claudeGptCommand?: string | undefined, chatgptUsageFile?: string | undefined, codexCommand: string, editor: import('../server/editor.js').EditorCommand | undefined, vscode: string | undefined }} options
+ * @param {{ port: number, about: import('../server/app.js').About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly import('../server/app.js').PublicAddress[], herdr: 'on' | 'off', claudeCommand: string, claudeGptCommand?: string | undefined, chatgptUsageFile?: string | undefined, codexCommand: string, restartEnv: readonly import('../server/herdr-view.js').ShellVariable[], editor: import('../server/editor.js').EditorCommand | undefined, vscode: string | undefined }} options
  * @returns {Promise<{ url: string, close: () => void }>}
  */
-export async function serve({ port, about, palette, publicAddresses, herdr, claudeCommand, claudeGptCommand, chatgptUsageFile, codexCommand, editor, vscode }) {
+export async function serve({ port, about, palette, publicAddresses, herdr, claudeCommand, claudeGptCommand, chatgptUsageFile, codexCommand, restartEnv, editor, vscode }) {
   await mkdir(stateDir, { recursive: true });
   const { run, via, note } = await herdrToUse(herdr);
   const claude = claudeDir(process.env);
@@ -83,7 +86,7 @@ export async function serve({ port, about, palette, publicAddresses, herdr, clau
   const index = createSessionIndex(join(claude, 'projects'), { summaryBudgetMs: 1500, missRetryMs: 2000, codexRoot: join(codexHome, 'sessions'), started: async () => startedSessions(await readRecords()) });
   const codexThreads = createCodexThreads({ home: codexHome, summaryOf: index.summaryOf, held: lockHeld });
   const icons = createWorkspaceIcons({ file: join(stateDir, 'workspace-icons.json'), random: Math.random });
-  const herdrView = createHerdrView({ herdr: run, readRecords, codexThreads: codexThreads.open, icons, hidden: createHiddenPanes(join(stateDir, 'hidden-panes.json')), file: join(stateDir, 'workspaces.json'), refreshMs: herdrRefreshMs, trust: claudeTrustPace, claudeCommand, claudeGptCommand, claudeModelOf: createClaudeModels(index.find), codexCommand });
+  const herdrView = createHerdrView({ herdr: run, readRecords, codexThreads: codexThreads.open, icons, hidden: createHiddenPanes(join(stateDir, 'hidden-panes.json')), file: join(stateDir, 'workspaces.json'), refreshMs: herdrRefreshMs, trust: claudeTrustPace, claudeCommand, claudeGptCommand, claudeModelOf: createClaudeModels(index.find), codexCommand, restart: { env: restartEnv, shell: process.platform === 'win32' ? 'powershell' : 'posix', endProcess: (pid) => endProcess(pid, claudeEndPace) } });
   const composer = createComposer({ readRecords, herdr: run, codexPlace: herdrView.codexPlace });
   // A terminal on the page: through herdr's socket a screen is read in a millisecond or two, so it is read every 40 ms
   // while typing; through the herdr program every call starts a process, a tenth of a second.

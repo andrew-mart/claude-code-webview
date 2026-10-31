@@ -179,7 +179,7 @@ export async function startServer({ index, host, port, pollMs, composer, bookmar
  * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, notes: import('./notes.js').Notes,uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, chatgptUsage: ReadUsage, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, kept: Kept,codexInUse: () => Promise<boolean> }} Deps
  *   instance: this run of the viewer, told apart from any other — see /api/machine; vscode: VS Code's web server
  *   behind /vscode/, none when the viewer runs none
- * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'focusTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'createWorkspace' | 'history' | 'reopen'>} HerdrView
+ * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'focusTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'createWorkspace' | 'history' | 'reopen' | 'restart'>} HerdrView
  * @typedef {Pick<ReturnType<typeof import('./terminal.js').createTerminals>, 'stream' | 'type'>} Terminals
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
  * @typedef {{ origin: string, host: string }} PublicAddress — where the page is opened from outside, behind a tunnel:
@@ -613,6 +613,9 @@ async function handleWrite(deps, url, request, response) {
       const session = (await deps.index.list()).find((listed) => listed.id === sessionId);
       return sendJson(response, await deps.herdrView.reopen(sessionId, session?.cwd, session === undefined ? 'claude' : session.agent));
     }
+    // its Claude Code ended and started again in its herdr tab, resuming it with the variables the viewer was given
+    case '/api/session/restart':
+      return sendJson(response, await deps.herdrView.restart(sessionId));
     case '/api/btw':
       return askAside(deps, sessionId, isRecord(body) && typeof body.question === 'string' ? body.question : '', response);
     case '/api/bookmarks': {
@@ -1352,7 +1355,7 @@ function sendMachine(deps, request, response) {
   const origin = request.headers.origin;
   if (origin !== undefined && deps.allowedOrigins.has(origin)) response.setHeader('Access-Control-Allow-Origin', origin);
   response.setHeader('Vary', 'Origin');
-  return sendJson(response, { instance: deps.instance, port: request.socket.localPort, editor: deps.editor !== undefined, vscode: deps.vscode !== undefined });
+  return sendJson(response, { instance: deps.instance, port: request.socket.localPort, editor: deps.editor !== undefined, vscode: deps.vscode !== undefined, separator: sep });
 }
 
 /**
