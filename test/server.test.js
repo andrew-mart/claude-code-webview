@@ -13,6 +13,7 @@ import { startServer } from '../server/app.js';
 import { createSessionIndex } from '../server/sessions.js';
 import { createBookmarkFile } from '../server/bookmarks.js';
 import { createLaterFile } from '../server/later.js';
+import { createNotesFile } from '../server/notes.js';
 import { createSeenFile } from '../server/seen.js';
 import { createUploads } from '../server/uploads.js';
 import { createVsCode } from '../server/vscode.js';
@@ -220,7 +221,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // the file manager opens what is asked
   /** @type {import('../server/file-manager.js').FileManagerTarget[]} */
   const shownInFileManager = [];
-  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), later: createLaterFile(join(root, 'later.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, sessionStatus: async (id) => {
+  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), later: createLaterFile(join(root, 'later.json')), notes: createNotesFile(join(root, 'notes.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, sessionStatus: async (id) => {
       await statusRead;
       return id === sessionId ? sessionStatus : undefined;
     } });
@@ -835,6 +836,26 @@ test('later_Should_KeepPromptSetAsideOnPage_AndRefuseChangeOfUnknownShape', asyn
   const refused = await post(port, '/api/later', pageHeaders(port), JSON.stringify({ session: sessionId, change: { action: 'add', prompt: { id: 'l2' } } }));
 
   assert.deepEqual({ added: added.status, listed: await listed.json(), refused: refused.status }, { added: 200, listed: [setAside], refused: 400 });
+});
+
+/** @type {import('../public/model/notes.js').Note} */
+const note = { id: 'n1', text: '**TODO** check the build', at: '2026-10-27T09:00:00.000Z' };
+
+// A note written beside a session is its project folder's: another session started in the same folder shows it, one in
+// another folder does not; a change of another shape is refused
+test('notes_Should_BeSharedBySessionsOfOneFolder_AndRefuseChangeOfUnknownShape', async (t) => {
+  const { base, port, root } = await withServer(t);
+  const sameFolder = '3f2c9a50-1111-4222-8333-944455557777';
+  const otherFolder = '3f2c9a50-1111-4222-8333-944455558888';
+  await writeFile(join(root, 'D--dev-x', `${sameFolder}.jsonl`), promptLine('u2', 'Second question'));
+  await mkdir(join(root, 'D--dev-y'));
+  await writeFile(join(root, 'D--dev-y', `${otherFolder}.jsonl`), promptLine('u3', 'A question elsewhere'));
+
+  const added = await post(port, '/api/notes', pageHeaders(port), JSON.stringify({ session: sessionId, change: { action: 'add', note } }));
+  const listed = await Promise.all([sameFolder, otherFolder].map(async (id) => (await fetch(`${base}/api/notes?session=${id}`)).text()));
+  const refused = await post(port, '/api/notes', pageHeaders(port), JSON.stringify({ session: sessionId, change: { action: 'add', note: { id: 'n2' } } }));
+
+  assert.deepEqual({ added: [added.status, added.body], listed, refused: refused.status }, { added: [200, JSON.stringify([note])], listed: [JSON.stringify([note]), '[]'], refused: 400 });
 });
 
 /** The start of a PNG file: the bytes do not have to form a whole picture, only to come back unchanged. */

@@ -90,6 +90,10 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   jump between them) and your bookmarks: hover a prompt, an answer or a subagent report and click the flag to keep it
   one click away. Bookmarks are kept by the viewer in `~/.claude-code-webview/bookmarks.json`, so every browser and
   device that opens it sees the same ones.
+- **Notes.** First in the outline, notes in markdown on the session's project folder: every session in the folder —
+  Claude Code's, whose project stays the folder it started in after a `cd`, and Codex's — shows the same ones, the latest
+  first. **+** writes one, a click on a note edits it in place (Ctrl+Enter or a click elsewhere keeps it, Esc leaves
+  it), × removes it once ✓ confirms. Kept in `~/.claude-code-webview/notes.json`, as the bookmarks are.
 - **Session header.** Under the title, one line of facts: the folder, the branch checked out there now, the model and
   its effort, a ring that fills as the context window does (`412k/1M`; amber past 70%, red past 90%) and the cost.
   A click opens the details: the full path and how much context is used and left. The window comes from the model

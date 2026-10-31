@@ -4158,6 +4158,115 @@ table.diff tr.gap td {
   height: 12px;
 }
 
+/* The notes of the session's project folder, first in the outline: each a card of markdown, edited in place. */
+.notes-title-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.notes .icon-button {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
+
+.notes .icon-button .icon {
+  width: 12px;
+  height: 12px;
+}
+
+.notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.note {
+  position: relative;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elev);
+}
+
+.note-text {
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+
+.note-text > :first-child {
+  margin-top: 0;
+}
+
+.note-text > :last-child {
+  margin-bottom: 0;
+}
+
+.note-text p {
+  margin: 0 0 0.4em;
+}
+
+.note-text :is(h1, h2, h3, h4) {
+  margin: 0.5em 0 0.25em;
+  font-size: 1.05em;
+}
+
+.note-text :is(ul, ol) {
+  margin: 0.2em 0 0.4em;
+  padding-left: 1.3em;
+}
+
+/* × over the card's corner on hover — always there on a touch screen */
+.note-actions {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: flex;
+  gap: 2px;
+  border-radius: 6px;
+  background: var(--bg-elev);
+  opacity: 0;
+}
+
+.note:hover .note-actions,
+.note-actions:focus-within {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .note-actions {
+    opacity: 1;
+  }
+}
+
+.note-remove:hover,
+.note-confirm-remove:hover {
+  color: var(--danger);
+}
+
+.notes-editor {
+  display: block;
+  width: 100%;
+  min-height: 5.5em;
+  max-height: 60vh;
+  padding: 6px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--bg-elev);
+  color: var(--text);
+  font: 12.5px/1.45 var(--font-mono);
+  field-sizing: content;
+  resize: vertical;
+}
+
+.notes-editor:focus {
+  outline: none;
+}
+
 /* Message bookmark flag: visible on hover, and always on a bookmarked message. */
 .anchor {
   scroll-margin-top: 16px;

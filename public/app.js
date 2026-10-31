@@ -32,6 +32,8 @@ import { createRewindDialog } from './view/rewind-dialog.js';
 import { createSessionHeader } from './view/session-header.js';
 import { rewindMessage } from './model/rewind.js';
 import { createOutline } from './view/outline-view.js';
+import { createNotesStore } from './view/notes-store.js';
+import { createNotesView } from './view/notes-view.js';
 import { h } from './view/dom.js';
 import { createFilePanel } from './view/file-panel.js';
 import { parseBranchChanges, parseFileDiff } from './model/branch-changes.js';
@@ -664,6 +666,10 @@ function createPage() {
     });
     outline.setBookmarks(bookmarks.list());
     const unsubscribe = bookmarks.onChange(() => outline.setBookmarks(bookmarks.list()));
+    // the notes of the session's project folder, first in the outline
+    const notesView = createNotesView({ add: (text) => notes.add(text), edit: (noteId, text) => notes.edit(noteId, text), remove: (noteId) => notes.remove(noteId) });
+    const notes = createNotesStore(id, (list) => notesView.show(list));
+    outlineElement.prepend(notesView.element);
     const spy = createScrollSpy(scroller, () => view.promptElements(), outline.setCurrent);
     // While the history loads, finding the prompt on screen would lay out the growing feed on every frame:
     // the outline learns it once the feed is loaded.
@@ -730,6 +736,7 @@ function createPage() {
       composer.dispose();
       tasks.dispose();
       unsubscribe();
+      notes.dispose();
       spy.dispose();
     };
     current = {

@@ -1,6 +1,7 @@
 // @ts-check
 // Lists kept per session in one file on this computer, so that every device opening the viewer sees the same ones —
-// the bookmarks, the prompts set aside for later. The file: { "<session id>": [item, …] }.
+// the bookmarks, the prompts set aside for later; the notes are kept so per project folder instead, under its name.
+// The file: { "<session id>": [item, …] }.
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';

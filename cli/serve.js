@@ -9,6 +9,7 @@ import { bringForward } from '../server/window-front.js';
 import { startServer } from '../server/app.js';
 import { createBookmarkFile } from '../server/bookmarks.js';
 import { createLaterFile } from '../server/later.js';
+import { createNotesFile } from '../server/notes.js';
 import { createSeenFile } from '../server/seen.js';
 import { createUploads } from '../server/uploads.js';
 import { createComposer } from '../server/composer.js';
@@ -105,7 +106,7 @@ export async function serve({ port, about, palette, publicAddresses, herdr, clau
             if (process.platform === 'win32' && desktopProgram !== undefined) bringForward(basename(desktopProgram).replace(/\.exe$/i, ''));
           },
         });
-  const server = await startServer({ index, host: '127.0.0.1', port, pollMs: 400, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), later: createLaterFile(join(stateDir, 'later.json')), seen: createSeenFile(join(stateDir, 'seen.json'), { limit: 500 }), uploads: createUploads(join(stateDir, 'uploads')), about, palette, publicAddresses, herdrView, terminals, usage: () => readUsage(usageFiles), chatgptUsage: () => readChatGptUsage(chatgptUsageFile, Date.now()), sessionStatus: (id) => readSessionStatus(join(stateDir, 'session-status'), id), isRunning: async (id) => latestRecords(await readRecords()).has(id), editor: editor !== undefined ? (path, line) => openInEditor(editor, path, line) : systemEditor, fileManager: openInFileManager, commands: ({ agent, cwd }) => (agent === 'codex' ? codexCommands({ home: codexHome }) : claudeCommands({ config: claude, cwd })), vscode: vscodeServer, codexInUse: async () => (await codexThreads.open()).length > 0 });
+  const server = await startServer({ index, host: '127.0.0.1', port, pollMs: 400, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), later: createLaterFile(join(stateDir, 'later.json')), notes: createNotesFile(join(stateDir, 'notes.json')), seen: createSeenFile(join(stateDir, 'seen.json'), { limit: 500 }), uploads: createUploads(join(stateDir, 'uploads')), about, palette, publicAddresses, herdrView, terminals, usage: () => readUsage(usageFiles), chatgptUsage: () => readChatGptUsage(chatgptUsageFile, Date.now()), sessionStatus: (id) => readSessionStatus(join(stateDir, 'session-status'), id), isRunning: async (id) => latestRecords(await readRecords()).has(id), editor: editor !== undefined ? (path, line) => openInEditor(editor, path, line) : systemEditor, fileManager: openInFileManager, commands: ({ agent, cwd }) => (agent === 'codex' ? codexCommands({ home: codexHome }) : claudeCommands({ config: claude, cwd })), vscode: vscodeServer, codexInUse: async () => (await codexThreads.open()).length > 0 });
   const url = `http://127.0.0.1:${server.port}/`;
   console.log(`Claude Code Webview ${about.version}: ${url}`);
   for (const publicAddress of publicAddresses) console.log(`Also answers at ${publicAddress.origin}/ — keep it behind a login such as Cloudflare Access`);
