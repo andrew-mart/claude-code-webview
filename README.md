@@ -41,7 +41,8 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
 - **The feed**:
   - prompts with images, slash commands and `!` shell commands with their output;
   - answers in markdown with syntax highlighting, a line break kept as a line break, as in the terminal; a code
-    block's long lines scroll sideways, or wrap in its width with the wrap button over it;
+    block's long lines scroll sideways, or wrap in its width with the wrap button over it — a `text` block's wrap from
+    the start;
   - thinking with its duration (Claude Code usually does not store the thinking text — then only the duration is shown);
   - tool calls as one-line rows that expand: Bash shows the command and output, Read the file with line numbers,
     Edit and Write a diff with line numbers, Agent its task, report and a live view of the subagent's own transcript;
@@ -181,7 +182,9 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   on a phone especially — "Wide" under the table gives each column a comfortable width and lets the table scroll
   sideways. The same choice can be made for all tables of a session (in the header's details) or of the whole viewer
   (a view button); the table's own button overrides the session, the session overrides the viewer.
-- Light and dark themes, optional display of Claude Code's service messages.
+- Light and dark themes, optional display of Claude Code's service messages. The buttons used rarely — VS Code, the
+  notes' editor, the conversation's width, the tables', lamps or robots, the theme — stand behind "⋯" at the end of the
+  row over a session.
 - **Palettes.** `--palette sea` (or `moss`, `plum`; `clay`, Claude's own, is the default) changes the accent colour, tints the
   session list a little and colours the tab icon and the iPhone home screen icon — two viewers, say on two computers, are
   told apart at a glance.
@@ -277,6 +280,11 @@ the launcher.
 Send `/model` from the input box to open Claude Code's model picker on the page. Clicking a model applies it to that
 session only, leaving the global Claude Code default alone. The picker shows the options configured in Claude Code.
 
+`/mcp` sent the same way shows its screens on the page: the MCP servers by their state (a click opens one), a
+server's menu, its tools, what a tool does; **Back (Esc)** goes to the screen before. What `/mcp` does is written down
+in the conversation as Claude Code writes it; left with Esc, it leaves nothing there, and the page shows it as sent no
+longer.
+
 A gateway statusline can publish the session's live model and context to
 `~/.claude-code-webview/session-status/<session-uuid>.json`: `{ "at": <Unix milliseconds>, "model": "<model-id>",
 "contextTokens": <input tokens including cache>, "contextWindow": <window size>, "effort": "high" }`.
@@ -324,7 +332,9 @@ in a panel over its prompt box, so the viewer reads it off the terminal — scro
 shows the answer above the page's box. Prompts sent meanwhile wait until the panel is closed. The answer belongs to its
 session: opening another session and coming back — even before it came — shows it again, until you close it. The
 connection lost while Claude answers — the viewer restarted, the network dropped — or the page reloaded, the page asks
-again for the answer of the question asked, not the question anew: the viewer reads it off the panel still open.
+again for the answer of the question asked, not the question anew: the viewer reads it off the panel still open. The
+side answers before it — the session's latest twenty, kept in the browser — are leafed through with ‹ and › over the
+answer; closed, `/btw` with no question shows them again.
 
 Rewind works as Esc Esc does in the terminal: the ↶ next to one of your messages offers the same choices — restore
 code and conversation, the conversation, or the code, summarize from or up to that message. The viewer drives

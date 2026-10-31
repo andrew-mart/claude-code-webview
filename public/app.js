@@ -731,9 +731,9 @@ function createPage() {
     // the session runs and its folder lie, opened outside the page
     // those used less on a phone fold into the view menu there, with the words of what they do, for the title to have room
     const [tabHistory, branchChanges, vscode, fileManager] = [historyButton(historyView), changesButton(id), vscodeButton(folder), fileManagerButton(folder)];
-    const folds = [tabHistory, branchChanges, herdrTab.button, vscode, fileManager].map(labelled);
-    const navigation = [headGroup([drawerButton('outline', 'list', 'Outline'), tabHistory, branchChanges, filesButton(folder)]), headGroup([herdrTab.button, keepLit.button, vscode, fileManager])];
-    const header = createSessionHeader({ sessionId: id, place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation, folds, tools: settings.buttons(), details: [restart.row] });
+    const folds = [tabHistory, branchChanges, herdrTab.button, fileManager].map(labelled);
+    const navigation = [headGroup([drawerButton('outline', 'list', 'Outline'), tabHistory, branchChanges, filesButton(folder)]), headGroup([herdrTab.button, keepLit.button, fileManager])];
+    const header = createSessionHeader({ sessionId: id, place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation, folds, tools: settings.buttons(), rare: settings.rareButtons(), rareOpeners: [labelled(vscode)], details: [restart.row] });
     const outlineElement = h('aside', { className: 'outline', attrs: { 'aria-label': 'Outline' } });
     const outline = createOutline({
       element: outlineElement,
@@ -848,6 +848,8 @@ function createPage() {
       asides,
       // a prompt the terminal took shows in the feed at once, until Claude Code writes it down
       onSent: (text) => view?.expectPrompt(text),
+      // a dialog in the terminal — /mcp sent opened it: the slash commands sent may never be written down
+      onDialog: () => view?.forgetSentCommands(),
       // a tab numbered by herdr says little: only a named one is told; the conversation it went on with, while it runs
       placeOf: () => {
         const place = history[id];
@@ -1214,20 +1216,20 @@ const headerSettingGroups = [
     ['activity', 'unfold'],
     ['edits', 'edit'],
     ['service', 'eye'],
-  ],
-  [
-    ['width', 'widen'],
-    ['tables', 'table'],
     ['outline', 'list'],
-    ['notes', 'note'],
-  ],
-  [['copy', 'copy']],
-  [
-    ['lamps', 'agent'],
-    ['theme', 'moon'],
+    ['copy', 'copy'],
   ],
 ];
-const headerSettings = headerSettingGroups.flat();
+/** The view settings used rarely: behind ⋯, even on a wide screen. */
+/** @type {readonly (readonly [SettingKey, string])[]} */
+const rareSettings = [
+  ['notes', 'note'],
+  ['width', 'widen'],
+  ['tables', 'table'],
+  ['lamps', 'agent'],
+  ['theme', 'moon'],
+];
+const headerSettings = [...headerSettingGroups.flat(), ...rareSettings];
 
 /**
  * View settings remembered by the browser: agent actions brief or detailed, theme, service messages, following, SDK
@@ -1299,7 +1301,9 @@ function createSettings(keepPlace) {
     return button;
   };
   const buttons = () => headerSettingGroups.map((group) => headGroup(group.map(([key, glyph]) => settingButton(key, iconButton(glyph)))));
-  return { get, set, applyAll, buttons };
+  /** The buttons of the settings used rarely, for behind ⋯. */
+  const rareButtons = () => rareSettings.map(([key, glyph]) => settingButton(key, iconButton(glyph)));
+  return { get, set, applyAll, buttons, rareButtons };
 }
 
 /**

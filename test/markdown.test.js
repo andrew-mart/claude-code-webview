@@ -141,18 +141,24 @@ test('renderMarkdown_Should_WidenTableOnItsButtonAndFitItBackOnNextClick', () =>
   assert.deepEqual([widened, frame.dataset.width], ['wide', 'fit']);
 });
 
-// A code block's long lines scroll sideways; the Wrap button over it wraps them in the block's width, pressed again it
-// lets them be as they were
-test('renderMarkdown_Should_WrapCodeBlockLinesOnItsButton_AndUnwrapOnNextPress', () => {
-  const frame = html(renderMarkdown('```text\nThe 14 hours of the move went into the parts that only had to be done once\n```')).querySelector('.code-frame');
-  const button = frame?.querySelector('.code-bar button.code-wrap');
-  assert.ok(frame instanceof window.HTMLElement && button instanceof window.HTMLElement, 'no Wrap over the code');
-  const state = () => [frame.dataset.wrap ?? 'off', button.getAttribute('aria-pressed')];
+// A code block's long lines scroll sideways, a text block's — words, a letter — wrap in its width from the start; the
+// Wrap button over either turns its lines the other way, pressed again it lets them be as they were
+test('renderMarkdown_Should_WrapTextBlocksFromStart_AndAnyBlockOnItsButton', () => {
+  const pressed = ['text', 'plaintext', 'sh'].map((language) => {
+    const frame = html(renderMarkdown(`\`\`\`${language}\nThe 14 hours of the move went into the parts that only had to be done once\n\`\`\``)).querySelector('.code-frame');
+    const button = frame?.querySelector('.code-bar button.code-wrap');
+    assert.ok(frame instanceof window.HTMLElement && button instanceof window.HTMLElement, 'no Wrap over the code');
+    const state = () => `${frame.dataset.wrap ?? 'off'} ${button.getAttribute('aria-pressed')}`;
+    const before = state();
+    button.click();
+    const once = state();
+    button.click();
+    return [before, once, state()];
+  });
 
-  const before = state();
-  button.click();
-  const wrapped = state();
-  button.click();
-
-  assert.deepEqual([before, wrapped, state()], [['off', 'false'], ['on', 'true'], ['off', 'false']]);
+  assert.deepEqual(pressed, [
+    ['on true', 'off false', 'on true'],
+    ['on true', 'off false', 'on true'],
+    ['off false', 'on true', 'off false'],
+  ]);
 });

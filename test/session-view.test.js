@@ -251,6 +251,25 @@ test('mountSession_Should_LetGoOfPromptsSentAndNotWrittenDown_When_TabWentOnWith
   assert.equal(shown, 0);
 });
 
+// A slash command sent from the page that opens a dialog in the terminal — /mcp — is written down only once the dialog
+// does something, and not at all when it is left with Esc: the dialog showing, the slash commands sent are let go of;
+// a prompt sent stays until it is written down
+test('mountSession_Should_LetGoOfSlashCommandsSent_When_TerminalShowsDialog', async (t) => {
+  const { view, source } = await mounted(t, undefined);
+  source.emit('open');
+  source.emit('entries', [prompt('u1', 'Question')]);
+  source.emit('ready');
+  await settled();
+  view.expectPrompt('/mcp');
+  view.expectPrompt('Check the limits');
+
+  view.forgetSentCommands();
+  const shown = [...view.element.querySelectorAll('.msg.user.sent .bubble-text')].map((bubble) => bubble.textContent);
+  view.dispose();
+
+  assert.deepEqual(shown, ['Check the limits']);
+});
+
 // Over the feed — above its earliest entries and the button that loads earlier ones — the page puts the conversation
 // the tab went on from; another takes its place, none leaves nothing there
 test('mountSession_Should_ShowLeadAboveEverything_ReplacingTheOneBefore', async (t) => {

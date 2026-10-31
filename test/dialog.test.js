@@ -114,6 +114,118 @@ test('choiceDialog_Should_ReadQuestionAndChoices_DrawnBesidePreviews', () => {
   });
 });
 
+/** The edge /mcp's screens are drawn under, in the prompt box's place, as wide as the terminal. */
+const mcpEdge = '▔'.repeat(120);
+
+// /mcp lists the MCP servers with no digits — the cursor ❯ on one, each marked by its state, under headings of where it
+// is set up — and help under them: the page gets the servers alone, gone to with the arrows and opened with Enter
+test('choiceDialog_Should_ReadMcpServers_LeavingOutTheirHeadingsAndHelp', () => {
+  const servers = [
+    ...above,
+    mcpEdge,
+    '   Manage MCP servers',
+    '   4 servers',
+    '',
+    '     User MCPs (/home/ann/.claude.json)',
+    '   ❯ ✔ weather                                    3 tools',
+    '     ✘ tickets',
+    '',
+    '     Built-in MCPs (always available)',
+    '     ✔ browser                                    12 tools',
+    '     ⚠ docs                                       needs authentication',
+    '',
+    '   ※ Run claude --debug to see error logs',
+    '   https://code.claude.com/docs/en/mcp for help',
+    '   ↑/↓ to navigate · Enter to confirm · Esc to cancel',
+    '',
+  ].join('\n');
+
+  assert.deepEqual(choiceDialog(servers), {
+    lines: ['Manage MCP servers', '4 servers'],
+    options: [
+      { key: '', label: '✔ weather', detail: '3 tools', checked: undefined, current: true },
+      { key: '', label: '✘ tickets', detail: undefined, checked: undefined, current: false },
+      { key: '', label: '✔ browser', detail: '12 tools', checked: undefined, current: false },
+      { key: '', label: '⚠ docs', detail: 'needs authentication', checked: undefined, current: false },
+    ],
+    tabs: false,
+    previews: true,
+  });
+});
+
+// A server opened in /mcp: its menu numbered, its tools listed with no digits — what each does after a gap; Esc there
+// goes back to the screen before, not out of /mcp
+test('choiceDialog_Should_ReadMcpServerMenuAndTools_WhereEscGoesBack', () => {
+  const menu = [...above, mcpEdge, '   Weather MCP Server', '', '   Status:           ✔ connected', '   Tools: 3 tools', '', '   ❯ 1. View tools', '     2. Reconnect', '     3. Disable', '', '   ↑/↓ to navigate · Enter to select · Esc to back', ''].join('\n');
+  const tools = [...above, mcpEdge, '   Tools for weather', '   3 tools', '', '   ❯ get_forecast     read-only', '     get_alerts       read-only · open-world', '     set_units        destructive', '', '   ↑/↓ to navigate · Enter to select · Esc to back', ''].join('\n');
+
+  assert.deepEqual([choiceDialog(menu), choiceDialog(tools)], [
+    {
+      lines: ['Weather MCP Server', 'Status:           ✔ connected', 'Tools: 3 tools'],
+      options: [
+        { key: '1', label: 'View tools', detail: undefined, checked: undefined, current: true },
+        { key: '2', label: 'Reconnect', detail: undefined, checked: undefined, current: false },
+        { key: '3', label: 'Disable', detail: undefined, checked: undefined, current: false },
+      ],
+      tabs: false,
+      previews: false,
+      goesBack: true,
+    },
+    {
+      lines: ['Tools for weather', '3 tools'],
+      options: [
+        { key: '', label: 'get_forecast', detail: 'read-only', checked: undefined, current: true },
+        { key: '', label: 'get_alerts', detail: 'read-only · open-world', checked: undefined, current: false },
+        { key: '', label: 'set_units', detail: 'destructive', checked: undefined, current: false },
+      ],
+      tabs: false,
+      previews: true,
+      goesBack: true,
+    },
+  ]);
+});
+
+// A tool opened in /mcp says what it does, with nothing to choose: the page shows it, to go back from with Esc — a line
+// the terminal broke at its edge joined again with the rest of it
+test('choiceDialog_Should_ReadMcpToolDescription_ToGoBackFrom', () => {
+  const tool = [
+    ...above,
+    mcpEdge,
+    '   get_forecast [read-only]',
+    '   weather',
+    '',
+    '   Tool name: get_forecast',
+    '   Full name: mcp__weather__get_forecast',
+    '',
+    '   Description:',
+    '   The forecast for a city, day by day: the lowest and the highest temperature, the wind and the chance of rain,',
+    '   for as many days as asked.',
+    '',
+    '   Parameters:',
+    '     ● city: string - The city, by its name',
+    '',
+    '   Esc to go back',
+    '',
+  ].join('\n');
+
+  assert.deepEqual(choiceDialog(tool), {
+    lines: [
+      'get_forecast [read-only]',
+      'weather',
+      'Tool name: get_forecast',
+      'Full name: mcp__weather__get_forecast',
+      'Description:',
+      'The forecast for a city, day by day: the lowest and the highest temperature, the wind and the chance of rain, for as many days as asked.',
+      'Parameters:',
+      '● city: string - The city, by its name',
+    ],
+    options: [],
+    tabs: false,
+    previews: false,
+    goesBack: true,
+  });
+});
+
 // While the prompt box is there nothing waits for a choice, numbered lists in the conversation included
 test('choiceDialog_Should_FindNothing_When_PromptBoxIsShown', () => {
   const waiting = [...above, rule, '● Here is the plan:', '  1. Read the config', '  2. Fix the test', 'Press Esc to cancel it.', rule, '❯ ', rule, '  ⏵⏵ auto mode on'].join('\n');

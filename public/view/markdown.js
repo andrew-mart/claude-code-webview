@@ -187,9 +187,12 @@ function isWide(frame) {
   return frame.isConnected && getComputedStyle(frame).getPropertyValue('--table-width').trim() === 'max-content';
 }
 
+/** The languages of blocks holding words, not code — a letter, a message: their long lines wrap from the start. */
+const proseLanguages = new Set(['text', 'txt', 'plaintext', 'plain']);
+
 /**
  * A code block with a language label, a Wrap button — its long lines wrapped in its width, not scrolled sideways — and a
- * copy button.
+ * copy button. A block of words, not code, is wrapped from the start.
  * @param {HTMLElement} pre
  * @param {string} text
  * @param {string | undefined} language
@@ -203,16 +206,18 @@ export function codeFrame(pre, text, language) {
       setTimeout(() => copy.replaceChildren(icon('copy')), 1500);
     });
   });
-  const wrap = h('button', { className: 'code-wrap', title: 'Wrap long lines', attrs: { type: 'button', 'aria-pressed': 'false', 'aria-label': 'Wrap long lines' } }, [icon('wrap')]);
+  const wrap = h('button', { className: 'code-wrap', attrs: { type: 'button' } }, [icon('wrap')]);
   const bar = h('div', { className: 'code-bar' }, [h('span', { text: language ?? '' }), h('span', { className: 'code-tools' }, [wrap, copy])]);
   const frame = h('div', { className: 'code-frame' }, [bar, pre]);
-  wrap.addEventListener('click', () => {
-    const wrapped = frame.dataset.wrap !== 'on';
+  /** @param {boolean} wrapped */
+  const showWrapped = (wrapped) => {
     frame.dataset.wrap = wrapped ? 'on' : 'off';
     wrap.setAttribute('aria-pressed', String(wrapped));
     wrap.title = wrapped ? 'Scroll long lines sideways' : 'Wrap long lines';
     wrap.setAttribute('aria-label', wrap.title);
-  });
+  };
+  showWrapped(language !== undefined && proseLanguages.has(language.toLowerCase()));
+  wrap.addEventListener('click', () => showWrapped(frame.dataset.wrap !== 'on'));
   return frame;
 }
 

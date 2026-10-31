@@ -26,9 +26,10 @@ import { createToolRow } from './tool-view.js';
  *   the viewer, over the page's stream (feed-hub.js)
  * @typedef {{ anchor: (anchor: Anchor, content: HTMLElement) => HTMLElement, onPrompt: (prompt: Anchor) => void, loadEntry: import('./tool-view.js').LoadEntry, sendQueueNow: (() => void) | undefined, openFeed: OpenFeed }} FeedHooks — sendQueueNow:
  *   what waits in Claude Code's queue, sent now; none where nothing can be sent; openFeed: for a subagent's transcript
- * @typedef {{ element: HTMLElement, dispose: () => void, scrollToAnchor: (id: string) => boolean, promptElements: () => readonly HTMLElement[], place: () => ReadingPlace, hasEarlier: () => boolean, loadEarlier: () => Promise<void>, keepPlace: (change: () => void) => void, expectPrompt: (text: string) => void, forgetSent: () => void, setLead: (lead: HTMLElement | undefined) => void, restore: (place: ReadingPlace) => void }} MountedSession
+ * @typedef {{ element: HTMLElement, dispose: () => void, scrollToAnchor: (id: string) => boolean, promptElements: () => readonly HTMLElement[], place: () => ReadingPlace, hasEarlier: () => boolean, loadEarlier: () => Promise<void>, keepPlace: (change: () => void) => void, expectPrompt: (text: string) => void, forgetSentCommands: () => void, forgetSent: () => void, setLead: (lead: HTMLElement | undefined) => void, restore: (place: ReadingPlace) => void }} MountedSession
  * restore — the reader taken back to the place they were at — the session shown again, its feed gone on out of sight;
- * expectPrompt — a prompt sent from the page: shown, as sent, until Claude Code writes it down; forgetSent — those not
+ * expectPrompt — a prompt sent from the page: shown, as sent, until Claude Code writes it down; forgetSentCommands —
+ * the slash commands among them let go of, a dialog having opened in the terminal; forgetSent — those not
  * written down let go of: the session's tab went on with another session — /clear, /new, /resume — they never will be;
  * setLead — what goes over the feed, above all of it: the conversation the session's tab went on from; none, nothing;
  * hasEarlier — the session opened with its latest part, the rest is not loaded; loadEarlier loads it;
@@ -487,6 +488,9 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     forgetSent() {
       feed.forgetSent();
     },
+    forgetSentCommands() {
+      feed.forgetSentCommands();
+    },
     setLead(shown) {
       lead.replaceChildren(...(shown === undefined ? [] : [shown]));
       lead.hidden = shown === undefined;
@@ -848,6 +852,15 @@ function createFeed({ thread, waitingBox }, sessionId, hooks) {
     /** The prompts sent from the page and not written down, let go of: they never will be. */
     forgetSent() {
       sent.length = 0;
+      showWaiting();
+    },
+    /**
+     * The slash commands sent from the page and not written down, let go of: the terminal shows a dialog, which one of
+     * them opened — /mcp, /model — and which writes it down only once it does something, if ever.
+     */
+    forgetSentCommands() {
+      const prompts = sent.filter((one) => !one.startsWith('/'));
+      sent.splice(0, sent.length, ...prompts);
       showWaiting();
     },
   };

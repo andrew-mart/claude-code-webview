@@ -23,7 +23,7 @@ async function openedSession({ pointer, focusBox, typingInSearch }) {
   assert.ok(search instanceof window.HTMLInputElement);
   if (typingInSearch) search.focus();
   else search.blur();
-  const composer = createComposer(sessionId, { agent: 'claude', focusBox, placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined });
+  const composer = createComposer(sessionId, { agent: 'claude', focusBox, placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined, onDialog: () => undefined });
   window.document.body.append(composer.element);
   // the viewer's answer about the session arrives
   await new Promise((resolve) => setTimeout(resolve, 20));

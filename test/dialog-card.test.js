@@ -198,3 +198,32 @@ test('dialogCard_Should_ShowWhatCodexAsks_AndPickWithArrows', async () => {
 
   assert.deepEqual({ head: card.element.querySelector('.dialog-card-asker')?.textContent, answers }, { head: 'Codex asks', answers: [[{ key: 'down' }, { key: 'enter' }]] });
 });
+
+/** /mcp's screens as the terminal draws them, under its edge in the prompt box's place. @param {readonly string[]} lines */
+const mcpScreen = (lines) => ['▔'.repeat(120), ...lines, ''].join('\n');
+
+// /mcp's servers show in the card as they stand in the terminal: a click on one goes to it with the arrows — as far down
+// the list as it is — and opens it with Enter
+test('mcpServers_Should_OpenFromCard_ByArrowsAndEnter_HoweverFarDownTheList', async () => {
+  const { card, answers, press } = cardAboveBox();
+  const names = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel', 'india', 'juliett', 'kilo', 'lima'];
+  const rows = names.map((name, at) => `   ${at === 0 ? '❯' : ' '} ✔ ${name.padEnd(30)}2 tools`);
+  card.show(parseDialog(choiceDialog(mcpScreen(['   Manage MCP servers', '   12 servers', '', '     User MCPs (/home/ann/.claude.json)', ...rows, '', '   ↑/↓ to navigate · Enter to confirm · Esc to cancel']))));
+  press('lima');
+  await settled();
+
+  const walk = [...Array.from({ length: 11 }, () => ({ key: 'down' })), { key: 'enter' }];
+  assert.deepEqual({ answers, taken: parseSteps(answers[0]) }, { answers: [walk], taken: walk });
+});
+
+// A tool /mcp opened shows in the card what it says, with nothing to choose; Esc there goes back to the screen before,
+// and the card's button says so
+test('mcpTool_Should_ShowWhatItSays_AndGoBack_ByBackButton', async () => {
+  const { card, answers, press } = cardAboveBox();
+  card.show(parseDialog(choiceDialog(mcpScreen(['   get_forecast [read-only]', '   weather', '', '   Description:', '   The forecast for a city.', '', '   Esc to go back']))));
+  const said = [...card.element.querySelectorAll('.dialog-line')].map((line) => line.textContent);
+  press('Back (Esc)');
+  await settled();
+
+  assert.deepEqual({ said, answers }, { said: ['get_forecast [read-only]', 'weather', 'Description:', 'The forecast for a city.'], answers: [[{ key: 'esc' }]] });
+});

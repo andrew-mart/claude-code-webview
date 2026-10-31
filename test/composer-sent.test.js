@@ -31,7 +31,7 @@ async function sendHeld(answer) {
   });
   /** @type {string[]} */
   const sent = [];
-  const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: (text) => sent.push(text) });
+  const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: (text) => sent.push(text), onDialog: () => undefined });
   window.document.body.append(composer.element);
   await settle();
   const box = composer.element.querySelector('.composer-input');
@@ -59,4 +59,32 @@ test('composer_Should_SayItSendsAtOnce_AndTellTheFeedWhatTheTerminalTook', async
     { meanwhile: [taken.meanwhile, refused.meanwhile], sent: [taken.sent, refused.sent], refusedSays: refused.after !== '' && refused.after !== taken.meanwhile },
     { meanwhile: ['Sending to the terminal…', 'Sending to the terminal…'], sent: [['Check the limits'], []], refusedSays: true },
   );
+});
+
+/**
+ * The box over a terminal that shows — or does not — a dialog: whether it told the feed so.
+ * @param {unknown} dialog — as /api/live tells it
+ */
+async function toldOfDialog(dialog) {
+  Object.assign(globalThis, {
+    matchMedia: () => ({ matches: false }),
+    // the box kept what the test before typed: it is fitted to it on the next frame
+    requestAnimationFrame: (/** @type {() => void} */ callback) => setTimeout(callback, 0),
+    fetch: async () => new Response(JSON.stringify({ state: 'live', status: 'idle', pane: 'w1:p1', dialog }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+  });
+  let told = false;
+  const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined, onDialog: () => void (told = true) });
+  window.document.body.append(composer.element);
+  await settle();
+  composer.dispose();
+  composer.element.remove();
+  return told;
+}
+
+// The terminal showing a dialog — which a slash command sent may have opened, /mcp — the feed is told: what it shows as
+// sent may never be written down
+test('composer_Should_TellTheFeed_WhenTerminalShowsDialog', async () => {
+  const servers = { lines: ['Manage MCP servers'], options: [{ key: '', label: '✔ weather', detail: undefined, checked: undefined, current: true }], tabs: false, previews: true };
+
+  assert.deepEqual({ shown: await toldOfDialog(servers), none: await toldOfDialog(undefined) }, { shown: true, none: false });
 });

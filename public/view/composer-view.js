@@ -40,14 +40,15 @@ const serverSilent = { shown: true, enabled: false, canInterrupt: false, canReop
 
 /**
  * @param {string} sessionId
- * @param {{ agent: import('../model/composer.js').Agent, focusBox: 'when-ready' | 'no', placeOf: () => Ran | undefined, asides: import('./aside-store.js').AsideStore, onSent: (text: string) => void }} options —
+ * @param {{ agent: import('../model/composer.js').Agent, focusBox: 'when-ready' | 'no', placeOf: () => Ran | undefined, asides: import('./aside-store.js').AsideStore, onSent: (text: string) => void, onDialog: () => void }} options —
  *   agent: whose session; focusBox when-ready: the user opened the session, so the box takes the focus once the session can be written to; no:
  *   following the active session switched to it. placeOf: where the session ran in herdr, if known. asides:
  *   the side questions and answers of the page's sessions — one outlives the box it was asked in. onSent: a prompt the
- *   session's terminal took — the feed shows it until Claude Code writes it down
+ *   session's terminal took — the feed shows it until Claude Code writes it down. onDialog: the terminal shows a dialog —
+ *   a slash command sent may have opened it, /mcp, and it is written down only once the dialog does something, if ever
  * @returns {{ element: HTMLElement, say: (message: string, tone: 'ok' | 'error') => void, fill: (text: string) => void, stop: () => boolean, sendQueue: () => void, dispose: () => void }} — stop: Claude stopped if it was working
  */
-export function createComposer(sessionId, { agent, focusBox, placeOf, asides, onSent }) {
+export function createComposer(sessionId, { agent, focusBox, placeOf, asides, onSent, onDialog }) {
   /** @type {import('../model/composer.js').Keyboard} */
   const keyboard = matchMedia('(pointer: coarse)').matches ? 'touch' : 'physical';
   const draftKey = `viewer.draft.${sessionId}`;
@@ -102,6 +103,16 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   const aside = h('section', { className: 'side-answer', attrs: { hidden: '', 'aria-label': 'Side question', 'aria-live': 'polite' } });
   const closeAside = h('button', { className: 'icon-button side-answer-close', title: 'Close', attrs: { type: 'button', 'aria-label': 'Close' } }, [icon('cross')]);
   closeAside.addEventListener('click', () => asides.set(sessionId, undefined));
+  const earlierAnswer = h('button', { className: 'icon-button side-answer-earlier', title: 'Earlier side answer', attrs: { type: 'button', 'aria-label': 'Earlier side answer' } }, [icon('chevron')]);
+  const laterAnswer = h('button', { className: 'icon-button side-answer-later', title: 'Later side answer', attrs: { type: 'button', 'aria-label': 'Later side answer' } }, [icon('chevron')]);
+  /** The session's side question as it stands: answering, answered, or none — closed. */
+  /** @type {import('./aside-store.js').Aside | undefined} */
+  let current;
+  /** Which of the side answers shows, leafed to: none, the latest — the one being answered, if any. */
+  /** @type {number | undefined} */
+  let leaf;
+  /** Which one shows now, of those to leaf through. */
+  let shownAt = 0;
   const dialogCard = createDialogCard({
     asker: askerNames[agent],
     answer: async (steps) => {
@@ -185,7 +196,9 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     resume.hidden = !view.canReopen;
     form.hidden = view.canReopen;
     if (view.canReopen) showRan(placeOf());
-    dialogCard.show(live?.state === 'live' ? live.dialog : undefined);
+    const dialog = live?.state === 'live' ? live.dialog : undefined;
+    dialogCard.show(dialog);
+    if (dialog !== undefined) onDialog();
     showQueued(live?.state === 'live' ? live.queued : []);
     refreshButtons();
     if (focusPending) {
@@ -260,24 +273,48 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   };
 
   /**
-   * The side question and, once Claude has answered it, the answer, as the terminal's side panel shows it.
-   * @param {string} question
-   * @param {string | undefined} answer
+   * The side answers to leaf through: those answered, kept, and the one being answered after them.
+   * @param {import('./aside-store.js').Aside} asked
+   * @returns {readonly import('./aside-store.js').Aside[]}
    */
-  const showAside = (question, answer) => {
+  const leavesWith = (asked) => {
+    const kept = asides.answered(sessionId);
+    const last = kept.at(-1);
+    return last !== undefined && last.question === asked.question && last.answer === asked.answer ? kept : [...kept, asked];
+  };
+  /**
+   * A side question and, once Claude has answered it, the answer, as the terminal's side panel shows it — the one
+   * leafed to, with the arrows to the ones before and after it while there are several.
+   * @param {import('./aside-store.js').Aside} asked — the session's side question as it stands
+   */
+  const showAside = (asked) => {
+    const leaves = leavesWith(asked);
+    shownAt = Math.min(leaf ?? leaves.length - 1, leaves.length - 1);
+    const { question, answer } = leaves[shownAt] ?? asked;
+    earlierAnswer.disabled = shownAt === 0;
+    laterAnswer.disabled = shownAt === leaves.length - 1;
+    const leafing = leaves.length > 1 ? [earlierAnswer, h('span', { className: 'side-answer-place', text: `${shownAt + 1}/${leaves.length}` }), laterAnswer] : [];
     aside.replaceChildren(
-      h('header', { className: 'side-answer-head' }, [h('span', { className: 'side-answer-label', text: 'By the way' }), h('span', { className: 'side-answer-question', text: question }), closeAside]),
+      h('header', { className: 'side-answer-head' }, [h('span', { className: 'side-answer-label', text: 'By the way' }), h('span', { className: 'side-answer-question', text: question }), ...leafing, closeAside]),
       h('div', { className: 'side-answer-text' }, answer === undefined ? [h('p', { className: 'side-answer-paragraph', text: 'Answering…' })] : answerBlocks(answer).map(answerBlock)),
     );
     aside.classList.toggle('answering', answer === undefined);
     aside.hidden = false;
   };
+  /** @param {number} step — -1: the side answer before; 1: the one after */
+  const leafBy = (step) => () => {
+    if (current === undefined) return;
+    leaf = shownAt + step;
+    showAside(current);
+  };
+  earlierAnswer.addEventListener('click', leafBy(-1));
+  laterAnswer.addEventListener('click', leafBy(1));
   /**
    * The box waits while Claude answers: the terminal's side panel would take the keys of the next prompt.
    * @param {string} question
    */
   const askAside = (question) => {
-    if (question === '') return say(btwMessage('empty'), 'error');
+    if (question === '') return showAnswered();
     if (attachments.images().length > 0) return say('A side question takes no images.', 'error');
     // the session keeps the question and its answer, whichever box shows it when the answer comes
     asides.set(sessionId, { question, answer: undefined });
@@ -293,6 +330,16 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
       if (reply === undefined) setTimeout(() => askAgain(question, asked, askAgainTimes), askAgainMs);
       else answered(question, asked, reply);
     });
+  };
+  /** /btw with no question: the side answers shown again, the latest — none kept, it says so, and how to ask one. */
+  const showAnswered = () => {
+    const latest = asides.answered(sessionId).at(-1);
+    if (latest === undefined) return say('No side answers to show yet: write the question after /btw.', 'error');
+    say('', 'ok');
+    input.value = '';
+    writeDraft(draftKey, '');
+    fit();
+    asides.set(sessionId, latest);
   };
   /**
    * The answer of a side question asked before, asked for again — the question not asked anew — until the viewer
@@ -491,8 +538,10 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
    */
   const showAsked = (asked) => {
     asking = asked !== undefined && asked.answer === undefined;
+    current = asked;
+    leaf = undefined;
     if (asked === undefined) aside.hidden = true;
-    else showAside(asked.question, asked.answer);
+    else showAside(asked);
     if (asked?.answer !== undefined && sideQuestionOf(input.value) === asked.question) {
       input.value = '';
       fit();

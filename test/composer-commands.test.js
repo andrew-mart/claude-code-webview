@@ -29,7 +29,7 @@ test('composer_Should_OfferCommandsWhileOneIsTyped_AndPutThePickedOneInTheBox', 
       return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
     },
   });
-  const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined });
+  const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined, onDialog: () => undefined });
   window.document.body.append(composer.element);
   t.after(() => {
     composer.dispose();
@@ -85,7 +85,7 @@ test('composer_Should_OfferASkillWrittenMeanwhile_TheNextTimeASlashIsTyped', asy
       return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
     },
   });
-  const composer = createComposer('7d1e4b20-2222-4333-8444-a55566667777', { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined });
+  const composer = createComposer('7d1e4b20-2222-4333-8444-a55566667777', { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined, onDialog: () => undefined });
   window.document.body.append(composer.element);
   t.after(() => {
     composer.dispose();

@@ -2,7 +2,8 @@
 // The session header. The title and the status on top; under the title the session's facts at a glance — folder,
 // branch, model and effort, how full the context window is, cost, the session's id — which open into details with the
 // full values, and the rows the page adds there — what the session can be asked to do, such as restarting it.
-// The view buttons stand in a row on a wide screen and fold into a menu on a narrow one.
+// The view buttons stand in a row on a wide screen and fold into a menu on a narrow one; those used rarely stand in the
+// menu, behind ⋯, even on a wide screen.
 import { formatTokens } from '../model/format.js';
 import { contextGauge, modelName } from '../model/session-facts.js';
 import { h } from './dom.js';
@@ -33,25 +34,27 @@ const statusLooks = {
 const branchRefreshMs = 15_000;
 
 /**
- * @param {{ sessionId: string, place: SessionPlace | undefined, currentBranch: () => Promise<string | undefined>, tables: SessionTables, leading: HTMLElement, navigation: readonly HTMLElement[], folds: readonly HTMLElement[], tools: readonly HTMLElement[], details: readonly HTMLElement[] }} parts
+ * @param {{ sessionId: string, place: SessionPlace | undefined, currentBranch: () => Promise<string | undefined>, tables: SessionTables, leading: HTMLElement, navigation: readonly HTMLElement[], folds: readonly HTMLElement[], tools: readonly HTMLElement[], rare: readonly HTMLElement[], rareOpeners: readonly HTMLElement[], details: readonly HTMLElement[] }} parts
  *   sessionId — the agent's id of the session, as its transcript is named;
  *   currentBranch — the branch checked out in the session's folder now (the transcript keeps the one it saw first);
  *   tables — how this session shows its tables, chosen in the details;
  *   leading — before the title (the session list's drawer button); navigation — buttons that always stay in view;
  *   folds — those of navigation's buttons used less on a narrow screen: there they fold into the view menu, as its first
  *   group, for the title to have room, and come back to their places on a wide one; tools — the view settings, folded
- *   into a menu on a narrow screen; details — rows of the page's own at the end of the details, each a dt and its dd in
- *   one element, the same ones as the details are drawn anew
+ *   into a menu on a narrow screen; rare — view settings used rarely: in the menu, its last group, even on a wide
+ *   screen; rareOpeners — buttons used rarely that open something elsewhere, VS Code: first in that group, the menu put
+ *   away once one is pressed; details — rows of the page's own at the end of the details, each a dt and its dd in one element, the same
+ *   ones as the details are drawn anew
  */
-export function createSessionHeader({ sessionId, place, currentBranch, tables, leading, navigation, folds, tools, details: ownRows }) {
+export function createSessionHeader({ sessionId, place, currentBranch, tables, leading, navigation, folds, tools, rare, rareOpeners, details: ownRows }) {
   const title = h('h1', { className: 'title' });
   const facts = h('button', { className: 'head-facts', attrs: { type: 'button', 'aria-expanded': 'false', title: 'Show session details' } });
   const details = h('dl', { className: 'head-details', attrs: { hidden: '' } });
   const status = h('span', { className: 'status', attrs: { role: 'status' } });
   const folded = h('span', { className: 'head-group head-folded' });
-  const toolbox = h('div', { className: 'head-tools', attrs: { role: 'group', 'aria-label': 'View' } }, [folded, ...tools]);
+  const toolbox = h('div', { className: 'head-tools', attrs: { role: 'group', 'aria-label': 'View' } }, [folded, ...tools, h('span', { className: 'head-group head-rare' }, [...rareOpeners, ...rare])]);
   const more = h('button', { className: 'icon-button head-more', title: 'View settings', attrs: { type: 'button', 'aria-label': 'View settings', 'aria-expanded': 'false' } }, [icon('more')]);
-  const actions = h('div', { className: 'head-actions' }, [status, ...navigation, more, toolbox]);
+  const actions = h('div', { className: 'head-actions' }, [status, ...navigation, toolbox, more]);
   const element = h('header', { className: 'session-head' }, [leading, title, facts, actions, details]);
   /** @type {SessionMeta} */
   let meta = {};
@@ -105,6 +108,7 @@ export function createSessionHeader({ sessionId, place, currentBranch, tables, l
   folded.addEventListener('click', (event) => {
     if (event.target instanceof window.Element && event.target.closest('button') !== null) closeMenu();
   });
+  for (const opener of rareOpeners) opener.addEventListener('click', closeMenu);
   const lookAtBranch = async () => {
     const next = await currentBranch();
     if (next === branch) return;

@@ -23,7 +23,7 @@ const { createSessionHeader } = await import('../public/view/session-header.js')
  * A session's header, with no folder or branch known yet and nothing around it.
  * @param {string} sessionId
  */
-const headerOf = (sessionId) => createSessionHeader({ sessionId, place: undefined, currentBranch: async () => undefined, tables: { value: () => 'default', choose: () => undefined }, leading: window.document.createElement('div'), navigation: [], folds: [], tools: [], details: [] });
+const headerOf = (sessionId) => createSessionHeader({ sessionId, place: undefined, currentBranch: async () => undefined, tables: { value: () => 'default', choose: () => undefined }, leading: window.document.createElement('div'), navigation: [], folds: [], tools: [], rare: [], rareOpeners: [], details: [] });
 
 // On a narrow screen the buttons used less there fold into the view menu, as its first group — the words of what they do
 // beside them, as the view buttons have — and come back to their places, in their order, once the screen is wide; one of
@@ -49,7 +49,7 @@ test('sessionHeader_Should_FoldLessUsedButtonsIntoViewMenu_OnNarrowScreen_AndBac
   const keep = button('keep');
   const vscode = button('vscode');
   const activity = button('activity');
-  const header = createSessionHeader({ sessionId: '0d3f9a2c-1b7e-4c55-9e0a-6f2d8b41c7e3', place: undefined, currentBranch: async () => undefined, tables: { value: () => 'default', choose: () => undefined }, leading: window.document.createElement('div'), navigation: [group(outline, history, changes, files), group(herdr, keep, vscode)], folds: [history, changes, herdr, vscode], tools: [group(activity)], details: [] });
+  const header = createSessionHeader({ sessionId: '0d3f9a2c-1b7e-4c55-9e0a-6f2d8b41c7e3', place: undefined, currentBranch: async () => undefined, tables: { value: () => 'default', choose: () => undefined }, leading: window.document.createElement('div'), navigation: [group(outline, history, changes, files), group(herdr, keep, vscode)], folds: [history, changes, herdr, vscode], tools: [group(activity)], rare: [], rareOpeners: [], details: [] });
   t.after(header.dispose);
   const shown = () => {
     const all = [...header.element.querySelectorAll('button[data-name]')].filter((one) => one instanceof window.HTMLElement);
@@ -108,7 +108,7 @@ test('sessionHeader_Should_ShowSessionId_ShortAmongFacts_InFullInDetails', (t) =
 // their end, the same, as the details are drawn anew with the session's facts
 test('sessionHeader_Should_KeepRowsOfThePagesOwnInDetails_AsTheyAreDrawnAnew', (t) => {
   const row = window.document.createElement('div');
-  const header = createSessionHeader({ sessionId: '675eea90-5475-430f-ad4a-86e0de5c27cb', place: undefined, currentBranch: async () => undefined, tables: { value: () => 'default', choose: () => undefined }, leading: window.document.createElement('div'), navigation: [], folds: [], tools: [], details: [row] });
+  const header = createSessionHeader({ sessionId: '675eea90-5475-430f-ad4a-86e0de5c27cb', place: undefined, currentBranch: async () => undefined, tables: { value: () => 'default', choose: () => undefined }, leading: window.document.createElement('div'), navigation: [], folds: [], tools: [], rare: [], rareOpeners: [], details: [row] });
   t.after(header.dispose);
   const last = () => header.element.querySelector('.head-details')?.lastElementChild;
 
@@ -133,4 +133,53 @@ test('sessionHeader_Should_CopyWholeSessionId_FromDetails', async (t) => {
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.deepEqual(copied, ['675eea90-5475-430f-ad4a-86e0de5c27cb']);
+});
+
+// The view buttons used rarely — the theme, the agents' lamps — stand behind ⋯ even on a wide screen, as the last group
+// of its menu, ⋯ at the end of the row; the others stay in the row
+test('sessionHeader_Should_KeepRarelyUsedToolsBehindMenu_EvenOnWideScreen', (t) => {
+  screen.narrow = false;
+  /** @param {string} name */
+  const button = (name) => Object.assign(window.document.createElement('button'), { className: 'icon-button', textContent: name });
+  const activity = window.document.createElement('span');
+  activity.append(button('activity'));
+  const header = createSessionHeader({ sessionId: '0d3f9a2c-1b7e-4c55-9e0a-6f2d8b41c7e3', place: undefined, currentBranch: async () => undefined, tables: { value: () => 'default', choose: () => undefined }, leading: window.document.createElement('div'), navigation: [], folds: [], tools: [activity], rare: [button('lamps'), button('theme')], rareOpeners: [], details: [] });
+  t.after(header.dispose);
+  const actions = header.element.querySelector('.head-actions');
+  assert.ok(actions instanceof window.HTMLElement);
+
+  header.element.querySelector('.head-more')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+
+  assert.deepEqual(
+    {
+      rare: [...header.element.querySelectorAll('.head-tools > .head-rare:last-child button')].map((one) => one.textContent),
+      last: actions.lastElementChild?.classList.contains('head-more'),
+      open: header.element.querySelector('.head-tools.open') !== null,
+    },
+    { rare: ['lamps', 'theme'], last: true, open: true },
+  );
+});
+
+// A button used rarely that opens something elsewhere — VS Code, another window — stands behind ⋯ too, first in its last
+// group; pressed, it puts the menu away, as a setting pressed there does not
+test('sessionHeader_Should_PutMenuAway_WhenRareButtonOpeningElsewhereIsPressed', (t) => {
+  screen.narrow = false;
+  /** @param {string} name */
+  const button = (name) => Object.assign(window.document.createElement('button'), { className: 'icon-button', textContent: name });
+  const vscode = button('vscode');
+  const theme = button('theme');
+  const header = createSessionHeader({ sessionId: '0d3f9a2c-1b7e-4c55-9e0a-6f2d8b41c7e3', place: undefined, currentBranch: async () => undefined, tables: { value: () => 'default', choose: () => undefined }, leading: window.document.createElement('div'), navigation: [], folds: [], tools: [], rare: [theme], rareOpeners: [vscode], details: [] });
+  t.after(header.dispose);
+  const open = () => header.element.querySelector('.head-tools.open') !== null;
+  const more = () => header.element.querySelector('.head-more')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+
+  more();
+  theme.click();
+  const afterSetting = open();
+  vscode.click();
+
+  assert.deepEqual(
+    { rare: [...header.element.querySelectorAll('.head-rare button')].map((one) => one.textContent), afterSetting, afterOpener: open() },
+    { rare: ['vscode', 'theme'], afterSetting: true, afterOpener: false },
+  );
 });

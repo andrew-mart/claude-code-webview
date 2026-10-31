@@ -40,7 +40,7 @@ async function boxWhileClaudeWorks(t, kept = []) {
       return new Response(JSON.stringify(reply), { status: 200, headers: { 'Content-Type': 'application/json' } });
     },
   });
-  const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined });
+  const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined, onDialog: () => undefined });
   window.document.body.append(composer.element);
   t.after(() => {
     composer.dispose();

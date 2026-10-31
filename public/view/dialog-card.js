@@ -127,7 +127,7 @@ export function createDialogCard({ asker, answer }) {
         ),
         h('div', { className: 'dialog-nav' }, [
           ...(dialog.tabs ? [button('← Previous', [{ key: 'left' }], 'dialog-nav-button'), button('Next →', [{ key: 'right' }], 'dialog-nav-button')] : []),
-          button('Cancel (Esc)', [{ key: 'esc' }], 'dialog-nav-button dialog-cancel'),
+          button(dialog.goesBack === true ? 'Back (Esc)' : 'Cancel (Esc)', [{ key: 'esc' }], 'dialog-nav-button dialog-cancel'),
         ]),
         status,
       );

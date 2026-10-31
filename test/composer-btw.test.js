@@ -11,8 +11,11 @@ const { createAsideStore } = await import('../public/view/aside-store.js');
 const sessionId = '3f2c9a50-1111-4222-8333-944455556666';
 const settle = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// the tab's storage keeps a question being answered: one test's is not another's
-beforeEach(() => window.sessionStorage.clear());
+// the tab's storage keeps a question being answered, the browser's those answered: one test's are not another's
+beforeEach(() => {
+  window.sessionStorage.clear();
+  window.localStorage.clear();
+});
 
 // A side question's answer belongs to its session, not to the box on the screen: switching to another session and back
 // — even while Claude is still answering — shows it again, until it is closed
@@ -28,7 +31,7 @@ test('composer_Should_KeepSideAnswer_AcrossSwitchingSessions', async () => {
   });
   const asides = createAsideStore();
   const open = async () => {
-    const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides, onSent: () => undefined });
+    const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides, onSent: () => undefined, onDialog: () => undefined });
     window.document.body.append(composer.element);
     await settle();
     return composer;
@@ -82,6 +85,45 @@ test('asideStore_Should_KeepAnswersAndQuestionsBeingAnsweredAcrossReload', () =>
   assert.deepEqual(['s1', 's2', 's3'].map((id) => after.get(id)), [{ question: 'Where is the config?', answer: 'In src/config.ts.' }, { question: 'And the tests?', answer: undefined }, undefined]);
 });
 
+// A session's side questions answered are kept, to be read again — on this device, past the browser closed, the latest
+// twenty; one being answered, or closed, adds none, nor does the latest shown again
+test('asideStore_Should_KeepSessionsAnsweredSideQuestions_ToReadAgain', () => {
+  window.localStorage.clear();
+  const before = createAsideStore();
+  before.set('s1', { question: 'Where is the config?', answer: undefined });
+  before.set('s1', { question: 'Where is the config?', answer: 'In src/config.ts.' });
+  before.set('s1', undefined);
+  before.set('s1', { question: 'And the tests?', answer: 'In test/.' });
+  before.set('s1', { question: 'And the tests?', answer: 'In test/.' });
+  before.set('s2', { question: 'Elsewhere?', answer: 'Yes.' });
+  for (let at = 1; at <= 25; at++) before.set('s3', { question: `Question ${at}`, answer: `Answer ${at}` });
+  window.sessionStorage.clear();
+
+  const after = createAsideStore();
+
+  assert.deepEqual(
+    { s1: after.answered('s1'), s3: after.answered('s3').map((aside) => aside.question) },
+    {
+      s1: [
+        { question: 'Where is the config?', answer: 'In src/config.ts.' },
+        { question: 'And the tests?', answer: 'In test/.' },
+      ],
+      s3: Array.from({ length: 20 }, (_, at) => `Question ${at + 6}`),
+    },
+  );
+});
+
+// An answer a page before this one showed — kept in the tab, not yet among those to read again — closed, is kept with
+// them: closing an answer does not lose it
+test('asideStore_Should_KeepAnswerClosed_AmongThoseToReadAgain', () => {
+  window.sessionStorage.setItem('viewer.btw.s1', JSON.stringify({ question: 'Where is the config?', answer: 'In src/config.ts.' }));
+  const store = createAsideStore();
+
+  store.set('s1', undefined);
+
+  assert.deepEqual(store.answered('s1'), [{ question: 'Where is the config?', answer: 'In src/config.ts.' }]);
+});
+
 // A side question leaves the box as it is asked — it shows over the box while Claude answers — and comes back into the
 // box when it was not answered, to be asked again
 test('composer_Should_ClearBoxWhenAskingAside_AndPutQuestionBackWhenNotAnswered', async () => {
@@ -96,7 +138,7 @@ test('composer_Should_ClearBoxWhenAskingAside_AndPutQuestionBackWhenNotAnswered'
         return new Response(JSON.stringify({ state: 'live', status: 'idle', pane: 'w1:p1' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       },
     });
-    const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined });
+    const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined, onDialog: () => undefined });
     window.document.body.append(composer.element);
     await settle();
     const box = composer.element.querySelector('.composer-input');
@@ -133,7 +175,7 @@ test('composer_Should_AskBtwAsSideQuestion_InCodexSession', async () => {
       return new Response(JSON.stringify(reply), { status: 200, headers: { 'Content-Type': 'application/json' } });
     },
   });
-  const composer = createComposer(sessionId, { agent: 'codex', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined });
+  const composer = createComposer(sessionId, { agent: 'codex', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined, onDialog: () => undefined });
   window.document.body.append(composer.element);
   await settle();
   const box = composer.element.querySelector('.composer-input');
@@ -157,7 +199,7 @@ test('composer_Should_ShowWhatCodexQueued_AboveTheBox', async () => {
       matchMedia: () => ({ matches: false }),
       fetch: async () => new Response(JSON.stringify({ state: 'live', status: 'busy', pane: 'w4:p1', queued }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
     });
-    const composer = createComposer(sessionId, { agent: 'codex', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined });
+    const composer = createComposer(sessionId, { agent: 'codex', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined, onDialog: () => undefined });
     window.document.body.append(composer.element);
     await settle();
     const list = composer.element.querySelector('.composer-queued');
@@ -191,7 +233,7 @@ async function boxOverViewer(asides, replies) {
       return new Response(JSON.stringify({ state: 'live', status: 'idle', pane: 'w1:p1' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     },
   });
-  const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides, onSent: () => undefined });
+  const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides, onSent: () => undefined, onDialog: () => undefined });
   window.document.body.append(composer.element);
   const shown = () => {
     const aside = composer.element.querySelector('.side-answer');
@@ -250,4 +292,100 @@ test('composer_Should_AskForAnswerAgain_OfQuestionBeingAnsweredBeforeReload', as
   composer.element.remove();
 
   assert.deepEqual({ answered, asked }, { answered: 'In test/.', asked: [{ session: sessionId, question: 'where are the tests?', resume: true }] });
+});
+
+/** A box over a session three side questions were answered in: the side questions asked of the viewer, recorded. */
+async function boxWithSideAnswers() {
+  /** @type {string[]} */
+  const posted = [];
+  Object.assign(globalThis, {
+    matchMedia: () => ({ matches: false }),
+    fetch: async (/** @type {string} */ path) => {
+      if (path === '/api/btw') posted.push(path);
+      return new Response(JSON.stringify({ state: 'live', status: 'idle', pane: 'w1:p1' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    },
+  });
+  const asides = createAsideStore();
+  asides.set(sessionId, { question: 'Where is the config?', answer: 'In src/config.ts.' });
+  asides.set(sessionId, { question: 'And the tests?', answer: 'In test/.' });
+  asides.set(sessionId, { question: 'Which port?', answer: '8080.' });
+  const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides, onSent: () => undefined, onDialog: () => undefined });
+  window.document.body.replaceChildren(composer.element);
+  await settle();
+  const shown = () => {
+    const aside = composer.element.querySelector('.side-answer');
+    if (!(aside instanceof window.HTMLElement) || aside.hidden) return 'hidden';
+    const place = aside.querySelector('.side-answer-place')?.textContent;
+    return `${aside.querySelector('.side-answer-question')?.textContent} — ${aside.querySelector('.side-answer-text')?.textContent}${place === undefined ? '' : ` (${place})`}`;
+  };
+  /** @param {string} label */
+  const button = (label) => {
+    const found = composer.element.querySelector(`.side-answer button[aria-label="${label}"]`);
+    assert.ok(found instanceof window.HTMLButtonElement, `no ${label}`);
+    return found;
+  };
+  return { composer, posted, shown, button };
+}
+
+// The side answers before the latest are leafed through over the box — ‹ the one before, › the one after, where it
+// stands of how many — the latest shown first
+test('composer_Should_LeafThroughEarlierSideAnswers', async () => {
+  const { composer, shown, button } = await boxWithSideAnswers();
+
+  const latest = shown();
+  button('Earlier side answer').click();
+  const before = shown();
+  button('Earlier side answer').click();
+  const first = [shown(), button('Earlier side answer').disabled];
+  button('Later side answer').click();
+  const back = shown();
+  composer.dispose();
+
+  assert.deepEqual(
+    { latest, before, first, back },
+    { latest: 'Which port? — 8080. (3/3)', before: 'And the tests? — In test/. (2/3)', first: ['Where is the config? — In src/config.ts. (1/3)', true], back: 'And the tests? — In test/. (2/3)' },
+  );
+});
+
+// Closed, the side answers are shown again by /btw with no question — the latest of them; nothing is asked
+test('composer_Should_ShowSideAnswersAgain_ByBtwWithNoQuestion', async () => {
+  const { composer, posted, shown, button } = await boxWithSideAnswers();
+  const box = composer.element.querySelector('.composer-input');
+  const form = composer.element.querySelector('.composer-box');
+  assert.ok(box instanceof window.HTMLTextAreaElement && form instanceof window.HTMLElement);
+
+  button('Close').click();
+  const closed = shown();
+  box.value = '/btw';
+  box.dispatchEvent(new window.Event('input', { bubbles: true }));
+  form.dispatchEvent(new window.Event('submit', { cancelable: true }));
+  await settle();
+  const again = { shown: shown(), box: box.value, said: composer.element.querySelector('.composer-status')?.textContent, posted };
+  composer.dispose();
+
+  assert.deepEqual({ closed, again }, { closed: 'hidden', again: { shown: 'Which port? — 8080. (3/3)', box: '', said: '', posted: [] } });
+});
+
+// /btw with no question where no side answer is kept yet — none answered in this browser — says there is none to show,
+// not only how to ask one
+test('composer_Should_SayNoSideAnswersAreKept_ToBtwWithNoQuestion', async () => {
+  Object.assign(globalThis, {
+    matchMedia: () => ({ matches: false }),
+    fetch: async () => new Response(JSON.stringify({ state: 'live', status: 'idle', pane: 'w1:p1' }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+  });
+  const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined, onDialog: () => undefined });
+  window.document.body.replaceChildren(composer.element);
+  await settle();
+  const box = composer.element.querySelector('.composer-input');
+  const form = composer.element.querySelector('.composer-box');
+  assert.ok(box instanceof window.HTMLTextAreaElement && form instanceof window.HTMLElement);
+
+  box.value = '/btw';
+  box.dispatchEvent(new window.Event('input', { bubbles: true }));
+  form.dispatchEvent(new window.Event('submit', { cancelable: true }));
+  await settle();
+  const said = composer.element.querySelector('.composer-status')?.textContent;
+  composer.dispose();
+
+  assert.equal(said, 'No side answers to show yet: write the question after /btw.');
 });

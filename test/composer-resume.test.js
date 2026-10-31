@@ -22,7 +22,7 @@ test('composer_Should_OfferToOpenSessionAgain_InPlaceOfBox_WhenItIsNotRunning', 
       return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
     },
   });
-  const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => ({ workspace: 'trip_plans', tab: 'route planner', runningNow: undefined }), asides: createAsideStore(), onSent: () => undefined });
+  const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => ({ workspace: 'trip_plans', tab: 'route planner', runningNow: undefined }), asides: createAsideStore(), onSent: () => undefined, onDialog: () => undefined });
   window.document.body.append(composer.element);
   await new Promise((resolve) => setTimeout(resolve, 20));
   const box = composer.element.querySelector('.composer-box');
@@ -61,7 +61,7 @@ test('composer_Should_OfferToResumeHereOrInNewTab_When_ItsTabWentOnWithAnotherCo
    * @param {import('../public/model/composer.js').Agent} [runsNow] - whose the one its tab runs now is
    */
   const shownFor = async (agent, runsNow = agent) => {
-    const composer = createComposer(sessionId, { agent, focusBox: 'no', placeOf: () => ({ workspace: 'web', tab: 'checkout', runningNow: { id: runningNow, title: 'Coupon codes', agent: runsNow } }), asides: createAsideStore(), onSent: () => undefined });
+    const composer = createComposer(sessionId, { agent, focusBox: 'no', placeOf: () => ({ workspace: 'web', tab: 'checkout', runningNow: { id: runningNow, title: 'Coupon codes', agent: runsNow } }), asides: createAsideStore(), onSent: () => undefined, onDialog: () => undefined });
     window.document.body.replaceChildren(composer.element);
     await new Promise((resolve) => setTimeout(resolve, 20));
     const card = composer.element.querySelector('.composer-resume');

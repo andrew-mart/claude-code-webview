@@ -6,10 +6,11 @@
  * @typedef {{ key: string, label: string, detail: string | undefined, checked: boolean | undefined, current: boolean }} DialogOption
  *   key: the digit that picks it; detail: the line under it; checked: in a question with several answers, whether it
  *   is ticked; current: the terminal's cursor is on it
- * @typedef {{ lines: readonly string[], options: readonly DialogOption[], tabs: boolean, previews: boolean, sessionOnly?: true }} Dialog — lines:
+ * @typedef {{ lines: readonly string[], options: readonly DialogOption[], tabs: boolean, previews: boolean, sessionOnly?: true, goesBack?: true }} Dialog — lines:
  *   what the dialog says above its options: the tabs of its questions, the question, a review of the answers; tabs: it
  *   has several questions, ← and → go between them; previews: its answers are drawn beside previews — or it is Codex's —
- *   where a digit picks nothing: the arrows go to an answer and Enter picks it
+ *   where a digit picks nothing: the arrows go to an answer and Enter picks it; goesBack: Esc goes back to the screen
+ *   before — /mcp's, under its first — not out of the dialog; such a screen may have nothing to choose, only to read
  * @typedef {'1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | 'left' | 'right' | 'up' | 'down' | 'enter' | 'esc' | 's'} DialogKey — the keys a
  *   dialog is answered with: a choice's digit, the next or the previous question, the answer above or below, Enter, Esc
  *   to cancel it
@@ -32,13 +33,19 @@ export function parseDialog(json) {
     const parsed = optionOf(option);
     return parsed === undefined ? [] : [parsed];
   });
-  return lines.length === json.lines.length && options.length === json.options.length && options.length > 0 ? { lines, options, tabs: json.tabs, previews: json.previews, ...(json.sessionOnly === true ? { sessionOnly: /** @type {const} */ (true) } : {}) } : undefined;
+  const goesBack = json.goesBack === true;
+  return lines.length === json.lines.length && options.length === json.options.length && (options.length > 0 || goesBack)
+    ? { lines, options, tabs: json.tabs, previews: json.previews, ...(json.sessionOnly === true ? { sessionOnly: /** @type {const} */ (true) } : {}), ...(goesBack ? { goesBack: /** @type {const} */ (true) } : {}) }
+    : undefined;
 }
 
 /** @type {ReadonlySet<string>} */
 const dialogKeys = new Set(['1', '2', '3', '4', '5', '6', '7', '8', '9', 'left', 'right', 'up', 'down', 'enter', 'esc', 's']);
-/** An answer takes a few keys: a digit, the words, Enter. */
-const maxSteps = 10;
+/**
+ * An answer takes a few keys — a digit, the words, Enter — or, in a list with no digits (/mcp's), the arrows down to a
+ * row one by one: as many as the terminal shows rows.
+ */
+const maxSteps = 60;
 
 /**
  * The steps of an answer from the page: a dialog's keys, and words on one line — Enter in them would answer early.
