@@ -21,6 +21,7 @@ import { parseHistory, tabNeighbours } from './model/history.js';
 import { parseUsage, usageView } from './model/usage.js';
 import { createHerdrSidebar, createTabBar } from './view/herdr-panel.js';
 import { keepToggled, keptLit, keptNow, mergeSeen, parseSeen, seeOpened } from './model/lamps.js';
+import { noteFilePath, parseFileCreated } from './model/notes.js';
 import { createSeenStore, tellSeen } from './view/seen-store.js';
 import { workingRobots } from './view/robot.js';
 import { storyAt, storyOf } from './model/stories.js';
@@ -779,7 +780,7 @@ function createPage() {
     const [tabHistory, branchChanges, vscode, fileManager] = [historyButton(historyView), changesButton(id), vscodeButton(folder), fileManagerButton(folder)];
     const folds = [tabHistory, branchChanges, herdrTab.button, fileManager].map(labelled);
     const navigation = [headGroup([drawerButton('outline', 'list', 'Outline'), tabHistory, branchChanges, filesButton(folder)]), headGroup([herdrTab.button, keepLit.button, fileManager])];
-    const header = createSessionHeader({ sessionId: id, place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation, folds, tools: settings.buttons(), rare: [createTextSizeControl({ size: () => settings.get('size'), choose: (size) => settings.set('size', size) }), ...settings.rareButtons()], rareOpeners: [labelled(vscode)], details: [restart.row] });
+    const header = createSessionHeader({ sessionId: id, place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation, folds, tools: settings.buttons(), rare: [createTextSizeControl({ label: 'Text size', size: () => settings.get('size'), choose: (size) => settings.set('size', size) }), createTextSizeControl({ label: 'Note text size', size: () => settings.get('noteSize'), choose: (size) => settings.set('noteSize', size) }), ...settings.rareButtons()], rareOpeners: [labelled(vscode)], details: [restart.row] });
     const outlineElement = h('aside', { className: 'outline', attrs: { 'aria-label': 'Outline' } });
     const outline = createOutline({
       element: outlineElement,
@@ -831,11 +832,24 @@ function createPage() {
     /** A note set apart opened in the side panel. @param {string} noteId */
     const openNote = (noteId) => {
       const panel = createNotePanel({
+        toFile: {
+          path: () => {
+            const shown = notesNow.find((one) => one.id === noteId);
+            const where = folder();
+            return shown === undefined || where === undefined ? '' : noteFilePath(where, shown);
+          },
+          create: async (path, content, replace) => {
+            const response = await fetch('/api/file/create', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Viewer': '1' }, body: JSON.stringify({ path, content, replace }) }).catch(() => undefined);
+            return parseFileCreated(await response?.json().catch(() => undefined));
+          },
+        },
         engine: { title: () => actionLabel('notes', settings.get('notes')), switch: () => settings.set('notes', nextChoice('notes', settings.get('notes'))) },
         note: () => notesNow.find((one) => one.id === noteId),
         edit: (shownId, text) => notes.edit(shownId, text),
         rename: (shownId, name) => notes.rename(shownId, name),
         remove: (shownId) => notes.remove(shownId),
+        // a note removed — here or elsewhere — is left at once: the side panel put away, if it shows it
+        leave: () => filePanel.forgetDoc(`note:${noteId}`),
         editorOf: noteEditorOf,
       });
       noteShown = panel;
@@ -1311,6 +1325,7 @@ function createSettings(keepPlace) {
     root.dataset.lamps = get('lamps');
     // the conversation's text at the size chosen, in percent of the usual one (style.css: .session)
     root.style.setProperty('--text-size', String(Number(get('size')) / 100));
+    root.style.setProperty('--note-text-size', String(Number(get('noteSize')) / 100));
     // the notes open made anew with the editor chosen
     if (root.dataset.notes !== get('notes')) {
       root.dataset.notes = get('notes');

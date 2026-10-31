@@ -36,6 +36,7 @@ function fakeEditor({ text, save }) {
     show(next) {
       editor.shownTexts.push(next);
     },
+    text: () => element.textContent ?? '',
     focus: () => undefined,
     remake: () => undefined,
     shown: () => shownAs,
@@ -201,10 +202,10 @@ test('notesView_Should_GiveNoteInFull_ItsUndoAndRedo_FirstAmongItsButtons', () =
   assert.deepEqual({ shown, kept: buttons() }, { shown: ['note-undo', 'note-redo', 'note-source', 'note-apart', 'note-remove'], kept: ['note-undo', 'note-redo', 'note-source', 'note-apart', 'note-remove'] });
 });
 
-// A note is dragged by its grip to another place among the notes — in full or set apart alike: it goes there at once and
-// the move is told, before the note it is let go before. Dragged across its text, a note in full is not moved: that picks
-// its words — the grip picks up none
-test('notesView_Should_MoveNoteDraggedByItsGrip_ToWhereItIsLetGo', () => {
+// A note is dragged to another place among the notes — one in full by its grip, one set apart by its whole row: it goes
+// there at once and the move is told, before the note it is let go before. Dragged across its text, a note in full is
+// not moved: that picks its words — the grip picks up none
+test('notesView_Should_MoveNoteDraggedByItsGripOrItsRow_ToWhereItIsLetGo', () => {
   const { view, asked, element } = notesShown();
   /** @type {Note} */
   const plan = { id: 'n3', text: '# Plan', at: '2026-10-27T08:00:00.000Z', shown: 'panel' };
@@ -232,7 +233,7 @@ test('notesView_Should_MoveNoteDraggedByItsGrip_ToWhereItIsLetGo', () => {
   const byText = ids();
   const gripPicked = drag(element('.note-grip', 0), 15, [30, 70]);
   layOut();
-  drag(element('.note-grip', 2), 95, [80, 5]);
+  drag(element('.note-row', 0), 95, [80, 5]);
 
   assert.deepEqual(
     { byText, wordsPicked: [textPicked, gripPicked], order: ids(), asked },

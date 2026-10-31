@@ -6,7 +6,7 @@
 import { isUtf8 } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { readFile, stat, writeFile } from 'node:fs/promises';
-import { isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { decodeText } from 'file-views/server';
 import { imageTypeOfPath } from '../public/model/file-ref.js';
 
@@ -17,6 +17,10 @@ import { imageTypeOfPath } from '../public/model/file-ref.js';
  * @typedef {'not-absolute' | 'not-found' | 'not-a-file' | 'too-large' | 'binary' | 'not-utf8' | 'read-only'} SaveRefusal
  *   — not-utf8: the file is in another encoding, a save in UTF-8 would change every letter of it but Latin ones
  * @typedef {{ ok: true, version: string } | { ok: false, error: 'changed', content: string, version: string } | { ok: false, error: SaveRefusal }} SaveOutcome
+ * @typedef {'not-absolute' | 'no-folder' | 'exists' | 'not-a-file' | 'too-large' | 'read-only'} CreateRefusal — no-folder:
+ *   the folder it would go in is not there; exists: a file is there already, not to be written over unless told
+ * @typedef {{ ok: true, path: string } | { ok: false, error: CreateRefusal }} CreateOutcome — path: the file written,
+ *   a path from the home folder made whole
  *   — changed: the file is no longer the one read — written meanwhile — and is left as it is: here is what it holds now
  * @typedef {{ ok: true, mediaType: string, bytes: Buffer } | { ok: false, error: ImageRefusal }} ImageOutcome
  * @typedef {'not-absolute' | 'not-found' | 'not-a-file' | 'too-large' | 'not-image'} ImageRefusal
@@ -29,12 +33,22 @@ import { imageTypeOfPath } from '../public/model/file-ref.js';
  * @returns {Promise<{ ok: true, path: string, size: number, modifiedAt: number } | { ok: false, error: 'not-absolute' | 'not-found' | 'not-a-file' }>}
  */
 export async function fileAt(requested, home) {
-  const path = /^~[\\/]/.test(requested) ? join(home, requested.slice(2)) : requested;
+  const path = wholePath(requested, home);
   if (!isAbsolute(path)) return { ok: false, error: 'not-absolute' };
   const info = await stat(path).catch(() => undefined);
   if (info === undefined) return { ok: false, error: 'not-found' };
   if (!info.isFile()) return { ok: false, error: 'not-a-file' };
   return { ok: true, path, size: info.size, modifiedAt: info.mtimeMs };
+}
+
+/**
+ * A path from the home folder (~/…) made whole; any other as it is.
+ * @param {string} requested
+ * @param {string} home
+ * @returns {string}
+ */
+function wholePath(requested, home) {
+  return /^~[\\/]/.test(requested) ? join(home, requested.slice(2)) : requested;
 }
 
 /** A zero byte near the start of a file marks binary content. */
@@ -104,6 +118,37 @@ export async function saveTextFile(requested, { content, version }, { maxBytes, 
     },
   );
   return written ? { ok: true, version: versionOf(saved) } : { ok: false, error: 'read-only' };
+}
+
+/**
+ * A note saved to a file: its text written as UTF-8 into a new file, in a folder that is there — a file there already
+ * written over only when told to replace it.
+ * @param {string} requested — an absolute path, or a path from the home folder (~/…)
+ * @param {{ content: string, replace: boolean }} file
+ * @param {{ maxBytes: number, home: string }} options
+ * @returns {Promise<CreateOutcome>}
+ */
+export async function createTextFile(requested, { content, replace }, { maxBytes, home }) {
+  const path = wholePath(requested, home);
+  if (!isAbsolute(path)) return { ok: false, error: 'not-absolute' };
+  const folder = await stat(dirname(path)).catch(() => undefined);
+  if (folder === undefined || !folder.isDirectory()) return { ok: false, error: 'no-folder' };
+  const there = await stat(path).catch(() => undefined);
+  if (there !== undefined && !there.isFile()) return { ok: false, error: 'not-a-file' };
+  if (there !== undefined && !replace) return { ok: false, error: 'exists' };
+  const bytes = Buffer.from(content, 'utf8');
+  if (bytes.length > maxBytes) return { ok: false, error: 'too-large' };
+  // a file made meanwhile is not written over unless told: 'wx' fails on it
+  const written = await writeFile(path, bytes, { flag: replace ? 'w' : 'wx' }).then(
+    () => /** @type {const} */ ('written'),
+    (error) => {
+      const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
+      if (code === 'EEXIST') return /** @type {const} */ ('exists');
+      if (code !== undefined && readOnlyCodes.has(code)) return /** @type {const} */ ('read-only');
+      throw error;
+    },
+  );
+  return written === 'written' ? { ok: true, path } : { ok: false, error: written };
 }
 
 const readOnlyCodes = new Set(['EACCES', 'EPERM', 'EROFS']);

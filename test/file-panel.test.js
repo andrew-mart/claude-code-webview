@@ -741,3 +741,19 @@ test('filePanel_Should_CopyFilesTextFromHead_AndItsPathFromBesideIt', async (t) 
   });
   assert.deepEqual({ copied, offered }, { copied: ['export const perSecond = 10;\n', 'D:/dev/x/src/limits.ts'], offered: [false, false] });
 });
+
+// A document closed for good while the panel shows it — a note removed — puts the panel away; one closed while another
+// shows leaves the panel as it is
+test('filePanel_Should_PutPanelAway_When_DocumentItShowsIsClosedForGood', () => {
+  const { panel, files } = filePanel();
+  /** @param {string} id */
+  const note = (id) => ({ id, element: window.document.createElement('div'), actions: window.document.createElement('span'), name: () => `Note ${id}`, reload: async () => undefined, summary: () => undefined });
+  files.showNote(note('n1'));
+  files.showNote(note('n2'));
+
+  files.forgetDoc('note:n1');
+  const another = { hidden: panel.hidden, docs: files.docs().map((doc) => doc.key) };
+  files.forgetDoc('note:n2');
+
+  assert.deepEqual({ another, shown: { hidden: panel.hidden, docs: files.docs().map((doc) => doc.key) } }, { another: { hidden: false, docs: ['note:n2'] }, shown: { hidden: true, docs: [] } });
+});

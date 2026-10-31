@@ -34,7 +34,8 @@ import { createPinButton } from './pin-button.js';
  *   shown;
  *   findName: a name in a file looked for in its project — its one definition opened, or its definitions and uses shown;
  *   docs: the documents shown — files, notes — the latest first, kept once the panel is put away until closed for good
- *   by ×, docked under the feed on a phone; showDoc: one of them shown again; forgetDoc: one closed for good; top: its
+ *   by ×, docked under the feed on a phone; showDoc: one of them shown again; forgetDoc: one closed for good — the
+ *   panel put away, if it shows it: a note removed is left at once; top: its
  *   grip and head — on a phone, what the sheet is pulled down by
  * @typedef {{ key: string, kind: 'file' | 'note', name: string }} DocShown — a document the panel holds: a file, by its
  *   path; a note, by its id
@@ -624,6 +625,7 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
     top,
     /** @param {string} key */
     forgetDoc(key) {
+      if (key === docShown) api.close();
       docs = docs.filter((one) => one.key !== key);
       onDocs();
     },

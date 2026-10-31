@@ -19,7 +19,7 @@ import { renderMarkdown } from './markdown.js';
  *   — undo, redo: what was typed undone, done again; canUndo, canRedo: whether there is something to
  * @typedef {(host: HTMLElement, options: MountOptions) => Promise<MountedEditor>} MountEditor — the editor itself, made
  *   in host
- * @typedef {{ element: HTMLElement, buttons: { undo: HTMLButtonElement, redo: HTMLButtonElement }, show: (text: string) => void, focus: () => void, shown: () => NoteShownAs, setShown: (shown: NoteShownAs) => void, remake: () => void, dispose: () => void }} NoteEditor
+ * @typedef {{ element: HTMLElement, buttons: { undo: HTMLButtonElement, redo: HTMLButtonElement }, text: () => string, show: (text: string) => void, focus: () => void, shown: () => NoteShownAs, setShown: (shown: NoteShownAs) => void, remake: () => void, dispose: () => void }} NoteEditor
  *   — buttons: ↶ and ↷, for where the note's buttons are; show: the note's text as it came again; remake: the editor made anew — another one chosen in the settings;
  *   dispose: let go of, what was typed saved
  */
@@ -125,6 +125,8 @@ export function createNoteEditor({ text, shown, placeholder, save, onOpen, mount
       if (mounted === undefined) wantsFocus = true;
       else mounted.focus();
     },
+    // the note as typed now, saved or not yet
+    text: () => latest,
     shown: () => shownAs,
     setShown(next) {
       if (next === shownAs) return;

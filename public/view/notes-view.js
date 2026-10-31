@@ -4,7 +4,8 @@
 // name, the name opening it elsewhere (the side panel); a button on each sets it the other way. "+" writes a new note,
 // set apart from the start — written in the side panel; the clock shows the history of the notes' changes. A note in
 // full has ↶ and ↷ while there is something to undo or do again, shows as its source by its button, the bin removes it
-// once ✓ confirms. A note is moved among the others by its grip (drag-order.js). The notes coming again from the server
+// once ✓ confirms. A note is moved among the others by its grip — one set apart by its whole row (drag-order.js). The
+// notes coming again from the server
 // leave each note still there its editor: what is typed is not taken away; while a note is moved, they wait.
 import { h } from './dom.js';
 import { icon } from './icons.js';
@@ -57,7 +58,8 @@ export function createNotesView({ add, edit, remove, open, setShown, showHistory
 
   /**
    * A note set apart, listed by its name — the one given it, else its first line — a note's icon on its left, as the side
-   * panel has it open: a press shows the whole of it there; the button beside brings it back inline.
+   * panel has it open: a press shows the whole of it there; the button beside brings it back inline. The row is dragged
+   * by itself to another place.
    * @param {Note} note
    * @returns {HTMLElement}
    */
@@ -67,7 +69,7 @@ export function createNotesView({ add, edit, remove, open, setShown, showHistory
     const inline = h('button', { className: 'icon-button note-inline', title: 'Show the note in full here', attrs: { type: 'button', 'aria-label': 'Show the note in full here' } }, [icon('unfold')]);
     row.addEventListener('click', () => open(note.id));
     inline.addEventListener('click', () => setShown(note.id, 'inline'));
-    return h('div', { className: 'note-line', attrs: { 'data-id': note.id } }, [row, grip(), inline]);
+    return h('div', { className: 'note-line', attrs: { 'data-id': note.id } }, [row, inline]);
   };
 
   /**
@@ -109,12 +111,13 @@ export function createNotesView({ add, edit, remove, open, setShown, showHistory
     return item;
   };
 
-  // a note dragged by its grip to another place: there at once, then told — before the note now after it
+  // a note dragged by its grip — one set apart by its whole row — to another place: there at once, then told — before
+  // the note now after it
   allowDragging(list, {
     items: () => [...list.children].flatMap((one) => (one instanceof window.HTMLElement && one.dataset.id !== undefined ? [one] : [])),
     idOf: (one) => one.dataset.id,
     axis: 'y',
-    grip: '.note-grip',
+    grip: '.note-grip, .note-line',
     scroller: list,
     canStart: () => true,
     onStart: () => {

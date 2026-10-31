@@ -119,19 +119,22 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   outline while there is something to undo or do again — undo what was typed and do it again, as Ctrl+Z and Ctrl+Shift+Z
   do; what the note comes to is saved as what is typed is. A note changed on another device and shown here has nothing
   to undo. A link in a note — and a file's path — opens on Ctrl+click: a file in the side panel at its line, a page in a
-  tab. The `</>` button shows a note's markdown as typed, and back. **T** among a note's buttons in the side panel
-  switches the notes to blocks, as Notion has them — Milkdown's Crepe: **/** makes a block, a handle on its left drags
-  it, a toolbar comes over the words selected, a table is edited in place; a note typed into there is saved as Milkdown
-  writes markdown — its lists' marks and escapes its own — and a note only read is not saved. **+** writes a new note
-  set apart — in the side panel, under a name in the field above it (with none, its first line names it) — listed in the
-  outline by its name, which opens it in the side panel; the button at the end of a name shows the note in full in the
-  outline, and the one beside the bin sets it apart again. The bin removes a note once ✓ confirms. The notes stand in
-  the order they are put in — a new one first: the grip among a note's buttons moves it among the others, dragged with
-  the mouse or with a finger resting on it a moment, and every device shows the order alike. The clock lists the notes'
-  changes, the latest first — added, edited, removed, set apart; a note's edits one after another, within ten minutes,
-  are one — each with the text it had before and ↶, which puts the note back as it was: a note removed comes back, an
-  edit is undone. Kept in `~/.claude-code-webview/notes.json`, as the bookmarks are, each note with its way, so every
-  device shows it alike; the last 200 changes of each folder in `notes-history.json` beside it.
+  tab. The `</>` button shows a note's markdown as typed, and back. ⤓ among a note's buttons in the side panel saves it
+  to a file — in the session's folder under the note's name, unless another path is typed; a file there already is
+  written over only once **Replace it** says so. **T** among a note's buttons in the side panel switches the notes to
+  blocks, as Notion has them — Milkdown's Crepe: **/** makes a block, a handle on its left drags it, a toolbar comes
+  over the words selected, a table is edited in place; a note typed into there is saved as Milkdown writes markdown —
+  its lists' marks and escapes its own — and a note only read is not saved. **+** writes a new note set apart — in the
+  side panel, under a name in the field above it (with none, its first line names it) — listed in the outline by its
+  name, which opens it in the side panel; the button at the end of a name shows the note in full in the outline, and the
+  one beside the bin sets it apart again. The bin removes a note once ✓ confirms; a note removed — here or on another
+  device — while the side panel shows it closes the panel. The notes stand in the order they are put in — a new one
+  first: a note is moved among the others by the grip among its buttons, one listed by its name by its whole row,
+  dragged with the mouse or with a finger resting on it a moment, and every device shows the order alike. The clock
+  lists the notes' changes, the latest first — added, edited, removed, set apart; a note's edits one after another,
+  within ten minutes, are one — each with the text it had before and ↶, which puts the note back as it was: a note
+  removed comes back, an edit is undone. Kept in `~/.claude-code-webview/notes.json`, as the bookmarks are, each note
+  with its way, so every device shows it alike; the last 200 changes of each folder in `notes-history.json` beside it.
 
   ![The notes' changes in the side panel, the latest first, the text of a note removed opened](docs/notes-history.png)
 - **Pinned files.** Under the notes, the files pinned beside the session — a spec, a design, a README; any file the side
@@ -189,7 +192,8 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   (a view button); the table's own button overrides the session, the session overrides the viewer.
 - Light and dark themes, optional display of Claude Code's service messages. The buttons used rarely — VS Code, the
   conversation's width, the tables', lamps or robots, the theme — stand behind "⋯" at the end of the row over a session.
-  There too A− and A+ make the conversation's text smaller or larger, from 85% to 150%, each browser keeping its own.
+  There too A− and A+ make the conversation's text smaller or larger, from 85% to 150% — and, in a row of their own,
+  the notes' — each browser keeping its own.
 - **Palettes.** `--palette sea` (or `moss`, `plum`; `clay`, Claude's own, is the default) changes the accent colour, tints the
   session list a little and colours the tab icon and the iPhone home screen icon — two viewers, say on two computers, are
   told apart at a glance.

@@ -7,13 +7,14 @@ const { window } = new JSDOM('<!doctype html><html><body></body></html>');
 Object.assign(globalThis, { window, document: window.document });
 const { createTextSizeControl } = await import('../public/view/text-size.js');
 
-// The conversation's text is made a step larger or smaller from the menu, its size shown between the two buttons; past
-// the largest there is no larger — the button is not there to press
+// The conversation's text — or the notes' — is made a step larger or smaller from the menu, under its own name, its size
+// shown between the two buttons; past the largest there is no larger — the button is not there to press
 test('textSizeControl_Should_ChooseTextAStepLargerOrSmaller_ShowingItsSize', () => {
   let size = '135';
   /** @type {string[]} */
   const chosen = [];
   const control = createTextSizeControl({
+    label: 'Note text size',
     size: () => size,
     choose: (next) => {
       chosen.push(next);
@@ -28,10 +29,11 @@ test('textSizeControl_Should_ChooseTextAStepLargerOrSmaller_ShowingItsSize', () 
   };
   const shown = () => control.querySelector('.text-size-value')?.textContent;
 
+  const named = control.querySelector('.text-size-label')?.textContent;
   const before = shown();
   button('Larger text').click();
   const largest = { shown: shown(), larger: button('Larger text').disabled };
   button('Smaller text').click();
 
-  assert.deepEqual({ before, largest, after: shown(), chosen }, { before: '135%', largest: { shown: '150%', larger: true }, after: '135%', chosen: ['150', '135'] });
+  assert.deepEqual({ named, before, largest, after: shown(), chosen }, { named: 'Note text size', before: '135%', largest: { shown: '150%', larger: true }, after: '135%', chosen: ['150', '135'] });
 });

@@ -1871,6 +1871,23 @@ test('saveFile_Should_SaveTextFromViewerPage_AndNotFromAnotherSite', async (t) =
   );
 });
 
+// A note saved to a file from the viewer's own page — not from another site — makes a new file; one there already is
+// written over only when the page says to replace it
+test('createFile_Should_WriteNoteToNewFileFromViewerPage_AndReplaceOnlyWhenTold', async (t) => {
+  const { port, root } = await withServer(t);
+  const path = join(root, 'Plan.md');
+
+  const elsewhere = await post(port, '/api/file/create', { ...pageHeaders(port), origin: 'https://evil.example' }, JSON.stringify({ path, content: 'pwned', replace: false }));
+  const made = await post(port, '/api/file/create', pageHeaders(port), JSON.stringify({ path, content: '# Plan\n', replace: false }));
+  const there = await post(port, '/api/file/create', pageHeaders(port), JSON.stringify({ path, content: '# Plan, again\n', replace: false }));
+  const replaced = await post(port, '/api/file/create', pageHeaders(port), JSON.stringify({ path, content: '# Plan, again\n', replace: true }));
+
+  assert.deepEqual(
+    { elsewhere: elsewhere.status, made: [made.status, JSON.parse(made.body)], there: [there.status, JSON.parse(there.body)], replaced: replaced.status, file: await readFile(path, 'utf8') },
+    { elsewhere: 403, made: [200, { ok: true, path }], there: [409, { ok: false, error: 'exists' }], replaced: 200, file: '# Plan, again\n' },
+  );
+});
+
 // The file panel's editor loads CodeMirror as the page's modules load: every module the page's import map names is
 // served, and every module those import — by name, or beside them — is named or served too
 test('editorModules_Should_ServeEveryModuleTheImportMapNames_AndWhatTheyImport', async (t) => {

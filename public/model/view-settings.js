@@ -1,6 +1,9 @@
 // @ts-check
 // Page view settings: their options and the labels of the buttons that switch them.
 
+/** The sizes of text — the conversation's, the notes' — in percent of the usual one, the usual one first. */
+const textSizeChoices = /** @type {const} */ (['100', '85', '90', '110', '120', '135', '150']);
+
 /** Options of each setting; the first is the default, the button cycles through them. */
 export const choices = /** @type {const} */ ({
   activity: ['compact', 'detailed'],
@@ -18,8 +21,10 @@ export const choices = /** @type {const} */ ({
   sidebar: ['herdr', 'sessions'],
   closed: ['all', 'only'],
   notes: ['live', 'blocks'],
-  // the conversation's text, in percent of the usual size: made smaller or larger a step at a time (textSizeStep)
-  size: ['100', '85', '90', '110', '120', '135', '150'],
+  // the conversation's text, and the notes', in percent of the usual size: made smaller or larger a step at a time
+  // (textSizeStep)
+  size: textSizeChoices,
+  noteSize: textSizeChoices,
 });
 
 /**
@@ -45,6 +50,7 @@ const resultNames = {
   closed: { all: 'List every session', only: 'List only the sessions closed in herdr' },
   notes: { live: 'Edit notes with a live preview, as Obsidian does (CodeMirror)', blocks: 'Edit notes as blocks, as Notion does (Milkdown)' },
   size: {},
+  noteSize: {},
 };
 
 /**

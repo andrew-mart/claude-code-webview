@@ -2099,6 +2099,12 @@ input.herdr-row-name.failed {
   background: var(--border);
 }
 
+/* the view buttons' first group after the folded ones, none folded — a wide screen: the line before the view buttons
+   is the one there, not a second beside it */
+.head-folded:not(:has(> :not([hidden]))) + .head-group::before {
+  display: none;
+}
+
 .head-tool-label {
   display: none;
 }
@@ -2106,6 +2112,7 @@ input.herdr-row-name.failed {
 /* The conversation's text size, in the view menu: A−, the size now, A+ (text-size.js); the usual size until one is chosen. */
 :root {
   --text-size: 1;
+  --note-text-size: 1;
 }
 
 .text-size {
@@ -4820,9 +4827,10 @@ table.diff tr.gap td {
 
 /* A note in its editor (note-editor.js, note-editor-cm.js): in the outline's card, smaller; in the side panel, as a
    document reads. What it says shows as it reads while the editor is being made, not to jump when it comes. */
+/* the notes' text at the size chosen in the view menu (text-size.js): what is inside them sized from it */
 .note-editor {
   color: var(--text-2);
-  font-size: 13px;
+  font-size: calc(13px * var(--note-text-size));
   line-height: 1.45;
   overflow-wrap: anywhere;
   cursor: text;
@@ -5076,7 +5084,7 @@ table.diff tr.gap td {
   --crepe-font-code: var(--font-mono);
   --crepe-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.18);
   --crepe-shadow-2: 0 4px 14px rgba(0, 0, 0, 0.22);
-  --crepe-base-font-size: 13px;
+  --crepe-base-font-size: calc(13px * var(--note-text-size));
   background: transparent;
   color: inherit;
 }
@@ -5093,7 +5101,7 @@ table.diff tr.gap td {
 }
 
 .note-panel .note-editor .milkdown {
-  --crepe-base-font-size: 15px;
+  --crepe-base-font-size: calc(15px * var(--note-text-size));
 }
 
 /* headings as a note's, not a page's: a size above the text, in the viewer's letters */
@@ -5222,8 +5230,8 @@ table.diff tr.gap td {
   }
 }
 
-/* the grip a note is dragged by to another place (drag-order.js), among its buttons: a note in full's on hover, as they
-   are, a name's on hover too — always there on a touch screen, a finger resting on it a moment to drag */
+/* the grip a note in full is dragged by to another place (drag-order.js), among its buttons, on hover as they are; a
+   note set apart is dragged by its whole row — a finger resting on it a moment */
 .note-grip {
   display: inline-grid;
   flex: none;
@@ -5237,20 +5245,6 @@ table.diff tr.gap td {
 
 .note-grip:hover {
   color: var(--text);
-}
-
-.note-line > .note-grip {
-  opacity: 0;
-}
-
-.note-line:hover > .note-grip {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .note-line > .note-grip {
-    opacity: 1;
-  }
 }
 
 /* while a note is dragged: it pale, where it goes marked by a line, no words picked up on the way */
@@ -5331,7 +5325,7 @@ table.diff tr.gap td {
 .note-panel .note-editor {
   min-height: 60vh;
   color: var(--text);
-  font-size: 15px;
+  font-size: calc(15px * var(--note-text-size));
   line-height: 1.55;
 }
 
@@ -5341,7 +5335,7 @@ table.diff tr.gap td {
   overflow: auto;
   padding: 10px 18px 24px;
   color: var(--text);
-  font-size: 15px;
+  font-size: calc(15px * var(--note-text-size));
   line-height: 1.55;
 }
 
@@ -5350,6 +5344,69 @@ table.diff tr.gap td {
 }
 
 /* the note's name, above its markdown: empty, its first line names it, as the placeholder shows */
+/* The note saved to a file (note-panel.js): the path offered, Save and ✕ in a row under the name, what came of it under
+   them */
+.note-file {
+  margin: 2px 0 10px;
+}
+
+.note-file-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.note-file-path {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-elev);
+  color: var(--text);
+  font: 13px var(--font-mono);
+}
+
+.note-file-save,
+.note-file-replace {
+  flex: none;
+  padding: 5px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.note-file-save:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.note-file-told {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  color: var(--text-2);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.note-file-told:empty {
+  display: none;
+}
+
+/* iOS zooms the page into a field whose text is smaller than 16px */
+@media (pointer: coarse) {
+  .note-file-path {
+    font-size: 16px;
+  }
+}
+
 .note-panel-name {
   display: block;
   width: 100%;

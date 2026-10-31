@@ -4,7 +4,7 @@ import { chmod, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { tempDir } from '../test-support/temp-dir.js';
-import { readImageFile, readTextFile, saveTextFile } from '../server/files.js';
+import { createTextFile, readImageFile, readTextFile, saveTextFile } from '../server/files.js';
 
 const limits = { maxBytes: 1000, home: tmpdir() };
 const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]);
@@ -158,5 +158,27 @@ test('saveTextFile_Should_RefuseSaveThatWouldSpoilFile', async () => {
       ],
       big: 'small\n',
     },
+  );
+});
+
+// A note saved to a file: a new file written in a folder that is there; a file there already is not written over unless
+// told to replace it; no folder there, a path not whole, a folder where the file would go — each refused, saying which
+test('createTextFile_Should_WriteNewFile_AndReplaceOneThereOnlyWhenTold', async () => {
+  const dir = tempDir('note-file-');
+  const plan = join(dir, 'Plan.md');
+
+  const made = await createTextFile(plan, { content: '# Plan\n- one\n', replace: false }, limits);
+  const there = await createTextFile(plan, { content: '# Plan, again\n', replace: false }, limits);
+  const kept = await readFile(plan, 'utf8');
+  const replaced = await createTextFile(plan, { content: '# Plan, again\n', replace: true }, limits);
+  const refused = await Promise.all([
+    createTextFile(join(dir, 'no-such-folder', 'Plan.md'), { content: 'x', replace: false }, limits),
+    createTextFile('notes/Plan.md', { content: 'x', replace: false }, limits),
+    createTextFile(dir, { content: 'x', replace: true }, limits),
+  ]);
+
+  assert.deepEqual(
+    { made, there, kept, replaced, now: await readFile(plan, 'utf8'), refused: refused.map((one) => (one.ok ? 'written' : one.error)) },
+    { made: { ok: true, path: plan }, there: { ok: false, error: 'exists' }, kept: '# Plan\n- one\n', replaced: { ok: true, path: plan }, now: '# Plan, again\n', refused: ['no-folder', 'not-absolute', 'not-a-file'] },
   );
 });

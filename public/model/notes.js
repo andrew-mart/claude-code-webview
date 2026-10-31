@@ -156,3 +156,50 @@ export function noteTitle(text) {
   }
   return '';
 }
+
+/** What no file's name may hold, on Windows or anywhere: left out of a note's file's name. */
+const notInFileNames = /[<>:"/\\|?*\u0000-\u001f]/g;
+
+/**
+ * The file a note is saved to unless another is chosen: in the session's folder, named as the note is — its name, else
+ * its first line — a markdown file; what no file's name may hold left out, the folder's own separator kept; a note with
+ * no words a Note.md.
+ * @param {string} folder — the session's, as the computer writes it
+ * @param {Note} note
+ * @returns {string}
+ */
+export function noteFilePath(folder, note) {
+  const separator = folder.includes('\\') && !folder.includes('/') ? '\\' : '/';
+  const named = noteName(note).replace(notInFileNames, ' ').replace(/\s+/g, ' ').trim().replace(/[. ]+$/, '').slice(0, 80).trim();
+  const name = named === '' ? 'Note' : named;
+  return `${folder.replace(/[\\/]+$/, '')}${separator}${/\.md$/i.test(name) ? name : `${name}.md`}`;
+}
+
+/**
+ * @typedef {'not-absolute' | 'no-folder' | 'exists' | 'not-a-file' | 'too-large' | 'read-only' | 'failed'} FileRefusal
+ *   — why a note was not saved to a file: the server's refusals (server/files.js: CreateRefusal), or failed — the viewer
+ *   not answering
+ * @typedef {{ ok: true, path: string } | { ok: false, error: FileRefusal }} FileCreated — path: the file written
+ */
+
+/** @type {ReadonlySet<string>} */
+const fileRefusals = new Set(['not-absolute', 'no-folder', 'exists', 'not-a-file', 'too-large', 'read-only']);
+
+/**
+ * The viewer's reply to a note saved to a file; any other — or none — a save that failed.
+ * @param {unknown} json
+ * @returns {FileCreated}
+ */
+export function parseFileCreated(json) {
+  if (isRecord(json) && json.ok === true && typeof json.path === 'string') return { ok: true, path: json.path };
+  const error = isRecord(json) ? json.error : undefined;
+  return { ok: false, error: isFileRefusal(error) ? error : 'failed' };
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is Exclude<FileRefusal, 'failed'>}
+ */
+function isFileRefusal(value) {
+  return typeof value === 'string' && fileRefusals.has(value);
+}

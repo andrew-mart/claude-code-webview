@@ -30,7 +30,7 @@ import { vscodeFileAddress } from '../public/model/vscode.js';
 import { assetFile, folderFileAt, sandboxPolicy } from 'file-views/server';
 import { editorImports, editorModuleFile, editorModuleFiles, editorModulesPrefix } from './editor-modules.js';
 import { createFileIcons, fileIconAnswer, fileIconsManifest, fileIconsPrefix } from './file-icons.js';
-import { fileAt, readImageFile, readTextFile, saveTextFile } from './files.js';
+import { createTextFile, fileAt, readImageFile, readTextFile, saveTextFile } from './files.js';
 import { fileLinks } from './links.js';
 import { listFolder, searchProject, searchTimeoutMs } from './project.js';
 import { attachment, fileToDownload, folderToZip, uploadFile, writeZip } from './transfer.js';
@@ -559,8 +559,9 @@ async function handleWrite(deps, url, request, response) {
     response.writeHead(403).end('Forbidden: request did not come from the viewer page');
     return;
   }
-  const body = await readJsonBody(request, url.pathname === '/api/send' ? maxSendBytes : url.pathname === '/api/file/save' ? maxSaveBytes : maxBodyBytes);
+  const body = await readJsonBody(request, url.pathname === '/api/send' ? maxSendBytes : url.pathname === '/api/file/save' || url.pathname === '/api/file/create' ? maxSaveBytes : maxBodyBytes);
   if (url.pathname === '/api/file/save') return saveFile(body, response);
+  if (url.pathname === '/api/file/create') return createFile(body, response);
   if (url.pathname === '/api/seen') return markSeen(deps, body, response);
   if (url.pathname === '/api/kept') return markKept(deps, body, response);
   if (url.pathname === '/api/pane/input') return typeIntoPane(deps, body, response);
@@ -1656,6 +1657,25 @@ async function saveFile(body, response) {
   const outcome = await saveTextFile(path, { content, version }, { maxBytes: maxFileBytes, home: homedir() });
   return sendJson(response, outcome, outcome.ok ? 200 : saveRefusalStatus[outcome.error]);
 }
+
+/**
+ * A note saved to a file: a new one, or one there written over when the page says to replace it.
+ * @param {unknown} body — { path, content, replace }
+ * @param {http.ServerResponse} response
+ */
+async function createFile(body, response) {
+  const path = isRecord(body) ? text(body.path) : undefined;
+  const content = isRecord(body) ? text(body.content) : undefined;
+  if (path === undefined || content === undefined || !isRecord(body) || typeof body.replace !== 'boolean') {
+    response.writeHead(400).end('Bad file to create');
+    return;
+  }
+  const outcome = await createTextFile(path, { content, replace: body.replace }, { maxBytes: maxFileBytes, home: homedir() });
+  return sendJson(response, outcome, outcome.ok ? 200 : createRefusalStatus[outcome.error]);
+}
+
+/** @type {Readonly<Record<import('./files.js').CreateRefusal, number>>} */
+const createRefusalStatus = { 'not-absolute': 400, 'no-folder': 404, exists: 409, 'not-a-file': 409, 'too-large': 413, 'read-only': 403 };
 
 /** @type {Readonly<Record<import('./files.js').SaveRefusal | 'changed', number>>} */
 const saveRefusalStatus = { 'not-absolute': 400, 'not-a-file': 400, 'not-found': 404, 'too-large': 413, binary: 415, 'not-utf8': 415, 'read-only': 403, changed: 409 };

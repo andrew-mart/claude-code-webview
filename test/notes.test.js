@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { changeNotes, noteName, noteTitle, notesFolderOf, parseNoteChange, parseNotes } from '../public/model/notes.js';
+import { changeNotes, noteFilePath, noteName, noteTitle, notesFolderOf, parseNoteChange, parseNotes } from '../public/model/notes.js';
 
 /** @typedef {import('../public/model/notes.js').Note} Note */
 
@@ -208,5 +208,23 @@ test('noteTitle_Should_NameNoteByItsFirstLine_AsRead', () => {
       noteTitle('   \n## \n plain text'),
     ],
     ['Plan for the week', 'TODO check the build', 'the spec first', 'quoted idea', 'plain text'],
+  );
+});
+
+// A note saved to a file goes by default into the session's folder, named as the note is — its name, else its first
+// line — a markdown file: what no file's name may hold left out, the folder's own separator kept; a note with no words
+// is a Note.md
+test('noteFilePath_Should_NameFileAsNoteIsNamed_InSessionsFolder', () => {
+  /** @param {string} noteText @param {string} [name] @returns {Note} */
+  const note = (noteText, name) => ({ id: 'n9', text: noteText, at: '2026-10-30T09:00:00.000Z', shown: 'panel', ...(name === undefined ? {} : { name }) });
+
+  assert.deepEqual(
+    [
+      noteFilePath('D:\\dev\\shop\\', note('# Plan: Q3 / Q4?\n- one')),
+      noteFilePath('/home/ann/shop', note('anything', 'Redis runbook')),
+      noteFilePath('/home/ann/shop', note('', 'checklist.md')),
+      noteFilePath('/home/ann/shop', note('')),
+    ],
+    ['D:\\dev\\shop\\Plan Q3 Q4.md', '/home/ann/shop/Redis runbook.md', '/home/ann/shop/checklist.md', '/home/ann/shop/Note.md'],
   );
 });
