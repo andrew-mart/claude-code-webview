@@ -6,6 +6,7 @@ const { window } = new JSDOM('<!doctype html><html><body></body></html>');
 // DOMPurify and the icons look for the DOM as their modules load: it is set up first
 Object.assign(globalThis, { window, document: window.document, NodeFilter: window.NodeFilter, Text: window.Text });
 const { createNotesView } = await import('../public/view/notes-view.js');
+const { icon } = await import('../public/view/icons.js');
 
 /** @typedef {import('../public/model/notes.js').Note} Note */
 
@@ -26,6 +27,7 @@ function notesShown() {
     setShown: (id, shown) => void asked.push(['shown', id, shown]),
     writeApart: () => void asked.push(['write apart']),
     showHistory: () => void asked.push(['history']),
+    move: (id, before) => void asked.push(['move', id, String(before)]),
   });
   window.document.body.replaceChildren(view.element);
   view.show([todo, idea]);
@@ -103,16 +105,17 @@ test('notesView_Should_EditNoteInPlace_KeepingOnBlur_AndLeavingOnEscape', () => 
   assert.deepEqual({ shown, asked, editing: element('.note-text', 0).textContent?.includes('TODO') }, { shown: idea.text, asked: [['edit', 'n1', 'idea: `herdr tab focus` — in the header now']], editing: true });
 });
 
-// × asks first: ✓ removes the note, ✕ keeps it
+// The bin asks first: ✓ removes the note, ✕ keeps it
 test('notesView_Should_RemoveNote_OnlyOnceConfirmed', () => {
   const { asked, element } = notesShown();
+  const bin = element('.note-remove').innerHTML === icon('trash').outerHTML;
 
   element('.note-remove', 0).click();
   element('.note-keep').click();
   element('.note-remove', 1).click();
   element('.note-confirm-remove').click();
 
-  assert.deepEqual(asked, [['remove', 'n1']]);
+  assert.deepEqual({ bin, asked }, { bin: true, asked: [['remove', 'n1']] });
 });
 
 // The notes coming again from the server — another device's change — do not take away what is being typed
@@ -127,11 +130,12 @@ test('notesView_Should_KeepTextBeingTyped_When_NotesComeAgain', () => {
   assert.deepEqual({ asked, notes: [...view.element.querySelectorAll('.note-text')].length }, { asked: [['edit', 'n2', '**TODO** check the deploy too']], notes: 1 });
 });
 
-// Each note is shown its own way, in the order of the notes: one set apart is listed by its name, a press opening it —
+// Each note is shown its own way, in the order of the notes: one set apart is listed by its name — the one given it, else
+// its first line — a press opening it —
 // the whole of it shown elsewhere; a note in full is set apart by its button, a name brought back inline by its own
 test('notesView_Should_ShowEachNoteItsOwnWay_AndSetItApartOrBackInline', () => {
   const { view, asked, element } = notesShown();
-  view.show([todo, { ...idea, shown: 'panel' }]);
+  view.show([todo, { ...idea, shown: 'panel', name: 'Header ideas' }]);
 
   const drawn = [...element('.notes-list').children].map((one) => (one.matches('.note') ? `in full: ${one.querySelector('strong')?.textContent}` : `by name: ${one.querySelector('.note-row')?.textContent}`));
   element('.note-row').click();
@@ -141,12 +145,81 @@ test('notesView_Should_ShowEachNoteItsOwnWay_AndSetItApartOrBackInline', () => {
   assert.deepEqual(
     { drawn, asked },
     {
-      drawn: ['in full: TODO', 'by name: idea: herdr tab focus'],
+      drawn: ['in full: TODO', 'by name: Header ideas'],
       asked: [
         ['open', 'n1'],
         ['shown', 'n2', 'panel'],
         ['shown', 'n1', 'inline'],
       ],
     },
+  );
+});
+
+// Writing or editing a note needs no keyboard to end: ✓ under it keeps it, ✕ leaves it — pressed, neither takes the focus
+// from the note, which would keep it first
+test('notesView_Should_KeepNoteOnCheck_AndLeaveItOnCross_WithoutKeyboard', () => {
+  const { asked, element, type } = notesShown();
+  /** @param {string} selector */
+  const press = (selector) => {
+    const pressed = element(selector);
+    const taken = !pressed.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    pressed.click();
+    return taken;
+  };
+
+  element('.notes-add').click();
+  type('## Plan');
+  const adding = press('.note-keep-edit');
+  element('.note-text', 0).click();
+  type('changed my mind');
+  const leaving = press('.note-leave-edit');
+  element('.note-text', 1).click();
+  type('idea: `herdr tab focus` — done');
+  const editing = press('.note-keep-edit');
+
+  assert.deepEqual(
+    { focusKept: [adding, leaving, editing], asked },
+    { focusKept: [true, true, true], asked: [['add', '## Plan'], ['edit', 'n1', 'idea: `herdr tab focus` — done']] },
+  );
+});
+
+// A note is dragged by its grip to another place among the notes — in full or set apart alike: it goes there at once and
+// the move is told, before the note it is let go before; the click the drag ends with edits nothing. Dragged across its
+// text, a note in full is not moved: that picks its words — the grip picks up none
+test('notesView_Should_MoveNoteDraggedByItsGrip_ToWhereItIsLetGo', () => {
+  const { view, asked, element } = notesShown();
+  /** @type {Note} */
+  const plan = { id: 'n3', text: '# Plan', at: '2026-10-27T08:00:00.000Z', shown: 'panel' };
+  view.show([todo, idea, plan]);
+  const list = element('.notes-list');
+  /** The notes laid out as a browser would — jsdom lays nothing out: one under another, 40px apart, each 30px high. */
+  const layOut = () =>
+    [...list.children].forEach((one, at) => Object.defineProperty(one, 'getBoundingClientRect', { value: () => ({ top: 40 * at, bottom: 40 * at + 30, height: 30, left: 0, right: 200, width: 200, x: 0, y: 40 * at, toJSON: () => undefined }), configurable: true }));
+  /** @param {string} type @param {EventTarget} at @param {number} y */
+  const pointer = (type, at, y) => at.dispatchEvent(new window.PointerEvent(type, { bubbles: true, cancelable: true, clientX: 20, clientY: y, button: 0, pointerId: 1, pointerType: 'mouse', isPrimary: true }));
+  /**
+   * A press, moves and a let-go: whether the press was left to the browser — to pick up the words under it.
+   * @param {Element} from @param {number} y @param {readonly number[]} path
+   */
+  const drag = (from, y, path) => {
+    const leftToBrowser = pointer('pointerdown', from, y);
+    for (const step of path) pointer('pointermove', window, step);
+    pointer('pointerup', window, path.at(-1) ?? y);
+    return leftToBrowser;
+  };
+  const ids = () => [...list.children].map((one) => one.getAttribute('data-id')).join(' ');
+  layOut();
+
+  const textPicked = drag(element('.note-text', 0), 15, [30, 70]);
+  const byText = ids();
+  const gripPicked = drag(element('.note-grip', 0), 15, [30, 70]);
+  element('.note-text', 0).click();
+  const editing = list.querySelector('textarea') !== null;
+  layOut();
+  drag(element('.note-grip', 2), 95, [80, 5]);
+
+  assert.deepEqual(
+    { byText, wordsPicked: [textPicked, gripPicked], editing, order: ids(), asked },
+    { byText: 'n2 n1 n3', wordsPicked: [true, false], editing: false, order: 'n3 n1 n2', asked: [['move', 'n2', 'n3'], ['move', 'n3', 'n1']] },
   );
 });

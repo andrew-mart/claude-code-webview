@@ -90,5 +90,5 @@ function actionOf(value) {
  */
 function sameNote(one, other) {
   if (one === undefined || other === undefined) return one === other;
-  return one.text === other.text && one.at === other.at && one.shown === other.shown;
+  return one.text === other.text && one.at === other.at && one.shown === other.shown && one.name === other.name;
 }

@@ -44,9 +44,9 @@ const note = (text, at) => ({ id: at, text, at, shown: /** @type {const} */ ('in
 test('notesStore_Should_KeepLatestChangeShown_When_OlderReplyComesAfterIt', async () => {
   const { store, shown, request } = storeAnsweredByHand();
 
-  store.add('# Plan', 'inline');
+  store.add('# Plan', 'inline', '');
   await request('list').answer([]);
-  store.add('# Ideas', 'inline');
+  store.add('# Ideas', 'inline', '');
   await request('add').answer([note('# Plan', '1')]);
   await request('add').answer([note('# Ideas', '2'), note('# Plan', '1')]);
 
@@ -61,7 +61,7 @@ test('notesStore_Should_AddNoteTheWayAsked_UndoStepAtOnce_AndReadHistory', async
   const removed = { id: 's1', at: '2026-10-27T10:00:00.000Z', action: 'remove', before: plan };
   await request('list').answer([]);
 
-  const id = store.add('# Ideas', 'panel');
+  const id = store.add('# Ideas', 'panel', '');
   const added = request('add').change?.note;
   store.undo({ ...removed, action: 'remove', after: undefined });
   const undone = request('put').change;
@@ -83,3 +83,38 @@ test('notesStore_Should_AddNoteTheWayAsked_UndoStepAtOnce_AndReadHistory', async
 function isoOf(sent) {
   return sent !== null && typeof sent === 'object' && 'at' in sent && typeof sent.at === 'string' ? sent.at : 'no time';
 }
+
+// A note is written under a name, or named and renamed as it is edited: the name goes to the server with the change; a
+// note written with its name left blank goes without one
+test('notesStore_Should_SendNoteName_WithNoteWrittenOrEdited', async () => {
+  const { store, request } = storeAnsweredByHand();
+  await request('list').answer([]);
+
+  const id = store.add('# Ideas', 'panel', 'Backlog');
+  const added = request('add').change?.note;
+  store.edit(id, '# Ideas\n- more', 'Ideas backlog');
+  const edited = request('edit').change;
+  store.add('# Plan', 'panel', ' ');
+  const unnamed = request('add').change?.note;
+
+  assert.deepEqual(
+    { added, edited, unnamed: unnamed !== null && typeof unnamed === 'object' && 'name' in unnamed },
+    { added: { id, text: '# Ideas', at: isoOf(added), shown: 'panel', name: 'Backlog' }, edited: { action: 'edit', id, text: '# Ideas\n- more', name: 'Ideas backlog' }, unnamed: false },
+  );
+});
+
+// A note moved shows in its new place at once — before the one it is let go before, or last — the server told the move
+test('notesStore_Should_ShowNoteMovedAtOnce_AndTellServer', async () => {
+  const { store, shown, request } = storeAnsweredByHand();
+  await request('list').answer([note('# Plan', '3'), note('# Ideas', '2'), note('# Deploy', '1')]);
+
+  store.move('3', '1');
+  const before = request('move').change;
+  store.move('2', undefined);
+  const last = request('move').change;
+
+  assert.deepEqual(
+    { shown: shown.slice(-2), before, last },
+    { shown: [['# Ideas', '# Plan', '# Deploy'], ['# Plan', '# Deploy', '# Ideas']], before: { action: 'move', id: '3', before: '1' }, last: { action: 'move', id: '2' } },
+  );
+});

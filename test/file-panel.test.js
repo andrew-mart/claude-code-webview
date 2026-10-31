@@ -8,6 +8,7 @@ Object.assign(globalThis, { window, document: window.document, NodeFilter: windo
 // jsdom has no media queries: the page's theme is light
 window.matchMedia = () => /** @type {MediaQueryList} */ (/** @type {unknown} */ ({ matches: false }));
 const { createFilePanel } = await import('../public/view/file-panel.js');
+const { icon } = await import('../public/view/icons.js');
 
 /** @typedef {import('../public/view/editor-opener.js').EditorOpener} EditorOpener */
 
@@ -38,6 +39,8 @@ function filePanel(editor = noEditor, lines = [], vscode = Promise.resolve(undef
     layout,
     editor,
     vscode,
+    // no session open: nothing to pin a file beside
+    pins: { scopesOf: () => undefined, pin: () => undefined, unpin: () => undefined },
     fileManager,
     // a folder linked: its files, with nothing in them
     folder: (root) => ({ root, listFolder: async (path) => ({ ok: true, path, entries: [], more: false }), search: async () => undefined, links: async () => undefined, transfer: noTransfer }),
@@ -385,19 +388,33 @@ test('filePanel_Should_ShowBranchChanges_And_GoBackToThemFromFileOpenedThere', a
   );
 });
 
-// A note opened from its name among the notes shows in the panel in place of a file, under its name, when it was written
-// under that
-test('filePanel_Should_ShowNoteOpenedFromItsName_UnderItsName', async () => {
+// A note opened from its name among the notes shows in the panel in place of a file, marked as a note, under its name,
+// when it was written under that; the note changed — renamed here or on another device — its title shows the name it
+// has now; ↻ reads the note again, not a file
+test('filePanel_Should_ShowNoteOpenedFromItsName_UnderItsNameAsItIsNow', async () => {
   const { panel, files } = filePanel();
   const shown = window.document.createElement('div');
   shown.className = 'note-panel';
+  const named = { now: 'Plan for the week' };
+  const note = { element: shown, name: () => named.now, reload: async () => undefined, summary: () => 'Written 27 Oct 2026, 09:05' };
+  const title = () => [panel.querySelector('.panel-name')?.textContent, panel.querySelector('.panel-path')?.textContent];
 
-  files.showNote({ element: shown, name: 'Plan for the week', reload: async () => undefined, summary: () => 'Written 27 Oct 2026, 09:05' });
+  files.showNote(note);
   await new Promise((done) => setTimeout(done, 0));
+  const first = title();
+  named.now = 'Week plan';
+  await files.listChanged(note);
 
   assert.deepEqual(
-    { title: [panel.querySelector('.panel-name')?.textContent, panel.querySelector('.panel-path')?.textContent], shown: panel.querySelector('.panel-body > .note-panel') === shown, open: !panel.hidden },
-    { title: ['Plan for the week', 'Written 27 Oct 2026, 09:05'], shown: true, open: true },
+    {
+      first,
+      renamed: title(),
+      marked: panel.querySelector('.panel-icon')?.innerHTML === icon('note').outerHTML,
+      reload: panel.querySelector('.panel-reload')?.getAttribute('title'),
+      shown: panel.querySelector('.panel-body > .note-panel') === shown,
+      open: !panel.hidden,
+    },
+    { first: ['Plan for the week', 'Written 27 Oct 2026, 09:05'], renamed: ['Week plan', 'Written 27 Oct 2026, 09:05'], marked: true, reload: 'Reload', shown: true, open: true },
   );
 });
 

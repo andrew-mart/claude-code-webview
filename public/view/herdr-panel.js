@@ -19,7 +19,7 @@ import { lucideIcon } from './lucide.js';
 import { createWorkClock } from './work-clock.js';
 import { tintByWorkspace } from './workspace-tint.js';
 import { workspaceHue } from '../model/workspace-color.js';
-import { allowDragging } from './tab-drag.js';
+import { allowDragging } from './drag-order.js';
 import { labelWithIcon, splitTabIcon, tabIcons, workspaceIcons } from '../model/tab-icon.js';
 
 /**
@@ -910,7 +910,10 @@ export function createTabBar({ rename, close, move, open, create, duplicate, ren
   };
   // a tab dragged to another place among them: the bar stays as it is while it is dragged and moved
   allowDragging(element, {
-    tabs: () => [...element.querySelectorAll('.herdr-chip')].filter((chip) => chip instanceof window.HTMLElement),
+    items: () => [...element.querySelectorAll('.herdr-chip')].filter((chip) => chip instanceof window.HTMLElement),
+    axis: 'x',
+    grip: undefined,
+    scroller: element,
     idOf: (chip) => chip.dataset.tab,
     canStart: () => !busy,
     onStart: () => {

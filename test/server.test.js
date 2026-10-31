@@ -14,6 +14,7 @@ import { createSessionIndex } from '../server/sessions.js';
 import { createBookmarkFile } from '../server/bookmarks.js';
 import { createLaterFile } from '../server/later.js';
 import { createNotesFile } from '../server/notes.js';
+import { createPinsFile } from '../server/pins.js';
 import { createSeenFile } from '../server/seen.js';
 import { createKeptFile } from '../server/kept.js';
 import { createUploads } from '../server/uploads.js';
@@ -226,7 +227,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // the file manager opens what is asked
   /** @type {import('../server/file-manager.js').FileManagerTarget[]} */
   const shownInFileManager = [];
-  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), later: createLaterFile(join(root, 'later.json')), notes: createNotesFile(join(root, 'notes.json'), { history: join(root, 'notes-history.json'), limit: 200 }), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), kept: createKeptFile(join(root, 'kept.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, sessionStatus: async (id) => {
+  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), later: createLaterFile(join(root, 'later.json')), notes: createNotesFile(join(root, 'notes.json'), { history: join(root, 'notes-history.json'), limit: 200 }), pins: createPinsFile(join(root, 'pins.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), kept: createKeptFile(join(root, 'kept.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, sessionStatus: async (id) => {
       await statusRead;
       return id === sessionId ? sessionStatus : undefined;
     } });
@@ -860,6 +861,37 @@ test('later_Should_KeepPromptSetAsideOnPage_AndRefuseChangeOfUnknownShape', asyn
 
 /** @type {import('../public/model/notes.js').Note} */
 const note = { id: 'n1', text: '**TODO** check the build', at: '2026-10-27T09:00:00.000Z', shown: 'inline' };
+
+// A file pinned beside a session to its project folder shows beside every session started in that folder, one pinned
+// to the session beside it alone; a session of another folder has neither; a change of another shape is refused
+test('pins_Should_ShowFolderPinsBesideEverySessionInIt_AndSessionPinsBesideItAlone', async (t) => {
+  const { base, port, root } = await withServer(t);
+  const sameFolder = '3f2c9a50-1111-4222-8333-944455557777';
+  const otherFolder = '3f2c9a50-1111-4222-8333-944455558888';
+  await writeFile(join(root, 'D--dev-x', `${sameFolder}.jsonl`), promptLine('u2', 'Second question'));
+  await mkdir(join(root, 'D--dev-y'));
+  await writeFile(join(root, 'D--dev-y', `${otherFolder}.jsonl`), promptLine('u3', 'A question elsewhere'));
+  const spec = { path: 'D:\\dev\\x\\docs\\spec.md', at: '2026-10-28T09:00:00.000Z' };
+  const design = { path: 'D:\\dev\\x\\docs\\design.pdf', at: '2026-10-28T09:05:00.000Z' };
+
+  const pinned = await post(port, '/api/pins', pageHeaders(port), JSON.stringify({ session: sessionId, scope: 'folder', change: { action: 'add', pin: spec } }));
+  await post(port, '/api/pins', pageHeaders(port), JSON.stringify({ session: sessionId, scope: 'session', change: { action: 'add', pin: design } }));
+  const listed = await Promise.all([sessionId, sameFolder, otherFolder].map(async (id) => (await fetch(`${base}/api/pins?session=${id}`)).json()));
+  const refused = await post(port, '/api/pins', pageHeaders(port), JSON.stringify({ session: sessionId, scope: 'everywhere', change: { action: 'add', pin: spec } }));
+
+  assert.deepEqual(
+    { pinned: [pinned.status, JSON.parse(pinned.body)], listed, refused: refused.status },
+    {
+      pinned: [200, { folder: [spec], session: [] }],
+      listed: [
+        { folder: [spec], session: [design] },
+        { folder: [spec], session: [] },
+        { folder: [], session: [] },
+      ],
+      refused: 400,
+    },
+  );
+});
 
 // A note written beside a session is its project folder's: another session started in the same folder shows it, one in
 // another folder does not; a change of another shape is refused

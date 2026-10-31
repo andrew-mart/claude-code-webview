@@ -3,13 +3,15 @@
 // in full, as markdown — or set apart, listed by its name, the name opening it elsewhere (the side panel); a button on
 // each sets it the other way. "+" writes a new one, shown inline; the button beside it one set apart from the start,
 // written elsewhere (the side panel); the clock shows the history of the notes' changes. A click on a note in full edits
-// its markdown in place — Ctrl+Enter or a click elsewhere keeps it, Escape leaves it as it was; × removes a note once ✓
-// confirms it. While a note is written, edited or about to be removed, the notes coming again from the server wait: they
-// would take away what is being typed.
+// its markdown in place — ✓, Ctrl+Enter or a click elsewhere keeps it, ✕ or Escape leaves it as it was; the bin removes a
+// note once ✓ confirms it. A note is moved among the others by its grip (drag-order.js). While a note is written, edited,
+// about to be removed or moved, the notes coming again from the server wait: they would take away what is being typed.
 import { h } from './dom.js';
 import { icon } from './icons.js';
 import { renderMarkdown } from './markdown.js';
-import { noteTitle } from '../model/notes.js';
+import { noteName } from '../model/notes.js';
+import { allowDragging } from './drag-order.js';
+import { keepOrLeave } from './keep-or-leave.js';
 
 /**
  * @typedef {import('../model/notes.js').Note} Note
@@ -17,13 +19,13 @@ import { noteTitle } from '../model/notes.js';
  */
 
 /**
- * @param {{ add: (text: string) => void, edit: (id: string, text: string) => void, remove: (id: string) => void, open: (id: string) => void, setShown: (id: string, shown: NoteShown) => void, writeApart: () => void, showHistory: () => void }} actions
+ * @param {{ add: (text: string) => void, edit: (id: string, text: string) => void, remove: (id: string) => void, open: (id: string) => void, setShown: (id: string, shown: NoteShown) => void, writeApart: () => void, showHistory: () => void, move: (id: string, before: string | undefined) => void }} actions
  *   — a note written, a note's new text, a note removed; open: a note set apart shown in full elsewhere; setShown: a
  *   note set apart, or back inline; writeApart: a note set apart from the start written elsewhere; showHistory: the
- *   history of the notes' changes shown elsewhere
+ *   history of the notes' changes shown elsewhere; move: a note put before another — none, last
  * @returns {{ element: HTMLElement, show: (notes: readonly Note[]) => void }} — show: the notes as they stand now
  */
-export function createNotesView({ add, edit, remove, open, setShown, writeApart, showHistory }) {
+export function createNotesView({ add, edit, remove, open, setShown, writeApart, showHistory, move }) {
   const count = h('span', { className: 'outline-count' });
   const adding = h('button', { className: 'icon-button notes-add', title: 'Write a note', attrs: { type: 'button', 'aria-label': 'Write a note' } }, [icon('plus')]);
   const addingApart = h('button', { className: 'icon-button notes-add-apart', title: 'Write a note set apart — listed by its name, written and read in the side panel', attrs: { type: 'button', 'aria-label': 'Write a note set apart' } }, [icon('external')]);
@@ -41,13 +43,13 @@ export function createNotesView({ add, edit, remove, open, setShown, writeApart,
   };
 
   /**
-   * A note set apart, listed by its name — its first line, as read: a press shows the whole of it elsewhere; the button
+   * A note set apart, listed by its name — the one given it, else its first line: a press shows the whole of it elsewhere; the button
    * beside brings it back inline.
    * @param {Note} note
    * @returns {HTMLElement}
    */
   const noteRow = (note) => {
-    const name = noteTitle(note.text);
+    const name = noteName(note);
     const row = h('button', { className: 'note-row', title: 'Open the note', attrs: { type: 'button' } }, [name === '' ? 'Untitled' : name]);
     const inline = h('button', { className: 'icon-button note-inline', title: 'Show the note in full here', attrs: { type: 'button', 'aria-label': 'Show the note in full here' } }, [icon('unfold')]);
     row.addEventListener('click', () => {
@@ -56,11 +58,11 @@ export function createNotesView({ add, edit, remove, open, setShown, writeApart,
     inline.addEventListener('click', () => {
       if (!busy) setShown(note.id, 'inline');
     });
-    return h('div', { className: 'note-line', attrs: { 'data-id': note.id } }, [row, inline]);
+    return h('div', { className: 'note-line', attrs: { 'data-id': note.id } }, [row, grip(), inline]);
   };
 
   /**
-   * A box with a note's markdown in place of what was there: none — a new note — over the notes.
+   * A box with a note's markdown in place of what was there — none, a new note: over the notes — ✓ and ✕ under it.
    * @param {Note | undefined} note
    * @param {Element | undefined} shown — the note's text, which the box takes the place of
    */
@@ -77,20 +79,25 @@ export function createNotesView({ add, edit, remove, open, setShown, writeApart,
       if (note !== undefined && written !== note.text) edit(note.id, written);
       draw();
     };
+    const leave = () => {
+      over = true;
+      draw();
+    };
     box.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
-        over = true;
-        draw();
+        leave();
       } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
         event.preventDefault();
         keep();
       }
     });
     box.addEventListener('blur', keep);
-    if (shown === undefined) list.prepend(box);
-    else shown.replaceWith(box);
+    const actions = h('div', { className: 'notes-editor-actions' }, keepOrLeave({ keep, leave, keepTitle: 'Keep it (Ctrl+Enter)', leaveTitle: 'Leave it as it was (Esc)' }));
+    const editor = h('div', { className: 'notes-editing' }, [box, actions]);
+    if (shown === undefined) list.prepend(editor);
+    else shown.replaceWith(editor);
     box.focus();
   };
 
@@ -101,8 +108,8 @@ export function createNotesView({ add, edit, remove, open, setShown, writeApart,
   const noteItem = (note) => {
     const text = h('div', { className: 'md note-text', attrs: { title: 'Click to edit' } }, [renderMarkdown(note.text)]);
     const apart = h('button', { className: 'icon-button note-apart', title: 'List the note by its name — it opens in the side panel', attrs: { type: 'button', 'aria-label': 'List the note by its name' } }, [icon('fold')]);
-    const removing = h('button', { className: 'icon-button note-remove', title: 'Remove the note', attrs: { type: 'button', 'aria-label': 'Remove the note' } }, [icon('cross')]);
-    const actions = h('span', { className: 'note-actions' }, [apart, removing]);
+    const removing = h('button', { className: 'icon-button note-remove', title: 'Remove the note', attrs: { type: 'button', 'aria-label': 'Remove the note' } }, [icon('trash')]);
+    const actions = h('span', { className: 'note-actions' }, [grip(), apart, removing]);
     // a link in a note opens; text being selected is not a click to edit
     text.addEventListener('click', (event) => {
       if (busy) return;
@@ -129,6 +136,26 @@ export function createNotesView({ add, edit, remove, open, setShown, writeApart,
     return h('div', { className: 'note', attrs: { 'data-id': note.id } }, [text, actions]);
   };
 
+  // a note dragged by its grip to another place: there at once, then told — before the note now after it
+  allowDragging(list, {
+    items: () => [...list.children].flatMap((one) => (one instanceof window.HTMLElement && one.dataset.id !== undefined ? [one] : [])),
+    idOf: (one) => one.dataset.id,
+    axis: 'y',
+    grip: '.note-grip',
+    scroller: list,
+    canStart: () => !busy,
+    onStart: () => {
+      busy = true;
+    },
+    onDrop: (id) => {
+      const after = [...list.children].find((one) => one instanceof window.HTMLElement && one.dataset.id === id)?.nextElementSibling;
+      busy = false;
+      move(id, after instanceof window.HTMLElement ? after.dataset.id : undefined);
+    },
+    onCancel: () => {
+      busy = false;
+    },
+  });
   adding.addEventListener('click', () => {
     if (!busy) startWriting(undefined, undefined);
   });
@@ -144,4 +171,12 @@ export function createNotesView({ add, edit, remove, open, setShown, writeApart,
       if (!busy) draw();
     },
   };
+}
+
+/**
+ * What a note is dragged by to another place among the notes.
+ * @returns {HTMLElement}
+ */
+function grip() {
+  return h('span', { className: 'note-grip', title: 'Drag to move the note', attrs: { 'aria-hidden': 'true' } }, [icon('grip')]);
 }

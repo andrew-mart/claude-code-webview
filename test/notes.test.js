@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { changeNotes, noteTitle, notesFolderOf, parseNoteChange, parseNotes } from '../public/model/notes.js';
+import { changeNotes, noteName, noteTitle, notesFolderOf, parseNoteChange, parseNotes } from '../public/model/notes.js';
 
 /** @typedef {import('../public/model/notes.js').Note} Note */
 
@@ -81,6 +81,55 @@ test('changeNotes_Should_PutNoteBackAsItWas_InItsPlace', () => {
 });
 
 // A change the page sends, read as it is or not at all
+// A note may be named by hand, and is listed by that name — else by its first line: an edit names it, renames it or
+// leaves it to its first line again with a blank name; an edit from a page that knows no names leaves the name as it was
+test('changeNotes_Should_NameNoteByHand_AndKeepName_When_EditSaysNothingOfIt', () => {
+  const named = changeNotes([older], { action: 'edit', id: 'n1', text: older.text, name: ' Build checks ' });
+  const textOnly = changeNotes(named, { action: 'edit', id: 'n1', text: '**TODO** check the deploy' });
+  const unnamed = changeNotes(textOnly, { action: 'edit', id: 'n1', text: '**TODO** check the deploy', name: ' ' });
+
+  assert.deepEqual(
+    { listedBy: [named, textOnly, unnamed].map(([note]) => note && noteName(note)), unnamed },
+    { listedBy: ['Build checks', 'Build checks', 'TODO check the deploy'], unnamed: [{ ...older, text: '**TODO** check the deploy' }] },
+  );
+});
+
+// A name comes and goes with its note — in the server's file, in a note added or an edit sent by the page — without the
+// spaces around it; a blank name, or one of another kind, is none
+test('parseNotes_And_parseNoteChange_Should_CarryNoteName', () => {
+  assert.deepEqual(
+    {
+      stored: parseNotes([{ ...older, name: ' Build checks ' }, { ...newer, name: '  ' }, { ...newer, id: 'n4', name: 7 }]),
+      added: parseNoteChange({ action: 'add', note: { ...newer, name: 'Ideas' } }),
+      edited: parseNoteChange({ action: 'edit', id: 'n1', text: 'new text', name: 'Build checks' }),
+    },
+    {
+      stored: [{ ...older, name: 'Build checks' }, newer, { ...newer, id: 'n4' }],
+      added: { action: 'add', note: { ...newer, name: 'Ideas' } },
+      edited: { action: 'edit', id: 'n1', text: 'new text', name: 'Build checks' },
+    },
+  );
+});
+
+// The notes stand in the order they are put in: a note moved goes before the one it is let go before — with none, last —
+// and stays there; a note added comes first and one put back as it was takes its place by when it was written, both
+// leaving the others where they were moved to; a move of a note removed meanwhile changes nothing
+test('changeNotes_Should_MoveNoteBeforeAnother_AndKeepTheOrderMovedTo', () => {
+  /** @param {string} id @param {string} at @returns {Note} */
+  const noteAt = (id, at) => ({ id, text: id, at: `2026-10-27T09:${at}:00.000Z`, shown: 'inline' });
+  const [n1, n2, n3, n4] = [noteAt('n1', '00'), noteAt('n2', '05'), noteAt('n3', '10'), noteAt('n4', '15')];
+  const moved = changeNotes([n3, n2, n1], { action: 'move', id: 'n3', before: 'n1' });
+  const last = changeNotes(moved, { action: 'move', id: 'n2' });
+  const added = changeNotes(last, { action: 'add', note: n4 });
+  const putBack = changeNotes(changeNotes(added, { action: 'remove', id: 'n3' }), { action: 'put', note: n3 });
+  const ids = (/** @type {readonly Note[]} */ notes) => notes.map((note) => note.id).join(' ');
+
+  assert.deepEqual(
+    { moved: ids(moved), last: ids(last), added: ids(added), putBack: ids(putBack), gone: ids(changeNotes(last, { action: 'move', id: 'n9', before: 'n1' })) },
+    { moved: 'n2 n3 n1', last: 'n3 n1 n2', added: 'n4 n3 n1 n2', putBack: 'n4 n3 n1 n2', gone: 'n3 n1 n2' },
+  );
+});
+
 test('parseNoteChange_Should_ReadOnlyWellFormedChanges', () => {
   assert.deepEqual(
     [
@@ -93,6 +142,9 @@ test('parseNoteChange_Should_ReadOnlyWellFormedChanges', () => {
       parseNoteChange({ action: 'put', note: { id: 'n1' } }),
       parseNoteChange({ action: 'add', note: { ...older, text: '  ' } }),
       parseNoteChange({ action: 'edit', id: 'n1' }),
+      parseNoteChange({ action: 'move', id: 'n1', before: 'n2' }),
+      parseNoteChange({ action: 'move', id: 'n1' }),
+      parseNoteChange({ action: 'move', before: 'n2' }),
       parseNoteChange({ action: 'drop', id: 'n1' }),
       parseNoteChange('add'),
     ],
@@ -105,6 +157,9 @@ test('parseNoteChange_Should_ReadOnlyWellFormedChanges', () => {
       { action: 'put', note: older },
       undefined,
       undefined,
+      undefined,
+      { action: 'move', id: 'n1', before: 'n2' },
+      { action: 'move', id: 'n1' },
       undefined,
       undefined,
       undefined,

@@ -17,6 +17,7 @@ import { withAttachedImages } from '../public/model/attachments.js';
 import { parseBookmarkChange } from '../public/model/bookmarks.js';
 import { parseLaterChange } from '../public/model/later.js';
 import { notesFolderOf, parseNoteChange } from '../public/model/notes.js';
+import { parsePinChange } from '../public/model/pins.js';
 import { iconValue, parseIcon } from '../public/model/icon-choice.js';
 import { isRecord, text } from '../public/model/narrow.js';
 import { takenBackPrompt } from './branch.js';
@@ -120,7 +121,7 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  */
 
 /**
- * @param {{ index: SessionIndex, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, notes: import('./notes.js').Notes,seen: Seen, kept: Kept,uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, chatgptUsage?: ReadUsage, sessionStatus?: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode?: import('./vscode.js').VsCode | undefined, codexInUse: () => Promise<boolean> }} options
+ * @param {{ index: SessionIndex, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, notes: import('./notes.js').Notes, pins: import('./pins.js').Pins, seen: Seen, kept: Kept,uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, chatgptUsage?: ReadUsage, sessionStatus?: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode?: import('./vscode.js').VsCode | undefined, codexInUse: () => Promise<boolean> }} options
  *   about — package name and version for /api/health; palette — the page's colours (public/model/palettes.js);
  *   publicAddresses — where else the page is opened at, answered as the local address is; herdrView — what herdr
  *   shows (herdr-view.js); terminals — herdr panes' terminals (terminal.js); usage — the account's usage (usage.js);
@@ -129,7 +130,7 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  *   thread open (codex-live.js)
  * @returns {Promise<{ port: number, close: () => void }>}
  */
-export async function startServer({ index, host, port, pollMs, composer, bookmarks, later, notes, seen, kept, uploads, about, palette, publicAddresses, herdrView, terminals, usage, chatgptUsage = async () => undefined, sessionStatus = async () => undefined, isRunning, editor, fileManager, commands, vscode, codexInUse }) {
+export async function startServer({ index, host, port, pollMs, composer, bookmarks, later, notes, pins, seen, kept, uploads, about, palette, publicAddresses, herdrView, terminals, usage, chatgptUsage = async () => undefined, sessionStatus = async () => undefined, isRunning, editor, fileManager, commands, vscode, codexInUse }) {
   const instance = randomUUID();
   const build = await pageBuild();
   /** Sessions this page rewound: session id → the prompt rewound to; its branch is hidden before the next prompt shows the fork. */
@@ -142,7 +143,7 @@ export async function startServer({ index, host, port, pollMs, composer, bookmar
   const allowedOrigins = new Set();
   const fileIcons = createFileIcons();
   /** @type {Deps} */
-  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, later, notes, seen, kept, codexInUse, uploads, about, build, rewinds, transcripts, feeds: createFeedPages(), palette, herdrView, terminals, usage, chatgptUsage, sessionStatus, isRunning, editor, fileManager, commands, vscode, instance, fileIcons };
+  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, later, notes, pins, seen, kept, codexInUse, uploads, about, build, rewinds, transcripts, feeds: createFeedPages(), palette, herdrView, terminals, usage, chatgptUsage, sessionStatus, isRunning, editor, fileManager, commands, vscode, instance, fileIcons };
   const server = http.createServer((request, response) => {
     handle(deps, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
@@ -176,7 +177,7 @@ export async function startServer({ index, host, port, pollMs, composer, bookmar
 
 /**
  * @typedef {ReturnType<typeof createSessionIndex>} SessionIndex — Claude Code's sessions and Codex's (sessions.js)
- * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, notes: import('./notes.js').Notes,uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, chatgptUsage: ReadUsage, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, kept: Kept,codexInUse: () => Promise<boolean> }} Deps
+ * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, notes: import('./notes.js').Notes, pins: import('./pins.js').Pins, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, chatgptUsage: ReadUsage, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, kept: Kept,codexInUse: () => Promise<boolean> }} Deps
  *   instance: this run of the viewer, told apart from any other — see /api/machine; vscode: VS Code's web server
  *   behind /vscode/, none when the viewer runs none
  * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'focusTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'createWorkspace' | 'history' | 'reopen' | 'restart'>} HerdrView
@@ -292,6 +293,9 @@ async function handle(deps, request, response) {
         const folder = await notesFolder(deps, id);
         return sendJson(response, folder === undefined ? [] : await deps.notes.list(folder));
       });
+    // the files pinned beside a session: its project folder's and its own
+    case '/api/pins':
+      return withSession(url, response, async (id) => sendJson(response, await deps.pins.of({ folder: await notesFolder(deps, id), session: id })));
     // the changes of the folder's notes, the latest first
     case '/api/notes/history':
       return withSession(url, response, async (id) => {
@@ -612,6 +616,16 @@ async function handleWrite(deps, url, request, response) {
     case '/api/history/reopen': {
       const session = (await deps.index.list()).find((listed) => listed.id === sessionId);
       return sendJson(response, await deps.herdrView.reopen(sessionId, session?.cwd, session === undefined ? 'claude' : session.agent));
+    }
+    // a file pinned beside the session, or unpinned: to its project folder, or to it alone
+    case '/api/pins': {
+      const scope = isRecord(body) && (body.scope === 'folder' || body.scope === 'session') ? body.scope : undefined;
+      const change = parsePinChange(isRecord(body) ? body.change : undefined);
+      if (scope === undefined || change === undefined) {
+        response.writeHead(400).end('Bad change of the pinned files');
+        return;
+      }
+      return sendJson(response, await deps.pins.change({ folder: await notesFolder(deps, sessionId), session: sessionId }, scope, change));
     }
     // its Claude Code ended and started again in its herdr tab, resuming it with the variables the viewer was given
     case '/api/session/restart':

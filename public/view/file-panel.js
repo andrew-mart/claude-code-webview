@@ -19,15 +19,18 @@ import { linkFileRefs, markFileLink } from './file-links.js';
 import { onComputer } from './on-computer.js';
 import { icon } from './icons.js';
 import { createResizer, restoreWidth } from './resizer.js';
+import { createPinButton } from './pin-button.js';
 
 /**
  * @typedef {import('./file-links.js').FileTarget} FileTarget
  * @typedef {Omit<import('./project-view.js').ProjectSource, 'openFile' | 'iconOf'>} ProjectSource
  * @typedef {ProjectSource & { links: (path: string) => Promise<import('../model/project.js').FileLinks | undefined> }} Project
  *   — a file's project: its folders, its search, a file's links in it
- * @typedef {{ open: (target: FileTarget) => void, showChanges: (source: Omit<import('./changes-view.js').ChangesSource, 'openFile'>) => void, showHistory: (history: ShownList) => void, showNote: (note: ShownList & { name: string }) => void, showNotesHistory: (history: ShownList) => void, showProject: (source: ProjectSource) => void, showFolder: (path: string) => void, findName: (intent: 'definition' | 'uses', name: string, path: string) => Promise<void>, close: () => void, isOpen: () => boolean }} FilePanel
+ * @typedef {{ open: (target: FileTarget) => void, showChanges: (source: Omit<import('./changes-view.js').ChangesSource, 'openFile'>) => void, showHistory: (history: ShownList) => void, showNote: (note: ShownList & { name: () => string }) => void, listChanged: (list: ShownList) => Promise<void>, showNotesHistory: (history: ShownList) => void, showProject: (source: ProjectSource) => void, showFolder: (path: string) => void, pinsChanged: () => void, findName: (intent: 'definition' | 'uses', name: string, path: string) => Promise<void>, close: () => void, isOpen: () => boolean }} FilePanel
  *   — showChanges: the branch's changes in place of a file, read from the source; showHistory: the conversations of
- *   herdr's tabs (history-view.js); showProject: the project's files;
+ *   herdr's tabs (history-view.js); showProject: the project's files; pinsChanged: the pin over a file drawn again for
+ *   the files pinned now; listChanged: a list drawn again, changed elsewhere — the panel's title too, if it is the one
+ *   shown;
  *   findName: a name in a file looked for in its project — its one definition opened, or its definitions and uses shown
  * @typedef {{ places: import('./editor-opener.js').PlaceFinder, show: (path: string) => void }} FileManager — where the
  *   browser is; show: a file shown in its folder in the computer's file manager
@@ -35,7 +38,8 @@ import { createResizer, restoreWidth } from './resizer.js';
  *   its line, in its project's folder, in a tab of its own
  * @typedef {{ element: HTMLElement, reload: () => Promise<void>, summary: () => string | undefined }} ShownList — a list drawn
  *   by its own view: reload draws it anew, summary goes under the panel's title
- * @typedef {ShownList & { name: string, icon: string, back: string, backTitle: string, beside: boolean }} Listing
+ * @typedef {ShownList & { name: () => string, icon: string, back: string, backTitle: string, beside: boolean }} Listing
+ *   — name: the panel's title, as it is now
  *   — beside: a file opened from the list shows beside it, the list staying on the left — the project's files
  *   — a list in place of a file; name: the panel's title over it; back: the button's word for the way back to it
  */
@@ -87,14 +91,14 @@ function remember(key, value) {
 }
 
 /**
- * @param {{ panel: HTMLElement, layout: HTMLElement, editor: import('./editor-opener.js').EditorOpener, vscode: Promise<OpenInVsCode | undefined>, fileManager: FileManager, project: (path: string) => Project, folder: (root: string) => Project, iconOf: import('./file-icons.js').IconOf }} parts —
+ * @param {{ panel: HTMLElement, layout: HTMLElement, editor: import('./editor-opener.js').EditorOpener, vscode: Promise<OpenInVsCode | undefined>, fileManager: FileManager, project: (path: string) => Project, folder: (root: string) => Project, iconOf: import('./file-icons.js').IconOf, pins: import('./pin-button.js').PinFiles }} parts —
  *   folder: a folder linked, as a project of its own; vscode: none when the viewer runs no VS Code; fileManager: the
  *   file shown in its folder, from a browser on the viewer's computer;
  *   editor: opens the file at its line in the editor of the viewer's computer, from a browser there; project: the
- *   project a file is in, its folders and its search
+ *   project a file is in, its folders and its search; pins: the files pinned beside the open session (pin-button.js)
  * @returns {FilePanel}
  */
-export function createFilePanel({ panel, layout, editor, vscode, fileManager, project, folder, iconOf }) {
+export function createFilePanel({ panel, layout, editor, vscode, fileManager, project, folder, iconOf, pins }) {
   const name = h('div', { className: 'panel-name' });
   /** What the panel shows, at the head of its title: the file's icon, or the list's */
   const headIcon = h('span', { className: 'panel-icon' }, [icon('read')]);
@@ -136,7 +140,10 @@ export function createFilePanel({ panel, layout, editor, vscode, fileManager, pr
   treeToggle.classList.add('panel-tree');
   treeToggle.hidden = true;
   const reload = panelButton('reload', 'Reload file');
+  reload.classList.add('panel-reload');
   const copy = panelButton('copy', 'Copy path');
+  // the file pinned beside the open session, in its outline
+  const pin = createPinButton(pins);
   const close = panelButton('cross', 'Close (Esc)');
   // a file opened from a list — the branch's changes, the project's files — goes back to it
   const back = h('button', { className: 'panel-back', attrs: { type: 'button' } });
@@ -167,7 +174,7 @@ export function createFilePanel({ panel, layout, editor, vscode, fileManager, pr
     resizer,
     side,
     h('div', { className: 'panel-main' }, [
-      h('header', { className: 'panel-head' }, [back, treeToggle, h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [headIcon, name, where]), path]), scripts, view, editHere, linksButton, inEditor, inVsCode, inFolderSlot, reload, copy, close]),
+      h('header', { className: 'panel-head' }, [back, treeToggle, h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [headIcon, name, where]), path]), scripts, view, editHere, linksButton, inEditor, inVsCode, inFolderSlot, reload, pin.element, copy, close]),
       note,
       body,
     ]),
@@ -331,12 +338,14 @@ export function createFilePanel({ panel, layout, editor, vscode, fileManager, pr
     shown?.dispose();
     shown = undefined;
     stopEditing();
-    name.textContent = listing.name;
+    name.textContent = listing.name();
     headIcon.replaceChildren(icon(listing.icon));
+    reload.title = 'Reload';
     path.textContent = listing.summary() ?? '';
     path.title = '';
     where.textContent = '';
     for (const button of [view, scripts, editHere, linksButton, inEditor, inVsCode, inFolderSlot, copy, back]) button.hidden = true;
+    pin.show(undefined);
     reload.hidden = false;
     panel.hidden = false;
     layout.classList.add('with-panel');
@@ -344,7 +353,13 @@ export function createFilePanel({ panel, layout, editor, vscode, fileManager, pr
   };
   const readList = async () => {
     await listing?.reload();
-    if (showingList) path.textContent = listing?.summary() ?? '';
+    retitle();
+  };
+  /** The list shown under its title and summary as they are now. */
+  const retitle = () => {
+    if (!showingList || listing === undefined) return;
+    name.textContent = listing.name();
+    path.textContent = listing.summary() ?? '';
   };
   /** @param {Listing} shownList */
   const showListing = (shownList) => {
@@ -361,7 +376,7 @@ export function createFilePanel({ panel, layout, editor, vscode, fileManager, pr
     return view;
   };
   /** @param {ReturnType<typeof createProjectView>} view @returns {Listing} */
-  const filesListing = (view) => ({ name: 'Files', icon: 'folder', back: '← Files', backTitle: "Back to the project's files", beside: true, ...view });
+  const filesListing = (view) => ({ ...view, name: () => 'Files', icon: 'folder', back: '← Files', backTitle: "Back to the project's files", beside: true });
   /** A file opened from the list, with the way back to it — beside it, for the project's files. @param {FileTarget} target */
   const openFromList = (target) => {
     if (listing?.beside === true) showBeside();
@@ -385,6 +400,7 @@ export function createFilePanel({ panel, layout, editor, vscode, fileManager, pr
       projectShown?.view.select(target.path);
       copy.hidden = false;
       inFolderSlot.hidden = false;
+      pin.show(target.path);
       void editor.reach().then((reach) => {
         if (current === target) offerEditor(reach);
       });
@@ -393,6 +409,7 @@ export function createFilePanel({ panel, layout, editor, vscode, fileManager, pr
       });
       name.textContent = target.path.split(/[\\/]/).pop() ?? target.path;
       headIcon.replaceChildren(iconOf(name.textContent, 'file', false));
+      reload.title = 'Reload file';
       path.textContent = target.path;
       path.title = target.path;
       where.textContent = lineLabel(target);
@@ -408,19 +425,27 @@ export function createFilePanel({ panel, layout, editor, vscode, fileManager, pr
     showChanges(source) {
       const changes = createChangesView({ ...source, openFile: (file) => openFromList({ path: file, line: undefined, endLine: undefined }) });
       changes.element.replaceChildren(h('div', { className: 'panel-message', text: 'Reading the branch…' }));
-      showListing({ name: 'Branch changes', icon: 'branch', back: '← Changes', backTitle: "Back to the branch's changes", beside: false, ...changes });
+      showListing({ ...changes, name: () => 'Branch changes', icon: 'branch', back: '← Changes', backTitle: "Back to the branch's changes", beside: false });
     },
     /** @param {ShownList} history */
     showHistory(history) {
-      showListing({ name: 'History', icon: 'history', back: '← History', backTitle: 'Back to the history', beside: false, ...history });
+      showListing({ ...history, name: () => 'History', icon: 'history', back: '← History', backTitle: 'Back to the history', beside: false });
     },
-    /** @param {ShownList & { name: string }} note — a note opened from its name among the notes (note-panel.js) */
+    /** @param {ShownList & { name: () => string }} note — a note opened from its name among the notes (note-panel.js) */
     showNote(note) {
-      showListing({ icon: 'edit', back: '← Note', backTitle: 'Back to the note', beside: false, ...note });
+      showListing({ ...note, icon: 'note', back: '← Note', backTitle: 'Back to the note', beside: false });
     },
     /** @param {ShownList} history — the changes of the session's notes (notes-history-view.js) */
     showNotesHistory(history) {
-      showListing({ name: 'Notes history', icon: 'history', back: '← Notes history', backTitle: 'Back to the notes history', beside: false, ...history });
+      showListing({ ...history, name: () => 'Notes history', icon: 'history', back: '← Notes history', backTitle: 'Back to the notes history', beside: false });
+    },
+    pinsChanged() {
+      pin.refresh();
+    },
+    /** @param {ShownList} list */
+    async listChanged(list) {
+      await list.reload();
+      if (listing?.element === list.element) retitle();
     },
     /** @param {string} path — a folder: its files, as a project of its own */
     showFolder(path) {
@@ -494,7 +519,7 @@ export function createFilePanel({ panel, layout, editor, vscode, fileManager, pr
     const path = current.path;
     const { root, links } = project(path);
     const view = createLinksView({ path, root, load: () => links(path), openFile: openFromList, iconOf });
-    showListing({ name: 'Links', icon: 'links', back: '← Links', backTitle: "Back to the file's links", beside: false, ...view });
+    showListing({ ...view, name: () => 'Links', icon: 'links', back: '← Links', backTitle: "Back to the file's links", beside: false });
   });
   reload.addEventListener('click', () => {
     if (current !== undefined) load(current);

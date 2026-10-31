@@ -16,7 +16,7 @@ const at = '2026-10-27T10:00:00.000Z';
 const steps = [
   { id: 's5', at, action: 'put', before: { ...plan, text: '# Plan v2' }, after: plan },
   { id: 's4', at, action: 'remove', before: plan, after: undefined },
-  { id: 's3', at, action: 'show', before: plan, after: { ...plan, shown: 'panel' } },
+  { id: 's3', at, action: 'show', before: plan, after: { ...plan, shown: 'panel', name: 'Week plan' } },
   { id: 's2', at, action: 'edit', before: { ...plan, text: '# Plan\n- the old step' }, after: plan },
   { id: 's1', at, action: 'add', before: undefined, after: plan },
 ];
@@ -31,7 +31,8 @@ async function historyShown(read) {
   return { panel, undone };
 }
 
-// The notes' changes, the latest first: what was done to which note — named by its first line — the text it had before
+// The notes' changes, the latest first: what was done to which note — by its name: the one given it, else its first
+// line — the text it had before
 // there to look at; a step's button undoes it
 test('notesHistoryPanel_Should_ListChangesLatestFirst_WithTextBefore_AndUndoOneOnPress', async () => {
   const { panel, undone } = await historyShown(async () => steps);
@@ -42,13 +43,12 @@ test('notesHistoryPanel_Should_ListChangesLatestFirst_WithTextBefore_AndUndoOneO
   panel.element.querySelectorAll('.notes-step-undo')[1]?.dispatchEvent(new window.MouseEvent('click'));
 
   assert.deepEqual(
-    { name: panel.name, listed, before, undone },
+    { listed, before, undone },
     {
-      name: 'Notes history',
       listed: [
         ['Put back', 'Plan'],
         ['Removed', 'Plan'],
-        ['Set apart', 'Plan'],
+        ['Set apart', 'Week plan'],
         ['Edited', 'Plan'],
         ['Added', 'Plan'],
       ],

@@ -33,6 +33,9 @@ import { createSessionHeader } from './view/session-header.js';
 import { rewindMessage } from './model/rewind.js';
 import { createOutline } from './view/outline-view.js';
 import { createNotesStore } from './view/notes-store.js';
+import { createPinsStore } from './view/pins-store.js';
+import { createPinsView } from './view/pins-view.js';
+import { scopesOf } from './model/pins.js';
 import { createNotesView } from './view/notes-view.js';
 import { createNoteDraft, createNotePanel } from './view/note-panel.js';
 import { createNotesHistoryPanel } from './view/notes-history-view.js';
@@ -165,7 +168,7 @@ const iconOf = createFileIcons({ light: () => document.documentElement.dataset.t
 const places = createPlaceFinder(machine);
 // VS Code: the computer's own from a browser on it, else VS Code in the browser
 const vscodeOpener = createVsCodeOpener({ places, desktop: openDesktopVsCode, web: openWebVsCode });
-const filePanel = createFilePanel({ panel: byId('file-panel', HTMLElement), layout, editor: createEditorOpener(machine, places), fileManager: { places, show: (path) => void openFileManager({ path }) }, vscode: machine.then((known) => (known?.vscode === true ? (path, line) => vscodeOpener.open({ path, line }) : undefined)), project: (path) => projectSource(projectOfFile(path, page.folder())), folder: projectSource, iconOf });
+const filePanel = createFilePanel({ panel: byId('file-panel', HTMLElement), layout, editor: createEditorOpener(machine, places), fileManager: { places, show: (path) => void openFileManager({ path }) }, vscode: machine.then((known) => (known?.vscode === true ? (path, line) => vscodeOpener.open({ path, line }) : undefined)), project: (path) => projectSource(projectOfFile(path, page.folder())), folder: projectSource, iconOf, pins: { scopesOf: (path) => { const pins = page.pins(); return pins === undefined ? undefined : scopesOf(pins.now(), path); }, pin: (path, scope) => page.pins()?.pin(scope, path), unpin: (path) => page.pins()?.unpin(path) } });
 /** @type {import('./view/resizer.js').PanelWidth} */
 const outlineWidth = { property: '--outline-width', storageKey: 'viewer.outlineWidth' };
 restoreWidth(layout, outlineWidth);
@@ -271,7 +274,7 @@ function createPage() {
   let listVersion;
   let listMinute = 0;
   /** agent: whose the session was taken for when it was opened; putAway: out of sight, kept as shown (warm) */
-  /** @type {{ id: string, agent: SessionInfo['agent'], dispose: () => void, putAway: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, keepPlace: (change: () => void) => void, rewound: (reply: import('./model/rewind.js').RewindReply) => void, stop: () => boolean, forgetSent: () => void, showTab: () => void, showHerdr: () => void } | undefined} */
+  /** @type {{ id: string, agent: SessionInfo['agent'], pins: ReturnType<typeof createPinsStore>, dispose: () => void, putAway: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, keepPlace: (change: () => void) => void, rewound: (reply: import('./model/rewind.js').RewindReply) => void, stop: () => boolean, forgetSent: () => void, showTab: () => void, showHerdr: () => void } | undefined} */
   let current;
   /** How long each session has been written to: its robots' story goes on as its row is drawn again. */
   const workClock = createWorkClock(() => Date.now());
@@ -715,25 +718,26 @@ function createPage() {
     // change undone — the note, or the history, shown kept up with the notes as they change
     /** @type {readonly import('./model/notes.js').Note[]} */
     let notesNow = [];
-    /** @type {{ reload: () => Promise<void> } | undefined} */
+    /** @type {import('./view/file-panel.js').ShownList | undefined} */
     let noteShown;
     /** A note set apart opened in the side panel. @param {string} noteId */
     const openNote = (noteId) => {
-      const panel = createNotePanel({ note: () => notesNow.find((one) => one.id === noteId), edit: (shownId, text) => notes.edit(shownId, text), remove: (shownId) => notes.remove(shownId) });
+      const panel = createNotePanel({ note: () => notesNow.find((one) => one.id === noteId), edit: (shownId, text, name) => notes.edit(shownId, text, name), remove: (shownId) => notes.remove(shownId) });
       noteShown = panel;
       drawers.close();
       filePanel.showNote(panel);
     };
     const notesView = createNotesView({
-      add: (text) => void notes.add(text, 'inline'),
+      add: (text) => void notes.add(text, 'inline', ''),
       edit: (noteId, text) => notes.edit(noteId, text),
       remove: (noteId) => notes.remove(noteId),
       open: openNote,
       setShown: (noteId, shown) => notes.setShown(noteId, shown),
+      move: (noteId, before) => notes.move(noteId, before),
       writeApart: () => {
         noteShown = undefined;
         drawers.close();
-        filePanel.showNote(createNoteDraft({ keep: (text) => openNote(notes.add(text, 'panel')), leave: () => filePanel.close() }));
+        filePanel.showNote(createNoteDraft({ keep: (text, name) => openNote(notes.add(text, 'panel', name)), leave: () => filePanel.close() }));
       },
       showHistory: () => {
         const history = createNotesHistoryPanel({ steps: () => notes.history(), undo: (step) => notes.undo(step) });
@@ -745,9 +749,24 @@ function createPage() {
     const notes = createNotesStore(id, (list) => {
       notesNow = list;
       notesView.show(list);
-      void noteShown?.reload();
+      // the note, or the history, drawn again — and the side panel's title, a note renamed
+      if (noteShown !== undefined) void filePanel.listChanged(noteShown);
     });
     outlineElement.prepend(notesView.element);
+    // the files pinned beside the session, under its notes: its own and its project folder's, opened in the side panel
+    const pinsView = createPinsView({
+      open: (path) => {
+        drawers.close();
+        filePanel.open({ path, line: undefined, endLine: undefined });
+      },
+      unpin: (path) => pins.unpin(path),
+      iconOf: (name) => iconOf(name, 'file', false),
+    });
+    const pins = createPinsStore(id, (now) => {
+      pinsView.show(now);
+      filePanel.pinsChanged();
+    });
+    notesView.element.after(pinsView.element);
     const spy = createScrollSpy(scroller, () => view.promptElements(), outline.setCurrent);
     // While the history loads, finding the prompt on screen would lay out the growing feed on every frame:
     // the outline learns it once the feed is loaded.
@@ -815,11 +834,13 @@ function createPage() {
       tasks.dispose();
       unsubscribe();
       notes.dispose();
+      pins.dispose();
       spy.dispose();
     };
     current = {
       id,
       agent,
+      pins,
       header,
       place: () => view.place(),
       keepPlace: (change) => view.keepPlace(change),
@@ -873,6 +894,8 @@ function createPage() {
 
   return {
     renderList,
+    /** The files pinned beside the open session, none while no session is open. */
+    pins: () => current?.pins,
     /** The open session's folder, none while no session is open or its folder is not known. */
     folder: () => (current === undefined ? undefined : sessions.find((session) => session.id === current?.id)?.cwd),
     /**

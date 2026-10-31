@@ -4,7 +4,7 @@
 // list. Coming back to the window reloads it, so a note written elsewhere appears. A reply asked for before the latest
 // change — the list reloaded, an earlier change's — comes without it and is dropped: the latest change's reply is the one.
 // The folder's history of changes is read from the server too; a step of it undone is a change as any other.
-import { changeNotes, parseNotes } from '../model/notes.js';
+import { changeNotes, parseNotes, withName } from '../model/notes.js';
 import { parseSteps, undoStep } from '../model/notes-history.js';
 
 /**
@@ -47,20 +47,24 @@ export function createNotesStore(sessionId, onChange) {
   reload();
   return {
     /**
-     * A note written, shown the way asked from the start: its id, to open it by.
-     * @param {string} text @param {import('../model/notes.js').NoteShown} shown
+     * A note written, shown the way asked from the start, under a name — a blank one none: its id, to open it by.
+     * @param {string} text @param {import('../model/notes.js').NoteShown} shown @param {string} name
      * @returns {string}
      */
-    add(text, shown) {
+    add(text, shown, name) {
       const at = new Date();
       // the time and a random tail: crypto.randomUUID is only there on https and on the viewer's own computer
       const id = `${at.getTime().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-      change({ action: 'add', note: { id, text, at: at.toISOString(), shown } });
+      change({ action: 'add', note: withName({ id, text, at: at.toISOString(), shown }, name) });
       return id;
     },
-    /** @param {string} id @param {string} text */
-    edit(id, text) {
-      change({ action: 'edit', id, text });
+    /**
+     * A note's new text, and the name it has now — a blank one none, its first line then naming it; no name given, the
+     * name as it was: the note was edited where its name is not shown.
+     * @param {string} id @param {string} text @param {string} [name]
+     */
+    edit(id, text, name) {
+      change({ action: 'edit', id, text, ...(name === undefined ? {} : { name }) });
     },
     /** @param {string} id */
     remove(id) {
@@ -69,6 +73,13 @@ export function createNotesStore(sessionId, onChange) {
     /** A note set apart — listed by its name — or back inline. @param {string} id @param {import('../model/notes.js').NoteShown} shown */
     setShown(id, shown) {
       change({ action: 'show', id, shown });
+    },
+    /**
+     * A note put before another, the others staying in their order.
+     * @param {string} id @param {string | undefined} before — the note it goes before; none, last
+     */
+    move(id, before) {
+      change({ action: 'move', id, ...(before === undefined ? {} : { before }) });
     },
     /** A step of the history undone: its note as it was before it. @param {NoteStep} step */
     undo(step) {

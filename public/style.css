@@ -1004,7 +1004,7 @@ button {
   font-size: 12.5px;
   text-decoration: none;
   white-space: nowrap;
-  /* dragged to another place (tab-drag.js): no text picked up, no link menu under a finger resting on it */
+  /* dragged to another place (drag-order.js): no text picked up, no link menu under a finger resting on it */
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
@@ -1021,8 +1021,8 @@ button {
   opacity: 0.45;
 }
 
-.herdr-tab-bar.dragging-tabs,
-.herdr-tab-bar.dragging-tabs .herdr-chip {
+.herdr-tab-bar.dragging-items,
+.herdr-tab-bar.dragging-items .herdr-chip {
   cursor: grabbing;
 }
 
@@ -4219,15 +4219,133 @@ table.diff tr.gap td {
   gap: 6px;
 }
 
-.notes .icon-button {
+.notes .icon-button,
+.pins .icon-button {
   width: 20px;
   height: 20px;
   border-radius: 5px;
 }
 
-.notes .icon-button .icon {
+.notes .icon-button .icon,
+.pins .icon-button .icon {
   width: 12px;
   height: 12px;
+}
+
+/* The files pinned beside the session, under its notes (pins-view.js): a row a file — its icon, its name, where it is
+   pinned — × at its end on hover, always there on a touch screen. */
+.pins-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.pin-row {
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+}
+
+.pin-row:hover {
+  background: var(--bg-hover);
+}
+
+.pin-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pin-open:hover,
+.pin-open:focus-visible {
+  color: var(--text);
+}
+
+.pin-open .file-icon {
+  flex: none;
+}
+
+.pin-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pin-scope {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-4);
+  font-size: 11px;
+}
+
+.pin-remove {
+  flex: none;
+  margin-right: 3px;
+  opacity: 0;
+}
+
+.pin-row:hover .pin-remove,
+.pin-remove:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .pin-remove {
+    opacity: 1;
+  }
+}
+
+/* The pin over a file in the side panel (pin-button.js): pressed while the file is pinned; the choice of where to pin
+   it opens under it. */
+.panel-pin-slot {
+  position: relative;
+  display: inline-flex;
+}
+
+.panel-pin[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.panel-pin-choice {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+  white-space: nowrap;
+}
+
+.panel-pin-choice button {
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.panel-pin-choice button:hover,
+.panel-pin-choice button:focus-visible {
+  background: var(--bg-hover);
 }
 
 .notes-list {
@@ -4321,6 +4439,18 @@ table.diff tr.gap td {
   outline: none;
 }
 
+/* ✓ and ✕ under a note being written or edited in the outline: it ends without a keyboard too */
+.notes-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.note-keep-edit:hover {
+  color: var(--accent);
+}
+
 /* a note set apart, listed by its name: one line, cut short; a press opens it in the side panel, the button at its end —
    on hover, always there on a touch screen — shows it in full again; names one after another sit close together */
 .note-line {
@@ -4352,6 +4482,55 @@ table.diff tr.gap td {
   .note-inline {
     opacity: 1;
   }
+}
+
+/* the grip a note is dragged by to another place (drag-order.js), among its buttons: a note in full's on hover, as they
+   are, a name's on hover too — always there on a touch screen, a finger resting on it a moment to drag */
+.note-grip {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 28px;
+  color: var(--text-3);
+  cursor: grab;
+  touch-action: none;
+}
+
+.note-grip:hover {
+  color: var(--text);
+}
+
+.note-line > .note-grip {
+  opacity: 0;
+}
+
+.note-line:hover > .note-grip {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .note-line > .note-grip {
+    opacity: 1;
+  }
+}
+
+/* while a note is dragged: it pale, where it goes marked by a line, no words picked up on the way */
+.notes-list.dragging-items {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.notes-list > .dragging {
+  opacity: 0.45;
+}
+
+.notes-list > .drop-before {
+  box-shadow: 0 -2px 0 0 var(--accent);
+}
+
+.notes-list > .drop-after {
+  box-shadow: 0 2px 0 0 var(--accent);
 }
 
 .note-row {
@@ -4401,6 +4580,31 @@ table.diff tr.gap td {
 .note-panel-editor {
   min-height: 50vh;
   font-size: 13px;
+}
+
+/* the note's name, above its markdown: empty, its first line names it, as the placeholder shows */
+.note-panel-name {
+  display: block;
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.note-panel-name:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.note-panel-remove:hover {
+  color: var(--danger);
 }
 
 .note-panel-gone {

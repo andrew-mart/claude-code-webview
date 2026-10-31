@@ -5,7 +5,7 @@
 import { h } from './dom.js';
 import { icon } from './icons.js';
 import { renderMarkdown } from './markdown.js';
-import { noteTitle } from '../model/notes.js';
+import { noteName } from '../model/notes.js';
 
 /**
  * @typedef {import('../model/notes-history.js').NoteStep} NoteStep
@@ -14,7 +14,7 @@ import { noteTitle } from '../model/notes.js';
 /**
  * @param {{ steps: () => Promise<readonly NoteStep[] | undefined>, undo: (step: NoteStep) => void }} source — steps:
  *   the folder's changes, the latest first, none when the viewer did not answer; undo: a change undone
- * @returns {{ element: HTMLElement, name: string, reload: () => Promise<void>, summary: () => string | undefined }} — the
+ * @returns {{ element: HTMLElement, reload: () => Promise<void>, summary: () => string | undefined }} — the
  *   side panel's list in place of a file (file-panel.js: ShownList)
  */
 export function createNotesHistoryPanel({ steps, undo }) {
@@ -27,7 +27,7 @@ export function createNotesHistoryPanel({ steps, undo }) {
   const stepRow = (step) => {
     // named as it became — a note removed, as it was; its text as it was — a note added, as it came
     const [named, shown] = step.before === undefined ? [step.after, step.after] : [step.after ?? step.before, step.before];
-    const name = noteTitle(named.text);
+    const name = noteName(named);
     const undoing = h('button', { className: 'icon-button notes-step-undo', title: 'Undo it: the note as it was before', attrs: { type: 'button', 'aria-label': 'Undo it' } }, [icon('undo')]);
     undoing.addEventListener('click', () => undo(step));
     const text = h('details', { className: 'notes-step-text' }, [h('summary', { text: step.before === undefined ? 'The note' : 'Before' }), h('div', { className: 'md' }, [renderMarkdown(shown.text)])]);
@@ -42,7 +42,6 @@ export function createNotesHistoryPanel({ steps, undo }) {
 
   return {
     element,
-    name: 'Notes history',
     async reload() {
       const now = await steps();
       if (now === undefined) element.replaceChildren(h('div', { className: 'outline-empty', text: 'Could not get the history from the viewer.' }));
@@ -70,6 +69,9 @@ function whatOf(step) {
       return step.after?.shown === 'panel' ? 'Set apart' : 'Back inline';
     case 'put':
       return 'Put back';
+    // a note moved is the same note: no step is made of it (notes-history.js: stepOf)
+    case 'move':
+      return 'Moved';
     default:
       return exhaustive(step.action);
   }

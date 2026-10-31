@@ -104,16 +104,24 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
 - **Notes.** First in the outline, notes in markdown on the session's project folder: every session in the folder —
   Claude Code's, whose project stays the folder it started in after a `cd`, and Codex's — shows the same ones, the latest
   first. Each note is shown its own way, chosen as it is written: **+** writes one inline, in full in the outline, and
-  the button beside it one set apart — written in the side panel (Ctrl+Enter or ✓ keeps it; a click elsewhere, to
-  fetch what goes in it, does not), then listed by its name, its first line, the name opening it in the side panel to
-  read, edit or remove. A click on a note inline edits it in place (Ctrl+Enter or a click elsewhere keeps it, Esc
-  leaves it), × removes it once ✓ confirms; the button beside × sets it apart, the one at the end of a name brings it
-  back inline. The clock lists the notes' changes, the latest first — added, edited, removed, set apart — each with the
+  the button beside it one set apart — written in the side panel under a name given above it (Ctrl+Enter or ✓ keeps it;
+  a click elsewhere, to fetch what goes in it, does not), then listed by that name — with none given, by its first line
+  — the name opening it in the side panel to read, edit — its name too — or remove. A click on a note inline edits it in
+  place; ✓ under it, Ctrl+Enter or a click elsewhere keeps what is typed, ✕ or Esc leaves the note as it was — a note
+  written with **+** the same. The bin removes a note once ✓ confirms; the button beside the bin sets it apart, the one
+  at the end of a name brings it back inline. The notes stand in the order they are put in — a new one first: the grip
+  among a note's buttons moves it among the others, dragged with the mouse or with a finger resting on it a moment, and
+  every device shows the order alike. The clock lists the notes' changes, the latest first — added, edited, removed, set apart — each with the
   text it had before and ↶, which puts the note back as it was: a note removed comes back, an edit is undone. Kept in
   `~/.claude-code-webview/notes.json`, as the bookmarks are, each note with its way, so every device shows it alike;
   the last 200 changes of each folder in `notes-history.json` beside it.
 
   ![The notes' changes in the side panel, the latest first, the text of a note removed opened](docs/notes-history.png)
+- **Pinned files.** Under the notes, the files pinned beside the session — a spec, a design, a README; any file the side
+  panel shows: markdown, a page, a Word document, a PDF, a table, a picture, code. The pin over a file open in the side
+  panel pins it, to the session's project folder — every session in it shows it — or to this session alone, chosen as
+  it is pinned; pressed again, it unpins it. A click on a pinned file opens it in the side panel, × unpins it; each is
+  marked by where it is pinned. Kept in `~/.claude-code-webview/pins.json`, so every device shows them.
 - **Session header.** Under the title, one line of facts: the folder, the branch checked out there now, the model and
   its effort, a ring that fills as the context window does (`412k/1M`; amber past 70%, red past 90%) and the cost.
   A click opens the details: the full path and how much context is used and left. The window comes from the model
