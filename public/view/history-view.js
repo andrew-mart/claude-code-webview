@@ -2,23 +2,29 @@
 // The conversations of herdr tabs, in the side panel: those of the tab the session shown runs or ran in — the one
 // running first, then those it went on from after /clear, /new or /resume — and the tabs nothing runs in now, the latest
 // closed first, each with its conversations. A conversation opens to be read; a closed tab opens again in herdr, its
-// latest conversation resumed in it, the others along.
+// latest conversation resumed in it, the others along. A conversation is drawn as the session list draws a session
+// (session-row.js), its workspace's colour on its edge; the heads as the list's.
 import { formatAgo } from '../model/format.js';
 import { closedTabs, tabConversations } from '../model/history.js';
+import { splitTabIcon } from '../model/tab-icon.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
+import { sessionRowParts } from './session-row.js';
+import { tintByWorkspace } from './workspace-tint.js';
 
 /**
  * @typedef {import('../model/history.js').History} History
  * @typedef {import('../model/history.js').Conversation} Conversation
  * @typedef {{ title: string | undefined, activeAt: number }} Listed — a session as the session list has it
- * @typedef {{ shown: () => string | undefined, history: () => History, listed: (id: string) => Listed | undefined, open: (id: string) => void, reopen: (id: string) => Promise<import('../model/herdr.js').NewTab>, now: () => number }} HistorySource
+ * @typedef {{ shown: () => string | undefined, history: () => History, listed: (id: string) => Listed | undefined, open: (id: string) => void, reopen: (id: string) => Promise<import('../model/herdr.js').NewTab>, now: () => number, iconOf: (workspace: string) => string | undefined }} HistorySource
  *   — shown: the session the page shows; listed: none for a session the viewer has no transcript of — nothing to read;
- *   open: a conversation shown on the page; reopen: a closed tab opened again in herdr, this conversation resumed in it
- * @typedef {{ id: string, title: string, ago: string, running: boolean, shown: boolean }} Row — a conversation as the
- *   panel lists it: running in its tab now, shown on the page
- * @typedef {{ heading: string, rows: readonly Row[] }} TabShown
- * @typedef {TabShown & { restores: string }} ClosedShown — restores: the conversation "Restore" resumes, its tab's latest
+ *   open: a conversation shown on the page; reopen: a closed tab opened again in herdr, this conversation resumed in it;
+ *   iconOf: a workspace's icon, by its name — none for one with none
+ * @typedef {{ id: string, title: string, workspace: string, where: string, icon: string | undefined, ago: string, running: boolean, shown: boolean }} Row
+ *   — a conversation as the panel lists it: where — its workspace, named without its icon, and its tab; running in its
+ *   tab now, shown on the page
+ * @typedef {{ first: Row, more: readonly Row[], restores: string }} ClosedShown — first: the row Restore is beside;
+ *   restores: the conversation Restore resumes, its tab's latest
  */
 
 /**
@@ -34,7 +40,9 @@ export function createHistoryView(source) {
   /** @param {Conversation} conversation @param {string | undefined} shown @returns {Row[]} — none for one with nothing to read */
   const rowOf = ({ id, place }, shown) => {
     const listed = source.listed(id);
-    return listed === undefined ? [] : [{ id, title: listed.title ?? 'Untitled', ago: formatAgo(listed.activeAt, source.now()), running: place.open, shown: id === shown }];
+    if (listed === undefined) return [];
+    const where = [splitTabIcon(place.workspace).name, place.tab].filter((part) => part !== undefined).join(' · ');
+    return [{ id, title: listed.title ?? 'Untitled', workspace: place.workspace, where, icon: source.iconOf(place.workspace), ago: formatAgo(listed.activeAt, source.now()), running: place.open, shown: id === shown }];
   };
 
   /** The shown session's tab, while a conversation runs in it; a closed tab's conversation is marked among the closed. */
@@ -42,14 +50,14 @@ export function createHistoryView(source) {
     const conversations = shown === undefined ? [] : tabConversations(history, shown);
     const place = conversations.find((conversation) => conversation.id === shown)?.place;
     if (place === undefined || conversations[0]?.place.open !== true) return [];
-    return [{ heading: ['This tab', place.workspace, place.tab].filter((part) => part !== undefined).join(' · '), rows: conversations.flatMap((conversation) => rowOf(conversation, shown)) }];
+    return [conversations.flatMap((conversation) => rowOf(conversation, shown))];
   };
 
   /** @param {import('../model/history.js').ClosedTab} tab @param {string | undefined} shown @returns {ClosedShown[]} */
-  const closedShown = ({ workspace, tab, conversations }, shown) => {
-    const rows = conversations.flatMap((conversation) => rowOf(conversation, shown));
+  const closedShown = ({ conversations }, shown) => {
+    const [first, ...more] = conversations.flatMap((conversation) => rowOf(conversation, shown));
     const latest = conversations[0];
-    return rows.length === 0 || latest === undefined ? [] : [{ heading: `${workspace} · ${tab}`, rows, restores: latest.id }];
+    return first === undefined || latest === undefined ? [] : [{ first, more, restores: latest.id }];
   };
 
   const render = () => {
@@ -60,15 +68,16 @@ export function createHistoryView(source) {
     const look = JSON.stringify([tab, closed]);
     if (look === drawn) return;
     drawn = look;
-    const sections = [...tab.map(tabSection), ...closed.map(closedSection)];
+    const sections = [...tab.map(tabSection), ...(closed.length === 0 ? [] : [h('h2', { className: 'history-heading history-closed-heading', text: 'Closed tabs' }), ...closed.map(closedSection)])];
     element.replaceChildren(...(sections.length === 0 ? [h('div', { className: 'panel-message', text: 'No herdr tab has had a conversation to show yet.' })] : sections));
   };
 
   /** @param {Row} row */
-  const rowElement = ({ id, title, ago, running, shown }) => {
-    const link = h('a', { className: 'history-conversation', attrs: { href: `#/${id}` } }, [h('span', { className: 'history-title', text: title }), h('span', { className: 'history-ago', text: ago })]);
+  const rowElement = ({ id, title, workspace, where, icon, ago, running, shown }) => {
+    const link = h('a', { className: 'herdr-tab history-conversation', attrs: { href: `#/${id}` } }, sessionRowParts({ icon, title, where }, [h('span', { className: 'history-ago', text: ago })]));
+    tintByWorkspace(link, workspace);
     link.classList.toggle('running', running);
-    link.classList.toggle('shown', shown);
+    link.classList.toggle('selected', shown);
     if (shown) link.setAttribute('aria-current', 'page');
     link.addEventListener('click', (event) => {
       event.preventDefault();
@@ -77,13 +86,15 @@ export function createHistoryView(source) {
     return link;
   };
 
-  /** @param {TabShown} tab */
-  const tabSection = ({ heading, rows }) => h('section', { className: 'history-tab' }, [h('h2', { className: 'history-heading', text: heading }), ...rows.map(rowElement)]);
+  /** @param {readonly Row[]} rows */
+  const tabSection = (rows) => h('section', { className: 'history-tab' }, [h('h2', { className: 'history-heading', text: 'This tab' }), ...rows.map(rowElement)]);
 
   /** @param {ClosedShown} tab */
-  const closedSection = ({ heading, rows, restores }) => {
-    const restore = h('button', { className: 'history-restore', text: 'Restore', title: 'Open the tab again in herdr, its latest conversation resumed — the others along', attrs: { type: 'button' } });
-    const section = h('section', { className: 'history-closed-tab' }, [h('div', { className: 'history-closed-head' }, [h('h3', { className: 'history-heading', text: heading }), restore]), ...rows.map(rowElement)]);
+  const closedSection = ({ first, more, restores }) => {
+    const restoring = 'Restore: open the tab again in herdr, its latest conversation resumed — the others along';
+    const restore = h('button', { className: 'icon-button history-restore', title: restoring, attrs: { type: 'button', 'aria-label': restoring } }, [icon('undo')]);
+    // Restore in the row of the tab's latest conversation, at its right end
+    const section = h('section', { className: 'history-closed-tab' }, [h('div', { className: 'history-closed-head' }, [rowElement(first), restore]), ...more.map(rowElement)]);
     restore.addEventListener('click', () => {
       restore.disabled = true;
       section.querySelector('.history-error')?.remove();

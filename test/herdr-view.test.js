@@ -11,13 +11,13 @@ const running = '7d4e1b20-2222-4333-8444-955566667777';
 /**
  * @typedef {{ workspace_id: string, label: string, number?: number, agent_status?: string, active_tab_id?: string }} FakeWorkspace
  * @typedef {{ tab_id: string, workspace_id: string, number: number, label: string, agent_status: string }} FakeTab
- * @typedef {{ pane_id: string, workspace_id: string, cwd: string, tab_id?: string, terminal_id?: string, agent?: string, agent_status?: string, terminal_title_stripped?: string, state_change_seq?: number, pid?: number }} FakePane
+ * @typedef {{ pane_id: string, workspace_id: string, cwd: string, tab_id?: string, terminal_id?: string, agent?: string, agent_status?: string, terminal_title_stripped?: string, state_change_seq?: number, pid?: number, argv?: readonly string[] }} FakePane
  * @typedef {{ tab_id: string, workspace_id: string, panes: { pane_id: string, rect: { x: number, y: number, width: number, height: number } }[] }} FakeLayout
  */
 
 /**
- * A fake herdr: workspaces (numbered in order unless told), tabs and panes; a pane's pid is what process-info tells
- * about it. missing — herdr is not installed at all; fail — installed, but no server answers.
+ * A fake herdr: workspaces (numbered in order unless told), tabs and panes; a pane's pid — and the command line, if
+ * given — is what process-info tells about it. missing — herdr is not installed at all; fail — installed, but no server answers.
  * @param {{ workspaces?: readonly FakeWorkspace[], tabs?: readonly FakeTab[], panes?: readonly FakePane[], layouts?: readonly FakeLayout[], missing?: boolean, fail?: boolean }} [layout]
  */
 function fakeHerdr({ workspaces = [], tabs = [], panes = [], layouts = [], missing = false, fail = false } = {}) {
@@ -27,12 +27,13 @@ function fakeHerdr({ workspaces = [], tabs = [], panes = [], layouts = [], missi
     if (fail) return { ok: false, error: 'no herdr server is running', missing: false };
     const [subject, command, , pane] = args;
     if (subject === 'api' && command === 'snapshot') {
-      const shown = { workspaces: workspaces.map((workspace, at) => ({ number: at + 1, ...workspace })), tabs, panes: panes.map(({ pid, state_change_seq, ...pane }) => pane), agents: panes.filter((pane) => pane.agent !== undefined).map(({ pid, ...agent }) => agent), layouts };
+      const shown = { workspaces: workspaces.map((workspace, at) => ({ number: at + 1, ...workspace })), tabs, panes: panes.map(({ pid, state_change_seq, argv, ...pane }) => pane), agents: panes.filter((pane) => pane.agent !== undefined).map(({ pid, argv, ...agent }) => agent), layouts };
       return { ok: true, json: { result: { type: 'session_snapshot', snapshot: shown } }, text: '' };
     }
     if (subject === 'pane' && command === 'process-info') {
-      const pid = panes.find((known) => known.pane_id === pane)?.pid;
-      return { ok: true, json: { result: { process_info: { foreground_processes: pid === undefined ? [] : [{ pid }] } } }, text: '' };
+      const known = panes.find((one) => one.pane_id === pane);
+      const told = known?.pid === undefined ? [] : [{ pid: known.pid, ...(known.argv === undefined ? {} : { argv: known.argv }) }];
+      return { ok: true, json: { result: { process_info: { foreground_processes: told } } }, text: '' };
     }
     return { ok: false, error: `the fake herdr does not know ${args.join(' ')}`, missing: false };
   };
@@ -211,6 +212,21 @@ test('herdrView_Should_LookForPaneOfProcessOnce_WhenItRunsOutsideHerdr', async (
   await view.workspacesOf([]);
 
   assert.equal(asked.filter((call) => call === 'pane process-info').length, 1);
+});
+
+// A tab duplicated from the page goes on from its session as a fork — Claude Code started `--resume <id> --fork-session`
+// — whose transcript Claude Code writes only with the first new message; until then its conversation is the session's
+// it was forked from. The view tells which, for a session running in a pane; a session started anew forks from none
+test('herdrView_Should_TellSessionPaneForkedFrom', async () => {
+  const forked = '7d4e1b20-aaaa-4bbb-8ccc-000000000002';
+  const fork = { pane_id: 'w2:p2', workspace_id: 'w2', cwd: 'D:\\trip_plans', agent: 'claude', pid: 102, argv: ['claude.exe', '--resume', running, '--fork-session'] };
+  const herdr = fakeHerdr({ ...tripPlans, panes: [...tripPlans.panes, fork] });
+  const forkRecord = { pid: 102, sessionId: forked, kind: 'interactive', status: 'idle', updatedAt: 2 };
+  const view = createHerdrView({ herdr, codexThreads: async () => [], readRecords: async () => [runningRecord, forkRecord], icons: noIcons, hidden: noHidden, file: join(tempDir('ccw-workspaces-'), 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+
+  await view.workspacesOf([]);
+
+  assert.deepEqual([await view.forkedFrom(forked), await view.forkedFrom(running)], [running, undefined]);
 });
 
 // Each workspace has its icon (workspace-icons.js), told its name and folder — its first tab's pane's: in herdr's layout,
@@ -423,10 +439,10 @@ test('restart_Should_EndClaudeInItsTab_AndResumeSessionThere_WithVariablesSet', 
 
   const told = (await viewer('posix', true).layout()).restartEnv;
   const outcomes = [
-    await viewer('powershell', true).restart(running),
-    await viewer('posix', true).restart(running),
-    await viewer('posix', true).restart('9a1c2a10-1111-4222-8333-000000000099'),
-    await viewer('posix', false).restart(running),
+    await viewer('powershell', true).restart(running, 'given'),
+    await viewer('posix', true).restart(running, 'given'),
+    await viewer('posix', true).restart('9a1c2a10-1111-4222-8333-000000000099', 'given'),
+    await viewer('posix', false).restart(running, 'given'),
   ];
 
   assert.deepEqual(
@@ -939,4 +955,15 @@ test('hidePane_Should_ShowPaneAgainOnceItsAgentWorks_When_HerdrTellsNoCount', as
   const working = hiddenPanes(await view.layout());
 
   assert.deepEqual({ idle, working }, { idle: ['w2:p1'], working: [] });
+});
+
+// A session restarted plainly resumes in its tab with no variables set ahead of it, those given or not
+test('restart_Should_ResumeSessionWithNoVariables_When_RestartedPlainly', async () => {
+  const herdr = tabsHerdr({ panes: [{ pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:/shop', agent: 'claude', pid: 101 }] });
+  const env = [{ name: 'CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP', value: '1' }];
+  const view = createHerdrView({ herdr: herdr.run, readRecords: async () => [runningRecord], codexThreads: async () => [], icons: noIcons, hidden: noHidden, file: join(tempDir('ccw-restart-'), 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'my-claude', codexCommand: 'codex', restart: { env, shell: 'powershell', endProcess: async () => true } });
+
+  const outcome = await view.restart(running, 'none');
+
+  assert.deepEqual({ outcome, typed: herdr.changes.filter((change) => change.startsWith('pane send-text')) }, { outcome: { ok: true }, typed: [`pane send-text w2:p1 my-claude --resume ${running}`] });
 });

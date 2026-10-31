@@ -33,9 +33,12 @@ test('restartButton_Should_RestartSessionOnSecondPress_ShownWhileItRunsInClaudeI
   /** @type {import('../public/model/herdr.js').TabChange[]} */
   const outcomes = [{ ok: true }, { ok: false, error: 'failed' }];
   let asked = 0;
-  const show = restartButton(button, session, async () => {
-    asked += 1;
-    return outcomes[asked - 1] ?? { ok: false, error: 'failed' };
+  const show = restartButton(button, session, {
+    variables: 'given',
+    restart: async () => {
+      asked += 1;
+      return outcomes[asked - 1] ?? { ok: false, error: 'failed' };
+    },
   });
   const shown = () => ({ hidden: button.hidden, asking: button.classList.contains('asking'), failed: button.classList.contains('failed') });
 
@@ -68,5 +71,37 @@ test('restartButton_Should_RestartSessionOnSecondPress_ShownWhileItRunsInClaudeI
       failed: { hidden: false, asking: false, failed: true },
       gone: true,
     },
+  );
+});
+
+// Beside it a plain restart — Claude Code resumes the session with no variables set — named so and shown whenever the
+// session runs in Claude Code in a herdr tab; the restart with variables only while the viewer was given some
+test('restartButton_Should_OfferPlainRestart_AndRestartWithVariablesOnlyWhenGiven', async () => {
+  /** @type {string[]} */
+  const asked = [];
+  /** @param {'given' | 'none'} variables */
+  const made = (variables) => {
+    const button = document.createElement('button');
+    const show = restartButton(button, session, { variables, restart: async () => (asked.push(variables), { ok: true }) });
+    return { button, show };
+  };
+  const plain = made('none');
+  const given = made('given');
+  /** @param {import('../public/model/herdr.js').HerdrLayout} layout */
+  const showBoth = (layout) => {
+    plain.show(layout);
+    given.show(layout);
+    return [plain, given].map(({ button }) => (button.hidden ? 'hidden' : button.textContent));
+  };
+
+  const withVariables = showBoth(runningIn('claude'));
+  const withNone = showBoth({ ...runningIn('claude'), restartEnv: [] });
+  plain.button.click();
+  plain.button.click();
+  await settled();
+
+  assert.deepEqual(
+    { withVariables, withNone, plainTitle: plain.button.title.includes('CLAUDE_CODE'), asked },
+    { withVariables: ['Restart the session', 'Restart with CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1'], withNone: ['Restart the session', 'hidden'], plainTitle: false, asked: ['none'] },
   );
 });

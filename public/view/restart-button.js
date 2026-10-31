@@ -1,8 +1,9 @@
 // @ts-check
-// The button in a session's details that restarts it: Claude Code quits in the session's herdr tab — its turn and its
-// background commands end — and starts again there resuming the session, with the variables the viewer was given
-// (--restart-env), which the button names. A first press asks — the button says to press again — a second, within a few
-// seconds, restarts; there while the session runs in Claude Code in a herdr tab, none otherwise.
+// A button in a session's details that restarts it: Claude Code quits in the session's herdr tab — its turn and its
+// background commands end — and starts again there resuming the session: plainly, or with the variables the viewer was
+// given (--restart-env), which that button names. A first press asks — the button says to press again — a second,
+// within a few seconds, restarts; there while the session runs in Claude Code in a herdr tab — the one with variables
+// only while there are some — none otherwise.
 import { placeOf } from '../model/herdr.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
@@ -13,10 +14,11 @@ const askingMs = 5000;
 /**
  * @param {HTMLButtonElement} button
  * @param {string} sessionId
- * @param {() => Promise<import('../model/herdr.js').TabChange>} restart — the session restarted, once confirmed
+ * @param {{ variables: 'given' | 'none', restart: () => Promise<import('../model/herdr.js').TabChange> }} how — variables:
+ *   those the viewer was given set ahead of Claude Code, or none; restart: the session restarted, once confirmed
  * @returns {(layout: import('../model/herdr.js').HerdrLayout) => void} — the button shown anew for what herdr has now
  */
-export function restartButton(button, sessionId, restart) {
+export function restartButton(button, sessionId, { variables: set, restart }) {
   /** The variables the session restarts with, as the viewer tells them. */
   /** @type {readonly string[]} */
   let variables = [];
@@ -58,8 +60,8 @@ export function restartButton(button, sessionId, restart) {
   });
   return (layout) => {
     const pane = placeOf(layout, { kind: 'session', id: sessionId })?.tab.panes.find((one) => one.session === sessionId);
-    variables = layout.restartEnv ?? [];
-    button.hidden = pane?.agent !== 'claude';
+    variables = set === 'given' ? (layout.restartEnv ?? []) : [];
+    button.hidden = pane?.agent !== 'claude' || (set === 'given' && variables.length === 0);
     if (button.hidden) settle();
     if (asking === undefined && !button.classList.contains('failed')) draw('ready');
   };

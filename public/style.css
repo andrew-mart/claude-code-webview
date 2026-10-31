@@ -1179,23 +1179,36 @@ button {
   gap: 6px;
 }
 
-.herdr-new-actions button {
-  padding: 3px 10px;
+/* what to start in the new workspace: icons, as a new tab's choices are — a terminal, Claude Code — the accent, Enter
+   picks it, its mark white on it — Codex */
+.herdr-new-actions .icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 26px;
+  padding: 0;
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   background: var(--bg-elev);
   color: var(--text);
-  font: inherit;
-  font-size: 12.5px;
   cursor: pointer;
+}
+
+.herdr-new-actions .icon-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.herdr-new-actions .herdr-new-gpt .agent-mark {
+  width: 19px;
+  height: 19px;
 }
 
 /* Cancel: an icon at the row's right end */
 .herdr-new-actions .icon-button.herdr-new-cancel {
   width: 26px;
-  height: 26px;
   margin-left: auto;
-  padding: 0;
   border-color: transparent;
   background: none;
   color: var(--text-3);
@@ -1211,10 +1224,26 @@ button {
   height: 14px;
 }
 
-.herdr-new-actions .herdr-new-claude {
+.herdr-new-actions .icon-button.herdr-new-claude {
   border-color: transparent;
   background: var(--accent);
   color: #fff;
+}
+
+.herdr-new-claude .agent-mark {
+  color: inherit;
+}
+
+/* for a finger: larger */
+@media (pointer: coarse) {
+  .herdr-new-actions .icon-button {
+    width: 42px;
+    height: 34px;
+  }
+
+  .herdr-new-actions .icon-button.herdr-new-cancel {
+    width: 34px;
+  }
 }
 
 .herdr-new-workspace.sending button {
@@ -1965,18 +1994,26 @@ input.herdr-row-name.failed {
 
 /* An agent kept lit to come back to: its buttons pressed, in its lamp's blue (model/lamps.js: keptLit). */
 .head-keep-lit[aria-pressed="true"],
-.herdr-row-keep[aria-pressed="true"] {
+.herdr-row-keep[aria-pressed="true"],
+.herdr-tab-keep[aria-pressed="true"] {
   color: var(--lamp-kept);
 }
 
 /* Rows of the page's own in a session's details, each a dt and its dd in one element: they lie in the details' grid as
-   its other rows do, and go with the button they hold while it is hidden. */
+   its other rows do, and go while none of the buttons they hold shows. */
 .head-detail {
   display: contents;
 }
 
-.head-detail:has(> dd > button[hidden]) {
+.head-detail:not(:has(> dd > button:not([hidden]))) {
   display: none;
+}
+
+/* the plain restart and the one with variables, side by side, under each other when narrow */
+.head-restarts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 /* A session's restart (restart-button.js): a button of words — the variables it restarts with — asking for the second
@@ -5793,87 +5830,42 @@ a.file-link:hover {
   display: none;
 }
 
+/* The conversations of herdr's tabs: rows as the session list's (.herdr-tab, session-row.js), heads as its own */
 .history {
   padding: 12px 10px 24px;
-  font-size: 13.5px;
-}
-
-.history section + section {
-  margin-top: 18px;
 }
 
 .history-heading {
-  margin: 0 8px 4px;
+  margin: 0 0 6px;
+  padding: 0 10px;
   overflow: hidden;
-  color: var(--text-2);
-  font-size: 12.5px;
+  color: var(--text-3);
+  font-size: 11.5px;
   font-weight: 600;
+  letter-spacing: 0.02em;
   text-overflow: ellipsis;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
-.history-closed-head {
+.history-closed-heading {
+  margin-top: 18px;
+}
+
+.history-tab,
+.history-closed-tab {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
+  flex-direction: column;
+  gap: 1px;
 }
 
-.history-closed-head .history-heading {
-  flex: 1;
-  min-width: 0;
-  margin-bottom: 0;
-}
-
-.history-restore {
-  flex: none;
-  padding: 3px 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-elev);
-  color: var(--text-2);
-  font-size: 12.5px;
-  cursor: pointer;
-}
-
-.history-restore:hover {
-  color: var(--text);
-  border-color: var(--border-strong);
-}
-
-.history-restore:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.history-conversation {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: 8px;
-  color: inherit;
-  text-decoration: none;
-}
-
-.history-conversation:hover {
-  background: var(--bg-hover);
-}
-
-.history-conversation.shown {
-  background: var(--bg-selected);
-}
-
-.history-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* a closed tab's conversations together, apart from the next tab's */
+.history-closed-tab + .history-closed-tab {
+  margin-top: 10px;
 }
 
 /* the conversation its tab runs now: a green dot before its title */
-.history-conversation.running .history-title::before {
+.history-conversation.running .herdr-tab-title::before {
   content: '';
   display: inline-block;
   width: 7px;
@@ -5884,11 +5876,45 @@ a.file-link:hover {
   vertical-align: 1px;
 }
 
+/* when it was last written to, where a session row has its lamp */
 .history-ago {
   flex: none;
   color: var(--text-3);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+
+/* Restore: an icon at the right end of the row of the closed tab's latest conversation; the tab's other rows end where
+   that row does */
+.history-closed-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.history-closed-head > .history-conversation {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-closed-tab > .history-conversation {
+  margin-right: 34px;
+}
+
+.history-restore.icon-button {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  color: var(--text-3);
+}
+
+.history-restore.icon-button:hover {
+  color: var(--text);
+}
+
+.history-restore:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .history-error {
@@ -11743,4 +11769,52 @@ table.diff,
 :root[data-palette="plum"][data-theme="dark"] {
   --accent: #b083d0;
   --accent-strong: #9c6fbd;
+}
+
+/* Ctrl+Tab's switcher (tab-switcher.js): herdr's tabs in the order they were opened, over everything, each row the
+   session list's — its title, workspace and tab, lamp, the workspace's colour at its edge — the one to switch to marked */
+.tab-switcher {
+  position: fixed;
+  top: 18vh;
+  left: 50%;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  width: min(480px, calc(100vw - 32px));
+  max-height: 60vh;
+  padding: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--bg-elev);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
+  transform: translateX(-50%);
+}
+
+.tab-switcher-title {
+  padding: 2px 8px 6px;
+  color: var(--text-3);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tab-switcher-list {
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.tab-switcher-item {
+  cursor: pointer;
+}
+
+.tab-switcher-item + .tab-switcher-item {
+  margin-top: 1px;
+}
+
+.tab-switcher-item.selected > .herdr-tab {
+  background: var(--bg-selected);
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: -2px;
 }

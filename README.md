@@ -195,17 +195,26 @@ keeps no record of its processes: a Codex pane shows the thread Codex holds open
 has more than one, the one whose name Codex put in the pane's title. The search finds
 workspaces and sessions by name and by what runs in them.
 
+**Ctrl+Tab** switches between herdr's tabs in the order they were opened, as an editor does: a list of them shows, each
+as the session list has it — the session's title, its workspace and tab, its lamp — the one opened before this one
+marked; Tab with Ctrl held moves the mark down, Shift+Tab and the arrows move it either way, the wheel too — not zooming
+the page, and letting go of Ctrl opens the tab marked — Enter or a click does too, Esc leaves the tab as it was. A
+browser keeps Ctrl+Tab to itself in its tabs: the page gets it in a window of its own — installed as an app, in Chrome,
+Edge or Brave — or in full screen.
+
 A finished agent's lamp goes out once its answer is seen — its session opened in the page, on any device. To come back
-to one later, keep its lamp lit — blue, steady: the clock over the session, the one among an open session's buttons in the sidebar, or
-**Ctrl+Q**. It stays lit — its tab's and its workspace's too — until you press it again or the agent starts working
-again; kept by the viewer in `~/.claude-code-webview/kept.json`, so every device shows it.
+to one later, keep its lamp lit — blue, steady: the clock over the session, the one among an open session's buttons in
+the sidebar or among the open tab's in the tab bar, or **Ctrl+Q**. It stays lit — its tab's and its workspace's too —
+until you press it again or the agent starts working again; kept by the viewer in `~/.claude-code-webview/kept.json`, so
+every device shows it.
 
 A second click on the open tab shows its buttons: the first is its icon (☺ while it has none), picked there and then
 without naming the tab; ✎ names it — so does **F2**, anywhere but in a terminal — the next
 one duplicates it, × closes it (after asking with ✓ and ✕ — what runs in it stops), and the page moves to the tab next
 to it. A duplicate is a new tab of the workspace, in the same folder, named `<name>::1` (then `::2`, …; a copy of a copy
 counts on from the same name), with the session in it forked: `claude --resume <id> --fork-session` — the conversation
-so far, going on as a new session — or `codex fork <id>`; a tab with no session gets a terminal. A tab's emoji icon is
+so far, going on as a new session, its feed showing that conversation at once, before the copy's first message — or
+`codex fork <id>`; a tab with no session gets a terminal. A tab's emoji icon is
 kept ahead of its name in herdr's label, so herdr shows it too. **+** at the end of the row opens a tab
 beside the open one, in its folder and under the name (and icon) you give it: a terminal, or Claude Code started in it
 with `claude` — or with the command given by `--claude-command`, a wrapper of your own — or Codex, with `codex` or
@@ -219,13 +228,13 @@ A workspace has a colour of its own — its hue follows from its name — on the
 the sessions that run or ran in it, and an icon left of its name, one at random until you pick one — kept for its
 folder. A press on the icon at the head of its tabs, over the open session, picks another (a second click on the open
 workspace's icon in the sidebar too): an emoji, which goes ahead of its name in herdr, or one of Lucide's icons, found
-by its words, in a colour of your choice. **+** beside the search opens one: its name, its folder — picked from the folders
-offered under its box, or typed anew — and a terminal or Claude Code in it; a folder that is not there is offered to be
-made, and the workspace opens in it as asked. The folders offered for what is typed are first those worked in — typed
-before, where sessions ran — then those on the disk: for a path, the folders in the one it is typed in whose names
-start with what follows the last slash; for a word, the folders with it in their names beside those worked in lately.
-They are written as the viewer's computer writes paths — backslashes on Windows — and so is the folder a workspace
-opens in. A second click on the
+by its words, in a colour of your choice. **+** beside the search opens one: its folder — picked from the folders
+offered under its box, or typed anew — its name, the folder's unless you give another, and a terminal, Claude Code or
+Codex in it; a folder that is not there is offered to be made, and the workspace opens in it as asked. The folders
+offered for what is typed are first those worked in — typed before, where sessions ran — then those on the disk: for
+a path, the folders in the one it is typed in whose names start with what follows the last slash; for a word, the
+folders with it in their names beside those worked in lately. They are written as the viewer's computer writes paths —
+backslashes on Windows — and so is the folder a workspace opens in. A second click on the
 open workspace or session in the sidebar shows its buttons, as the open tab's do: ✎ names the workspace or the
 session's tab, × closes it. An idle session also gets a crossed-out eye: it hides the session from the list until its
 agent changes state — it starts working, say — on every device (`~/.claude-code-webview/hidden-panes.json`). The list's
@@ -327,7 +336,8 @@ the viewer kept it is a closed tab of its own. While a session runs in a herdr t
 tab, its workspace with it (`herdr tab focus`); and the session's details — a click on the line of its facts — offer to
 restart it there: a second press confirms it, its Claude Code ends — its turn and its background commands with it — and
 starts again in the tab resuming it (`<command>
---resume <id>`), with the variables given by `--restart-env` set ahead of it — as PowerShell sets them on Windows,
+--resume <id>`) — plainly, or, with the button that names them, with the variables given by `--restart-env` set ahead
+of it — as PowerShell sets them on Windows,
 `$env:NAME='VALUE';`, and as a POSIX shell does elsewhere, `NAME=VALUE <command>`. Say Claude Code has stopped a
 session's idle background commands for want of memory: started with
 `--restart-env CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1`, the viewer restarts it so that it no longer does. The

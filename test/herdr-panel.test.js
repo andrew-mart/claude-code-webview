@@ -125,7 +125,8 @@ test('tabNaming_Should_StartFromEmptyBox_ForUnnamedTabMovedElsewhere', () => {
 
 /**
  * The tab bar above a session of web — s1, the unnamed tab 1, unless told — with naming, closing, opening tabs, the
- * workspace's naming and icon, and the addresses it goes to recorded; each succeeds, a new tab opens as w2:p9.
+ * workspace's naming and icon, the agents kept lit, and the addresses it goes to recorded; each succeeds, a new tab
+ * opens as w2:p9.
  * @param {string} [session]
  * @param {import('../public/model/herdr.js').HerdrWorkspace} [workspace]
  * @param {{ copies: boolean }} [herdr] - copies: herdr opens a tab's copy, as w2:p8; it does unless told
@@ -133,7 +134,15 @@ test('tabNaming_Should_StartFromEmptyBox_ForUnnamedTabMovedElsewhere', () => {
 function barAboveSession(session = 's1', workspace = web, { copies } = { copies: true }) {
   /** @type {(string | undefined)[][]} */
   const asked = [];
+  /** The panes whose agents are kept lit. */
+  const kept = new Set();
   const bar = createTabBar({
+    keptLit: (pane) => kept.has(pane.id),
+    keepLit: (pane) => {
+      asked.push(['keep', pane.id]);
+      if (kept.has(pane.id)) kept.delete(pane.id);
+      else kept.add(pane.id);
+    },
     open: (target) => {
       asked.push(['open', target]);
     },
@@ -315,6 +324,24 @@ test('tabBar_Should_ShowOpenTabsButtons_OnlyWhenItIsClickedAgain', () => {
   assert.deepEqual([before, afterSecondClick, shown()], [false, true, false]);
 });
 
+// The open tab's buttons keep its agent's lamp lit, to come back to later, as the session's row in the sidebar does —
+// pressed while lit, they let it go out; a tab with no agent in it, a terminal, has nothing to keep lit
+test('tabBar_Should_KeepOpenTabsAgentLit_FromItsButtons', () => {
+  const { bar, asked, click } = barAboveSession('s3');
+  const keep = () => bar.element.querySelector('.herdr-tab-keep');
+
+  click('.herdr-chip.selected');
+  click('.herdr-tab-keep');
+  const lit = keep()?.getAttribute('aria-pressed');
+  click('.herdr-tab-keep');
+  const out = keep()?.getAttribute('aria-pressed');
+  const shell = { ...web, id: 'w5', activeTab: 'w5:t1', tabs: [{ id: 'w5:t1', number: 1, label: 'shell', status: /** @type {const} */ ('idle'), panes: [paneOf({ id: 'w5:p1', agent: undefined })] }] };
+  bar.render({ herdr: true, workspaces: [shell] }, { kind: 'pane', id: 'w5:p1' }, new Map());
+  click('.herdr-chip.selected');
+
+  assert.deepEqual({ asked, lit, out, inShell: keep() }, { asked: [['keep', 'w2:p3'], ['keep', 'w2:p3']], lit: 'true', out: 'false', inShell: null });
+});
+
 // "+" opens a tab beside the open one, under the name typed for it — a terminal, or Claude Code — and the page goes to
 // it; with no name herdr numbers it; Cancel opens nothing
 test('tabBar_Should_OpenNewNamedTabWithTerminalClaudeOrCodex_And_GoToIt', async () => {
@@ -378,22 +405,45 @@ test('herdrSidebar_Should_OpenNewWorkspaceForm_AboveWorkspaces_FromIconBesideSea
   );
 });
 
-// Cancel in the form is an icon named on hover, as in the new tab's choices: the three fit on one line in a narrow
-// sidebar; it puts the form away
-test('herdrSidebar_Should_CancelNewWorkspace_WithIconNamedOnHover', () => {
+// The form asks for the folder first — the name follows it — the focus in it; the name under it
+test('herdrSidebar_Should_AskNewWorkspacesFolderFirst', () => {
+  const element = window.document.createElement('div');
+  window.document.body.append(element);
+  const sidebar = createHerdrSidebar(element, noActions);
+  sidebar.render({ herdr: true, workspaces: [web] }, undefined, '', new Map());
+
+  sidebar.newButton.click();
+
+  const boxes = [...element.querySelectorAll('.herdr-new-workspace input')].map((box) => box.className);
+  const focused = window.document.activeElement?.className;
+  element.remove();
+  assert.deepEqual({ boxes, focused }, { boxes: ['herdr-new-folder', 'herdr-new-name'], focused: 'herdr-new-folder' });
+});
+
+// What to start in the new workspace, and Cancel, are icons named on hover, as in the new tab's choices: they fit on
+// one line in a narrow sidebar; Cancel puts the form away
+test('herdrSidebar_Should_OfferNewWorkspacesStartsAsIconsNamedOnHover_CancelPuttingFormAway', () => {
   const element = window.document.createElement('div');
   const sidebar = createHerdrSidebar(element, noActions);
   sidebar.render({ herdr: true, workspaces: [web] }, undefined, '', new Map());
   sidebar.newButton.click();
+  const looks = [...element.querySelectorAll('.herdr-new-actions button')].map((button) => ({ text: button.textContent, icon: button.querySelector('svg') !== null, title: button.getAttribute('title') }));
   const cancel = element.querySelector('.herdr-new-cancel');
   assert.ok(cancel instanceof window.HTMLButtonElement);
-  const looks = { text: cancel.textContent, icon: cancel.querySelector('svg') !== null, title: cancel.getAttribute('title') };
 
   cancel.click();
 
   assert.deepEqual(
     { looks, form: element.querySelector('.herdr-new-workspace') },
-    { looks: { text: '', icon: true, title: 'Cancel (Esc)' }, form: null },
+    {
+      looks: [
+        { text: '', icon: true, title: 'Terminal' },
+        { text: '', icon: true, title: 'Claude Code (Enter)' },
+        { text: '', icon: true, title: 'Codex' },
+        { text: '', icon: true, title: 'Cancel (Esc)' },
+      ],
+      form: null,
+    },
   );
 });
 
@@ -943,6 +993,30 @@ test('herdrSidebar_Should_ShowRobotsStoryAtWork', () => {
   assert.deepEqual(
     [...element.querySelectorAll('.herdr-tabs .herdr-status')].map((lamp) => `${lamp.getAttribute('data-status')}:${lamp.querySelector('svg.robots') === null ? 'lamp' : 'robot'}`),
     ['working:robot', 'idle:lamp', 'idle:lamp'],
+  );
+});
+
+// The tab switcher's row is the list's own: its session's title, its workspace's colour, and its robots going on with
+// their story from where the list's are — not from the start, as a row drawn anew would
+test('herdrSidebar_Should_DrawSwitcherRow_WithRobotsGoingOnFromList', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1000 });
+  const element = window.document.createElement('div');
+  const [first, second, third] = web.tabs;
+  assert.ok(first !== undefined && second !== undefined && third !== undefined);
+  const atWork = { ...second, panes: second.panes.map((one) => ({ ...one, status: /** @type {const} */ ('working') })) };
+  const busy = { ...web, tabs: [first, atWork, third] };
+  const pane = atWork.panes[0];
+  assert.ok(pane !== undefined);
+  const sidebar = createHerdrSidebar(element, noActions);
+  sidebar.render({ herdr: true, workspaces: [busy] }, undefined, '', new Map());
+  t.mock.timers.tick(4000);
+
+  const row = sidebar.rowOf({ workspace: busy, tab: atWork, pane }, new Map());
+
+  const robots = row.querySelector('svg.robots');
+  assert.deepEqual(
+    { title: row.querySelector('.herdr-tab-title')?.textContent, tinted: row.classList.contains('tinted'), elapsed: robots instanceof window.SVGElement ? robots.style.getPropertyValue('--elapsed') : undefined },
+    { title: 'Upgrade to Node 24', tinted: true, elapsed: '4000ms' },
   );
 });
 

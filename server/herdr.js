@@ -122,9 +122,32 @@ export function claudePaneIds(json) {
  * @returns {readonly number[]}
  */
 export function foregroundPids(json) {
+  return foregroundProcesses(json).flatMap((process) => (typeof process.pid === 'number' ? [process.pid] : []));
+}
+
+/**
+ * The session a pane's process goes on from as a fork of its own — Claude Code started `--resume <id> --fork-session`,
+ * as a tab duplicated from the page is: none for another process, or one that resumes a session without forking it.
+ * Claude Code writes the fork's transcript only with its first new message; until then the session it was forked from
+ * holds its conversation.
+ * @param {unknown} json — the `herdr pane process-info` reply
+ * @param {number} pid — the process's
+ * @returns {string | undefined}
+ */
+export function forkedFrom(json, pid) {
+  const argv = foregroundProcesses(json).find((process) => process.pid === pid)?.argv;
+  if (!Array.isArray(argv) || !argv.includes('--fork-session')) return undefined;
+  const resumed = argv[argv.indexOf('--resume') + 1];
+  return argv.includes('--resume') && typeof resumed === 'string' && !resumed.startsWith('-') ? resumed : undefined;
+}
+
+/**
+ * @param {unknown} json — the `herdr pane process-info` reply
+ * @returns {readonly Record<string, unknown>[]}
+ */
+function foregroundProcesses(json) {
   const info = isRecord(json) && isRecord(json.result) && isRecord(json.result.process_info) ? json.result.process_info : {};
-  const processes = Array.isArray(info.foreground_processes) ? info.foreground_processes.filter(isRecord) : [];
-  return processes.flatMap((process) => (typeof process.pid === 'number' ? [process.pid] : []));
+  return Array.isArray(info.foreground_processes) ? info.foreground_processes.filter(isRecord) : [];
 }
 
 /**
@@ -245,3 +268,4 @@ export function paneIoOf(herdr) {
     },
   };
 }
+

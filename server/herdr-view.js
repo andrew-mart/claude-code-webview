@@ -14,7 +14,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { isRecord, text } from '../public/model/narrow.js';
 import { codexPanes } from './codex-live.js';
 import { folderKey } from './folders.js';
-import { foregroundPids, snapshotOf, succeeded } from './herdr.js';
+import { foregroundPids, forkedFrom, snapshotOf, succeeded } from './herdr.js';
 import { latestRecords, processKey } from './registry.js';
 import { acceptTrust } from './trust.js';
 import { parseHistory } from '../public/model/history.js';
@@ -56,6 +56,12 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
    * @type {Map<string, string>}
    */
   const paneByProcess = new Map();
+  /**
+   * The session a Claude process goes on from as a fork — a tab duplicated from the page — read off its command line as
+   * its pane is found, by the process's key.
+   * @type {Map<string, string>}
+   */
+  const forkedByProcess = new Map();
   /**
    * Claude Code processes in no pane — run in an IDE, a plain terminal: not looked for again on every look at herdr, only
    * once herdr's Claude panes are other than those looked in — one told for Claude's later, as Claude starts in it.
@@ -136,7 +142,13 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
     for (const pane of claudePanes) {
       const info = await herdr(['pane', 'process-info', '--pane', pane.paneId]);
       if (!succeeded(info)) told = false;
-      else for (const record of records) if (foregroundPids(info.json).includes(record.pid)) paneByProcess.set(processKey(record), pane.paneId);
+      else {
+        for (const record of records.filter((one) => foregroundPids(info.json).includes(one.pid))) {
+          paneByProcess.set(processKey(record), pane.paneId);
+          const parent = forkedFrom(info.json, record.pid);
+          if (parent !== undefined) forkedByProcess.set(processKey(record), parent);
+        }
+      }
     }
     return told;
   };
@@ -202,6 +214,16 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
   };
 
   return {
+    /**
+     * The session this one goes on from as a fork of it, while it runs in a pane — a tab duplicated from the page: until
+     * its first new message Claude Code keeps its conversation in that one's transcript alone. None for any other session.
+     * @param {string} sessionId
+     * @returns {Promise<string | undefined>}
+     */
+    async forkedFrom(sessionId) {
+      const record = latestRecords(await readRecords()).get(sessionId);
+      return record === undefined ? undefined : forkedByProcess.get(processKey(record));
+    },
     /**
      * @param {readonly { id: string, cwd: string | undefined }[]} sessions — the session list
      * @returns {Promise<SessionWorkspaces>}
@@ -392,12 +414,14 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
     },
     /**
      * A Claude Code session restarted where it runs: its process ended — its turn and its background commands with it —
-     * and Claude Code started again in its tab resuming it, the variables asked for set ahead of it. A session running
-     * in no herdr tab, or whose process did not end, is not: nothing is typed over a Claude Code still there.
+     * and Claude Code started again in its tab resuming it, the variables given (--restart-env) set ahead of it, or
+     * none. A session running in no herdr tab, or whose process did not end, is not: nothing is typed over a Claude Code
+     * still there.
      * @param {string} sessionId
+     * @param {'given' | 'none'} variables — those given set ahead of Claude Code, or none: a plain restart
      * @returns {Promise<import('../public/model/herdr.js').TabChange>}
      */
-    async restart(sessionId) {
+    async restart(sessionId, variables) {
       const view = await currentView();
       const pane = view?.snapshot.panes.find((one) => one.agent === 'claude' && view.sessionByPane.get(one.paneId) === sessionId);
       const record = latestRecords(await readRecords()).get(sessionId);
@@ -407,7 +431,7 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
       latest = undefined;
       // the shell is back once Claude Code is gone: what is typed meanwhile waits for it
       await delay(shellStepMs);
-      const started = await startAgent(pane.paneId, 'claude', { session: sessionId, as: 'resume' }, shellVariables(restart.env, restart.shell));
+      const started = await startAgent(pane.paneId, 'claude', { session: sessionId, as: 'resume' }, shellVariables(variables === 'given' ? restart.env : [], restart.shell));
       return started ? { ok: true } : { ok: false, error: 'failed' };
     },
     /**

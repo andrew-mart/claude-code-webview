@@ -180,7 +180,7 @@ export async function startServer({ index, host, port, pollMs, composer, bookmar
  * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, notes: import('./notes.js').Notes, pins: import('./pins.js').Pins, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, chatgptUsage: ReadUsage, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, kept: Kept,codexInUse: () => Promise<boolean> }} Deps
  *   instance: this run of the viewer, told apart from any other — see /api/machine; vscode: VS Code's web server
  *   behind /vscode/, none when the viewer runs none
- * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'focusTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'createWorkspace' | 'history' | 'reopen' | 'restart'>} HerdrView
+ * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'forkedFrom' | 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'focusTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'createWorkspace' | 'history' | 'reopen' | 'restart'>} HerdrView
  * @typedef {Pick<ReturnType<typeof import('./terminal.js').createTerminals>, 'stream' | 'type'>} Terminals
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
  * @typedef {{ origin: string, host: string }} PublicAddress — where the page is opened from outside, behind a tunnel:
@@ -627,9 +627,10 @@ async function handleWrite(deps, url, request, response) {
       }
       return sendJson(response, await deps.pins.change({ folder: await notesFolder(deps, sessionId), session: sessionId }, scope, change));
     }
-    // its Claude Code ended and started again in its herdr tab, resuming it with the variables the viewer was given
+    // its Claude Code ended and started again in its herdr tab, resuming it — with the variables the viewer was given, or,
+    // asked so, plainly; a page that tells neither, from before plain restarts, asks for the variables
     case '/api/session/restart':
-      return sendJson(response, await deps.herdrView.restart(sessionId));
+      return sendJson(response, await deps.herdrView.restart(sessionId, isRecord(body) && body.variables === 'none' ? 'none' : 'given'));
     case '/api/btw':
       return askAside(deps, sessionId, isRecord(body) && typeof body.question === 'string' ? body.question : '', response);
     case '/api/bookmarks': {
@@ -1167,7 +1168,7 @@ async function unwatchFeed(deps, body, response) {
  */
 function feedOf(deps, { id, agentId, tail, from }) {
   return {
-    locate: agentId === null ? () => deps.index.find(id) : () => deps.index.findSubagent(id, agentId),
+    locate: agentId === null ? () => transcriptOrForkedFrom(deps, id) : () => deps.index.findSubagent(id, agentId),
     running: agentId === null ? () => deps.isRunning(id) : async () => false,
     sessionStatus: agentId === null ? () => deps.sessionStatus(id) : async () => undefined,
     scope: agentId === null ? /** @type {const} */ ('main') : /** @type {const} */ ('subagent'),
@@ -1179,6 +1180,22 @@ function feedOf(deps, { id, agentId, tail, from }) {
     version: deps.build,
     from,
   };
+}
+
+/**
+ * A session's transcript; for a fork with none of its own yet — a tab duplicated from the page, whose transcript Claude
+ * Code writes with its first new message — the transcript of the session it was forked from, which holds its
+ * conversation so far. The fork's own, once written, holds that conversation again and what came after: the feed starts
+ * over from it (stream.js).
+ * @param {Deps} deps
+ * @param {string} id
+ * @returns {Promise<string | undefined>}
+ */
+async function transcriptOrForkedFrom(deps, id) {
+  const own = await deps.index.find(id);
+  if (own !== undefined) return own;
+  const forkedFrom = await deps.herdrView.forkedFrom(id);
+  return forkedFrom === undefined ? undefined : deps.index.find(forkedFrom);
 }
 
 /** A token is short: one longer is none of the viewer's. */

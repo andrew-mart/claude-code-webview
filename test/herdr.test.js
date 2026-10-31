@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { claudePaneIds, foregroundPids, paneIoOf, parseSavedHerdr, resolveHerdr, toTerminalInput } from '../server/herdr.js';
+import { claudePaneIds, foregroundPids, forkedFrom, paneIoOf, parseSavedHerdr, resolveHerdr, toTerminalInput } from '../server/herdr.js';
 
 test('resolveHerdr_Should_PreferPaneEnvironmentThenSavedSettingsThenPath', () => {
   const pane = { HERDR_BIN_PATH: 'C:\\tools\\herdr\\herdr.exe', HERDR_SOCKET_PATH: 'C:\\Users\\dev\\.config\\herdr\\sessions\\main\\herdr.sock' };
@@ -80,5 +80,26 @@ test('paneIoOf_Should_TellHerdrMissing_FromPaneGone', async () => {
   assert.deepEqual(
     [await missing.read('w2:p2'), await missing.type('w2:p2', 'x'), await gone.read('w2:p2'), await gone.type('w2:p2', 'x')],
     [{ ok: false, missing: true }, { ok: false, error: 'herdr-missing' }, { ok: false, missing: false }, { ok: false, error: 'gone' }],
+  );
+});
+
+// A tab duplicated from the page runs Claude Code as `--resume <id> --fork-session`: the session it goes on from is read
+// off the process's command line, as herdr tells it — none for a process that resumes without forking, or another one
+test('forkedFrom_Should_ReadSessionProcessForkedFrom', () => {
+  /** @param {readonly string[]} argv */
+  const infoOf = (argv) => ({
+    id: 'cli:pane:process_info',
+    result: { process_info: { foreground_process_group_id: 135764, foreground_processes: [{ argv, argv0: 'claude.exe', name: 'claude.exe', pid: 135764 }], pane_id: 'w4B:pE', shell_pid: 131508 }, type: 'pane_process_info' },
+  });
+  const fork = infoOf(['claude.exe', '--dangerously-skip-permissions', '--resume', 'f791c874-a87b-4d29-bc69-06f248ac2bce', '--fork-session']);
+
+  assert.deepEqual(
+    [
+      forkedFrom(fork, 135764),
+      forkedFrom(infoOf(['claude.exe', '--resume', 'f791c874-a87b-4d29-bc69-06f248ac2bce']), 135764),
+      forkedFrom(fork, 94168),
+      forkedFrom({ error: { code: 'protocol_mismatch' } }, 135764),
+    ],
+    ['f791c874-a87b-4d29-bc69-06f248ac2bce', undefined, undefined, undefined],
   );
 });

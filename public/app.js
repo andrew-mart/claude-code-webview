@@ -37,6 +37,8 @@ import { createPinsStore } from './view/pins-store.js';
 import { createPinsView } from './view/pins-view.js';
 import { scopesOf } from './model/pins.js';
 import { createNotesView } from './view/notes-view.js';
+import { createTabSwitcher } from './view/tab-switcher.js';
+import { noteOpened, parseRecent, switcherEntries } from './model/recent-tabs.js';
 import { createNoteDraft, createNotePanel } from './view/note-panel.js';
 import { createNotesHistoryPanel } from './view/notes-history-view.js';
 import { h } from './view/dom.js';
@@ -159,6 +161,9 @@ const seenAnswers = createSeenStore(storageOrNone());
 const machine = fetch('/api/machine')
   .then((response) => (response.ok ? response.json() : undefined))
   .then(parseMachine, () => undefined);
+/** The sessions and terminals opened lately, the latest first, as the browser keeps them for Ctrl+Tab — read as the page is made. */
+const recentTabsKey = 'viewer.recentTabs';
+const recentTabsKept = 40;
 const page = createPage();
 const layout = byId('layout', HTMLElement);
 // a file's project: the open session's folder when the file is in it, else the file's own folder
@@ -310,6 +315,11 @@ function createPage() {
     },
     reopen: reopenSession,
     now: () => Date.now(),
+    // the icon a workspace has while it is open; a closed one's, the emoji its name carries
+    iconOf: (workspace) => {
+      const open = herdrLayout.workspaces.find((one) => one.label === workspace);
+      return open === undefined ? splitTabIcon(workspace).icon : open.icon;
+    },
   });
   /** The history panel drawn anew, while it shows: the open session, the list or the history changed. */
   const redrawHistory = () => {
@@ -318,6 +328,18 @@ function createPage() {
   /** What herdr shows (server/herdr-view.js): the sidebar's herdr mode and the tabs above the open session. */
   /** @type {import('./model/herdr.js').HerdrLayout} */
   let herdrLayout = { herdr: false, workspaces: [] };
+  /** The sessions and terminals opened, the latest first, kept by the browser: Ctrl+Tab switches among their tabs. */
+  let recentTabs = recentOpened();
+  const tabSwitcher = createTabSwitcher({
+    // the agents kept lit show their lamps lit, as in the session list
+    entries: () => switcherEntries(recentTabs, keptLit(herdrLayout, keptPanes)),
+    open: (place) => {
+      location.hash = place.kind === 'session' ? `#/${place.id}` : `#/pane/${place.id}`;
+    },
+    // drawn as the session list draws its rows, its robots going on from where the list's are
+    rowOf: (entry) => herdrSidebar.rowOf(entry, seenAnswers.get()),
+  });
+  document.body.append(tabSwitcher.element);
   let herdrKnown = '';
   /** The agents kept lit to come back to, as the viewer keeps them for every device (model/lamps.js: keptLit). */
   /** @type {import('./model/lamps.js').KeptPanes} */
@@ -393,6 +415,8 @@ function createPage() {
   });
   sidebarHead.show({ mode: 'sessions', herdr: false });
   const tabBar = createTabBar({
+    keptLit: (pane) => keptNow(pane, keptPanes),
+    keepLit: (pane) => page.toggleKept(pane),
     rename: (tab, label) => changeTab('/api/tab/rename', { tab, label }),
     close: (tab) => changeTab('/api/tab/close', { tab }),
     move: (tab, place) => changeTab('/api/tab/move', { tab, place }),
@@ -992,6 +1016,10 @@ function createPage() {
     },
     openFromHash() {
       const opened = openedAt(location.hash);
+      if (opened !== undefined) {
+        recentTabs = noteOpened(recentTabs, opened, recentTabsKept);
+        writeStorage(recentTabsKey, JSON.stringify(recentTabs));
+      }
       if (opened?.kind === 'session') open(opened.id);
       else if (opened?.kind === 'pane') openPane(opened.id);
       else if (current === undefined && currentPane === undefined) main.replaceChildren(emptyState);
@@ -1663,9 +1691,21 @@ function herdrTabButtonFor(sessionId) {
  * @returns {{ row: HTMLElement, show: (layout: import('./model/herdr.js').HerdrLayout) => void }}
  */
 function restartButtonFor(sessionId) {
-  const button = h('button', { className: 'head-restart', attrs: { type: 'button' } });
-  const row = h('div', { className: 'head-detail' }, [h('dt', { text: 'Restart' }), h('dd', {}, [button])]);
-  return { row, show: restartButton(button, sessionId, () => changeTab('/api/session/restart', { session: sessionId })) };
+  /** @param {'none' | 'given'} variables */
+  const made = (variables) => {
+    const button = h('button', { className: 'head-restart', attrs: { type: 'button' } });
+    return { button, show: restartButton(button, sessionId, { variables, restart: () => changeTab('/api/session/restart', { session: sessionId, variables }) }) };
+  };
+  const [plain, given] = [made('none'), made('given')];
+  const row = h('div', { className: 'head-detail' }, [h('dt', { text: 'Restart' }), h('dd', { className: 'head-restarts' }, [plain.button, given.button])]);
+  return {
+    row,
+    /** @param {import('./model/herdr.js').HerdrLayout} layout */
+    show: (layout) => {
+      plain.show(layout);
+      given.show(layout);
+    },
+  };
 }
 
 /**
@@ -1863,6 +1903,17 @@ const foldersKey = 'viewer.workspaceFolders';
 /** The order the herdr sidebar lists the sessions in: their lamps lit first, or the latest change first. */
 const sessionOrderKey = 'viewer.sessionOrder';
 
+/** @returns {readonly import('./model/herdr.js').Opened[]} */
+function recentOpened() {
+  const stored = readStorage(recentTabsKey);
+  if (stored === undefined) return [];
+  try {
+    return parseRecent(JSON.parse(stored));
+  } catch {
+    return []; // not what the page wrote: none opened
+  }
+}
+
 /** @returns {string[]} */
 function typedFolders() {
   const stored = readStorage(foldersKey);
@@ -1882,7 +1933,7 @@ function typedFolders() {
  * herdr taken to a tab — from the tab bar, the sidebar or over a session; once done the page looks at herdr again, so the
  * change shows at once.
  * @param {'/api/tab/rename' | '/api/tab/close' | '/api/tab/focus' | '/api/tab/move' | '/api/workspace/rename' | '/api/workspace/close' | '/api/workspace/icon' | '/api/herdr/hide' | '/api/herdr/show' | '/api/session/restart'} path
- * @param {{ tab: string, label?: string } | { tab: string, place: number } | { workspace: string, label?: string } | { workspace: string, icon: string | null } | { pane: string } | { session: string } | Record<string, never>} change
+ * @param {{ tab: string, label?: string } | { tab: string, place: number } | { workspace: string, label?: string } | { workspace: string, icon: string | null } | { pane: string } | { session: string, variables: 'none' | 'given' } | Record<string, never>} change
  *   — an icon: one of Lucide's, kept for the workspace; null: none
  * @returns {Promise<import('./model/herdr.js').TabChange>}
  */

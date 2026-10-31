@@ -45,6 +45,16 @@ export function tabTarget(tab) {
 }
 
 /**
+ * The pane of a tab whose agent the tab stands for — its lamp kept lit from the tab: the one with a session, as the tab
+ * opens it, else the first with an agent.
+ * @param {HerdrTab} tab
+ * @returns {HerdrPane | undefined} — none for a tab with no agent in it, a terminal
+ */
+export function agentPaneOf(tab) {
+  return tab.panes.find((pane) => pane.agent !== undefined && pane.session !== undefined) ?? tab.panes.find((pane) => pane.agent !== undefined);
+}
+
+/**
  * The session Claude Code started in a pane since the page opened its terminal: the page goes to it.
  * @param {HerdrLayout} layout
  * @param {string} paneId

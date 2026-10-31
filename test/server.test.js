@@ -22,6 +22,8 @@ import { createVsCode } from '../server/vscode.js';
 import net from 'node:net';
 
 const sessionId = '3f2c9a50-1111-4222-8333-944455556666';
+/** A session forked from it — a tab duplicated from the page — with no transcript of its own yet. */
+const forkedSession = '6f0e1d2c-3333-4444-8555-966677788899';
 const at = '2026-10-09T07:02:11.686Z';
 
 test('stream_Should_SendLiveModelAndWindowBeforeAnyMessages', async (t) => {
@@ -139,8 +141,9 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // tabs renamed and closed are recorded
   /** @type {string[][]} */
   const tabChanges = [];
-  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'focusTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'createWorkspace' | 'history' | 'reopen' | 'restart'>} */
+  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'forkedFrom' | 'layout' | 'renameTab' | 'closeTab' | 'focusTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'createWorkspace' | 'history' | 'reopen' | 'restart'>} */
   const herdrView = {
+    forkedFrom: async (id) => (id === forkedSession ? sessionId : undefined),
     workspacesOf: async (listed) => ({ herdr: true, sessions: Object.fromEntries(listed.map(({ id }) => [id, 'web'])), icons: {} }),
     layout: async () => ({ herdr: true, workspaces: [webWorkspace] }),
     history: async () => ({ [sessionId]: closedPlace }),
@@ -160,8 +163,8 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
       tabChanges.push(['focus', tab]);
       return { ok: true };
     },
-    restart: async (session) => {
-      tabChanges.push(['restart', session]);
+    restart: async (session, variables) => {
+      tabChanges.push(['restart', session, variables]);
       return { ok: true };
     },
     moveTab: async (tab, place) => {
@@ -309,17 +312,27 @@ test('tabs_Should_PassRenameAndCloseFromViewerPage_And_RefuseWhatIsNoTab', async
   );
 });
 
-// A session restarted from its page: herdr's view restarts it where it runs; what is no session id is refused before
-// herdr
-test('sessionRestart_Should_PassFromViewerPage_And_RefuseWhatIsNoSession', async (t) => {
+// A session restarted from its page: herdr's view restarts it where it runs — plainly, or with the variables given, as a
+// page that tells neither asks; what is no session id is refused before herdr
+test('sessionRestart_Should_PassFromViewerPage_PlainOrWithVariables_And_RefuseWhatIsNoSession', async (t) => {
   const { port, tabChanges } = await withServer(t);
 
   const restarted = await post(port, '/api/session/restart', pageHeaders(port), JSON.stringify({ session: sessionId }));
+  await post(port, '/api/session/restart', pageHeaders(port), JSON.stringify({ session: sessionId, variables: 'none' }));
+  await post(port, '/api/session/restart', pageHeaders(port), JSON.stringify({ session: sessionId, variables: 'given' }));
   const strange = await post(port, '/api/session/restart', pageHeaders(port), JSON.stringify({ session: '$(reboot)' }));
 
   assert.deepEqual(
     { reply: [restarted.status, JSON.parse(restarted.body)], refused: strange.status, tabChanges },
-    { reply: [200, { ok: true }], refused: 400, tabChanges: [['restart', sessionId]] },
+    {
+      reply: [200, { ok: true }],
+      refused: 400,
+      tabChanges: [
+        ['restart', sessionId, 'given'],
+        ['restart', sessionId, 'none'],
+        ['restart', sessionId, 'given'],
+      ],
+    },
   );
 });
 
@@ -1188,6 +1201,35 @@ test('stream_Should_ShowTranscriptThatAppearsAfterItWasMissing', async (t) => {
   const after = (await Promise.race([next(), new Promise((done) => setTimeout(() => done({ event: 'nothing' }), 2000))])).event;
 
   assert.deepEqual([before, entries.event, uuids(entries), after], ['missing', 'entries', ['f1'], 'ready']);
+});
+
+// A tab duplicated from the page runs a fork of its session, whose transcript Claude Code writes only with its first new
+// message: until then the fork's feed is the conversation it was forked from; once the fork's own transcript is written —
+// that conversation again, and what came after — the feed starts over from it
+test('stream_Should_ShowConversationForkedFrom_UntilForksOwnTranscriptIsWritten', async (t) => {
+  const { root, base } = await withServer(t);
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const response = await fetch(`${base}/api/stream?session=${forkedSession}`, { signal: controller.signal });
+  assert.ok(response.body);
+  const next = sseEvents(response.body);
+  /** The next event of these kinds, those of others passed by — waited for three seconds, not forever. @param {readonly string[]} kinds */
+  const nextOf = (kinds) => {
+    const found = (async () => {
+      for (;;) {
+        const event = await next();
+        if (kinds.includes(event.event)) return event;
+      }
+    })();
+    return Promise.race([found, new Promise((done) => setTimeout(() => done({ event: 'nothing' }), 3000))]);
+  };
+
+  const forkedFromFeed = uuids(await nextOf(['entries', 'missing']));
+  await writeFile(join(root, 'D--dev-x', `${forkedSession}.jsonl`), promptLine('u1', 'First question') + childPrompt('f2', 'u1', 'And the fork goes on'));
+  const startedOver = (await nextOf(['reset', 'entries'])).event;
+  const ownFeed = uuids(await nextOf(['entries']));
+
+  assert.deepEqual({ forkedFromFeed, startedOver, ownFeed }, { forkedFromFeed: ['u1'], startedOver: 'reset', ownFeed: ['u1', 'f2'] });
 });
 
 test('stream_Should_RebuildFeedWhenSessionIsRewoundWhileOpen', async (t) => {
