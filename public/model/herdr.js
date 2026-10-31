@@ -1,6 +1,7 @@
 // @ts-check
 // What herdr shows, as the page gets it from /api/herdr (server/herdr-view.js): workspaces, their tabs, the panes in
 // them — and in a pane with Claude Code, its session.
+import { paneLamp } from './lamps.js';
 import { isRecord, text } from './narrow.js';
 
 /**
@@ -17,6 +18,7 @@ import { isRecord, text } from './narrow.js';
  * @typedef {{ herdr: boolean, claudeGpt?: true, restartEnv?: readonly string[], workspaces: readonly HerdrWorkspace[] }} HerdrLayout — herdr: whether it answers;
  *   restartEnv: the variables a session restarted from the page starts with, each NAME=VALUE, none when there are none
  * @typedef {{ ok: true, target: string } | { ok: false, error: 'failed' }} NewTab — a tab opened from the page; target: its page address
+ * @typedef {'lamps' | 'activity'} SessionOrder — the sessions with their lamp lit first, or by the latest change alone
  * @typedef {'shell' | 'claude' | 'claude-gpt' | 'codex'} TabStart — the shell, ordinary Claude Code, Claude Code through GPT, or Codex
  * @typedef {'refuse' | 'create'} MissingFolder — what a new workspace does of a folder that is not there: opens nothing,
  *   or makes it first
@@ -173,21 +175,31 @@ function parsePane(raw) {
 }
 
 /**
- * Every session herdr runs — a pane with a coding agent, in any workspace — as herdr lists its agents: the one whose
- * agent changed state last first. The search keeps those whose workspace, tab or terminal title match, ignoring case.
+ * Every session herdr runs — a pane with a coding agent, in any workspace — in the order asked: those with their lamp
+ * lit first — at work, asking, done with an answer not seen, kept to come back to (lamps.js) — then the idle ones,
+ * each part as herdr lists its agents, the one whose agent changed state last first; or by that alone. The search
+ * keeps those whose workspace, tab or terminal title match, ignoring case.
  * @param {readonly HerdrWorkspace[]} workspaces
  * @param {string} search — the search box text
+ * @param {import('./lamps.js').SeenPanes} seen — the answers seen, their lamps out
+ * @param {SessionOrder} order
  * @returns {{ workspace: HerdrWorkspace, tab: HerdrTab, pane: HerdrPane }[]}
  */
-export function sessionsByActivity(workspaces, search) {
+export function sessionsByActivity(workspaces, search, seen, order) {
   const wanted = search.trim().toLowerCase();
   const sessions = workspaces.flatMap((workspace) =>
     workspace.tabs.flatMap((tab) => tab.panes.filter((pane) => pane.agent !== undefined).map((pane) => ({ workspace, tab, pane }))),
   );
   const found =
     wanted === '' ? sessions : sessions.filter(({ workspace, tab, pane }) => [workspace.label, tab.label, pane.title].some((value) => value !== undefined && value.toLowerCase().includes(wanted)));
+  const lit = (/** @type {HerdrPane} */ pane) => {
+    const lamp = paneLamp(pane, seen);
+    return lamp !== 'idle' && lamp !== 'unknown';
+  };
+  /** @param {HerdrPane} one @param {HerdrPane} other */
+  const lampsFirst = (one, other) => (order === 'lamps' ? Number(lit(other)) - Number(lit(one)) : 0);
   // the panes herdr has not seen an agent change in last, in herdr's own order
-  return found.sort((a, b) => (b.pane.activity ?? -1) - (a.pane.activity ?? -1));
+  return found.sort((a, b) => lampsFirst(a.pane, b.pane) || (b.pane.activity ?? -1) - (a.pane.activity ?? -1));
 }
 
 /**

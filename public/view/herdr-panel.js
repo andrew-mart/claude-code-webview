@@ -356,11 +356,12 @@ function link(target, className, children) {
 
 /**
  * @typedef {import('../model/herdr.js').TabChange} TabChange
- * @typedef {{ createWorkspace: (label: string, folder: string, start: import('../model/herdr.js').TabStart, missing: import('../model/herdr.js').MissingFolder) => Promise<import('../model/herdr.js').NewWorkspace>, open: (target: string) => void, folders: () => readonly string[], foldersOnDisk: (typed: string) => Promise<readonly string[]>, separator: () => import('../model/folders.js').PathSeparator, renameWorkspace: (workspaceId: string, label: string) => Promise<TabChange>, closeWorkspace: (workspaceId: string) => Promise<TabChange>, setWorkspaceIcon: (workspaceId: string, icon: string | undefined) => Promise<TabChange>, iconTags: () => Promise<Readonly<Record<string, readonly string[]>>>, renameTab: (tabId: string, label: string) => Promise<TabChange>, closeTab: (tabId: string) => Promise<TabChange>, hidePane: (paneId: string) => Promise<TabChange>, showHidden: () => Promise<TabChange>, keptLit: (pane: import('../model/herdr.js').HerdrPane) => boolean, keepLit: (pane: import('../model/herdr.js').HerdrPane) => void }} SidebarActions
+ * @typedef {{ createWorkspace: (label: string, folder: string, start: import('../model/herdr.js').TabStart, missing: import('../model/herdr.js').MissingFolder) => Promise<import('../model/herdr.js').NewWorkspace>, open: (target: string) => void, folders: () => readonly string[], foldersOnDisk: (typed: string) => Promise<readonly string[]>, separator: () => import('../model/folders.js').PathSeparator, renameWorkspace: (workspaceId: string, label: string) => Promise<TabChange>, closeWorkspace: (workspaceId: string) => Promise<TabChange>, setWorkspaceIcon: (workspaceId: string, icon: string | undefined) => Promise<TabChange>, iconTags: () => Promise<Readonly<Record<string, readonly string[]>>>, renameTab: (tabId: string, label: string) => Promise<TabChange>, closeTab: (tabId: string) => Promise<TabChange>, hidePane: (paneId: string) => Promise<TabChange>, showHidden: () => Promise<TabChange>, keptLit: (pane: import('../model/herdr.js').HerdrPane) => boolean, keepLit: (pane: import('../model/herdr.js').HerdrPane) => void, sessionOrder: { value: () => import('../model/herdr.js').SessionOrder, choose: (order: import('../model/herdr.js').SessionOrder) => void } }} SidebarActions
  *   — createWorkspace, and the renames and closings, resolve once the page shows the change; open goes to a page address;
  *   folders: the folders to offer for a new workspace — typed before, where sessions ran; foldersOnDisk: those on the
  *   viewer's computer for what is typed, offered after them; separator: how that computer parts a path; keptLit: whether an agent is
- *   kept lit to come back to now; keepLit: it marked so, or its mark taken off (model/lamps.js)
+ *   kept lit to come back to now; keepLit: it marked so, or its mark taken off (model/lamps.js); sessionOrder: how the
+ *   sessions are listed, chosen at the head of their list — their lamps lit first, or the latest change first
  * @typedef {{ atHand: readonly string[], current: string | undefined, setIcon: (icon: string | undefined) => Promise<TabChange>, tags: () => Promise<Readonly<Record<string, readonly string[]>>> }} RowIcon
  *   — a row's icon, picked as it is named: the emoji at hand; the icon now; how one its name cannot hold — Lucide's — is
  *   kept, or taken back; the words Lucide's icons are found by
@@ -456,7 +457,7 @@ const newWorkspaceRefusals = {
  * @param {HTMLElement} element — the sidebar's place for it
  * @param {SidebarActions} actions
  */
-export function createHerdrSidebar(element, { createWorkspace, open, folders, foldersOnDisk, separator, renameWorkspace, closeWorkspace, setWorkspaceIcon, iconTags, renameTab, closeTab, hidePane, showHidden, keptLit, keepLit }) {
+export function createHerdrSidebar(element, { createWorkspace, open, folders, foldersOnDisk, separator, renameWorkspace, closeWorkspace, setWorkspaceIcon, iconTags, renameTab, closeTab, hidePane, showHidden, keptLit, keepLit, sessionOrder }) {
   /** How long each workspace and agent has been at work: their robots' story goes on across redrawing. */
   const clock = createWorkClock(() => Date.now());
   let shown = '';
@@ -772,6 +773,21 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, fo
     });
     return [button];
   };
+  /** The button that names the order the sessions are listed in; a press goes to the other, the list drawn anew. */
+  const orderButton = () => {
+    const now = sessionOrder.value();
+    const titles = {
+      lamps: 'The sessions with their lamp lit first — at work, waiting, done, kept — then the idle; press for the latest change first',
+      activity: 'The latest change first, lamps or not; press for the sessions with their lamp lit first',
+    };
+    const button = h('button', { className: 'herdr-order', text: now === 'lamps' ? 'Lamps first' : 'Latest first', title: titles[now], attrs: { type: 'button' } });
+    button.addEventListener('click', () => {
+      sessionOrder.choose(now === 'lamps' ? 'activity' : 'lamps');
+      shown = '';
+      if (given !== undefined) sidebar.render(given.layout, given.opened, given.search, given.seen);
+    });
+    return button;
+  };
   const sidebar = {
     newButton,
     /**
@@ -784,7 +800,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, fo
       given = { layout, opened, search, seen };
       if (busy) return;
       const workspaces = searchLayout(layout.workspaces, search);
-      const sessions = sessionsByActivity(layout.workspaces, search);
+      const sessions = sessionsByActivity(layout.workspaces, search, seen, sessionOrder.value());
       const place = opened === undefined ? undefined : placeOf(layout, opened);
       const look = JSON.stringify([workspaces, sessions.map(({ pane }) => pane.id), [...seen]]);
       const pick = JSON.stringify([place?.workspace.id, opened]);
@@ -853,7 +869,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, fo
       });
       markOpen(place, opened);
       workspacesList.replaceChildren(...list);
-      head.replaceChildren(`Sessions · ${listed.length}`, ...hiddenShown(sessions.length - listed.length));
+      head.replaceChildren(`Sessions · ${listed.length}`, orderButton(), ...hiddenShown(sessions.length - listed.length));
       tabsList.replaceChildren(...rows);
     },
   };

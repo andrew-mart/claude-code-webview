@@ -23,7 +23,7 @@ const { createSessionHeader } = await import('../public/view/session-header.js')
  * A session's header, with no folder or branch known yet and nothing around it.
  * @param {string} sessionId
  */
-const headerOf = (sessionId) => createSessionHeader({ sessionId, place: undefined, currentBranch: async () => undefined, tables: { value: () => 'default', choose: () => undefined }, leading: window.document.createElement('div'), navigation: [], folds: [], tools: [] });
+const headerOf = (sessionId) => createSessionHeader({ sessionId, place: undefined, currentBranch: async () => undefined, tables: { value: () => 'default', choose: () => undefined }, leading: window.document.createElement('div'), navigation: [], folds: [], tools: [], details: [] });
 
 // On a narrow screen the buttons used less there fold into the view menu, as its first group — the words of what they do
 // beside them, as the view buttons have — and come back to their places, in their order, once the screen is wide; one of
@@ -49,7 +49,7 @@ test('sessionHeader_Should_FoldLessUsedButtonsIntoViewMenu_OnNarrowScreen_AndBac
   const keep = button('keep');
   const vscode = button('vscode');
   const activity = button('activity');
-  const header = createSessionHeader({ sessionId: '0d3f9a2c-1b7e-4c55-9e0a-6f2d8b41c7e3', place: undefined, currentBranch: async () => undefined, tables: { value: () => 'default', choose: () => undefined }, leading: window.document.createElement('div'), navigation: [group(outline, history, changes, files), group(herdr, keep, vscode)], folds: [history, changes, herdr, vscode], tools: [group(activity)] });
+  const header = createSessionHeader({ sessionId: '0d3f9a2c-1b7e-4c55-9e0a-6f2d8b41c7e3', place: undefined, currentBranch: async () => undefined, tables: { value: () => 'default', choose: () => undefined }, leading: window.document.createElement('div'), navigation: [group(outline, history, changes, files), group(herdr, keep, vscode)], folds: [history, changes, herdr, vscode], tools: [group(activity)], details: [] });
   t.after(header.dispose);
   const shown = () => {
     const all = [...header.element.querySelectorAll('button[data-name]')].filter((one) => one instanceof window.HTMLElement);
@@ -102,6 +102,20 @@ test('sessionHeader_Should_ShowSessionId_ShortAmongFacts_InFullInDetails', (t) =
 
   assert.equal(header.element.querySelector('.head-facts .fact-session')?.textContent, '675eea90');
   assert.match(header.element.querySelector('.head-details')?.textContent ?? '', /675eea90-5475-430f-ad4a-86e0de5c27cb/);
+});
+
+// Rows the page adds to the details — what the session can be asked to do there, such as restarting it — stay at
+// their end, the same, as the details are drawn anew with the session's facts
+test('sessionHeader_Should_KeepRowsOfThePagesOwnInDetails_AsTheyAreDrawnAnew', (t) => {
+  const row = window.document.createElement('div');
+  const header = createSessionHeader({ sessionId: '675eea90-5475-430f-ad4a-86e0de5c27cb', place: undefined, currentBranch: async () => undefined, tables: { value: () => 'default', choose: () => undefined }, leading: window.document.createElement('div'), navigation: [], folds: [], tools: [], details: [row] });
+  t.after(header.dispose);
+  const last = () => header.element.querySelector('.head-details')?.lastElementChild;
+
+  const first = last() === row;
+  header.onMeta({ model: 'claude-opus-5-5', costUsd: 1.5 });
+
+  assert.deepEqual([first, last() === row], [true, true]);
 });
 
 // The id is copied in full from the details — for `claude --resume`, or to name the session elsewhere

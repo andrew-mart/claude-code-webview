@@ -33,7 +33,7 @@ const web = {
 };
 
 /** A sidebar nobody opens a workspace from. @type {import('../public/view/herdr-panel.js').SidebarActions} */
-const noActions = { createWorkspace: async () => ({ ok: false, error: 'failed' }), open: () => undefined, folders: () => [], foldersOnDisk: async () => [], separator: () => '/', renameWorkspace: async () => ({ ok: false, error: 'failed' }), closeWorkspace: async () => ({ ok: false, error: 'failed' }), setWorkspaceIcon: async () => ({ ok: false, error: 'failed' }), iconTags: async () => ({}), renameTab: async () => ({ ok: false, error: 'failed' }), closeTab: async () => ({ ok: false, error: 'failed' }), hidePane: async () => ({ ok: false, error: 'failed' }), showHidden: async () => ({ ok: false, error: 'failed' }), keptLit: () => false, keepLit: () => undefined };
+const noActions = { createWorkspace: async () => ({ ok: false, error: 'failed' }), open: () => undefined, folders: () => [], foldersOnDisk: async () => [], separator: () => '/', renameWorkspace: async () => ({ ok: false, error: 'failed' }), closeWorkspace: async () => ({ ok: false, error: 'failed' }), setWorkspaceIcon: async () => ({ ok: false, error: 'failed' }), iconTags: async () => ({}), renameTab: async () => ({ ok: false, error: 'failed' }), closeTab: async () => ({ ok: false, error: 'failed' }), hidePane: async () => ({ ok: false, error: 'failed' }), showHidden: async () => ({ ok: false, error: 'failed' }), keptLit: () => false, keepLit: () => undefined, sessionOrder: { value: () => 'lamps', choose: () => undefined } };
 
 test('tabBar_Should_OfferSeparateGptStartOnlyWhenConfigured', async () => {
   const { bar, asked, click } = barAboveSession();
@@ -414,6 +414,7 @@ test('herdrSidebar_Should_OpenNewWorkspace_FromItsNameAndFolder', async () => {
     folders: () => [],
     foldersOnDisk: async () => [],
     separator: () => '/',
+    sessionOrder: { value: () => 'lamps', choose: () => undefined },
     renameWorkspace: async () => ({ ok: false, error: 'failed' }),
     closeWorkspace: async () => ({ ok: false, error: 'failed' }),
     setWorkspaceIcon: async () => ({ ok: false, error: 'failed' }),
@@ -929,7 +930,7 @@ test('herdrSidebar_Should_LightReadyAnswer_UntilSeen', () => {
   const unseen = lamps();
   sidebar.render({ herdr: true, workspaces: [finished] }, undefined, '', new Map([['w2:p1', 5]]));
 
-  assert.deepEqual({ unseen, seen: lamps() }, { unseen: ['ready', 'idle', 'ready', 'idle'], seen: ['idle', 'idle', 'idle', 'idle'] });
+  assert.deepEqual({ unseen, seen: lamps() }, { unseen: ['ready', 'ready', 'idle', 'idle'], seen: ['idle', 'idle', 'idle', 'idle'] });
 });
 
 // An agent at work shows its robots' story, not a lamp
@@ -957,6 +958,41 @@ test('herdrSidebar_Should_ShowWorkspacesOwnStoryForEachOfItsAgents', () => {
 });
 
 // An agent that finished, its answer not seen, shows a robot at rest rather than a lamp
+// The sessions' order is chosen at the head of their list: their lamps lit first, or the latest change first alone —
+// the button names the order shown; a press goes to the other, and the list follows it at once
+test('herdrSidebar_Should_SwitchSessionsOrder_BetweenLampsFirstAndLatestChangeFirst', () => {
+  /** @type {import('../public/model/herdr.js').SessionOrder} */
+  let order = 'lamps';
+  /** @type {string[]} */
+  const chosen = [];
+  const element = window.document.createElement('div');
+  const finished = { ...web, tabs: web.tabs.map((tab, index) => (index === 0 ? { ...tab, panes: tab.panes.map((one) => ({ ...one, status: /** @type {const} */ ('done') })) } : tab)) };
+  const sidebar = createHerdrSidebar(element, {
+    ...noActions,
+    sessionOrder: {
+      value: () => order,
+      choose: (next) => {
+        chosen.push(next);
+        order = next;
+      },
+    },
+  });
+  const shown = () => ({ order: element.querySelector('.herdr-order')?.textContent, lamps: [...element.querySelectorAll('.herdr-tabs .herdr-status')].map((lamp) => lamp.getAttribute('data-status')) });
+
+  sidebar.render({ herdr: true, workspaces: [finished] }, undefined, '', new Map());
+  const lampsFirst = shown();
+  element.querySelector('.herdr-order')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+
+  assert.deepEqual(
+    { lampsFirst, latestFirst: shown(), chosen },
+    {
+      lampsFirst: { order: 'Lamps first', lamps: ['ready', 'idle', 'idle'] },
+      latestFirst: { order: 'Latest first', lamps: ['idle', 'ready', 'idle'] },
+      chosen: ['activity'],
+    },
+  );
+});
+
 test('herdrSidebar_Should_ShowRobotAtRest_WhenAnswerIsReady', () => {
   const element = window.document.createElement('div');
   const finished = { ...web, tabs: web.tabs.map((tab, index) => (index === 0 ? { ...tab, panes: tab.panes.map((one) => ({ ...one, status: /** @type {const} */ ('done') })) } : tab)) };
@@ -965,7 +1001,7 @@ test('herdrSidebar_Should_ShowRobotAtRest_WhenAnswerIsReady', () => {
 
   assert.deepEqual(
     [...element.querySelectorAll('.herdr-tabs .herdr-status')].map((lamp) => `${lamp.getAttribute('data-status')}:${lamp.querySelector('svg.rests') === null ? 'lamp' : 'rest'}`),
-    ['idle:lamp', 'ready:rest', 'idle:lamp'],
+    ['ready:rest', 'idle:lamp', 'idle:lamp'],
   );
 });
 

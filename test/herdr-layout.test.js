@@ -101,14 +101,29 @@ test('parseHerdrLayout_Should_KeepVariablesSessionsRestartWith', () => {
   });
 });
 
-// As herdr lists its agents: every session of every workspace, the one whose agent changed state last first; a pane
-// without an agent — a shell, nvim — is no session
-test('sessionsByActivity_Should_ListEverySessionOfEveryWorkspace_LatestActivityFirst', () => {
-  const found = (/** @type {string} */ text) => sessionsByActivity(layout.workspaces, text).map(({ workspace, tab, pane }) => `${workspace.label}/${tab.label}/${pane.id}`);
+// Every session of every workspace, in the order asked: those with their lamp lit — at work, asking, done with an answer
+// not seen, kept to come back to — above those idle, each part the one whose agent changed state last first, as herdr
+// lists its agents; or by that alone, lamps or not. A pane without an agent — a shell, nvim — is no session
+test('sessionsByActivity_Should_ListEverySessionOfEveryWorkspace_LitFirstOrLatestChangeFirst_AsAsked', () => {
+  /** @param {string} text @param {import('../public/model/lamps.js').SeenPanes} seen @param {import('../public/model/herdr.js').SessionOrder} [order] */
+  const found = (text, seen, order = 'lamps') => sessionsByActivity(layout.workspaces, text, seen, order).map(({ workspace, tab, pane }) => `${workspace.label}/${tab.label}/${pane.id}`);
 
-  assert.deepEqual(found(''), ['trip_plans/search/w2:p3', 'notebook/1/w3:p1', 'trip_plans/hotels/w2:p1']);
-  assert.deepEqual(found('NOTEBOOK'), ['notebook/1/w3:p1']);
-  assert.deepEqual(found(' eu '), ['trip_plans/search/w2:p3']);
+  assert.deepEqual(
+    {
+      unseen: found('', new Map()),
+      seen: found('', new Map([['w2:p1', 40]])),
+      searched: [found('NOTEBOOK', new Map()), found(' eu ', new Map())],
+      latestChange: found('', new Map(), 'activity'),
+    },
+    {
+      // the finished agent's answer not seen yet — its lamp lit — goes above the idle one that changed later
+      unseen: ['trip_plans/search/w2:p3', 'trip_plans/hotels/w2:p1', 'notebook/1/w3:p1'],
+      seen: ['trip_plans/search/w2:p3', 'notebook/1/w3:p1', 'trip_plans/hotels/w2:p1'],
+      searched: [['notebook/1/w3:p1'], ['trip_plans/search/w2:p3']],
+      // lamps or not: the latest change first
+      latestChange: ['trip_plans/search/w2:p3', 'notebook/1/w3:p1', 'trip_plans/hotels/w2:p1'],
+    },
+  );
 });
 
 // What the viewer says about a tab named or closed; a reply it does not know — or none — is a change not made

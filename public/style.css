@@ -781,6 +781,31 @@ button {
   text-transform: uppercase;
 }
 
+/* the order the sessions are listed in, named: a press goes to the other — at the head's end, the hidden ones' button
+   after it */
+.herdr-order {
+  margin-left: auto;
+  padding: 1px 7px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--text-3);
+  font: inherit;
+  font-weight: 500;
+  letter-spacing: inherit;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.herdr-order:hover {
+  background: var(--bg-hover);
+  color: var(--text-2);
+}
+
+.herdr-order + .herdr-hidden-show {
+  margin-left: 0;
+}
+
 /* the sessions hidden while idle: how many, a press shows them again */
 .herdr-hidden-show {
   margin-left: auto;
@@ -1944,13 +1969,52 @@ input.herdr-row-name.failed {
   color: var(--lamp-kept);
 }
 
-/* A session's restart asking for the second press that confirms it, and one that failed (restart-button.js). */
+/* Rows of the page's own in a session's details, each a dt and its dd in one element: they lie in the details' grid as
+   its other rows do, and go with the button they hold while it is hidden. */
+.head-detail {
+  display: contents;
+}
+
+.head-detail:has(> dd > button[hidden]) {
+  display: none;
+}
+
+/* A session's restart (restart-button.js): a button of words — the variables it restarts with — asking for the second
+   press that confirms it, and saying when it failed. */
+.head-restart {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.head-restart .icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+.head-restart:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
 .head-restart.asking {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--accent);
 }
 
 .head-restart.failed {
+  border-color: color-mix(in srgb, var(--danger) 50%, transparent);
   color: var(--danger);
 }
 

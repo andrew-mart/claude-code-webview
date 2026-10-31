@@ -372,6 +372,11 @@ function createPage() {
     showHidden: () => changeTab('/api/herdr/show', {}),
     keptLit: (pane) => keptNow(pane, keptPanes),
     keepLit: (pane) => page.toggleKept(pane),
+    // the browser keeps the order chosen; their lamps lit first until another is
+    sessionOrder: {
+      value: () => (readStorage(sessionOrderKey) === 'activity' ? 'activity' : 'lamps'),
+      choose: (order) => writeStorage(sessionOrderKey, order),
+    },
   });
   // the sidebar's head, one row: 🔍, ⇄ to the other list, and the list's own — ⚙ for the sessions', herdr's ＋ for a new
   // workspace; there is no herdr list before herdr is heard from
@@ -698,9 +703,9 @@ function createPage() {
     // the session runs and its folder lie, opened outside the page
     // those used less on a phone fold into the view menu there, with the words of what they do, for the title to have room
     const [tabHistory, branchChanges, vscode, fileManager] = [historyButton(historyView), changesButton(id), vscodeButton(folder), fileManagerButton(folder)];
-    const folds = [tabHistory, branchChanges, herdrTab.button, restart.button, vscode, fileManager].map(labelled);
-    const navigation = [headGroup([drawerButton('outline', 'list', 'Outline'), tabHistory, branchChanges, filesButton(folder)]), headGroup([herdrTab.button, restart.button, keepLit.button, vscode, fileManager])];
-    const header = createSessionHeader({ sessionId: id, place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation, folds, tools: settings.buttons() });
+    const folds = [tabHistory, branchChanges, herdrTab.button, vscode, fileManager].map(labelled);
+    const navigation = [headGroup([drawerButton('outline', 'list', 'Outline'), tabHistory, branchChanges, filesButton(folder)]), headGroup([herdrTab.button, keepLit.button, vscode, fileManager])];
+    const header = createSessionHeader({ sessionId: id, place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation, folds, tools: settings.buttons(), details: [restart.row] });
     const outlineElement = h('aside', { className: 'outline', attrs: { 'aria-label': 'Outline' } });
     const outline = createOutline({
       element: outlineElement,
@@ -1651,15 +1656,16 @@ function herdrTabButtonFor(sessionId) {
 }
 
 /**
- * The button over a session that restarts it — Claude Code quits in its herdr tab and resumes it there, with the
- * variables the viewer was given — once a second press confirms it; there while it runs in Claude Code in herdr.
+ * The row of a session's details that restarts it — Claude Code quits in its herdr tab and resumes it there, with the
+ * variables the viewer was given — once a second press confirms it; there while it runs in Claude Code in herdr, its
+ * button hidden — and the row with it — otherwise.
  * @param {string} sessionId
- * @returns {{ button: HTMLButtonElement, show: (layout: import('./model/herdr.js').HerdrLayout) => void }}
+ * @returns {{ row: HTMLElement, show: (layout: import('./model/herdr.js').HerdrLayout) => void }}
  */
 function restartButtonFor(sessionId) {
-  const button = iconButton('reload');
-  button.classList.add('head-restart');
-  return { button, show: restartButton(button, sessionId, () => changeTab('/api/session/restart', { session: sessionId })) };
+  const button = h('button', { className: 'head-restart', attrs: { type: 'button' } });
+  const row = h('div', { className: 'head-detail' }, [h('dt', { text: 'Restart' }), h('dd', {}, [button])]);
+  return { row, show: restartButton(button, sessionId, () => changeTab('/api/session/restart', { session: sessionId })) };
 }
 
 /**
@@ -1854,6 +1860,8 @@ function writeStorage(key, value) {
 
 /** Folders new workspaces were opened in, the latest first: offered when the next one's folder is typed. */
 const foldersKey = 'viewer.workspaceFolders';
+/** The order the herdr sidebar lists the sessions in: their lamps lit first, or the latest change first. */
+const sessionOrderKey = 'viewer.sessionOrder';
 
 /** @returns {string[]} */
 function typedFolders() {

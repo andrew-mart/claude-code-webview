@@ -1,7 +1,7 @@
 // @ts-check
 // The session header. The title and the status on top; under the title the session's facts at a glance — folder,
 // branch, model and effort, how full the context window is, cost, the session's id — which open into details with the
-// full values.
+// full values, and the rows the page adds there — what the session can be asked to do, such as restarting it.
 // The view buttons stand in a row on a wide screen and fold into a menu on a narrow one.
 import { formatTokens } from '../model/format.js';
 import { contextGauge, modelName } from '../model/session-facts.js';
@@ -33,16 +33,17 @@ const statusLooks = {
 const branchRefreshMs = 15_000;
 
 /**
- * @param {{ sessionId: string, place: SessionPlace | undefined, currentBranch: () => Promise<string | undefined>, tables: SessionTables, leading: HTMLElement, navigation: readonly HTMLElement[], folds: readonly HTMLElement[], tools: readonly HTMLElement[] }} parts
+ * @param {{ sessionId: string, place: SessionPlace | undefined, currentBranch: () => Promise<string | undefined>, tables: SessionTables, leading: HTMLElement, navigation: readonly HTMLElement[], folds: readonly HTMLElement[], tools: readonly HTMLElement[], details: readonly HTMLElement[] }} parts
  *   sessionId — the agent's id of the session, as its transcript is named;
  *   currentBranch — the branch checked out in the session's folder now (the transcript keeps the one it saw first);
  *   tables — how this session shows its tables, chosen in the details;
  *   leading — before the title (the session list's drawer button); navigation — buttons that always stay in view;
  *   folds — those of navigation's buttons used less on a narrow screen: there they fold into the view menu, as its first
  *   group, for the title to have room, and come back to their places on a wide one; tools — the view settings, folded
- *   into a menu on a narrow screen
+ *   into a menu on a narrow screen; details — rows of the page's own at the end of the details, each a dt and its dd in
+ *   one element, the same ones as the details are drawn anew
  */
-export function createSessionHeader({ sessionId, place, currentBranch, tables, leading, navigation, folds, tools }) {
+export function createSessionHeader({ sessionId, place, currentBranch, tables, leading, navigation, folds, tools, details: ownRows }) {
   const title = h('h1', { className: 'title' });
   const facts = h('button', { className: 'head-facts', attrs: { type: 'button', 'aria-expanded': 'false', title: 'Show session details' } });
   const details = h('dl', { className: 'head-details', attrs: { hidden: '' } });
@@ -63,7 +64,7 @@ export function createSessionHeader({ sessionId, place, currentBranch, tables, l
     document.title = `${title.textContent} — Claude Code`;
     const gauge = meta.model === undefined || meta.contextTokens === undefined ? undefined : contextGauge({ model: meta.model, tokens: meta.contextTokens, extended: meta.extendedContext === true, window: meta.contextWindow });
     facts.replaceChildren(...factChips({ sessionId, cwd: where?.cwd, branch, meta, gauge }), h('span', { className: 'facts-toggle' }, [icon('chevron')]));
-    details.replaceChildren(...detailRows({ sessionId, cwd: where?.cwd, branch, meta, gauge }), ...tablesRow(tables, render));
+    details.replaceChildren(...detailRows({ sessionId, cwd: where?.cwd, branch, meta, gauge }), ...tablesRow(tables, render), ...ownRows);
   };
 
   const setOpen = (/** @type {HTMLButtonElement} */ button, /** @type {boolean} */ open) => button.setAttribute('aria-expanded', String(open));

@@ -25,8 +25,8 @@ const runningIn = (agent) => ({
 });
 const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-// The button over a session restarts it — Claude Code quits and resumes it in its tab, with the variables the viewer
-// was given, which its title names — once a second press confirms it; it is there only while the session runs in Claude
+// The button in a session's details restarts it — Claude Code quits and resumes it in its tab, with the variables the
+// viewer was given, which it names — once a second press confirms it; it is there only while the session runs in Claude
 // Code in a herdr tab, and says so when the restart failed
 test('restartButton_Should_RestartSessionOnSecondPress_ShownWhileItRunsInClaudeInHerdr', async () => {
   const button = document.createElement('button');
@@ -44,8 +44,9 @@ test('restartButton_Should_RestartSessionOnSecondPress_ShownWhileItRunsInClaudeI
   const inCodex = shown();
   show(runningIn('claude'));
   const named = button.title.includes('CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1');
+  const ready = button.textContent;
   button.click();
-  const first = { ...shown(), restarts: asked };
+  const first = { ...shown(), restarts: asked, words: button.textContent };
   button.click();
   await settled();
   const second = { ...shown(), restarts: asked };
@@ -56,12 +57,13 @@ test('restartButton_Should_RestartSessionOnSecondPress_ShownWhileItRunsInClaudeI
   show({ herdr: true, workspaces: [] });
 
   assert.deepEqual(
-    { before, inCodex, named, first, second, failed, gone: button.hidden },
+    { before, inCodex, named, ready, first, second, failed, gone: button.hidden },
     {
       before: { hidden: true, asking: false, failed: false },
       inCodex: { hidden: true, asking: false, failed: false },
       named: true,
-      first: { hidden: false, asking: true, failed: false, restarts: 0 },
+      ready: 'Restart with CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1',
+      first: { hidden: false, asking: true, failed: false, restarts: 0, words: 'Press again to restart' },
       second: { hidden: false, asking: false, failed: false, restarts: 1 },
       failed: { hidden: false, asking: false, failed: true },
       gone: true,

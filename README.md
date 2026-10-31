@@ -184,8 +184,11 @@ the herdr view, the terminals, the input box, Stop and rewind are simply not sho
 
 The sidebar switches between "herdr" and "Sessions" with the button at its head that shows the other list's icon. In
 "herdr" it shows herdr's workspaces in herdr's order, each
-with its agents' status — working, waiting for you, done, idle — and under them, as herdr lists its agents, every
-session of every workspace: Claude Code, Codex and other agents, the one whose agent changed state last first. Above an
+with its agents' status — working, waiting for you, done, idle — and under them every session of every workspace:
+Claude Code, Codex and other agents, those with their lamp lit — at work, waiting for you, done with an answer not seen,
+kept to come back to — above the idle ones, and in each the one whose agent changed state last first, as herdr lists
+its agents; or, chosen at the head of the list ("Lamps first" / "Latest first", which the browser remembers), by the
+latest change alone. Above an
 open session — or terminal — the tabs of its workspace sit in a row, as in herdr, to switch between them. A session or
 tab with Claude Code or Codex opens its feed; any other tab — a shell, nvim, another agent — opens its terminal. Codex
 keeps no record of its processes: a Codex pane shows the thread Codex holds open in the pane's folder, and when a folder
@@ -321,8 +324,9 @@ in the box's place, "Resume here" — `/resume` typed into the tab, which keeps 
 and "New tab", a copy of the tab with Claude Code resuming the conversation there. A tab is told from the others by
 herdr's id of its terminal, kept with every session in `~/.claude-code-webview/workspaces.json`; a session seen before
 the viewer kept it is a closed tab of its own. While a session runs in a herdr tab, a button over it takes herdr to that
-tab, its workspace with it (`herdr tab focus`), and another restarts the session there: a second press confirms it, its
-Claude Code ends — its turn and its background commands with it — and starts again in the tab resuming it (`<command>
+tab, its workspace with it (`herdr tab focus`); and the session's details — a click on the line of its facts — offer to
+restart it there: a second press confirms it, its Claude Code ends — its turn and its background commands with it — and
+starts again in the tab resuming it (`<command>
 --resume <id>`), with the variables given by `--restart-env` set ahead of it — as PowerShell sets them on Windows,
 `$env:NAME='VALUE';`, and as a POSIX shell does elsewhere, `NAME=VALUE <command>`. Say Claude Code has stopped a
 session's idle background commands for want of memory: started with
@@ -411,7 +415,7 @@ Several computers? Give each its own tunnel, hostname and `--palette`, and the p
 | `node bin/claude-code-webview.js --no-herdr` | do not use herdr even if it is found: the page only reads sessions |
 | `node bin/claude-code-webview.js --claude-command my-claude` | start Claude Code with this command in a tab opened from the page (default: `claude`) |
 | `node bin/claude-code-webview.js --codex-command "codex --full-auto"` | start Codex with this command in a tab opened from the page, and `<command> resume <id>` to open a closed Codex session again (default: `codex`) |
-| `node bin/claude-code-webview.js --restart-env CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1` | a variable a session restarted from the page — by the button over it — starts again with, `NAME=VALUE`, the value with no space, quote or `$`; repeat for more |
+| `node bin/claude-code-webview.js --restart-env CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1` | a variable a session restarted from the page — from its details — starts again with, `NAME=VALUE`, the value with no space, quote or `$`; repeat for more |
 | `node bin/claude-code-webview.js --editor-command "code --goto {path}:{line}"` | open a file of the file panel in an editor of this computer; `{path}`, `{line}` and `{project}` — the nearest folder above the file with a `.sln`, `.slnx` or `.git` — are filled in; the program is started directly, not through a shell — on Windows name its `.exe`. Rider: `"C:/Program Files/JetBrains/Rider/bin/rider64.exe" {project} --line {line} {path}` |
 | `node bin/claude-code-webview.js --vscode "C:/Users/ann/AppData/Local/Programs/Microsoft VS Code/bin/code-tunnel.exe"` | run VS Code in the browser at `/vscode/`, opened from a button over a session: the VS Code CLI — `code-tunnel.exe` of VS Code on Windows, `code` elsewhere |
 | `node bin/claude-code-webview.js --install-shortcut` | Windows: desktop shortcut that starts the viewer in the background (`--start-menu` for the Start menu) |
