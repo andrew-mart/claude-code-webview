@@ -13,10 +13,12 @@ const { createFileEditor } = await import('../public/view/file-editor.js');
 
 /**
  * A viewer serving files from a map of path → text, each with its version — the text's count of writes — and the
- * panel's editor over it, an editor that keeps its text as typed.
+ * panel's editor over it, an editor that keeps its text as typed — written its own way as it takes the file, unless told
+ * not to — with a code's tools, unless told it edits prose.
  * @param {Record<string, string>} files
+ * @param {{ writes: (text: string) => string, tools: 'code' | 'prose' }} [kind]
  */
-function editing(files) {
+function editing(files, { writes, tools } = { writes: (same) => same, tools: 'code' }) {
   /** @type {Map<string, { text: string, version: number }>} */
   const disk = new Map(Object.entries(files).map(([path, text]) => [path, { text, version: 1 }]));
   /** @type {unknown[]} */
@@ -51,7 +53,7 @@ function editing(files) {
     fetchFile,
     makeEditor: async (_host, { text, line, onChange }) => {
       const made = {
-        text,
+        text: writes(text),
         line,
         /** @param {string} typed */
         typed: (typed) => {
@@ -62,7 +64,7 @@ function editing(files) {
       editor = made;
       const kept = { text, disposed: false };
       madeEditors.push(kept);
-      return { text: () => made.text, replace: (value) => (made.text = value), wordAtCursor: () => word, search: () => undefined, undo: () => undefined, redo: () => undefined, focus: () => undefined, dispose: () => (kept.disposed = true) };
+      return { tools, text: () => made.text, replace: (value) => (made.text = value), wordAtCursor: () => word, search: () => undefined, undo: () => undefined, redo: () => undefined, focus: () => undefined, dispose: () => (kept.disposed = true) };
     },
   });
   document.body.replaceChildren(files_.element);
@@ -108,6 +110,41 @@ test('fileEditor_Should_SaveTypedTextOverVersionRead_AndNextSaveFromVersionSaved
       afterFirst: 'Saved',
       disk: { text: 'export const perSecond = 30;\n', version: 3 },
     },
+  );
+});
+
+// A markdown file in the notes' editor written its own way — Milkdown's list marks — is the file unchanged as it opens:
+// nothing to save, nothing written over it, until it is typed into; then it is saved as the editor writes it
+test('fileEditor_Should_TakeFileAsTheEditorWritesIt_ForUnchanged_UntilTypedInto', async () => {
+  const page = editing({ 'D:/dev/shop/plan.md': '* one\n' }, { writes: (taken) => taken.replaceAll('* ', '- '), tools: 'prose' });
+  await page.files.open({ path: 'D:/dev/shop/plan.md', line: undefined, endLine: undefined });
+  const save = [...page.files.element.querySelectorAll('button')].find((one) => one.textContent === 'Save');
+  assert.ok(save instanceof window.HTMLButtonElement);
+
+  const opened = { status: page.status(), saving: !save.disabled };
+  page.editor()?.typed('- one\n- two\n');
+  page.press('Save');
+  await page.settle();
+
+  assert.deepEqual(
+    { opened, saved: page.saves.map((one) => (one instanceof Object && 'body' in one ? one.body : one)) },
+    { opened: { status: '', saving: false }, saved: [{ path: 'D:/dev/shop/plan.md', content: '- one\n- two\n', version: 'v1' }] },
+  );
+});
+
+// A file of prose — markdown in the notes' editor — has no code's tools over it: no finding and replacing, no
+// definitions or uses to look for; its Save, ↶ and ↷ stay
+test('fileEditor_Should_LeaveCodesToolsOut_ForProse', async () => {
+  const code = editing({ 'D:/dev/shop/limits.ts': 'export const perSecond = 10;\n' });
+  const prose = editing({ 'D:/dev/shop/plan.md': '- one\n' }, { writes: (same) => same, tools: 'prose' });
+  await code.files.open({ path: 'D:/dev/shop/limits.ts', line: undefined, endLine: undefined });
+  await prose.files.open({ path: 'D:/dev/shop/plan.md', line: undefined, endLine: undefined });
+  /** @param {ReturnType<typeof editing>} page */
+  const tools = (page) => [...page.files.element.querySelectorAll('.code-edit-bar button')].flatMap((one) => (one instanceof window.HTMLButtonElement && !one.hidden ? [one.title] : []));
+
+  assert.deepEqual(
+    { code: tools(code), prose: tools(prose) },
+    { code: ['Save (Ctrl+S)', 'Undo', 'Redo', 'Find and replace (Ctrl+F)', 'Go to definition', 'Find uses'], prose: ['Save (Ctrl+S)', 'Undo', 'Redo'] },
   );
 });
 

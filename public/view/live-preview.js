@@ -1,7 +1,8 @@
 // @ts-check
 // A note's markdown shown as it reads while it is edited, as Obsidian's live preview does: the marks of markdown — a
 // heading's #, emphasis' asterisks, a link's address, a code block's fences — hidden while the cursor is away from what
-// they mark, shown as soon as it touches it; bullets drawn as dots, a task's [ ] as a box to tick, a table as a table.
+// they mark, shown as soon as it touches it; bullets drawn as dots, a task's [ ] as a box to tick, a table as a table —
+// a click on a cell edits that cell in place, the table staying one.
 // The text itself is never changed: what is saved is the markdown as typed. A link — and a file's path in the text —
 // opens on Ctrl+click (note-editor-cm.js).
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
@@ -115,12 +116,71 @@ class RuleWidget extends WidgetType {
   }
 }
 
-/** A table drawn as the viewer draws one: a click on it puts the cursor in, its markdown there to edit. */
+/**
+ * A cell of a table: its row among the table's lines — the header 0, the delimiter 1, then the rows — and its place in
+ * the row.
+ * @typedef {{ row: number, cell: number }} CellAt
+ */
+
+/**
+ * The cell to go on editing in once its table is drawn anew — the edit of the one before changed the table's text: told
+ * by the transaction that made the edit, for the drawing it makes, and by none after it.
+ */
+const editCellNext = StateEffect.define({ map: (/** @type {CellAt & { from: number }} */ at, mapping) => ({ ...at, from: mapping.mapPos(at.from) }) });
+const cellToEdit = StateField.define({
+  create: /** @returns {(CellAt & { from: number }) | undefined} */ () => undefined,
+  update: (_at, transaction) => {
+    /** @type {(CellAt & { from: number }) | undefined} */
+    let told;
+    for (const effect of transaction.effects) if (effect.is(editCellNext)) told = effect.value;
+    return told;
+  },
+});
+
+/**
+ * The change a cell edited in place makes to its row: the text between its pipes, its new words padded with a space
+ * each side, a pipe in them escaped, a line break a space. None for a row with no pipe at its start, or a cell it does
+ * not have.
+ * @param {string} line — the row's text
+ * @param {number} cell — the cell's place in the row
+ * @param {string} words — what it says now
+ * @returns {{ from: number, to: number, insert: string } | undefined} — from and to: within the line
+ */
+export function tableCellChange(line, cell, words) {
+  if (!line.startsWith('|')) return undefined;
+  /** @type {number[]} */
+  const pipes = [];
+  for (let at = 0; at < line.length; at++) {
+    if (line[at] === '\\') at++;
+    else if (line[at] === '|') pipes.push(at);
+  }
+  const start = pipes[cell];
+  const end = pipes[cell + 1];
+  if (start === undefined || end === undefined) return undefined;
+  return { from: start + 1, to: end, insert: ` ${words.replace(/\r?\n/g, ' ').replace(/(?<!\\)\|/g, '\\|')} ` };
+}
+
+/**
+ * The words of a row's cell as typed, for its box.
+ * @param {string} line @param {number} cell
+ * @returns {string | undefined}
+ */
+function cellWords(line, cell) {
+  const change = tableCellChange(line, cell, '');
+  return change === undefined ? undefined : line.slice(change.from, change.to).trim();
+}
+
+/**
+ * A table drawn as the viewer draws one, and stays one when clicked: a cell clicked shows its markdown in a box in its
+ * place — Enter keeps it, Tab and Shift+Tab go on to the cell after or before, Esc leaves it as it was, a click
+ * elsewhere keeps it. A link in it opens on Ctrl+click.
+ */
 class TableWidget extends WidgetType {
-  /** @param {string} source */
-  constructor(source) {
+  /** @param {string} source @param {number} from — where the table starts in the note */
+  constructor(source, from) {
     super();
     this.source = source;
+    this.from = from;
     /** What it shows, in a word. */
     this.shows = 'table';
   }
@@ -135,18 +195,87 @@ class TableWidget extends WidgetType {
     const wrap = document.createElement('div');
     wrap.className = 'cm-lp-table md';
     wrap.append(renderMarkdown(this.source));
+    /** Each cell drawn, with the row and the place in it of its text. */
+    const cells = [...wrap.querySelectorAll('tr')].flatMap((tr, index) => [...tr.children].flatMap((element, cell) => (element instanceof window.HTMLElement ? [{ element, row: index === 0 ? 0 : index + 1, cell }] : [])));
+    /** The cell being edited: its box kept — going on in another cell — or left. */
+    /** @type {{ keep: (next: number | undefined) => void } | undefined} */
+    let open;
+    /** @param {number} at — a cell's place among them */
+    const edit = (at) => {
+      const target = cells[at];
+      if (target === undefined) return;
+      const line = view.state.doc.lineAt(view.posAtDOM(wrap)).number + target.row;
+      if (line > view.state.doc.lines) return;
+      const row = view.state.doc.line(line);
+      const before = cellWords(row.text, target.cell);
+      if (before === undefined) return;
+      const drawn = [...target.element.childNodes];
+      const box = document.createElement('input');
+      box.className = 'cm-lp-cell-box';
+      box.value = before;
+      target.element.replaceChildren(box);
+      let over = false;
+      const close = () => {
+        over = true;
+        open = undefined;
+        target.element.replaceChildren(...drawn);
+      };
+      /** @param {number | undefined} next — the cell to go on in */
+      const keep = (next) => {
+        if (over) return;
+        const change = box.value === before ? undefined : tableCellChange(row.text, target.cell, box.value);
+        close();
+        if (change === undefined) {
+          if (next !== undefined) edit(next);
+          return;
+        }
+        const nextCell = next === undefined ? undefined : cells[next];
+        view.dispatch({
+          changes: { from: row.from + change.from, to: row.from + change.to, insert: change.insert },
+          effects: nextCell === undefined ? [] : [editCellNext.of({ from: view.posAtDOM(wrap), row: nextCell.row, cell: nextCell.cell })],
+        });
+      };
+      box.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          keep(undefined);
+        } else if (event.key === 'Tab') {
+          event.preventDefault();
+          keep(event.shiftKey ? at - 1 : at + 1);
+        } else if (event.key === 'Escape') {
+          // the panel's Escape, which closes it, is not this one's
+          event.preventDefault();
+          event.stopPropagation();
+          close();
+        }
+      });
+      box.addEventListener('blur', () => keep(undefined));
+      open = { keep };
+      box.focus();
+      // a box the page could not give the focus to — the window left meanwhile — would stay open, no blur to close it
+      if (document.activeElement !== box) close();
+    };
     wrap.addEventListener('mousedown', (event) => {
-      // a link in it opens, as a link in the text does; anywhere else the cursor goes in
-      if (event.target instanceof window.Element && event.target.closest('a') !== null) return;
+      if (!(event.target instanceof window.Element) || event.target.closest('.cm-lp-cell-box') !== null) return;
+      // a link Ctrl+clicked opens, as in the text — the page's own handler of links takes the click
+      if ((event.ctrlKey || event.metaKey) && event.target.closest('a') !== null) return;
+      const at = cells.findIndex(({ element }) => event.target instanceof window.Node && element.contains(event.target));
       event.preventDefault();
-      view.dispatch({ selection: { anchor: view.posAtDOM(wrap) } });
-      view.focus();
+      if (at === -1) return;
+      // one cell at a time: the one open kept, the editing going on in the cell clicked
+      if (open !== undefined) open.keep(at);
+      else edit(at);
     });
+    // the edit before this drawing went on to a cell of it: its box opens, once the table is in the page
+    const next = view.state.field(cellToEdit, false);
+    const at = next === undefined || next.from !== this.from ? -1 : cells.findIndex(({ row, cell }) => row === next.row && cell === next.cell);
+    if (at !== -1) requestAnimationFrame(() => edit(at));
     return wrap;
   }
 
+  /** The table's events are its own: the editor's cursor does not go into it. */
   ignoreEvent() {
-    return false;
+    return true;
   }
 }
 
@@ -362,7 +491,7 @@ export function blockDecorations(state) {
       if (ref.name !== 'Table') return undefined;
       const from = state.doc.lineAt(ref.from).from;
       const to = state.doc.lineAt(ref.to).to;
-      if (!touched(state, from, to)) out.push(Decoration.replace({ widget: new TableWidget(state.doc.sliceString(from, to)), block: true }).range(from, to));
+      if (!touched(state, from, to)) out.push(Decoration.replace({ widget: new TableWidget(state.doc.sliceString(from, to), from), block: true }).range(from, to));
       return false;
     },
   });
@@ -396,4 +525,4 @@ const tables = StateField.define({
 });
 
 /** The live preview, as an editor's extension. */
-export const livePreview = [trackFocus, inlinePreview, tables];
+export const livePreview = [trackFocus, inlinePreview, tables, cellToEdit];

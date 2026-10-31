@@ -4,7 +4,7 @@
 // saved is markdown, written anew from the blocks: a note typed into is saved as Milkdown writes it — its lists' marks,
 // its escapes; a note only read is not saved. A link opens on Ctrl+click. Its source is the other editor's
 // (note-editor-cm.js): this one has no source of its own.
-import { blockEdit, codeMirror, CrepeBuilder, cursor, editorViewCtx, linkTooltip, listItem, placeholder, replaceAll, table, toolbar } from '../lib/milkdown/crepe.js';
+import { blockEdit, codeMirror, CrepeBuilder, cursor, editorViewCtx, linkTooltip, listItem, placeholder, redo, redoDepth, replaceAll, table, toolbar, undo, undoDepth } from '../lib/milkdown/crepe.js';
 
 /**
  * @typedef {import('./note-editor.js').MountOptions} MountOptions
@@ -60,9 +60,15 @@ export async function mountBlocksEditor(host, { text, placeholder: words, onChan
   );
   return {
     text: () => crepe.getMarkdown(),
-    replace: (next) => crepe.editor.action(replaceAll(next)),
+    // the note as it came again, with nothing to undo — its state made anew: undone, this device's text would be put back
+    // over the other's
+    replace: (next) => crepe.editor.action(replaceAll(next, true)),
     focus: () => view().focus(),
     hasFocus: () => view().hasFocus(),
+    undo: () => void undo(view().state, view().dispatch),
+    redo: () => void redo(view().state, view().dispatch),
+    canUndo: () => undoDepth(view().state) > 0,
+    canRedo: () => redoDepth(view().state) > 0,
     destroy: () => void crepe.destroy(),
   };
 }

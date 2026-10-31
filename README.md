@@ -62,18 +62,19 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   - a Word document as its pages, fitted to the panel, its styles and links checked;
   - a PDF as its pages, their text selectable, drawn by pdf.js as they come into view.
 
-  Text that is not UTF-8 is read as Windows-1251. A button opens the file in your editor — in a browser on the
-  viewer's own computer, where the editor shows up. On Windows it is the program set for the file's kind, as a double
-  click in Explorer would use: at the marked line for the editors that take one — Rider and the other JetBrains IDEs in
-  the file's project (the nearest folder above it with a `.sln`, `.slnx` or `.git`), VS Code in its git work tree,
+  Text that is not UTF-8 is read as Windows-1251. A button opens the file in your editor — in a browser on the viewer's
+  own computer, where the editor shows up. On Windows it is the program set for the file's kind, as a double click in
+  Explorer would use: at the marked line for the editors that take one — Rider and the other JetBrains IDEs in the
+  file's project (the nearest folder above it with a `.sln`, `.slnx` or `.git`), VS Code in its git work tree,
   Notepad++, Sublime Text; any other program as a double click opens it; a kind with no program set has Windows ask
-  which. A kind of file whose program would run it — a script, `.reg`, `.exe` — opens in the program set to edit it,
-  or not at all. `--editor-command` sets one editor for every file instead, and is how there is one off Windows. A
-  page opened through a tunnel finds out where the browser is by asking the viewer at the browser's 127.0.0.1 whether
-  it is the same one: Chrome asks once to let the page reach apps on the device. In such a browser one more button over
-  a file shows it in its folder in the computer's file manager — Explorer and Finder pick it out, elsewhere `xdg-open`
-  opens its folder — and one over a session opens the session's folder there; a browser on another computer or a phone
-  has neither.
+  which. A kind of file whose program would run it — a script, `.reg`, `.exe` — opens in the program set to edit it, or
+  not at all. `--editor-command` sets one editor for every file instead, and is how there is one off Windows. ✎ edits a
+  text file here, in the page — Save or Ctrl+S writes it, never over the file as it was written meanwhile — and a
+  markdown file in the notes' editor, a live preview or blocks, as the T among a note's buttons has it. A page opened
+  through a tunnel finds out where the browser is by asking the viewer at the browser's 127.0.0.1 whether it is the same
+  one: Chrome asks once to let the page reach apps on the device. In such a browser one more button over a file shows it
+  in its folder in the computer's file manager — Explorer and Finder pick it out, elsewhere `xdg-open` opens its folder
+  — and one over a session opens the session's folder there; a browser on another computer or a phone has neither.
 
   ![A markdown note with a mermaid diagram in the file panel, beside the session](docs/file-panel.png)
 - **Branch changes.** A button over a session shows in the side panel what the branch checked out in its folder
@@ -111,23 +112,26 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
 - **Notes.** First in the outline, notes in markdown on the session's project folder: every session in the folder —
   Claude Code's, whose project stays the folder it started in after a `cd`, and Codex's — shows the same ones. A note is
   always there to be typed in, shown as it reads — a heading as a heading, a list's bullets as dots, a task's [ ] as a
-  box to tick, a code block coloured by its language, a table as a table — its markdown's marks showing only where the
-  cursor is, as Obsidian's live preview has it; what is saved is the markdown as typed. It is saved a second after the
-  typing stops, and at once when it is left; a note may be empty. A link in a note — and a file's path — opens on
-  Ctrl+click: a file in the side panel at its line, a page in a tab. The `</>` button shows a note's markdown as typed,
-  and back. The note button in the session's head switches the notes to blocks, as Notion has them — Milkdown's Crepe:
-  **/** makes a block, a handle on its left drags it, a toolbar comes over the words selected, a table is edited in
-  place; a note typed into there is saved as Milkdown writes markdown — its lists' marks and escapes its own — and a
-  note only read is not saved. **+** writes a new note set apart — in the side panel, under a name in the field above it
-  (with none, its first line names it) — listed in the outline by its name, which opens it in the side panel; the button
-  at the end of a name shows the note in full in the outline, and the one beside the bin sets it apart again. The bin
-  removes a note once ✓ confirms. The notes stand in the order they are put in — a new one first: the grip among a
-  note's buttons moves it among the others, dragged with the mouse or with a finger resting on it a moment, and every
-  device shows the order alike. The clock lists the notes' changes, the latest first — added, edited, removed, set
-  apart; a note's edits one after another, within ten minutes, are one — each with the text it had before and ↶, which
-  puts the note back as it was: a note removed comes back, an edit is undone. Kept in
-  `~/.claude-code-webview/notes.json`, as the bookmarks are, each note with its way, so every device shows it alike; the
-  last 200 changes of each folder in `notes-history.json` beside it.
+  box to tick, a code block coloured by its language, a table as a table, a click on a cell editing that cell in place
+  (Enter keeps it, Tab goes on to the next, Esc leaves it) — its markdown's marks showing only where the cursor is, as
+  Obsidian's live preview has it; what is saved is the markdown as typed. It is saved a second after the typing stops,
+  and at once when it is left; a note may be empty. ↶ and ↷ — in the side panel's head, and over a note's corner in the
+  outline while there is something to undo or do again — undo what was typed and do it again, as Ctrl+Z and Ctrl+Shift+Z
+  do; what the note comes to is saved as what is typed is. A note changed on another device and shown here has nothing
+  to undo. A link in a note — and a file's path — opens on Ctrl+click: a file in the side panel at its line, a page in a
+  tab. The `</>` button shows a note's markdown as typed, and back. **T** among a note's buttons in the side panel
+  switches the notes to blocks, as Notion has them — Milkdown's Crepe: **/** makes a block, a handle on its left drags
+  it, a toolbar comes over the words selected, a table is edited in place; a note typed into there is saved as Milkdown
+  writes markdown — its lists' marks and escapes its own — and a note only read is not saved. **+** writes a new note
+  set apart — in the side panel, under a name in the field above it (with none, its first line names it) — listed in the
+  outline by its name, which opens it in the side panel; the button at the end of a name shows the note in full in the
+  outline, and the one beside the bin sets it apart again. The bin removes a note once ✓ confirms. The notes stand in
+  the order they are put in — a new one first: the grip among a note's buttons moves it among the others, dragged with
+  the mouse or with a finger resting on it a moment, and every device shows the order alike. The clock lists the notes'
+  changes, the latest first — added, edited, removed, set apart; a note's edits one after another, within ten minutes,
+  are one — each with the text it had before and ↶, which puts the note back as it was: a note removed comes back, an
+  edit is undone. Kept in `~/.claude-code-webview/notes.json`, as the bookmarks are, each note with its way, so every
+  device shows it alike; the last 200 changes of each folder in `notes-history.json` beside it.
 
   ![The notes' changes in the side panel, the latest first, the text of a note removed opened](docs/notes-history.png)
 - **Pinned files.** Under the notes, the files pinned beside the session — a spec, a design, a README; any file the side
@@ -183,8 +187,7 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   sideways. The same choice can be made for all tables of a session (in the header's details) or of the whole viewer
   (a view button); the table's own button overrides the session, the session overrides the viewer.
 - Light and dark themes, optional display of Claude Code's service messages. The buttons used rarely — VS Code, the
-  notes' editor, the conversation's width, the tables', lamps or robots, the theme — stand behind "⋯" at the end of the
-  row over a session.
+  conversation's width, the tables', lamps or robots, the theme — stand behind "⋯" at the end of the row over a session.
 - **Palettes.** `--palette sea` (or `moss`, `plum`; `clay`, Claude's own, is the default) changes the accent colour, tints the
   session list a little and colours the tab icon and the iPhone home screen icon — two viewers, say on two computers, are
   told apart at a glance.

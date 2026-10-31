@@ -27,6 +27,8 @@ function noteOpen() {
   let shownAs = 'preview';
   const editor = {
     element: Object.assign(window.document.createElement('div'), { className: 'note-editor' }),
+    // its ↶ and ↷
+    buttons: { undo: Object.assign(window.document.createElement('button'), { className: 'note-undo' }), redo: Object.assign(window.document.createElement('button'), { className: 'note-redo' }) },
     /** @type {string[]} */
     shownTexts: [],
     /** @type {((text: string) => void) | undefined} */
@@ -42,7 +44,16 @@ function noteOpen() {
     setShown: (next) => void (shownAs = next),
     dispose: () => void (editor.disposed = true),
   };
+  /** The notes' editor, as the viewer's setting has it. */
+  const engine = { now: 'live' };
   const panel = createNotePanel({
+    engine: {
+      title: () => (engine.now === 'live' ? 'Edit notes as blocks' : 'Edit notes with a live preview'),
+      switch: () => {
+        asked.push(['engine']);
+        engine.now = engine.now === 'live' ? 'blocks' : 'live';
+      },
+    },
     note: () => kept.now,
     edit: (id, text) => void asked.push(['edit', id, text]),
     rename: (id, name) => void asked.push(['rename', id, name]),
@@ -121,9 +132,9 @@ test('notePanel_Should_ShowNoteAsItCameAgain_AndTellWhenItIsGone', async () => {
   );
 });
 
-// The note's buttons are its own, for the side panel's head beside ↻ and ×: its source — the fallback — pressed while it
-// shows, and the bin; the body is its name and the note alone
-test('notePanel_Should_GiveItsButtonsForPanelHead_SourceAndBin', () => {
+// The note's buttons are its own, for the side panel's head beside ↻ and ×: its editor's ↶ and ↷, the notes' editor
+// switched, its source — the fallback — pressed while it shows, and the bin; the body is its name and the note alone
+test('notePanel_Should_GiveItsButtonsForPanelHead_UndoRedoEditorSourceAndBin', () => {
   const { panel, editor, element } = noteOpen();
   const buttons = () => [...panel.actions.querySelectorAll('button')].map((one) => [...one.classList].find((name) => name.startsWith('note-')));
 
@@ -133,8 +144,19 @@ test('notePanel_Should_GiveItsButtonsForPanelHead_SourceAndBin', () => {
 
   assert.deepEqual(
     { shown, asSource, code: element('.note-source').innerHTML === icon('code').outerHTML, inBody: panel.element.querySelectorAll('button').length },
-    { shown: ['note-source', 'note-panel-remove'], asSource: ['source', 'true'], code: true, inBody: 0 },
+    { shown: ['note-undo', 'note-redo', 'note-engine', 'note-source', 'note-panel-remove'], asSource: ['source', 'true'], code: true, inBody: 0 },
   );
+});
+
+// The notes' editor — a live preview, as Obsidian has it, or blocks, as Notion has them — is switched where a note is
+// edited: its button says what a press does, and says it anew once pressed
+test('notePanel_Should_SwitchNotesEditor_FromItsButton', () => {
+  const { asked, element } = noteOpen();
+
+  const before = element('.note-engine').title;
+  element('.note-engine').click();
+
+  assert.deepEqual({ before, after: element('.note-engine').title, asked }, { before: 'Edit notes as blocks', after: 'Edit notes with a live preview', asked: [['engine']] });
 });
 
 // The bin — not the panel's × — asks first: ✕ keeps the note, ✓ removes it

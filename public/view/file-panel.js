@@ -92,14 +92,15 @@ function remember(key, value) {
 }
 
 /**
- * @param {{ panel: HTMLElement, layout: HTMLElement, editor: import('./editor-opener.js').EditorOpener, vscode: Promise<OpenInVsCode | undefined>, fileManager: FileManager, project: (path: string) => Project, folder: (root: string) => Project, iconOf: import('./file-icons.js').IconOf, pins: import('./pin-button.js').PinFiles }} parts —
+ * @param {{ markdownEditor: import('./file-editor.js').MakeEditor, panel: HTMLElement, layout: HTMLElement, editor: import('./editor-opener.js').EditorOpener, vscode: Promise<OpenInVsCode | undefined>, fileManager: FileManager, project: (path: string) => Project, folder: (root: string) => Project, iconOf: import('./file-icons.js').IconOf, pins: import('./pin-button.js').PinFiles }} parts —
  *   folder: a folder linked, as a project of its own; vscode: none when the viewer runs no VS Code; fileManager: the
  *   file shown in its folder, from a browser on the viewer's computer;
  *   editor: opens the file at its line in the editor of the viewer's computer, from a browser there; project: the
- *   project a file is in, its folders and its search; pins: the files pinned beside the open session (pin-button.js)
+ *   project a file is in, its folders and its search; pins: the files pinned beside the open session (pin-button.js);
+ *   markdownEditor: a markdown file edited as a note is, in the notes' editor (markdown-file-editor.js)
  * @returns {FilePanel}
  */
-export function createFilePanel({ panel, layout, editor, vscode, fileManager, project, folder, iconOf, pins }) {
+export function createFilePanel({ markdownEditor, panel, layout, editor, vscode, fileManager, project, folder, iconOf, pins }) {
   const name = h('div', { className: 'panel-name' });
   /** What the panel shows, at the head of its title: the file's icon, or the list's */
   const headIcon = h('span', { className: 'panel-icon' }, [icon('read')]);
@@ -203,7 +204,8 @@ export function createFilePanel({ panel, layout, editor, vscode, fileManager, pr
   /** The file's text edited in the panel, in place of the file drawn. */
   const editorHere = createFileEditor({
     fetchFile: (url, init) => fetch(url, init),
-    makeEditor: async (host, options) => (await import('./code-editor.js')).createCodeEditor(host, options),
+    // a markdown file as a note is edited, any other as code
+    makeEditor: async (host, options) => (/\.(?:md|markdown)$/i.test(options.path) ? markdownEditor(host, options) : (await import('./code-editor.js')).createCodeEditor(host, options)),
     onName: (intent, name, path) => void api.findName(intent, name, path),
   });
   /** The project's files shown last: shown again as they were left for a project of the same folder. */

@@ -10,7 +10,9 @@ const { createNoteEditor } = await import('../public/view/note-editor.js');
 /** @typedef {import('../public/view/note-editor.js').MountOptions} MountOptions */
 
 /**
- * A note's editor over a box to type in, in place of CodeMirror: what is saved, what it was mounted as, recorded.
+ * A note's editor over a box to type in, in place of CodeMirror: what is saved, what it was mounted as, recorded. What is
+ * typed is undone and done again as an editor does it — not told by onChange, as Milkdown does not tell it of a note not
+ * being typed in — back to the text it was made with, or last given.
  * @param {string} text
  */
 function editorOver(text) {
@@ -22,6 +24,18 @@ function editorOver(text) {
   let box;
   /** @type {MountOptions | undefined} */
   let options;
+  /** The box's text before each typing, the latest last; and before each undoing. */
+  /** @type {string[]} */
+  const done = [];
+  /** @type {string[]} */
+  const undone = [];
+  /** @param {string[]} from @param {string[]} to */
+  const step = (from, to) => {
+    const back = from.pop();
+    if (box === undefined || back === undefined) return;
+    to.push(box.value);
+    box.value = back;
+  };
   const editor = createNoteEditor({
     text,
     shown: 'preview',
@@ -35,7 +49,23 @@ function editorOver(text) {
       area.value = given.text;
       host.replaceChildren(area);
       box = area;
-      return { text: () => area.value, replace: (next) => void (area.value = next), focus: () => area.focus(), hasFocus: () => window.document.activeElement === area, destroy: () => area.remove() };
+      done.length = 0;
+      undone.length = 0;
+      return {
+        text: () => area.value,
+        replace: (next) => {
+          area.value = next;
+          done.length = 0;
+          undone.length = 0;
+        },
+        focus: () => area.focus(),
+        hasFocus: () => window.document.activeElement === area,
+        undo: () => step(done, undone),
+        redo: () => step(undone, done),
+        canUndo: () => done.length > 0,
+        canRedo: () => undone.length > 0,
+        destroy: () => area.remove(),
+      };
     },
   });
   window.document.body.replaceChildren(editor.element);
@@ -43,6 +73,8 @@ function editorOver(text) {
   const type = (next) => {
     if (box === undefined || options === undefined) throw new Error('not mounted yet');
     box.focus();
+    done.push(box.value);
+    undone.length = 0;
     box.value = next;
     options.onChange(next);
   };
@@ -76,6 +108,61 @@ test('noteEditor_Should_SaveSecondAfterTypingStops_AndAtOnceWhenLeft', async (t)
   leave();
 
   assert.deepEqual({ typing, paused, saved }, { typing: [], paused: ['# Plan\n- one'], saved: ['# Plan\n- one', '# Plan\n- one\n- two'] });
+});
+
+// ↶ undoes what was typed, ↷ does it again — what the note then says saved as what is typed is, whether or not the
+// editor told of it; each is there to press only while there is something to undo, or to do again
+test('noteEditor_Should_UndoAndRedoWhatWasTyped_ByItsButtons_SavingWhatNoteThenSays', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { editor, saved, type, shown } = editorOver('# Plan');
+  await mounting();
+  const { undo, redo } = editor.buttons;
+  const pressable = () => [undo.disabled ? '' : 'undo', redo.disabled ? '' : 'redo'].join('|');
+
+  const opened = pressable();
+  type('# Plan\n- one');
+  t.mock.timers.tick(1000);
+  const typed = pressable();
+  undo.click();
+  t.mock.timers.tick(1000);
+  const undone = { text: shown(), pressable: pressable() };
+  redo.click();
+  t.mock.timers.tick(1000);
+  const redone = { text: shown(), pressable: pressable() };
+
+  assert.deepEqual(
+    { opened, typed, undone, redone, saved },
+    { opened: '|', typed: 'undo|', undone: { text: '# Plan', pressable: '|redo' }, redone: { text: '# Plan\n- one', pressable: 'undo|' }, saved: ['# Plan\n- one', '# Plan', '# Plan\n- one'] },
+  );
+});
+
+// ↶ and ↷ pressed take no focus: the cursor stays where it was in the note, on a phone the keyboard stays up
+test('noteEditor_Should_LeaveCursorInNote_WhenItsButtonsArePressed', async () => {
+  const { editor } = editorOver('# Plan');
+  await mounting();
+
+  const kept = [editor.buttons.undo, editor.buttons.redo].map((button) => !button.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, cancelable: true })));
+
+  assert.deepEqual(kept, [true, true]);
+});
+
+// The editor made anew — shown the other way — or given the note as it came again has nothing to undo: ↶ is not there to
+// press, as if the note were just opened
+test('noteEditor_Should_HaveNothingToUndo_OnceMadeAnew_OrGivenNoteAsItCameAgain', async () => {
+  const { editor, type, leave } = editorOver('# Plan');
+  await mounting();
+  const { undo } = editor.buttons;
+
+  type('# Plan\n- one');
+  editor.setShown('source');
+  await mounting();
+  const madeAnew = undo.disabled;
+  type('# Plan\n- one\n- two');
+  leave();
+  editor.show('# Plan from the phone');
+  const cameAgain = undo.disabled;
+
+  assert.deepEqual({ madeAnew, cameAgain }, { madeAnew: true, cameAgain: true });
 });
 
 // The note coming again — changed on another device — shows its text while it is not being edited; while it is, what is

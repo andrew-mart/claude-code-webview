@@ -11,3 +11,4 @@ export { placeholder } from '@milkdown/crepe/feature/placeholder';
 export { table } from '@milkdown/crepe/feature/table';
 export { replaceAll } from '@milkdown/kit/utils';
 export { editorViewCtx } from '@milkdown/kit/core';
+export { redo, redoDepth, undo, undoDepth } from '@milkdown/kit/prose/history';

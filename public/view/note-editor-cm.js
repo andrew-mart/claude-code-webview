@@ -2,7 +2,7 @@
 // A note edited in CodeMirror: as it reads, its marks giving way where the cursor is (live-preview.js) — or as its
 // markdown is typed, its source. Lists go on with Enter, as markdown has them; code blocks are coloured by the language
 // their first line names; a link — or a file's path — opens on Ctrl+click. Colours are the viewer's own, by its theme.
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { defaultKeymap, history, historyKeymap, indentWithTab, redo, redoDepth, undo, undoDepth } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { HighlightStyle, LanguageDescription, syntaxHighlighting } from '@codemirror/language';
 import { EditorState } from '@codemirror/state';
@@ -76,44 +76,44 @@ function codeLanguage(info) {
  * @returns {Promise<MountedEditor>}
  */
 export async function mountNoteEditor(host, { text, shown, placeholder, onChange, onBlur, onOpen }) {
-  const view = new EditorView({
-    parent: host,
-    state: EditorState.create({
-      doc: text,
-      extensions: [
-        markdown({ base: markdownLanguage, codeLanguages: codeLanguage }),
-        history(),
-        drawSelection(),
-        EditorView.lineWrapping,
-        placeholderText(placeholder),
-        keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
-        syntaxHighlighting(shown === 'preview' ? previewColours : sourceColours),
-        ...(shown === 'preview' ? [livePreview] : []),
-        EditorView.updateListener.of((update) => {
-          if (update.docChanged) onChange(update.state.sliceDoc());
-          if (update.focusChanged && !update.view.hasFocus) onBlur();
-        }),
-        // a link Ctrl+clicked opens what it names; a plain click puts the cursor in it, to edit it
-        EditorView.domEventHandlers({
-          mousedown: (event) => {
-            if (!(event.ctrlKey || event.metaKey) || !(event.target instanceof window.Element)) return false;
-            const link = event.target.closest('[data-href], [data-path]');
-            if (!(link instanceof window.HTMLElement)) return false;
-            event.preventDefault();
-            const { href, path, line } = link.dataset;
-            if (path !== undefined) onOpen({ path, line: line === undefined ? undefined : Number(line) });
-            else if (href !== undefined) onOpen({ href });
-            return true;
-          },
-        }),
-      ],
+  const extensions = [
+    markdown({ base: markdownLanguage, codeLanguages: codeLanguage }),
+    history(),
+    drawSelection(),
+    EditorView.lineWrapping,
+    placeholderText(placeholder),
+    keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+    syntaxHighlighting(shown === 'preview' ? previewColours : sourceColours),
+    ...(shown === 'preview' ? [livePreview] : []),
+    EditorView.updateListener.of((update) => {
+      if (update.docChanged) onChange(update.state.sliceDoc());
+      if (update.focusChanged && !update.view.hasFocus) onBlur();
     }),
-  });
+    // a link Ctrl+clicked opens what it names; a plain click puts the cursor in it, to edit it
+    EditorView.domEventHandlers({
+      mousedown: (event) => {
+        if (!(event.ctrlKey || event.metaKey) || !(event.target instanceof window.Element)) return false;
+        const link = event.target.closest('[data-href], [data-path]');
+        if (!(link instanceof window.HTMLElement)) return false;
+        event.preventDefault();
+        const { href, path, line } = link.dataset;
+        if (path !== undefined) onOpen({ path, line: line === undefined ? undefined : Number(line) });
+        else if (href !== undefined) onOpen({ href });
+        return true;
+      },
+    }),
+  ];
+  const view = new EditorView({ parent: host, state: EditorState.create({ doc: text, extensions }) });
   return {
     text: () => view.state.sliceDoc(),
-    replace: (next) => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next } }),
+    // the note as it came again, with nothing to undo: undone, this device's text would be put back over the other's
+    replace: (next) => view.setState(EditorState.create({ doc: next, extensions })),
     focus: () => view.focus(),
     hasFocus: () => view.hasFocus,
+    undo: () => void undo(view),
+    redo: () => void redo(view),
+    canUndo: () => undoDepth(view.state) > 0,
+    canRedo: () => redoDepth(view.state) > 0,
     destroy: () => view.destroy(),
   };
 }

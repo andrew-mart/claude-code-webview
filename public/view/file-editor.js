@@ -10,8 +10,9 @@ import { icon } from './icons.js';
 
 /**
  * @typedef {import('./file-links.js').FileTarget} FileTarget
- * @typedef {{ text: () => string, replace: (text: string) => void, wordAtCursor: () => string | undefined, search: () => void, undo: () => void, redo: () => void, focus: () => void, dispose: () => void }} CodeEditor
- *   — wordAtCursor: the selection, or the word the cursor is in
+ * @typedef {{ tools: 'code' | 'prose', text: () => string, replace: (text: string) => void, wordAtCursor: () => string | undefined, search: () => void, undo: () => void, redo: () => void, focus: () => void, dispose: () => void }} CodeEditor
+ *   — tools: code's — finding and replacing, a name's definition and uses — or prose's, a markdown file in the notes'
+ *   editor, which has none of them; wordAtCursor: the selection, or the word the cursor is in
  * @typedef {(intent: 'definition' | 'uses', name: string, path: string) => void} OnName — a name looked for in the project
  * @typedef {{ text: string, path: string, line: number | undefined, onChange: () => void, onSave: () => void }} EditorOptions
  *   — onSave: the editor's own key for it, Ctrl+S
@@ -115,7 +116,10 @@ export function createFileEditor({ fetchFile, makeEditor, onName }) {
       editor.dispose();
       return;
     }
-    editing = { path: target.path, editor, version: draft?.version ?? read.version, saved: draft?.saved ?? read.content };
+    // the file unchanged is its text as the editor writes it: Milkdown writes markdown its own way, and a file only
+    // opened in it is not to be saved
+    editing = { path: target.path, editor, version: draft?.version ?? read.version, saved: draft?.saved ?? editor.text() };
+    for (const button of [find, definition, uses]) button.hidden = editor.tools === 'prose';
     status.textContent = '';
     showChanged();
   };

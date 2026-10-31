@@ -128,3 +128,21 @@ test('blockDecorations_Should_DrawTableAsTable_UnlessCursorIsInIt', () => {
     { away: ['widget table over "| a | b |\\n|---|---|\\n| 1 | 2 |"'], inside: [] },
   );
 });
+
+// A table's cell edited in place changes the text between its pipes in its row, nothing else: its new words padded with
+// a space each side, a pipe in them escaped, a line break a space; an escaped pipe is no cell's edge; a row without a
+// pipe at its start is not edited in place
+test('tableCellChange_Should_ReplaceCellBetweenItsPipes_Only', async () => {
+  const { tableCellChange } = await import('../public/view/live-preview.js');
+
+  assert.deepEqual(
+    [
+      tableCellChange('| a | b |', 1, 'new'),
+      tableCellChange('|Case|Answer|', 0, 'Limit'),
+      tableCellChange('| a \\| b | c |', 1, 'x|y\nz'),
+      tableCellChange('a | b', 0, 'x'),
+      tableCellChange('| a | b |', 5, 'x'),
+    ],
+    [{ from: 5, to: 8, insert: ' new ' }, { from: 1, to: 5, insert: ' Limit ' }, { from: 10, to: 13, insert: ' x\\|y z ' }, undefined, undefined],
+  );
+});

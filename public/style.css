@@ -4718,8 +4718,9 @@ table.diff tr.gap td {
   caret-color: var(--text);
 }
 
+/* a little room at the line's start: the cursor there — an empty note's — is not cut off by the editor's edge */
 .note-editor .cm-line {
-  padding: 0;
+  padding: 0 0 0 2px;
 }
 
 .note-editor .cm-placeholder {
@@ -4729,7 +4730,7 @@ table.diff tr.gap td {
 /* the cursor CodeMirror draws itself, in the text's colour — its own is black, lost on the dark theme */
 .note-editor .cm-cursor,
 .note-editor .cm-dropCursor {
-  border-left: 1.5px solid var(--text);
+  border-left: 2px solid var(--text);
 }
 
 .note-editor .cm-selectionBackground,
@@ -4885,6 +4886,25 @@ table.diff tr.gap td {
   font-size: 0.92em;
 }
 
+/* a cell edited in place: its markdown in a box the cell's size, the table staying a table */
+.note-editor .cm-lp-table td,
+.note-editor .cm-lp-table th {
+  cursor: text;
+}
+
+.note-editor .cm-lp-cell-box {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 6ch;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 3px;
+  outline: 1.5px solid var(--accent);
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+}
+
 /* a note's table fits the note: no width button under it */
 .note-editor .cm-lp-table .table-width {
   display: none;
@@ -5010,6 +5030,18 @@ table.diff tr.gap td {
 .note-remove:hover,
 .note-confirm-remove:hover {
   color: var(--danger);
+}
+
+/* a note's ↶ and ↷ (note-editor.js) with nothing to undo or do again: in the side panel's head, dimmed, staying in their
+   place; over a card's corner, gone — the card keeps its room for what the note says */
+:is(.note-undo, .note-redo):disabled {
+  color: var(--text-4);
+  background: transparent;
+  cursor: default;
+}
+
+.note-actions > :is(.note-undo, .note-redo):disabled {
+  display: none;
 }
 
 .note-keep-edit:hover {
@@ -5153,12 +5185,27 @@ table.diff tr.gap td {
   gap: 2px;
 }
 
-/* the note in the side panel: as a document reads, the whole panel under it a place to click into it */
+/* the note in the side panel: as a document reads, the whole panel under it a place to click into it — the editor
+   itself as tall, a click under the text putting the cursor at its end */
 .note-panel .note-editor {
   min-height: 60vh;
   color: var(--text);
   font-size: 15px;
   line-height: 1.55;
+}
+
+/* a markdown file in the panel's editor (markdown-file-editor.js), read as a note open in the side panel is */
+.code-edit-host > .note-editor.markdown-file {
+  height: 100%;
+  overflow: auto;
+  padding: 10px 18px 24px;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.note-panel .note-editor :is(.cm-editor, .milkdown .ProseMirror) {
+  min-height: 60vh;
 }
 
 /* the note's name, above its markdown: empty, its first line names it, as the placeholder shows */

@@ -2,7 +2,8 @@
 // one module, and its styles into one file, under public/lib/milkdown. The bundle is kept in the repository: the viewer
 // has no build step, and its installs — npm ci --omit=dev, npx — get no dev dependencies. Only the features the notes
 // use go in: code blocks, lists, links, the block handle and "/", the toolbar, tables, the placeholder — no formulas,
-// pictures or AI. Run after updating @milkdown/crepe or esbuild:
+// pictures or AI — and ProseMirror's undo and redo, for the note's buttons: the history Crepe keeps. Run after
+// updating @milkdown/crepe or esbuild:
 //   node scripts/build-milkdown.mjs
 import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
@@ -28,6 +29,7 @@ await build({
       ...features.map(([folder, name]) => `export { ${name} } from '@milkdown/crepe/feature/${folder}';`),
       "export { replaceAll } from '@milkdown/kit/utils';",
       "export { editorViewCtx } from '@milkdown/kit/core';",
+      "export { redo, redoDepth, undo, undoDepth } from '@milkdown/kit/prose/history';",
     ].join('\n'),
     resolveDir: root,
     loader: 'js',

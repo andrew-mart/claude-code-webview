@@ -1,9 +1,10 @@
 // @ts-check
 // A note in the side panel, the whole of it — opened from its name among the notes, or written new: its name in a field
 // above it, the note in its editor (note-editor.js), always there to be typed in — what is typed, and the name, saved as
-// they go; its buttons in the panel's head, in one row with ↻ and ×: its source, the fallback, and the bin, which removes
-// it once ✓ confirms. The notes coming again — another device's change — show the note as it is now; what is being typed
-// stays. A note removed says so.
+// they go; its buttons in the panel's head, in one row with ↻ and ×: ↶ and ↷, the notes' editor switched — a live
+// preview, as Obsidian has it, or blocks, as Notion has them — its source, the fallback, and the bin, which removes it
+// once ✓ confirms. The notes coming again — another device's change — show the note as it is now;
+// what is being typed stays. A note removed says so.
 import { h } from './dom.js';
 import { icon } from './icons.js';
 import { noteName, noteTitle } from '../model/notes.js';
@@ -17,14 +18,15 @@ import { noteName, noteTitle } from '../model/notes.js';
 const saveAfter = 1000;
 
 /**
- * @param {{ note: () => Note | undefined, edit: (id: string, text: string) => void, rename: (id: string, name: string) => void, remove: (id: string) => void, editorOf: EditorOf }} source
- *   — note: the note as the page has it now, none once it is removed; edit: its new text; rename: its new name, a blank
- *   one none; remove: it removed
+ * @param {{ engine: { title: () => string, switch: () => void }, note: () => Note | undefined, edit: (id: string, text: string) => void, rename: (id: string, name: string) => void, remove: (id: string) => void, editorOf: EditorOf }} source
+ *   — engine: the notes' editor, as the viewer's setting has it — title: what a press does; switch: the other one, every
+ *   note's editor made anew; note: the note as the page has it now, none once it is removed; edit: its new text;
+ *   rename: its new name, a blank one none; remove: it removed
  * @returns {{ element: HTMLElement, actions: HTMLElement, name: () => string, reload: () => Promise<void>, summary: () => string | undefined, focus: () => void }}
  *   — the side panel's list in place of a file (file-panel.js: ShownList): actions — its buttons, for the panel's head;
  *   name — the panel's title, the note's name as it is now; focus: the cursor in the note, to write it
  */
-export function createNotePanel({ note, edit, rename, remove, editorOf }) {
+export function createNotePanel({ engine, note, edit, rename, remove, editorOf }) {
   const first = note();
   const element = h('div', { className: 'note-panel' });
   const actions = h('span', { className: 'note-panel-actions' });
@@ -65,7 +67,17 @@ export function createNotePanel({ note, edit, rename, remove, editorOf }) {
 
   const source = h('button', { className: 'icon-button note-source', title: 'Show its markdown as typed', attrs: { type: 'button', 'aria-label': 'Show its markdown as typed', 'aria-pressed': 'false' } }, [icon('code')]);
   const removing = h('button', { className: 'icon-button note-panel-remove', title: 'Remove the note', attrs: { type: 'button', 'aria-label': 'Remove the note' } }, [icon('trash')]);
-  const showButtons = () => actions.replaceChildren(source, removing);
+  const switching = h('button', { className: 'icon-button note-engine', attrs: { type: 'button' } }, [icon('type')]);
+  const titleSwitching = () => {
+    switching.title = engine.title();
+    switching.setAttribute('aria-label', switching.title);
+  };
+  titleSwitching();
+  switching.addEventListener('click', () => {
+    engine.switch();
+    titleSwitching();
+  });
+  const showButtons = () => actions.replaceChildren(editor.buttons.undo, editor.buttons.redo, switching, source, removing);
   showButtons();
   source.addEventListener('click', () => {
     editor.setShown(editor.shown() === 'source' ? 'preview' : 'source');

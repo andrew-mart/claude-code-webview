@@ -177,7 +177,17 @@ const iconOf = createFileIcons({ light: () => document.documentElement.dataset.t
 const places = createPlaceFinder(machine);
 // VS Code: the computer's own from a browser on it, else VS Code in the browser
 const vscodeOpener = createVsCodeOpener({ places, desktop: openDesktopVsCode, web: openWebVsCode });
-const filePanel = createFilePanel({ panel: byId('file-panel', HTMLElement), layout, editor: createEditorOpener(machine, places), fileManager: { places, show: (path) => void openFileManager({ path }) }, vscode: machine.then((known) => (known?.vscode === true ? (path, line) => vscodeOpener.open({ path, line }) : undefined)), project: (path) => projectSource(projectOfFile(path, page.folder())), folder: projectSource, iconOf, pins: { scopesOf: (path) => { const pins = page.pins(); return pins === undefined ? undefined : scopesOf(pins.now(), path); }, pin: async (path, scope) => { const pins = page.pins(); return pins === undefined ? 'failed' : pins.pin(scope, path); }, unpin: (path) => page.pins()?.unpin(path) } });
+/**
+ * The notes' editor, as the viewer's setting has it: a live preview, as Obsidian has it — CodeMirror — or blocks, as
+ * Notion has them — Milkdown; a note's source in CodeMirror either way. Notes are edited in it, and markdown files in
+ * the side panel.
+ * @type {import('./view/note-editor.js').MountEditor}
+ */
+const mountNotesEditor = async (host, options) =>
+  options.shown === 'preview' && settings.get('notes') === 'blocks'
+    ? (await import('./view/note-editor-blocks.js')).mountBlocksEditor(host, options)
+    : (await import('./view/note-editor-cm.js')).mountNoteEditor(host, options);
+const filePanel = createFilePanel({ markdownEditor: async (host, options) => (await import('./view/markdown-file-editor.js')).mountMarkdownFileEditor(host, options, { mount: mountNotesEditor, onOpen: openFromNote }), panel: byId('file-panel', HTMLElement), layout, editor: createEditorOpener(machine, places), fileManager: { places, show: (path) => void openFileManager({ path }) }, vscode: machine.then((known) => (known?.vscode === true ? (path, line) => vscodeOpener.open({ path, line }) : undefined)), project: (path) => projectSource(projectOfFile(path, page.folder())), folder: projectSource, iconOf, pins: { scopesOf: (path) => { const pins = page.pins(); return pins === undefined ? undefined : scopesOf(pins.now(), path); }, pin: async (path, scope) => { const pins = page.pins(); return pins === undefined ? 'failed' : pins.pin(scope, path); }, unpin: (path) => page.pins()?.unpin(path) } });
 /** @type {import('./view/resizer.js').PanelWidth} */
 const outlineWidth = { property: '--outline-width', storageKey: 'viewer.outlineWidth' };
 restoreWidth(layout, outlineWidth);
@@ -771,10 +781,7 @@ function createPage() {
         placeholder: 'Markdown: # a heading, - a list, ``` code',
         save,
         onOpen: openFromNote,
-        mount: async (host, options) =>
-          options.shown === 'preview' && settings.get('notes') === 'blocks'
-            ? (await import('./view/note-editor-blocks.js')).mountBlocksEditor(host, options)
-            : (await import('./view/note-editor-cm.js')).mountNoteEditor(host, options),
+        mount: mountNotesEditor,
       });
       noteEditors.add(editor);
       return {
@@ -788,6 +795,7 @@ function createPage() {
     /** A note set apart opened in the side panel. @param {string} noteId */
     const openNote = (noteId) => {
       const panel = createNotePanel({
+        engine: { title: () => actionLabel('notes', settings.get('notes')), switch: () => settings.set('notes', nextChoice('notes', settings.get('notes'))) },
         note: () => notesNow.find((one) => one.id === noteId),
         edit: (shownId, text) => notes.edit(shownId, text),
         rename: (shownId, name) => notes.rename(shownId, name),
@@ -1223,7 +1231,6 @@ const headerSettingGroups = [
 /** The view settings used rarely: behind ⋯, even on a wide screen. */
 /** @type {readonly (readonly [SettingKey, string])[]} */
 const rareSettings = [
-  ['notes', 'note'],
   ['width', 'widen'],
   ['tables', 'table'],
   ['lamps', 'agent'],

@@ -35,6 +35,10 @@ function filePanel(editor = noEditor, lines = [], vscode = Promise.resolve(undef
   layout.append(panel);
   window.document.body.append(layout);
   const files = createFilePanel({
+    // no markdown file is edited in these
+    markdownEditor: async () => {
+      throw new Error('no markdown file is edited in these tests');
+    },
     panel,
     layout,
     editor,

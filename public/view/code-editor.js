@@ -97,6 +97,7 @@ export async function createCodeEditor(host, { text, path, line, onChange, onSav
     view.dispatch({ selection: EditorSelection.cursor(at), effects: EditorView.scrollIntoView(at, { y: 'center' }) });
   }
   return {
+    tools: 'code',
     // joined with the file's own line breaks: the document's toString joins with LF always
     text: () => view.state.sliceDoc(),
     replace: (next) => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next } }),

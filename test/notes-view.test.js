@@ -27,6 +27,8 @@ function fakeEditor({ text, save }) {
   let shownAs = 'preview';
   const editor = {
     element,
+    // its ↶ and ↷
+    buttons: { undo: Object.assign(window.document.createElement('button'), { className: 'note-undo' }), redo: Object.assign(window.document.createElement('button'), { className: 'note-redo' }) },
     /** @type {string[]} */
     shownTexts: [],
     disposed: false,
@@ -184,6 +186,19 @@ test('notesView_Should_ShowEachNoteItsOwnWay_AndSetItApartOrBackInline', () => {
       ideaLetGo: true,
     },
   );
+});
+
+// A note in full has its buttons over its corner: its editor's ↶ and ↷ first, then its source, set apart, the bin — and
+// they come back as they were once the bin is not confirmed
+test('notesView_Should_GiveNoteInFull_ItsUndoAndRedo_FirstAmongItsButtons', () => {
+  const { element } = notesShown();
+  const buttons = () => [...element('.note-actions').querySelectorAll('button')].map((one) => one.className.replace('icon-button ', ''));
+
+  const shown = buttons();
+  element('.note-remove').click();
+  element('.note-keep').click();
+
+  assert.deepEqual({ shown, kept: buttons() }, { shown: ['note-undo', 'note-redo', 'note-source', 'note-apart', 'note-remove'], kept: ['note-undo', 'note-redo', 'note-source', 'note-apart', 'note-remove'] });
 });
 
 // A note is dragged by its grip to another place among the notes — in full or set apart alike: it goes there at once and

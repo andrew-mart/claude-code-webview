@@ -3,9 +3,9 @@
 // editor, always there to be typed in, what is typed saved as it goes (note-editor.js) — or set apart, listed by its
 // name, the name opening it elsewhere (the side panel); a button on each sets it the other way. "+" writes a new note,
 // set apart from the start — written in the side panel; the clock shows the history of the notes' changes. A note in
-// full shows as its source by its button, the bin removes it once ✓ confirms. A note is moved among the others by its
-// grip (drag-order.js). The notes coming again from the server leave each note still there its editor: what is typed is
-// not taken away; while a note is moved, they wait.
+// full has ↶ and ↷ while there is something to undo or do again, shows as its source by its button, the bin removes it
+// once ✓ confirms. A note is moved among the others by its grip (drag-order.js). The notes coming again from the server
+// leave each note still there its editor: what is typed is not taken away; while a note is moved, they wait.
 import { h } from './dom.js';
 import { icon } from './icons.js';
 import { noteName } from '../model/notes.js';
@@ -86,7 +86,7 @@ export function createNotesView({ add, edit, remove, open, setShown, showHistory
     const apart = h('button', { className: 'icon-button note-apart', title: 'List the note by its name — it opens in the side panel', attrs: { type: 'button', 'aria-label': 'List the note by its name' } }, [icon('fold')]);
     const removing = h('button', { className: 'icon-button note-remove', title: 'Remove the note', attrs: { type: 'button', 'aria-label': 'Remove the note' } }, [icon('trash')]);
     const actions = h('span', { className: 'note-actions' });
-    const showButtons = () => actions.replaceChildren(grip(), source, apart, removing);
+    const showButtons = () => actions.replaceChildren(grip(), editor.buttons.undo, editor.buttons.redo, source, apart, removing);
     showButtons();
     source.addEventListener('click', () => {
       editor.setShown(editor.shown() === 'source' ? 'preview' : 'source');
