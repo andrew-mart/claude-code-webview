@@ -13,6 +13,31 @@ import { codexPanes, createCodexThreads } from '../server/codex-live.js';
  */
 const codexPane = (paneId, cwd, title) => ({ paneId, workspaceId: paneId.split(':')[0] ?? '', tabId: undefined, terminal: undefined, cwd, agent: 'codex', status: 'working', title, size: undefined, activity: 1 });
 
+// Codex opened in a tab writes its session's file only with the thread's first message: before it the thread is open —
+// its folder unknown — and the one Codex pane left with no thread runs it, when there is only one of each; with more,
+// they cannot be told apart and are left alone
+test('codexPanes_Should_GiveThePaneLeftTheOneThreadNotWrittenYet', () => {
+  const fresh = { id: 'fresh', cwd: undefined, name: undefined, activeAt: undefined };
+  const shop = { id: 'thread-shop', cwd: 'D:\\dev\\shop', name: undefined, activeAt: 2 };
+  const panes = [codexPane('w1:p1', 'D:\\dev\\shop'), codexPane('w2:p1', 'D:\\dev\\blog')];
+
+  assert.deepEqual(
+    {
+      one: [...codexPanes(panes, [shop, fresh])],
+      twoThreads: [...codexPanes(panes, [shop, fresh, { ...fresh, id: 'fresh-too' }])],
+      twoPanes: [...codexPanes([...panes, codexPane('w3:p1', 'D:\\dev\\docs')], [shop, fresh])],
+    },
+    {
+      one: [
+        ['w1:p1', 'thread-shop'],
+        ['w2:p1', 'fresh'],
+      ],
+      twoThreads: [['w1:p1', 'thread-shop']],
+      twoPanes: [['w1:p1', 'thread-shop']],
+    },
+  );
+});
+
 // A Codex pane runs the thread open in its folder: the one Codex holds open there — a folder's case and slashes aside
 test('codexPanes_Should_GiveCodexPaneTheThreadOpenInItsFolder', () => {
   const threads = [
@@ -57,7 +82,7 @@ test('codexPanes_Should_LeavePaneAlone_When_TheThreadLeftInItsFolderHasANameItsT
 test('codexThreads_Should_ListThreadsCodexHoldsOpen_ThatAPersonRuns_WithTheirLatestNames', async () => {
   const home = tempDir('ccw-codex-home-');
   await mkdir(join(home, 'thread-writer-locks'));
-  for (const name of ['.coordination.lock', 'shop.lock', 'helper.lock', 'closed.lock']) await writeFile(join(home, 'thread-writer-locks', name), '');
+  for (const name of ['.coordination.lock', 'shop.lock', 'helper.lock', 'closed.lock', 'fresh.lock']) await writeFile(join(home, 'thread-writer-locks', name), '');
   const names = [
     { id: 'shop', thread_name: 'Add a limit', updated_at: '2026-10-14T10:00:00Z' },
     { id: 'gone', thread_name: 'Old work', updated_at: '2026-10-14T10:01:00Z' },
@@ -68,5 +93,22 @@ test('codexThreads_Should_ListThreadsCodexHoldsOpen_ThatAPersonRuns_WithTheirLat
   const sessions = { shop: { cwd: 'D:\\dev\\shop', kind: 'interactive', activeAt: 7 }, helper: { cwd: 'D:\\dev\\shop', kind: 'sdk', activeAt: 8 }, gone: { cwd: 'D:\\dev\\shop', kind: 'interactive', activeAt: 1 }, closed: { cwd: 'D:\\dev\\shop', kind: 'interactive', activeAt: 2 } };
   const threads = createCodexThreads({ home, summaryOf: async (id) => sessions[id], held: async (lock) => !lock.endsWith('closed.lock') });
 
-  assert.deepEqual(await threads.open(), [{ id: 'shop', cwd: 'D:\\dev\\shop', name: 'Add a rate limit', activeAt: 7 }]);
+  assert.deepEqual(
+    [...(await threads.open())].sort((one, other) => one.id.localeCompare(other.id)),
+    [
+      { id: 'fresh', cwd: undefined, name: undefined, activeAt: undefined },
+      { id: 'shop', cwd: 'D:\\dev\\shop', name: 'Add a rate limit', activeAt: 7 },
+    ],
+  );
+});
+
+// A thread Codex holds open now — its lock held, its session's file written yet or not — is one Codex runs; one whose
+// lock is left, held by no one, and one with no lock at all are not
+test('codexThreads_Should_TellWhetherCodexHoldsThreadOpen', async () => {
+  const home = tempDir('ccw-codex-home-');
+  await mkdir(join(home, 'thread-writer-locks'));
+  for (const name of ['fresh.lock', 'closed.lock']) await writeFile(join(home, 'thread-writer-locks', name), '');
+  const threads = createCodexThreads({ home, summaryOf: async () => undefined, held: async (lock) => !lock.endsWith('closed.lock') });
+
+  assert.deepEqual([await threads.holds('fresh'), await threads.holds('closed'), await threads.holds('nowhere')], [true, false, false]);
 });

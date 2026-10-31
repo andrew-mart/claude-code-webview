@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf, searchLayout, sessionsByActivity, successorIn, tabTarget } from '../public/model/herdr.js';
+import { agentOfSession, openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf, searchLayout, sessionsByActivity, successorIn, tabTarget } from '../public/model/herdr.js';
 
 const session = '7d4e1b20-2222-4333-8444-955566667777';
 
@@ -191,4 +191,25 @@ test('paneSession_Should_TellSessionStartedInPane_SincePageOpenedIt', () => {
     [paneSession(started, 'w3:p1', undefined), paneSession(started, 'w3:p1', session), paneSession(layout, 'w3:p1', undefined), paneSession(layout, 'w9:p9', undefined)],
     [session, undefined, undefined, undefined],
   );
+});
+
+// A session the list has no transcript of yet — Codex writes its thread's file only with the first message — is the
+// agent's that herdr runs it in: Codex's in a Codex pane; in a Claude pane, or in none, Claude Code's
+test('agentOfSession_Should_TellAgentOfPaneRunningSession', () => {
+  const thread = '01a18cb3-a5fe-7523-836f-de7520188f53';
+  /** @type {import('../public/model/herdr.js').HerdrLayout} */
+  const running = {
+    herdr: true,
+    workspaces: [
+      {
+        ...notebook,
+        tabs: [
+          { id: 'w3:t1', number: 1, label: '1', status: 'idle', panes: [{ id: 'w3:p1', agent: 'codex', status: 'idle', title: 'notebook', session: thread, size: undefined, activity: 60 }] },
+          { id: 'w3:t2', number: 2, label: '2', status: 'idle', panes: [{ id: 'w3:p2', agent: 'claude', status: 'idle', title: 'notebook', session, size: undefined, activity: 61 }] },
+        ],
+      },
+    ],
+  };
+
+  assert.deepEqual([agentOfSession(running, thread), agentOfSession(running, session), agentOfSession(running, 'nowhere')], ['codex', 'claude', 'claude']);
 });

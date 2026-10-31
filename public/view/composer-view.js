@@ -448,9 +448,11 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   };
   setAsideButton.addEventListener('click', setAside);
   input.addEventListener('keydown', (event) => {
+    // Esc in the box is the box's alone: the page around it — a note open beside it — closes nothing on it
+    if (event.key === 'Escape') event.stopPropagation();
     // the commands offered take ↑, ↓, Enter, Tab and Esc while they show
     if (commandMenu.key(event)) return;
-    // Esc stops Claude, as it does in the terminal
+    // Esc stops Claude — cancels what it asks — as it does in the terminal
     if (event.key === 'Escape' && stop()) {
       event.preventDefault();
       return;

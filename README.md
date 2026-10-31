@@ -188,6 +188,7 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   (a view button); the table's own button overrides the session, the session overrides the viewer.
 - Light and dark themes, optional display of Claude Code's service messages. The buttons used rarely — VS Code, the
   conversation's width, the tables', lamps or robots, the theme — stand behind "⋯" at the end of the row over a session.
+  There too A− and A+ make the conversation's text smaller or larger, from 85% to 150%, each browser keeping its own.
 - **Palettes.** `--palette sea` (or `moss`, `plum`; `clay`, Claude's own, is the default) changes the accent colour, tints the
   session list a little and colours the tab icon and the iPhone home screen icon — two viewers, say on two computers, are
   told apart at a glance.
@@ -307,7 +308,8 @@ groups. Reply through the input box.
 
 An input box appears under the feed: the text is typed into
 the session's terminal and submitted with Enter, exactly as if you typed it there. While Claude is busy, Claude Code
-queues it. "Stop" — or Esc in the box, or anywhere on the page with nothing else to close — sends Esc. A long text pasted in
+queues it. "Stop" — or Esc in the box, or anywhere on the page with nothing else to close — sends Esc; Esc in the box
+closes nothing on the page, a note open beside it stays. A long text pasted in
 need not cover the conversation: a box taller than a few lines folds to them with the button in its corner. As in the terminal, a prompt Claude had not started on comes back for editing: the viewer
 takes it out of the terminal's input box and puts it into the page's box, exactly as it was sent, before anything
 already typed there. Drafts are kept per session.

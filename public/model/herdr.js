@@ -243,3 +243,14 @@ export function parseNewWorkspace(json) {
   const error = isRecord(json) ? json.error : undefined;
   return { ok: false, error: error === 'empty' || error === 'no-folder' || error === 'not-created' ? error : 'failed' };
 }
+
+/**
+ * The agent of a session the list has no transcript of yet — Codex writes its thread's file only with the thread's
+ * first message — the one herdr runs it in: Codex's in a Codex pane; in a Claude pane, or in none, Claude Code's.
+ * @param {HerdrLayout} layout
+ * @param {string} sessionId
+ * @returns {'claude' | 'codex'}
+ */
+export function agentOfSession(layout, sessionId) {
+  return panesOf(layout).some((pane) => pane.session === sessionId && pane.agent === 'codex') ? 'codex' : 'claude';
+}

@@ -15,7 +15,7 @@ import { revalidatedPolls } from './view/revalidated-polls.js';
 import { createDrawers } from './view/drawers.js';
 import { watchEdgeSwipe } from './view/edge-swipe.js';
 import { createPageAddress } from './view/page-address.js';
-import { openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf, successorIn } from './model/herdr.js';
+import { agentOfSession, openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf, successorIn } from './model/herdr.js';
 import { folderChoices, folderSearch, foundFolders, rememberFolder, systemFolder } from './model/folders.js';
 import { parseHistory, tabNeighbours } from './model/history.js';
 import { parseUsage, usageView } from './model/usage.js';
@@ -30,6 +30,7 @@ import { mountTerminal } from './view/terminal-view.js';
 import { openOfflineStore } from './view/offline-store.js';
 import { createRewindDialog } from './view/rewind-dialog.js';
 import { createSessionHeader } from './view/session-header.js';
+import { createTextSizeControl } from './view/text-size.js';
 import { rewindMessage } from './model/rewind.js';
 import { createOutline } from './view/outline-view.js';
 import { createNotesStore } from './view/notes-store.js';
@@ -724,8 +725,9 @@ function createPage() {
     current?.putAway();
     current = undefined;
     const info = sessions.find((session) => session.id === id);
-    // a session the list does not have yet is taken for Claude Code's, the viewer's own
-    const agent = info === undefined ? 'claude' : info.agent;
+    // a session the list does not have yet is the agent's herdr runs it in — Codex's, its first message not sent yet —
+    // else taken for Claude Code's, the viewer's own
+    const agent = info === undefined ? agentOfSession(herdrLayout, id) : info.agent;
     // kept as it was shown, unless it was taken for another's then
     const kept = warm.takeOut(id);
     if (kept !== undefined && kept.agent !== agent) kept.dispose();
@@ -743,7 +745,7 @@ function createPage() {
     const [tabHistory, branchChanges, vscode, fileManager] = [historyButton(historyView), changesButton(id), vscodeButton(folder), fileManagerButton(folder)];
     const folds = [tabHistory, branchChanges, herdrTab.button, fileManager].map(labelled);
     const navigation = [headGroup([drawerButton('outline', 'list', 'Outline'), tabHistory, branchChanges, filesButton(folder)]), headGroup([herdrTab.button, keepLit.button, fileManager])];
-    const header = createSessionHeader({ sessionId: id, place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation, folds, tools: settings.buttons(), rare: settings.rareButtons(), rareOpeners: [labelled(vscode)], details: [restart.row] });
+    const header = createSessionHeader({ sessionId: id, place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation, folds, tools: settings.buttons(), rare: [createTextSizeControl({ size: () => settings.get('size'), choose: (size) => settings.set('size', size) }), ...settings.rareButtons()], rareOpeners: [labelled(vscode)], details: [restart.row] });
     const outlineElement = h('aside', { className: 'outline', attrs: { 'aria-label': 'Outline' } });
     const outline = createOutline({
       element: outlineElement,
@@ -1266,6 +1268,8 @@ function createSettings(keepPlace) {
     root.dataset.tables = get('tables');
     root.dataset.width = get('width');
     root.dataset.lamps = get('lamps');
+    // the conversation's text at the size chosen, in percent of the usual one (style.css: .session)
+    root.style.setProperty('--text-size', String(Number(get('size')) / 100));
     // the notes open made anew with the editor chosen
     if (root.dataset.notes !== get('notes')) {
       root.dataset.notes = get('notes');

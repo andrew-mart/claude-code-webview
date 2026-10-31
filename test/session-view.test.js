@@ -127,6 +127,36 @@ async function mounted(t, saved, bookmarks) {
   return { view, source, feeds, saves, seen, markUnderFeed, metas };
 }
 
+// A session with nothing written down yet — Codex opened in a tab writes its conversation only with the first message —
+// says so in place of its feed, and how it starts: with the first message, from the box; once it is written down the
+// feed takes its place
+test('sessionView_Should_SayNothingIsWrittenYet_UntilTheConversationComes', async (t) => {
+  const { view, source } = await mounted(t, undefined);
+  const told = () => {
+    const empty = view.element.querySelector('.feed-empty');
+    return empty === null || empty.closest('[hidden]') !== null ? undefined : empty.textContent;
+  };
+
+  source.emit('missing', null);
+  const missing = told();
+  const running = await mounted(t, undefined);
+  running.source.emit('open');
+  running.source.emit('ready');
+  await settled();
+  const runningEmpty = running.view.element.querySelector('.feed-empty:not([hidden])')?.textContent;
+  running.source.emit('entries', [prompt('u1', 'Question')]);
+  await settled();
+
+  assert.deepEqual(
+    { missing, runningEmpty, written: running.view.element.querySelector('.feed-empty:not([hidden])') },
+    {
+      missing: 'Nothing is written down yet: the conversation starts with its first message — write it in the box below.',
+      runningEmpty: 'Nothing is written down yet: the conversation starts with its first message — write it in the box below.',
+      written: null,
+    },
+  );
+});
+
 test('sessionView_Should_ShowLiveModelBeforeFirstAnswer_AndKeepNewerContextOverOldHistory', async (t) => {
   const { source, metas } = await mounted(t, undefined);
   const status = { at: Date.parse(at) + 10_000, model: 'gpt-6-sol', contextTokens: 0, contextWindow: 1_050_000 };

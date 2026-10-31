@@ -125,8 +125,9 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  *   about — package name and version for /api/health; palette — the page's colours (public/model/palettes.js);
  *   publicAddresses — where else the page is opened at, answered as the local address is; herdrView — what herdr
  *   shows (herdr-view.js); terminals — herdr panes' terminals (terminal.js); usage — the account's usage (usage.js);
- *   isRunning — whether Claude Code has a session open; editor — opens a file at a line in the editor of this computer,
- *   if the viewer was given one; seen — the answers seen, for every device (seen.js); codexInUse — whether Codex has a
+ *   isRunning — whether Claude Code has a session open, or Codex a thread — its file written only with its first
+ *   message; editor — opens a file at a line in the editor of this computer, if the viewer was given one; seen — the
+ *   answers seen, for every device (seen.js); codexInUse — whether Codex has a
  *   thread open (codex-live.js)
  * @returns {Promise<{ port: number, close: () => void }>}
  */

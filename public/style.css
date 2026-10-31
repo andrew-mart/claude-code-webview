@@ -2070,6 +2070,51 @@ input.herdr-row-name.failed {
   display: none;
 }
 
+/* The conversation's text size, in the view menu: A−, the size now, A+ (text-size.js); the usual size until one is chosen. */
+:root {
+  --text-size: 1;
+}
+
+.text-size {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 8px 0 12px;
+  color: var(--text-2);
+  font-size: 13.5px;
+}
+
+.text-size-label {
+  flex: 1;
+}
+
+.text-size-step {
+  width: 34px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.text-size-step:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.text-size-step:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.text-size-value {
+  min-width: 4.5ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 /* The view buttons used rarely (app.js: rareSettings) behind ⋯ on a wide screen too: in a menu under it, each with the
    words of what a click does, as all the view buttons have in the menu they fold into on a narrow screen. */
 @media (min-width: 821px) {
@@ -2179,11 +2224,23 @@ input.herdr-row-name.failed {
 
 /* An answer's bookmark flag stands 38px right of it: the sides leave it room, or the feed would scroll sideways once
    it is no wider than the column. The text stays 752px wide, as the box under it. */
+/* a session with nothing written down yet, in place of its feed (session-view.js) */
+.feed-empty {
+  margin: 48px auto;
+  max-width: 420px;
+  color: var(--text-3);
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
+}
+
 .session {
   position: relative;
   max-width: 832px;
   margin: 0 auto;
   padding: 28px 40px 140px;
+  /* the conversation at the text size chosen in the view menu (text-size.js): its text, code and tables alike */
+  zoom: var(--text-size);
 }
 
 /* The conversation at full width: the feed and the box under it take the whole column, as wide as the window allows. */

@@ -18,6 +18,8 @@ export const choices = /** @type {const} */ ({
   sidebar: ['herdr', 'sessions'],
   closed: ['all', 'only'],
   notes: ['live', 'blocks'],
+  // the conversation's text, in percent of the usual size: made smaller or larger a step at a time (textSizeStep)
+  size: ['100', '85', '90', '110', '120', '135', '150'],
 });
 
 /**
@@ -42,6 +44,7 @@ const resultNames = {
   sidebar: { herdr: "Show herdr's workspaces and tabs", sessions: 'Show every session' },
   closed: { all: 'List every session', only: 'List only the sessions closed in herdr' },
   notes: { live: 'Edit notes with a live preview, as Obsidian does (CodeMirror)', blocks: 'Edit notes as blocks, as Notion does (Milkdown)' },
+  size: {},
 };
 
 /**
@@ -63,4 +66,21 @@ export function nextChoice(key, current) {
  */
 export function actionLabel(key, current) {
   return resultNames[key][nextChoice(key, current)] ?? '';
+}
+
+/** The conversation's text sizes, in percent of the usual one, the smallest first. */
+/** @type {readonly string[]} */
+const textSizes = [...choices.size].sort((one, other) => Number(one) - Number(other));
+
+/**
+ * The conversation's text size a step smaller or larger; at either end of the sizes, the same — one not among them, kept
+ * by an older page, goes from the usual size.
+ * @param {string} current — as the browser keeps it
+ * @param {-1 | 1} step — -1: smaller; 1: larger
+ * @returns {string}
+ */
+export function textSizeStep(current, step) {
+  const at = textSizes.indexOf(current);
+  const from = at === -1 ? textSizes.indexOf(choices.size[0]) : at;
+  return textSizes[Math.min(textSizes.length - 1, Math.max(0, from + step))] ?? current;
 }

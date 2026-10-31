@@ -73,6 +73,9 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   const loadingCount = h('span', { className: 'loading-count' });
   const loadingText = h('span', { text: 'Loading the session…' });
   const loading = h('div', { className: 'loading', attrs: { role: 'status' } }, [h('span', { className: 'spark', text: '✻' }), loadingText, loadingCount]);
+  // a session with nothing written down yet — Codex opened in a tab writes its conversation only with the first
+  // message — says so in place of its feed, until the conversation comes
+  const empty = h('div', { className: 'feed-empty', text: 'Nothing is written down yet: the conversation starts with its first message — write it in the box below.', attrs: { hidden: '' } });
   // A long session opens with its latest part; the rest comes on request.
   const earlier = h('button', { className: 'earlier', attrs: { type: 'button', hidden: '' } });
   const working = h('div', { className: 'working', attrs: { hidden: '' } }, [h('span', { className: 'spark', text: '✻' }), h('span', { text: 'Working…' })]);
@@ -86,7 +89,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   const updating = h('div', { className: 'updating', attrs: { role: 'status', hidden: '' } }, [h('span', { className: 'spark', text: '✻' }), updatingText]);
   // the conversation the session's tab went on from, over all of it
   const lead = h('div', { className: 'session-lead', attrs: { hidden: '' } });
-  const element = h('div', { className: 'session' }, [lead, earlier, keptThread, updating, thread, loading, working, waitingBox, jump]);
+  const element = h('div', { className: 'session' }, [lead, earlier, keptThread, updating, thread, loading, empty, working, waitingBox, jump]);
   const anchors = createAnchors(bookmarks, onRewind);
   /** @type {HTMLElement[]} */
   const prompts = [];
@@ -212,6 +215,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
       listener.onMeta(metaWithStatus(meta, sessionStatus));
     });
     next.on('entries', (data) => {
+      empty.hidden = true;
       const entries = Array.isArray(data) ? data : [];
       copy.take('entries', entries);
       if (ready) scheduleKeep();
@@ -233,6 +237,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     });
     next.on('ready', () => {
       ready = true;
+      empty.hidden = thread.childElementCount > 0;
       if (shown) {
         updating.hidden = true;
         refreshStatus();
@@ -256,6 +261,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     });
     next.on('missing', () => {
       loading.hidden = true;
+      empty.hidden = false;
       listener.onStatus('missing');
     });
     return next;

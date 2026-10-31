@@ -25,7 +25,7 @@ import { icon } from './icons.js';
  */
 const statusLooks = {
   connecting: { label: 'Loading…', glyph: () => icon('reload') },
-  missing: { label: 'Transcript not found', glyph: () => icon('alert') },
+  missing: { label: 'Nothing written down yet — or the transcript is gone', glyph: () => icon('alert') },
   idle: { label: 'Waiting for input', glyph: () => icon('message') },
   working: { label: 'Working', glyph: () => h('span', { className: 'spark', text: '✻' }) },
 };

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { actionLabel } from '../public/model/view-settings.js';
+import { actionLabel, choices, textSizeStep } from '../public/model/view-settings.js';
 
 /** @type {readonly [import('../public/model/view-settings.js').SettingKey, string, string][]} */
 const labels = [
@@ -30,3 +30,12 @@ for (const [key, current, expected] of labels) {
     assert.equal(actionLabel(key, current), expected);
   });
 }
+
+// The conversation's text is made a step smaller or larger — from the usual size, 100% — and stays at either end of the
+// sizes; one the browser kept that is not among them goes from the usual size
+test('textSizeStep_Should_GoAStepSmallerOrLarger_AndStayAtEitherEnd', () => {
+  assert.deepEqual(
+    [textSizeStep(choices.size[0], -1), textSizeStep('100', 1), textSizeStep('85', -1), textSizeStep('150', 1), textSizeStep('97', 1)],
+    ['90', '110', '85', '150', '110'],
+  );
+});

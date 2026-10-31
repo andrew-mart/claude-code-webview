@@ -12,8 +12,8 @@ const sessionId = '3f2c9a50-1111-4222-8333-944455556666';
 /**
  * The box of a session in a herdr pane, Claude busy in it or not; Esc pressed in the box and then asked of the page.
  * @param {'busy' | 'idle'} status
- * @returns {Promise<{ fromBox: string[], fromPage: boolean }>} — fromBox: what the box asked the viewer to do; fromPage:
- *   whether the page's Esc stopped Claude
+ * @returns {Promise<{ fromBox: string[], fromPage: boolean, pageGotIt: boolean }>} — fromBox: what the box asked the
+ *   viewer to do; fromPage: whether the page's Esc stopped Claude; pageGotIt: whether the box's Esc reached the page
  */
 async function escapeWhile(status) {
   /** @type {string[]} */
@@ -31,20 +31,27 @@ async function escapeWhile(status) {
   await new Promise((resolve) => setTimeout(resolve, 20));
   const box = composer.element.querySelector('.composer-input');
   assert.ok(box instanceof window.HTMLTextAreaElement);
+  let pageGotIt = false;
+  const page = (/** @type {KeyboardEvent} */ event) => {
+    if (event.key === 'Escape') pageGotIt = true;
+  };
+  window.document.addEventListener('keydown', page);
   box.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  window.document.removeEventListener('keydown', page);
   await new Promise((resolve) => setTimeout(resolve, 20));
   const fromBox = asked.filter((path) => path === '/api/interrupt');
   const fromPage = composer.stop();
   composer.dispose();
   composer.element.remove();
-  return { fromBox, fromPage };
+  return { fromBox, fromPage, pageGotIt };
 }
 
-// Esc stops Claude, as in its terminal: pressed in the box, or anywhere on the page with nothing else to close; while
-// Claude is not working there is nothing to stop
-test('composer_Should_StopClaudeOnEscape_WhileItWorks', async () => {
+// Esc stops Claude — cancels what it asks — as in its terminal: pressed in the box, or anywhere on the page with nothing
+// else to close; while Claude is not working there is nothing to stop. Pressed in the box it is the box's alone: the
+// page around it — a note open beside it — closes nothing on it
+test('composer_Should_StopClaudeOnEscape_WhileItWorks_LeavingThePageAsItIs', async () => {
   assert.deepEqual([await escapeWhile('busy'), await escapeWhile('idle')], [
-    { fromBox: ['/api/interrupt'], fromPage: true },
-    { fromBox: [], fromPage: false },
+    { fromBox: ['/api/interrupt'], fromPage: true, pageGotIt: false },
+    { fromBox: [], fromPage: false, pageGotIt: false },
   ]);
 });

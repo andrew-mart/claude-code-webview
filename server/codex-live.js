@@ -2,20 +2,23 @@
 // Which Codex thread runs in which herdr pane. Codex keeps no record of its processes as Claude Code does; what it does
 // keep: a lock on each thread it has open, the thread's folder, and the thread's name — which it also puts in its
 // terminal's title.
-import { readFile, readdir } from 'node:fs/promises';
+import { access, readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isRecord, text } from '../public/model/narrow.js';
 import { folderKey } from './folders.js';
 
 /**
- * @typedef {{ id: string, cwd: string, name: string | undefined, activeAt: number }} LiveThread — a Codex thread open
- *   now, a person's (not a subagent's): its folder, the name Codex gave it, when it was last active
+ * @typedef {{ id: string, cwd: string | undefined, name: string | undefined, activeAt: number | undefined }} LiveThread — a
+ *   Codex thread open now, a person's (not a subagent's): its folder, the name Codex gave it, when it was last active —
+ *   no folder, and no time, for a thread whose session file Codex has not written yet: it writes it with the thread's
+ *   first message
  */
 
 /**
  * The threads the Codex panes run: in a pane's folder, the thread its title names; then, of a folder's panes and
- * threads left, one pane runs the one thread with no name. Panes that cannot be told apart are left out — a terminal,
- * not a feed.
+ * threads left, one pane runs the one thread with no name; last, the one pane left with none runs the one thread not
+ * written yet — Codex opened, nothing sent in it — its folder unknown. Panes that cannot be told apart are left out — a
+ * terminal, not a feed.
  * @param {readonly import('./herdr.js').Pane[]} panes
  * @param {readonly LiveThread[]} threads
  * @returns {Map<string, string>} — thread ids by pane id
@@ -25,7 +28,7 @@ export function codexPanes(panes, threads) {
   const found = new Map();
   const taken = new Set();
   /** @param {string} folder */
-  const left = (folder) => threads.filter((thread) => !taken.has(thread.id) && folderKey(thread.cwd) === folder);
+  const left = (folder) => threads.filter((thread) => !taken.has(thread.id) && thread.cwd !== undefined && folderKey(thread.cwd) === folder);
   const byFolder = groupBy(
     panes.flatMap((pane) => (pane.agent === 'codex' && pane.cwd !== undefined ? [{ pane, folder: folderKey(pane.cwd) }] : [])),
     ({ folder }) => folder,
@@ -47,6 +50,11 @@ export function codexPanes(panes, threads) {
     const [thread] = free;
     if (unnamed.length === 1 && free.length === 1 && last !== undefined && thread !== undefined) found.set(last.pane.paneId, thread.id);
   }
+  const panesLeft = panes.filter((pane) => pane.agent === 'codex' && !found.has(pane.paneId));
+  const unwritten = threads.filter((thread) => thread.cwd === undefined && !taken.has(thread.id));
+  const [pane] = panesLeft;
+  const [fresh] = unwritten;
+  if (panesLeft.length === 1 && unwritten.length === 1 && pane !== undefined && fresh !== undefined) found.set(pane.paneId, fresh.id);
   return found;
 }
 
@@ -71,10 +79,25 @@ export function createCodexThreads({ home, summaryOf, held }) {
       const found = await Promise.all(
         ids.map(async (id) => {
           const summary = await summaryOf(id);
-          return summary?.kind === 'interactive' && summary.cwd !== undefined ? [{ id, cwd: summary.cwd, name: names.get(id), activeAt: summary.activeAt }] : [];
+          // no session file yet: the thread opened, its first message not sent
+          if (summary === undefined) return [{ id, cwd: undefined, name: names.get(id), activeAt: undefined }];
+          return summary.kind === 'interactive' && summary.cwd !== undefined ? [{ id, cwd: summary.cwd, name: names.get(id), activeAt: summary.activeAt }] : [];
         }),
       );
       return found.flat();
+    },
+    /**
+     * Whether Codex holds a thread open now, its session's file written yet or not: the thread's lock is there, held.
+     * @param {string} id
+     * @returns {Promise<boolean>}
+     */
+    async holds(id) {
+      const lock = join(home, 'thread-writer-locks', `${id}.lock`);
+      const there = await access(lock).then(
+        () => true,
+        () => false,
+      );
+      return there && (await held(lock));
     },
   };
 }
