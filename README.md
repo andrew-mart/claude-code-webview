@@ -86,6 +86,8 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   already is asked about: replace the one there, upload it under another name, or skip it; where the file system does
   not tell case apart (Windows, macOS) a name that differs only in case is the same file, and replacing it asks which
   of the two names it keeps. A zip holds up to 2 GB and 20,000 files; an upload takes up to 1 GB a file.
+
+  ![The project's files beside a session: a folder chosen, a row's download and upload, an upload of a name already there asked about](docs/files.png)
 - **VS Code.** Started with `--vscode <the VS Code CLI>`, the viewer runs VS Code in the browser — Microsoft's own
   `code serve-web` — at `/vscode/`, and a button over a session opens it in the session's folder in a tab of its own:
   the whole of VS Code, its search, its git, its extensions and their language servers (go to a definition, find the
@@ -110,6 +112,8 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   text it had before and ↶, which puts the note back as it was: a note removed comes back, an edit is undone. Kept in
   `~/.claude-code-webview/notes.json`, as the bookmarks are, each note with its way, so every device shows it alike;
   the last 200 changes of each folder in `notes-history.json` beside it.
+
+  ![The notes' changes in the side panel, the latest first, the text of a note removed opened](docs/notes-history.png)
 - **Session header.** Under the title, one line of facts: the folder, the branch checked out there now, the model and
   its effort, a ring that fills as the context window does (`412k/1M`; amber past 70%, red past 90%) and the cost.
   A click opens the details: the full path and how much context is used and left. The window comes from the model
@@ -124,8 +128,9 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   `~/.claude-code-webview/rate-limits.json` and the viewer shows whichever reading is fresher. In a bash statusline:
   `input=$(cat); echo "$input" | jq -c '.rate_limits // empty' > ~/.claude-code-webview/rate-limits.json`.
 - **Phones.** On a narrow screen the session list and the outline slide in from the sides, bookmark flags stay
-  visible without hover, the view buttons fold into a "⋯" menu, and on a touch keyboard Enter starts a new line while
-  the ↑ button sends.
+  visible without hover, the view buttons fold into a "⋯" menu — the buttons over a session used less often with them,
+  as its first group, so the session's title has room — and on a touch keyboard Enter starts a new line while the ↑
+  button sends.
 - **Long sessions** open with their latest part (2000 entries, 800 on a phone); "Show N earlier entries" above it loads
   the rest, keeping your place. A tool's big output — a command's stdout, a file read or written — is not sent up
   front: the row shows its summary, and the output loads when the row is opened. A 120 MB transcript opens in about
@@ -185,8 +190,8 @@ without naming the tab; ✎ names it — so does **F2**, anywhere but in a termi
 one duplicates it, × closes it (after asking with ✓ and ✕ — what runs in it stops), and the page moves to the tab next
 to it. A duplicate is a new tab of the workspace, in the same folder, named `<name>::1` (then `::2`, …; a copy of a copy
 counts on from the same name), with the session in it forked: `claude --resume <id> --fork-session` — the conversation
-so far, going on as a new session — or `codex fork <id>`; a tab with no session gets a terminal. A tab can have an emoji icon: picked from a row beside its name as it
-is named, it is kept ahead of the name in herdr's label, so herdr shows it too. **+** at the end of the row opens a tab
+so far, going on as a new session — or `codex fork <id>`; a tab with no session gets a terminal. A tab's emoji icon is
+kept ahead of its name in herdr's label, so herdr shows it too. **+** at the end of the row opens a tab
 beside the open one, in its folder and under the name (and icon) you give it: a terminal, or Claude Code started in it
 with `claude` — or with the command given by `--claude-command`, a wrapper of your own — or Codex, with `codex` or
 `--codex-command`; the page goes from the new tab's terminal to its session as soon as the agent's session starts there. When Claude Code started from the page — in a new tab or
@@ -328,6 +333,8 @@ herdr pane send-text + send-keys     → the text and Enter, into that pane
 ```
 
 Questions with options (AskUserQuestion) still need to be answered in the terminal.
+
+![What the agent asks over its box, and the same folded to one line](docs/question.png)
 
 ## On your phone
 
