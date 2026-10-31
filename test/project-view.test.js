@@ -21,8 +21,10 @@ function iconOf(name, kind, open) {
 /**
  * A project at D:/dev/shop, its folders by path, and a search over it that finds what is asked in a fixed set of lines.
  * @param {import('../public/model/project.js').Match[]} lines
+ * @param {Partial<import('../public/view/project-view.js').Transfer>} transfer — the viewer's transfers, where they go
+ *   otherwise than here
  */
-function projectOf(lines = []) {
+function projectOf(lines = [], transfer = {}) {
   /** @type {Record<string, import('../public/model/project.js').FolderEntry[]>} */
   const folders = {
     'D:/dev/shop': [
@@ -58,6 +60,9 @@ function projectOf(lines = []) {
         folders[folder] = [...there.filter((entry) => entry !== same), { name, kind: 'file' }];
         return { ok: true };
       },
+      download: async () => ({ ok: false, error: 'failed' }),
+      save: () => {},
+      ...transfer,
     },
   });
   document.body.replaceChildren(view.element);
@@ -71,14 +76,24 @@ function projectOf(lines = []) {
     assert.ok(found instanceof window.HTMLElement, `no row ${label}`);
     return found;
   };
-  /** Files picked for an upload, as the browser's file picker gives them. @param {readonly string[]} names */
-  const pick = (names) => {
+  /**
+   * Files picked for an upload, as the browser's file picker gives them.
+   * @param {readonly string[]} names @param {number} size — each one's, in bytes
+   */
+  const pick = (names, size = 5) => {
     const picker = view.element.querySelector('input.project-picker');
     assert.ok(picker instanceof window.HTMLInputElement, 'no file picker');
-    Object.defineProperty(picker, 'files', { value: names.map((one) => new window.File(['bytes'], one)), configurable: true });
+    Object.defineProperty(picker, 'files', { value: names.map((one) => new window.File([new Uint8Array(size)], one)), configurable: true });
     picker.dispatchEvent(new window.Event('change'));
   };
-  return { view, opened, asked, uploads, settle, tree, row, pick };
+  /** What the line under the search tells of the upload, and its bar: how far it is filled, of how much. */
+  const transferShown = () => {
+    const bar = view.element.querySelector('.project-transfer progress');
+    return { text: view.element.querySelector('.project-transfer')?.textContent, bar: bar === null ? undefined : [bar.getAttribute('value'), bar.getAttribute('max')] };
+  };
+  /** The rows under the search of what downloads, and what was downloaded. */
+  const downloadsShown = () => [...view.element.querySelectorAll('.project-downloads .project-downloading')].map((one) => one.textContent);
+  return { view, opened, asked, uploads, settle, tree, row, pick, transferShown, downloadsShown };
 }
 
 // Each file in the tree downloads from its row as it is, each folder as a zip, from the viewer's addresses for them;
@@ -128,6 +143,92 @@ test('projectView_Should_UploadFilesPickedIntoFolder_ReplacingOnlyOnceConfirmed'
       ],
       tree: ['src', '  limits.ts', '  orders.ts', 'notes.md', 'README.md'],
       told: 'Uploaded orders.ts into shop/src',
+    },
+  );
+});
+
+// A file uploading tells how far it got — of how many picked, when more than one — its bar filling as its bytes go; an
+// empty one has no share of its length to tell
+test('projectView_Should_TellHowFarEachUploadGot_ItsBarFilling', async () => {
+  /** @type {ReturnType<ReturnType<typeof projectOf>['transferShown']>[]} */
+  const shown = [];
+  const project = projectOf([], {
+    upload: async (folder, file, name, existing, progress) => {
+      shown.push(project.transferShown());
+      progress(file.size / 4);
+      shown.push(project.transferShown());
+      return { ok: true };
+    },
+  });
+  await project.view.reload();
+
+  project.view.element.querySelector('.project-search .project-upload')?.dispatchEvent(new window.MouseEvent('click'));
+  project.pick(['big.zip', 'notes.md'], 2048);
+  await project.settle();
+  project.view.element.querySelector('.project-search .project-upload')?.dispatchEvent(new window.MouseEvent('click'));
+  project.pick(['empty.txt'], 0);
+  await project.settle();
+
+  assert.deepEqual(
+    { shown, after: project.transferShown() },
+    {
+      shown: [
+        { text: 'Uploading big.zip, 1 of 2 — 0% of 2 KB', bar: ['0', '2048'] },
+        { text: 'Uploading big.zip, 1 of 2 — 25% of 2 KB', bar: ['512', '2048'] },
+        { text: 'Uploading notes.md, 2 of 2 — 0% of 2 KB', bar: ['0', '2048'] },
+        { text: 'Uploading notes.md, 2 of 2 — 25% of 2 KB', bar: ['512', '2048'] },
+        { text: 'Uploading empty.txt — 0 B so far', bar: [null, null] },
+        { text: 'Uploading empty.txt — 0 B so far', bar: [null, null] },
+      ],
+      after: { text: 'Uploaded empty.txt into shop', bar: undefined },
+    },
+  );
+});
+
+// A file or a folder downloads in the panel, not by the browser: its row under the search tells how far it got — of the
+// file's length; a zip, made as it goes, by its bytes so far — then the file is saved under its own name. A download
+// takes the place of those ended; one the viewer did not give says why
+test('projectView_Should_DownloadInPanel_TellingHowFarItGot_ThenSaveUnderItsName', async () => {
+  /** @type {(string | null)[][]} */
+  const shown = [];
+  /** @type {[string, number][]} */
+  const saved = [];
+  const project = projectOf([], {
+    download: async (path, kind, progress) => {
+      if (kind === 'folder') {
+        progress(3_250_000, undefined);
+        shown.push(project.downloadsShown());
+        return { ok: false, error: 'too-large' };
+      }
+      progress(512, 2048);
+      shown.push(project.downloadsShown());
+      return { ok: true, file: new window.Blob([new Uint8Array(2048)]) };
+    },
+    save: (file, name) => saved.push([name, file.size]),
+  });
+  await project.view.reload();
+  project.row('src').click();
+  await project.settle();
+  /** @param {Element | null | undefined} link */
+  const press = async (link) => {
+    const click = new window.MouseEvent('click', { bubbles: true, cancelable: true });
+    link?.dispatchEvent(click);
+    await project.settle();
+    return click.defaultPrevented;
+  };
+
+  const fileByBrowser = await press([...project.view.element.querySelectorAll('.project-tree a.project-download')].find((link) => link.getAttribute('download') === 'limits.ts'));
+  const fileEnded = project.downloadsShown();
+  const zipByBrowser = await press(project.view.element.querySelector('.project-search a.project-download'));
+
+  assert.deepEqual(
+    { prevented: [fileByBrowser, zipByBrowser], shown, fileEnded, zipEnded: project.downloadsShown(), saved },
+    {
+      prevented: [true, true],
+      shown: [['Downloading limits.ts — 25% of 2 KB'], ['Downloading src.zip — 3.1 MB so far']],
+      fileEnded: ['Downloaded limits.ts — 2 KB'],
+      zipEnded: ['Not downloaded — src.zip: too big to zip'],
+      saved: [['limits.ts', 2048]],
     },
   );
 });
@@ -441,7 +542,7 @@ function heldProject(folders) {
     openFile: () => undefined,
     iconOf,
     // nothing goes either way here
-    transfer: { address: (path) => `/download?${path}`, upload: async () => ({ ok: false, error: 'failed' }) },
+    transfer: { address: (path) => `/download?${path}`, upload: async () => ({ ok: false, error: 'failed' }), download: async () => ({ ok: false, error: 'failed' }), save: () => {} },
   });
   document.body.replaceChildren(view.element);
   const settle = () => new Promise((resolve) => setTimeout(resolve, 0));

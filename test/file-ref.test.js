@@ -25,6 +25,34 @@ test('findFileRefs_Should_ReadLineRangeAndIgnoreColumn', () => {
   );
 });
 
+// A place in a document named after its file — report.html#chain-tv — is no part of its path: the link takes it in, the
+// file opens; a # inside a folder's name or a file's own name stays in the path
+test('findFileRefs_Should_LeavePlaceInDocumentOutOfPath_AndKeepHashInNames', () => {
+  const found = (/** @type {string} */ source) => findFileRefs(source).map(({ text: linked, path }) => [linked, path]);
+
+  assert.deepEqual(
+    [found('open D:/dev/docs/run/report.html#chain-tv now'), found('D:/dev/C#/Notes.cs and D:/dev/docs/notes#1.md')],
+    [
+      [['D:/dev/docs/run/report.html#chain-tv', 'D:/dev/docs/run/report.html']],
+      [
+        ['D:/dev/C#/Notes.cs', 'D:/dev/C#/Notes.cs'],
+        ['D:/dev/docs/notes#1.md', 'D:/dev/docs/notes#1.md'],
+      ],
+    ],
+  );
+});
+
+// A file: link to a place in a document opens the document; #L42 still names its line
+test('fileRefFromHref_Should_OpenDocumentOfLinkToPlaceInIt', () => {
+  assert.deepEqual(
+    [fileRefFromHref('file:///D:/dev/docs/run/report.html#chain-tv'), fileRefFromHref('file:///D:/dev/x/a.cs#L42')],
+    [
+      { path: 'D:/dev/docs/run/report.html', line: undefined, endLine: undefined },
+      { path: 'D:/dev/x/a.cs', line: 42, endLine: undefined },
+    ],
+  );
+});
+
 test('fileRefFromHref_Should_ReadFileUrlWithEscapedSpacesAndLine', () => {
   assert.deepEqual(
     ['file:///D:/dev/x%20y/z.md', 'file:///D:/dev/a.cs#L42', 'file:///D:/dev/a.cs:42-50', 'https://example.com/a.cs'].map(fileRefFromHref),

@@ -44,7 +44,7 @@ import { createNotesHistoryPanel } from './view/notes-history-view.js';
 import { h } from './view/dom.js';
 import { createFilePanel } from './view/file-panel.js';
 import { parseBranchChanges, parseFileDiff } from './model/branch-changes.js';
-import { parseFileLinks, parseFolderListing, parseSearchFound, parseUploadOutcome, projectOfFile } from './model/project.js';
+import { parseFileLinks, parseFolderListing, parseSearchFound, parseUploadOutcome, projectOfFile, receiveDownload } from './model/project.js';
 import { createFileIcons } from './view/file-icons.js';
 import { parseMachine } from './model/machine.js';
 import { splitTabIcon } from './model/tab-icon.js';
@@ -173,7 +173,7 @@ const iconOf = createFileIcons({ light: () => document.documentElement.dataset.t
 const places = createPlaceFinder(machine);
 // VS Code: the computer's own from a browser on it, else VS Code in the browser
 const vscodeOpener = createVsCodeOpener({ places, desktop: openDesktopVsCode, web: openWebVsCode });
-const filePanel = createFilePanel({ panel: byId('file-panel', HTMLElement), layout, editor: createEditorOpener(machine, places), fileManager: { places, show: (path) => void openFileManager({ path }) }, vscode: machine.then((known) => (known?.vscode === true ? (path, line) => vscodeOpener.open({ path, line }) : undefined)), project: (path) => projectSource(projectOfFile(path, page.folder())), folder: projectSource, iconOf, pins: { scopesOf: (path) => { const pins = page.pins(); return pins === undefined ? undefined : scopesOf(pins.now(), path); }, pin: (path, scope) => page.pins()?.pin(scope, path), unpin: (path) => page.pins()?.unpin(path) } });
+const filePanel = createFilePanel({ panel: byId('file-panel', HTMLElement), layout, editor: createEditorOpener(machine, places), fileManager: { places, show: (path) => void openFileManager({ path }) }, vscode: machine.then((known) => (known?.vscode === true ? (path, line) => vscodeOpener.open({ path, line }) : undefined)), project: (path) => projectSource(projectOfFile(path, page.folder())), folder: projectSource, iconOf, pins: { scopesOf: (path) => { const pins = page.pins(); return pins === undefined ? undefined : scopesOf(pins.now(), path); }, pin: async (path, scope) => { const pins = page.pins(); return pins === undefined ? 'failed' : pins.pin(scope, path); }, unpin: (path) => page.pins()?.unpin(path) } });
 /** @type {import('./view/resizer.js').PanelWidth} */
 const outlineWidth = { property: '--outline-width', storageKey: 'viewer.outlineWidth' };
 restoreWidth(layout, outlineWidth);
@@ -789,6 +789,8 @@ function createPage() {
         filePanel.open({ path, line: undefined, endLine: undefined });
       },
       unpin: (path) => pins.unpin(path),
+      pinPath: (scope, path) => pins.pin(scope, path),
+      rename: (path, name) => pins.rename(path, name),
       iconOf: (name) => iconOf(name, 'file', false),
     });
     const pins = createPinsStore(id, (now) => {
@@ -1568,7 +1570,7 @@ function filesButton(folder) {
  * @returns {import('./view/file-panel.js').Project}
  */
 function projectSource(root) {
-  return { root, listFolder: fetchFolder, search: (query) => fetchSearch(root, query), links: (path) => fetchLinks(root, path), transfer: { address: downloadAddress, upload: uploadInto } };
+  return { root, listFolder: fetchFolder, search: (query) => fetchSearch(root, query), links: (path) => fetchLinks(root, path), transfer: { address: downloadAddress, upload: uploadInto, download: downloadFrom, save: saveFile } };
 }
 
 /**
@@ -1581,16 +1583,50 @@ function downloadAddress(path, kind) {
 }
 
 /**
- * A file uploaded into a folder under a name; one by that name there kept — the upload refused — or replaced.
+ * A file uploaded into a folder under a name; one by that name there kept — the upload refused — or replaced. Sent by
+ * XMLHttpRequest, its bytes sent told as they go: fetch tells nothing of a body on its way.
  * @param {string} folder
  * @param {File} file
  * @param {string} name
  * @param {'keep' | 'replace'} existing
+ * @param {(sent: number) => void} progress
+ * @returns {Promise<import('./model/project.js').UploadOutcome>}
  */
-async function uploadInto(folder, file, name, existing) {
+function uploadInto(folder, file, name, existing, progress) {
   const asked = new URLSearchParams({ folder, name, ...(existing === 'replace' ? { replace: '1' } : {}) });
-  const response = await fetch(`/api/file/upload?${asked}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-Viewer': '1' }, body: file }).catch(() => undefined);
-  return parseUploadOutcome(await response?.json().catch(() => undefined));
+  return new Promise((resolve) => {
+    const request = new XMLHttpRequest();
+    request.open('POST', `/api/file/upload?${asked}`);
+    request.setRequestHeader('Content-Type', 'application/octet-stream');
+    request.setRequestHeader('X-Viewer', '1');
+    request.responseType = 'json';
+    request.upload.addEventListener('progress', (event) => progress(event.loaded));
+    // after the reply, or none: a reply that is no JSON, and no reply, come as null — a failure
+    request.addEventListener('loadend', () => resolve(parseUploadOutcome(request.response)));
+    request.send(file);
+  });
+}
+
+/**
+ * A file downloaded, or a folder as a zip, its bytes received told as they come.
+ * @param {string} path
+ * @param {'file' | 'folder'} kind
+ * @param {(received: number, total: number | undefined) => void} progress
+ */
+async function downloadFrom(path, kind, progress) {
+  return receiveDownload(await fetch(downloadAddress(path, kind)).catch(() => undefined), progress);
+}
+
+/**
+ * A file downloaded saved on the device under a name, by the browser's own download of it from the page.
+ * @param {Blob} file
+ * @param {string} name
+ */
+function saveFile(file, name) {
+  const address = URL.createObjectURL(file);
+  h('a', { attrs: { href: address, download: name } }).click();
+  // the browser takes the file from the address as it can: it is let go of well after that
+  setTimeout(() => URL.revokeObjectURL(address), 60_000);
 }
 
 /**

@@ -11,6 +11,7 @@ import { basename, isAbsolute, join } from 'node:path';
 import { once } from 'node:events';
 import { pipeline } from 'node:stream/promises';
 import { createDeflateRaw, crc32 } from 'node:zlib';
+import { fileAt } from './files.js';
 import { folderAt } from './project.js';
 
 /**
@@ -38,12 +39,8 @@ export function attachment(name) {
  * @returns {Promise<Download>}
  */
 export async function fileToDownload(requested, home) {
-  const path = /^~[\\/]/.test(requested) ? join(home, requested.slice(2)) : requested;
-  if (!isAbsolute(path)) return { ok: false, error: 'not-absolute' };
-  const info = await stat(path).catch(() => undefined);
-  if (info === undefined) return { ok: false, error: 'not-found' };
-  if (!info.isFile()) return { ok: false, error: 'not-a-file' };
-  return { ok: true, path, name: basename(path), size: info.size };
+  const found = await fileAt(requested, home);
+  return found.ok ? { ok: true, path: found.path, name: basename(found.path), size: found.size } : found;
 }
 
 /**

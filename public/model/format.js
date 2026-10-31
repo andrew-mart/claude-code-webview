@@ -1,5 +1,5 @@
 // @ts-check
-// Numbers and durations for labels in the feed.
+// Numbers, sizes and durations for labels in the feed and the panels.
 
 /** Noun forms for exactly one and for any other count. */
 const nouns = /** @type {const} */ ({
@@ -60,6 +60,19 @@ export function formatTokens(n) {
   if (n >= 999_500) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
   if (n >= 1000) return `${Math.round(n / 1000)}k`;
   return String(n);
+}
+
+/**
+ * A file's size, as a transfer tells it.
+ * @param {number} bytes
+ * @returns {string}
+ */
+export function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  // 1023.6 KB rounds to 1024 KB: that is already a megabyte
+  if (bytes < 1023.5 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  const [size, unit] = bytes < 1023.95 * 1024 ** 2 ? [bytes / 1024 ** 2, 'MB'] : [bytes / 1024 ** 3, 'GB'];
+  return `${size.toFixed(1).replace(/\.0$/, '')} ${unit}`;
 }
 
 /**

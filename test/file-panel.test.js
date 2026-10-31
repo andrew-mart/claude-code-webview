@@ -18,7 +18,7 @@ const noEditor = { reach: async () => 'none', check: async () => 'none', open: a
 /** @typedef {import('../public/model/project.js').Match} Match */
 
 /** A project whose files neither download nor upload. @type {import('../public/view/project-view.js').Transfer} */
-const noTransfer = { address: () => '', upload: async () => ({ ok: false, error: 'failed' }) };
+const noTransfer = { address: () => '', upload: async () => ({ ok: false, error: 'failed' }), download: async () => ({ ok: false, error: 'failed' }), save: () => {} };
 
 /**
  * The panel as app.js creates it, in a page of its own; a file's project is D:/dev/shop, its search finding these lines.
@@ -40,7 +40,7 @@ function filePanel(editor = noEditor, lines = [], vscode = Promise.resolve(undef
     editor,
     vscode,
     // no session open: nothing to pin a file beside
-    pins: { scopesOf: () => undefined, pin: () => undefined, unpin: () => undefined },
+    pins: { scopesOf: () => undefined, pin: async () => 'pinned', unpin: () => undefined },
     fileManager,
     // a folder linked: its files, with nothing in them
     folder: (root) => ({ root, listFolder: async (path) => ({ ok: true, path, entries: [], more: false }), search: async () => undefined, links: async () => undefined, transfer: noTransfer }),

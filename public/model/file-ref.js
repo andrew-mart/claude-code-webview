@@ -41,13 +41,23 @@ export function findFileRefs(source) {
   /** @type {FileRef[]} */
   const refs = [];
   for (let match = pattern.exec(source); match !== null; match = pattern.exec(source)) {
-    const [text, path, line, endLine] = match;
-    if (path === undefined) continue;
-    const ref = withSpacedName(source, { index: match.index, text, path, line: lineNumber(line), endLine: lineNumber(endLine) });
+    const [text, found, line, endLine] = match;
+    if (found === undefined) continue;
+    const ref = withSpacedName(source, { index: match.index, text, path: withoutPlace(found), line: lineNumber(line), endLine: lineNumber(endLine) });
     refs.push(ref);
     pattern.lastIndex = ref.index + ref.text.length;
   }
   return refs;
+}
+
+/**
+ * A path without the place in its document a link names after it — report.html#chain-tv: a # after a file's name and
+ * its extension, then words and hyphens to its end. A # inside a name stays: D:/dev/C#/, notes#1.md.
+ * @param {string} path
+ * @returns {string}
+ */
+function withoutPlace(path) {
+  return /^(.*\.[A-Za-z0-9]+)#[\w-]+$/.exec(path)?.[1] ?? path;
 }
 
 /**
@@ -101,12 +111,13 @@ function lineNumber(value) {
 }
 
 /**
- * A link `file:///D:/dev/x%20y/z.md` or `file:///Users/ann/z.md`; the line follows the path after ":" or comes in a "#L42" fragment.
+ * A link `file:///D:/dev/x%20y/z.md` or `file:///Users/ann/z.md`; the line follows the path after ":" or comes in a "#L42" fragment;
+ * another fragment — a place in the document — opens the document.
  * @param {string} href
  * @returns {{ path: string, line: number | undefined, endLine: number | undefined } | undefined}
  */
 export function fileRefFromHref(href) {
-  const match = /^file:\/\/(?:\/([A-Za-z]:\/[^#]*?)|(\/[^#]*?))(?::(\d+)(?:-(\d+))?)?(?:#L(\d+))?$/i.exec(href);
+  const match = /^file:\/\/(?:\/([A-Za-z]:\/[^#]*?)|(\/[^#]*?))(?::(\d+)(?:-(\d+))?)?(?:#(?:L(\d+)|[^#]*))?$/i.exec(href);
   const encoded = match?.[1] ?? match?.[2];
   if (match === null || encoded === undefined) return undefined;
   return { path: safeDecode(encoded), line: lineNumber(match[3] ?? match[5]), endLine: lineNumber(match[4]) };

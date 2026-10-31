@@ -30,7 +30,7 @@ import { vscodeFileAddress } from '../public/model/vscode.js';
 import { assetFile, folderFileAt, sandboxPolicy } from 'file-views/server';
 import { editorImports, editorModuleFile, editorModuleFiles, editorModulesPrefix } from './editor-modules.js';
 import { createFileIcons, fileIconAnswer, fileIconsManifest, fileIconsPrefix } from './file-icons.js';
-import { readImageFile, readTextFile, saveTextFile } from './files.js';
+import { fileAt, readImageFile, readTextFile, saveTextFile } from './files.js';
 import { fileLinks } from './links.js';
 import { listFolder, searchProject, searchTimeoutMs } from './project.js';
 import { attachment, fileToDownload, folderToZip, uploadFile, writeZip } from './transfer.js';
@@ -625,6 +625,9 @@ async function handleWrite(deps, url, request, response) {
         response.writeHead(400).end('Bad change of the pinned files');
         return;
       }
+      // a file pinned is a file there: a path typed by hand may name none
+      const found = change.action === 'add' ? await fileAt(change.pin.path, homedir()) : undefined;
+      if (found?.ok === false) return sendJson(response, { ok: false, error: found.error }, found.error === 'not-found' ? 404 : 400);
       return sendJson(response, await deps.pins.change({ folder: await notesFolder(deps, sessionId), session: sessionId }, scope, change));
     }
     // its Claude Code ended and started again in its herdr tab, resuming it — with the variables the viewer was given, or,

@@ -87,7 +87,10 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   with nothing chosen, both are for the project's own folder, and their titles say which. A file whose name is there
   already is asked about: replace the one there, upload it under another name, or skip it; where the file system does
   not tell case apart (Windows, macOS) a name that differs only in case is the same file, and replacing it asks which
-  of the two names it keeps. A zip holds up to 2 GB and 20,000 files; an upload takes up to 1 GB a file.
+  of the two names it keeps. Both show their progress under the search, with a bar: an upload its share of the file
+  and which of the files picked it is; a download its share of the file, or a zip — made as it goes, its size not
+  known ahead — its megabytes so far. A download comes in the page first and is saved once it is all there, so one
+  cut midway is not saved half. A zip holds up to 2 GB and 20,000 files; an upload takes up to 1 GB a file.
 
   ![The project's files beside a session: a folder chosen, a row's download and upload, an upload of a name already there asked about](docs/files.png)
 - **VS Code.** Started with `--vscode <the VS Code CLI>`, the viewer runs VS Code in the browser — Microsoft's own
@@ -121,9 +124,12 @@ window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-c
   ![The notes' changes in the side panel, the latest first, the text of a note removed opened](docs/notes-history.png)
 - **Pinned files.** Under the notes, the files pinned beside the session — a spec, a design, a README; any file the side
   panel shows: markdown, a page, a Word document, a PDF, a table, a picture, code. The pin over a file open in the side
-  panel pins it, to the session's project folder — every session in it shows it — or to this session alone, chosen as
-  it is pinned; pressed again, it unpins it. A click on a pinned file opens it in the side panel, × unpins it; each is
-  marked by where it is pinned. Kept in `~/.claude-code-webview/pins.json`, so every device shows them.
+  panel pins it, to the session's project folder — every session in it shows it — or to this session alone, chosen as it
+  is pinned; pressed again, it unpins it. A file the viewer did not pin — gone from its path, or the viewer not
+  answering — is told under the pin. A click on a pinned file opens it in the side panel, × unpins it; each is marked by
+  where it is pinned. **+** over the list pins a file by its path, typed or pasted in — to the project or to the
+  session; a path with no file there is refused, saying so. ✎ on a row names the file in the list as you like, the
+  file's own name left as it is. Kept in `~/.claude-code-webview/pins.json`, so every device shows them.
 
   ![The outline's notes, one inline and two set apart, and the files pinned under them, each marked by where; beside it a file in the side panel being pinned, to the project or to this session](docs/pins.png)
 - **Session header.** Under the title, one line of facts: the folder, the branch checked out there now, the model and

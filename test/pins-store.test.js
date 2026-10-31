@@ -44,3 +44,39 @@ test('pinsStore_Should_PinFileWhereAsked_AndUnpinItFromEverywhere', async () => 
     },
   );
 });
+
+// A path typed by hand is pinned once the viewer finds a file there — then "pinned" comes back; with no file there the
+// pin goes again and why comes back. A pinned file named by hand is named wherever it is pinned
+test('pinsStore_Should_TellWhetherPathIsPinned_AndNamePinWhereverItIsPinned', async () => {
+  const pinned = { path: spec, at: '2026-10-28T09:00:00.000Z' };
+  /** @type {{ scope: unknown, change: Record<string, unknown> }[]} */
+  const sent = [];
+  globalThis.fetch = async (url, init) => {
+    if (typeof init?.body !== 'string') return new Response(JSON.stringify({ folder: [pinned], session: [pinned] }));
+    const { scope, change } = JSON.parse(init.body);
+    sent.push({ scope, change });
+    if (change.action === 'add' && change.pin.path === 'D:/dev/shop/gone.md') return new Response(JSON.stringify({ ok: false, error: 'not-found' }), { status: 404 });
+    return new Response(JSON.stringify({ folder: [pinned], session: [pinned, change.pin ?? pinned] }));
+  };
+  const store = createPinsStore('s1', () => undefined);
+  const settled = () => new Promise((done) => setTimeout(done, 0));
+  await settled();
+
+  const gone = await store.pin('session', 'D:/dev/shop/gone.md');
+  await settled();
+  const afterGone = store.now().session.map((pin) => pin.path);
+  const outcomes = [gone, await store.pin('session', 'D:/dev/shop/api.md')];
+  store.rename(spec, 'Spec v2');
+
+  assert.deepEqual(
+    { outcomes, afterGone, named: sent.filter(({ change }) => change.action === 'name').map(({ scope, change }) => [scope, change.path, change.name]) },
+    {
+      outcomes: ['not-found', 'pinned'],
+      afterGone: [spec],
+      named: [
+        ['folder', spec, 'Spec v2'],
+        ['session', spec, 'Spec v2'],
+      ],
+    },
+  );
+});

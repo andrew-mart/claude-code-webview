@@ -876,7 +876,8 @@ test('later_Should_KeepPromptSetAsideOnPage_AndRefuseChangeOfUnknownShape', asyn
 const note = { id: 'n1', text: '**TODO** check the build', at: '2026-10-27T09:00:00.000Z', shown: 'inline' };
 
 // A file pinned beside a session to its project folder shows beside every session started in that folder, one pinned
-// to the session beside it alone; a session of another folder has neither; a change of another shape is refused
+// to the session beside it alone; a session of another folder has neither; a path with no file there — typed by hand —
+// is refused and pinned nowhere, as a change of another shape is
 test('pins_Should_ShowFolderPinsBesideEverySessionInIt_AndSessionPinsBesideItAlone', async (t) => {
   const { base, port, root } = await withServer(t);
   const sameFolder = '3f2c9a50-1111-4222-8333-944455557777';
@@ -884,16 +885,22 @@ test('pins_Should_ShowFolderPinsBesideEverySessionInIt_AndSessionPinsBesideItAlo
   await writeFile(join(root, 'D--dev-x', `${sameFolder}.jsonl`), promptLine('u2', 'Second question'));
   await mkdir(join(root, 'D--dev-y'));
   await writeFile(join(root, 'D--dev-y', `${otherFolder}.jsonl`), promptLine('u3', 'A question elsewhere'));
-  const spec = { path: 'D:\\dev\\x\\docs\\spec.md', at: '2026-10-28T09:00:00.000Z' };
-  const design = { path: 'D:\\dev\\x\\docs\\design.pdf', at: '2026-10-28T09:05:00.000Z' };
+  await mkdir(join(root, 'docs'));
+  await writeFile(join(root, 'docs', 'spec.md'), '# Spec\n');
+  await writeFile(join(root, 'docs', 'design.pdf'), '%PDF-1.7\n');
+  const spec = { path: join(root, 'docs', 'spec.md'), at: '2026-10-28T09:00:00.000Z' };
+  const design = { path: join(root, 'docs', 'design.pdf'), at: '2026-10-28T09:05:00.000Z' };
+  const missing = { path: join(root, 'docs', 'gone.md'), at: '2026-10-28T09:10:00.000Z' };
 
   const pinned = await post(port, '/api/pins', pageHeaders(port), JSON.stringify({ session: sessionId, scope: 'folder', change: { action: 'add', pin: spec } }));
   await post(port, '/api/pins', pageHeaders(port), JSON.stringify({ session: sessionId, scope: 'session', change: { action: 'add', pin: design } }));
   const listed = await Promise.all([sessionId, sameFolder, otherFolder].map(async (id) => (await fetch(`${base}/api/pins?session=${id}`)).json()));
   const refused = await post(port, '/api/pins', pageHeaders(port), JSON.stringify({ session: sessionId, scope: 'everywhere', change: { action: 'add', pin: spec } }));
+  const nothingThere = await post(port, '/api/pins', pageHeaders(port), JSON.stringify({ session: sessionId, scope: 'session', change: { action: 'add', pin: missing } }));
+  const after = await (await fetch(`${base}/api/pins?session=${sessionId}`)).json();
 
   assert.deepEqual(
-    { pinned: [pinned.status, JSON.parse(pinned.body)], listed, refused: refused.status },
+    { pinned: [pinned.status, JSON.parse(pinned.body)], listed, refused: refused.status, nothingThere: [nothingThere.status, JSON.parse(nothingThere.body)], after },
     {
       pinned: [200, { folder: [spec], session: [] }],
       listed: [
@@ -902,6 +909,8 @@ test('pins_Should_ShowFolderPinsBesideEverySessionInIt_AndSessionPinsBesideItAlo
         { folder: [], session: [] },
       ],
       refused: 400,
+      nothingThere: [404, { ok: false, error: 'not-found' }],
+      after: { folder: [spec], session: [design] },
     },
   );
 });

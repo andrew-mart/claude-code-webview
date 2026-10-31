@@ -22,6 +22,21 @@ import { imageTypeOfPath } from '../public/model/file-ref.js';
  * @typedef {'not-absolute' | 'not-found' | 'not-a-file' | 'too-large' | 'not-image'} ImageRefusal
  */
 
+/**
+ * The file a path names — absolute, or from the home with ~ — if a file is there: the path as found, the file's size.
+ * @param {string} requested
+ * @param {string} home
+ * @returns {Promise<{ ok: true, path: string, size: number, modifiedAt: number } | { ok: false, error: 'not-absolute' | 'not-found' | 'not-a-file' }>}
+ */
+export async function fileAt(requested, home) {
+  const path = /^~[\\/]/.test(requested) ? join(home, requested.slice(2)) : requested;
+  if (!isAbsolute(path)) return { ok: false, error: 'not-absolute' };
+  const info = await stat(path).catch(() => undefined);
+  if (info === undefined) return { ok: false, error: 'not-found' };
+  if (!info.isFile()) return { ok: false, error: 'not-a-file' };
+  return { ok: true, path, size: info.size, modifiedAt: info.mtimeMs };
+}
+
 /** A zero byte near the start of a file marks binary content. */
 const sniffBytes = 8192;
 
@@ -31,7 +46,7 @@ const sniffBytes = 8192;
  * @returns {Promise<FileOutcome>}
  */
 export async function readTextFile(requested, { maxBytes, home }) {
-  const file = await fileAt(requested, { maxBytes, home });
+  const file = await fileUpTo(requested, { maxBytes, home });
   if (!file.ok) return file;
   const bytes = await readFile(file.path);
   if (bytes.subarray(0, sniffBytes).includes(0)) return { ok: false, error: 'binary' };
@@ -45,7 +60,7 @@ export async function readTextFile(requested, { maxBytes, home }) {
  * @returns {Promise<ImageOutcome>}
  */
 export async function readImageFile(requested, { maxBytes, home }) {
-  const file = await fileAt(requested, { maxBytes, home });
+  const file = await fileUpTo(requested, { maxBytes, home });
   if (!file.ok) return file;
   const mediaType = imageTypeOfPath(file.path);
   if (mediaType === undefined) return { ok: false, error: 'not-image' };
@@ -58,14 +73,9 @@ export async function readImageFile(requested, { maxBytes, home }) {
  * @param {{ maxBytes: number, home: string }} options
  * @returns {Promise<{ ok: true, path: string, size: number, modifiedAt: number } | { ok: false, error: 'not-absolute' | 'not-found' | 'not-a-file' | 'too-large' }>}
  */
-async function fileAt(requested, { maxBytes, home }) {
-  const path = /^~[\\/]/.test(requested) ? join(home, requested.slice(2)) : requested;
-  if (!isAbsolute(path)) return { ok: false, error: 'not-absolute' };
-  const info = await stat(path).catch(() => undefined);
-  if (info === undefined) return { ok: false, error: 'not-found' };
-  if (!info.isFile()) return { ok: false, error: 'not-a-file' };
-  if (info.size > maxBytes) return { ok: false, error: 'too-large' };
-  return { ok: true, path, size: info.size, modifiedAt: info.mtimeMs };
+async function fileUpTo(requested, { maxBytes, home }) {
+  const found = await fileAt(requested, home);
+  return found.ok && found.size > maxBytes ? { ok: false, error: 'too-large' } : found;
 }
 
 
@@ -77,7 +87,7 @@ async function fileAt(requested, { maxBytes, home }) {
  * @returns {Promise<SaveOutcome>}
  */
 export async function saveTextFile(requested, { content, version }, { maxBytes, home }) {
-  const file = await fileAt(requested, { maxBytes, home });
+  const file = await fileUpTo(requested, { maxBytes, home });
   if (!file.ok) return file;
   const bytes = await readFile(file.path);
   if (versionOf(bytes) !== version) return { ok: false, error: 'changed', content: decodeText(bytes), version: versionOf(bytes) };

@@ -1,6 +1,6 @@
 // @ts-check
-// A session's project in the file panel: a folder's folders and files, and the project's text searched. The /api/dir
-// and /api/search contract, shared with the server (project.js there).
+// A session's project in the file panel: a folder's folders and files, the project's text searched, its files downloaded
+// and uploaded. The /api/dir, /api/search and transfers' contract, shared with the server (project.js, transfer.js there).
 import { count, isRecord, text } from './narrow.js';
 
 /**
@@ -14,6 +14,9 @@ import { count, isRecord, text } from './narrow.js';
  * @typedef {{ ok: true } | { ok: false, error: 'exists', name: string } | { ok: false, error: 'too-large' | 'bad-name' | 'failed' }} UploadOutcome
  *   — a file uploaded into a folder: exists — one by its name is there, kept, name: the one it is there by, which may
  *   differ in case; failed — anything else the viewer did not do
+ * @typedef {{ ok: true, file: Blob } | { ok: false, error: 'not-found' | 'too-large' | 'failed' }} DownloadOutcome — a file
+ *   or a folder's zip downloaded: not-found — it is not there, deleted or renamed; too-large — a folder too big to zip;
+ *   failed — anything else, a download cut midway too
  * @typedef {{ ok: true, root: string, matches: Match[], more: boolean } | { ok: false, error: FolderRefusal | 'bad-pattern' | 'no-git' }} SearchFound
  *   — more: the search stopped at its limit
  */
@@ -68,6 +71,35 @@ export function parseUploadOutcome(json) {
   const there = text(json.name);
   if (json.ok === false && json.error === 'exists' && there !== undefined) return { ok: false, error: 'exists', name: there };
   return json.ok === false && (json.error === 'too-large' || json.error === 'bad-name') ? { ok: false, error: json.error } : { ok: false, error: 'failed' };
+}
+
+/** The refusals of a download the panel tells apart, by the viewer's status for them. */
+/** @type {Readonly<Partial<Record<number, 'not-found' | 'too-large'>>>} */
+const downloadRefusals = { 404: 'not-found', 413: 'too-large' };
+
+/**
+ * A file downloaded from the viewer, or a folder as a zip, its bytes counted as they come.
+ * @param {Response | undefined} response — none when the viewer did not answer
+ * @param {(received: number, total: number | undefined) => void} progress — total: the length the viewer told, none
+ *   for a zip being made
+ * @returns {Promise<DownloadOutcome>}
+ */
+export async function receiveDownload(response, progress) {
+  if (response === undefined || response.body === null) return { ok: false, error: 'failed' };
+  if (!response.ok) return { ok: false, error: downloadRefusals[response.status] ?? 'failed' };
+  const length = response.headers.get('Content-Length');
+  const total = length !== null && /^\d+$/.test(length) ? Number(length) : undefined;
+  let received = 0;
+  const counted = new TransformStream({
+    transform(chunk, controller) {
+      received += chunk.byteLength;
+      progress(received, total);
+      controller.enqueue(chunk);
+    },
+  });
+  // the bytes kept by the browser as they come, not in the page: a file of a gigabyte too
+  const file = await new Response(response.body.pipeThrough(counted)).blob().catch(() => undefined);
+  return file === undefined ? { ok: false, error: 'failed' } : { ok: true, file };
 }
 
 /**

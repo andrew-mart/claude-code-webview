@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { changePins, parsePinChange, parseSessionPins, scopesOf } from '../public/model/pins.js';
+import { changePins, parsePinChange, parsePins, parseSessionPins, pinLabel, scopesOf } from '../public/model/pins.js';
 
 /** @typedef {import('../public/model/pins.js').Pin} Pin */
 
@@ -47,6 +47,27 @@ test('parseSessionPins_And_parsePinChange_Should_ReadOnlyWellFormed', () => {
       reply: { folder: [spec], session: [] },
       none: { folder: [], session: [] },
       changes: [{ action: 'add', pin: spec }, { action: 'remove', path: spec.path }, undefined, undefined],
+    },
+  );
+});
+
+// A pinned file may be named in the list as one likes, its file's own name unchanged: the name given — without the spaces
+// around it — else the file's name; a blank name gives the file's back. The name goes with the pin, to the server and
+// back, the change naming it found however the path is written
+test('changePins_Should_NamePinnedFileByHand_AndPinLabelShowIt', () => {
+  const named = changePins([spec, design], { action: 'name', path: 'd:/dev/shop/docs/spec.md', name: ' Spec v2 ' });
+  const unnamed = changePins(named, { action: 'name', path: spec.path, name: '  ' });
+
+  assert.deepEqual(
+    {
+      labels: [named, unnamed].map((list) => list.map(pinLabel)),
+      stored: parsePins([{ ...spec, name: ' Spec v2 ' }, { ...design, name: 3 }]),
+      change: parsePinChange({ action: 'name', path: spec.path, name: 'Spec v2' }),
+    },
+    {
+      labels: [['Spec v2', 'design.pdf'], ['spec.md', 'design.pdf']],
+      stored: [{ ...spec, name: 'Spec v2' }, design],
+      change: { action: 'name', path: spec.path, name: 'Spec v2' },
     },
   );
 });

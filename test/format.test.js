@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { countOf, formatAgo, formatDuration, formatTokens } from '../public/model/format.js';
+import { countOf, formatAgo, formatBytes, formatDuration, formatTokens } from '../public/model/format.js';
 
 /** @type {readonly [import('../public/model/format.js').Noun, number, string][]} */
 const counts = [
@@ -46,6 +46,24 @@ const tokens = [
 for (const [n, expected] of tokens) {
   test(`formatTokens_Should_Abbreviate_${n}`, () => {
     assert.equal(formatTokens(n), expected);
+  });
+}
+
+/** @type {readonly [number, string][]} */
+const sizes = [
+  [0, '0 B'],
+  [740, '740 B'],
+  [12_800, '13 KB'],
+  [3_250_000, '3.1 MB'],
+  [1_048_576, '1 MB'],
+  [1_048_200, '1 MB'],
+  [1_073_700_000, '1 GB'],
+  [1_610_612_736, '1.5 GB'],
+];
+
+for (const [bytes, expected] of sizes) {
+  test(`formatBytes_Should_ShowSizeInLargestUnit_${bytes}`, () => {
+    assert.equal(formatBytes(bytes), expected);
   });
 }
 
