@@ -53,8 +53,8 @@ function paneShowing(screens) {
 // Claude Code started by the viewer in a folder the user chose gets the answer yes — the cursor taken to it first —
 // and Claude Code that asks nothing gets no keys at all
 test('acceptTrust_Should_AnswerYes_When_ClaudeAsksToTrustFolder', async () => {
-  const asked = paneShowing(['ann@box:~$ claude-god', dialog('no'), dialog('yes')]);
-  const trusted = paneShowing(['ann@box:~$ claude-god', ' ✻ Welcome to Claude Code!\n\n > \n   ? for shortcuts']);
+  const asked = paneShowing(['ann@box:~$ claude-fast', dialog('no'), dialog('yes')]);
+  const trusted = paneShowing(['ann@box:~$ claude-fast', ' ✻ Welcome to Claude Code!\n\n > \n   ? for shortcuts']);
   const pace = { looks: 5, stepMs: 1 };
 
   const outcomes = [await acceptTrust(asked.run, 'w1:p2', pace), await acceptTrust(trusted.run, 'w1:p3', pace)];

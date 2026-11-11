@@ -662,7 +662,7 @@ test('herdrSidebar_Should_OfferToMakeFolderThatIsNotThere_AndOpenWorkspaceInIt',
   const offered = () => element.querySelector('.herdr-new-create:not([hidden])') !== null;
   const settled = () => new Promise((done) => setTimeout(done, 0));
 
-  await ask('max', 'D:/_agent/max', '.herdr-new-claude');
+  await ask('shop', 'D:/work/shop', '.herdr-new-claude');
   const offer = offered();
   find('.herdr-new-create').click();
   await settled();
@@ -684,8 +684,8 @@ test('herdrSidebar_Should_OfferToMakeFolderThatIsNotThere_AndOpenWorkspaceInIt',
       notMade: { said: 'The folder could not be made.', offer: false },
       offerAfterTyping: false,
       asked: [
-        ['max', 'D:/_agent/max', 'claude', 'refuse'],
-        ['max', 'D:/_agent/max', 'claude', 'create'],
+        ['shop', 'D:/work/shop', 'claude', 'refuse'],
+        ['shop', 'D:/work/shop', 'claude', 'create'],
         ['notes', 'D:/locked/notes', 'shell', 'refuse'],
         ['notes', 'D:/locked/notes', 'shell', 'create'],
         ['notes', 'D:/locked/notes', 'shell', 'refuse'],

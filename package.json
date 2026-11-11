@@ -73,7 +73,7 @@
     "dompurify": "3.4.16",
     "emoji-picker-element": "1.29.1",
     "emoji-picker-element-data": "1.8.0",
-    "file-views": "github:andrew-mart/file-views#v0.5.3",
+    "file-views": "git+https://github.com/andrew-mart/file-views.git#v0.5.3",
     "jszip": "3.10.2",
     "lucide-static": "1.47.0",
     "marked": "18.1.0",

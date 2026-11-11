@@ -292,7 +292,7 @@ test('herdrView_Should_TellIconsTheFolderMostOfAWorkspacesPanesAreIn', async (t)
       { tab_id: 'w2:t1', workspace_id: 'w2', number: 1, label: '1', agent_status: 'idle' },
     ],
     panes: [
-      { pane_id: 'w1:p1', workspace_id: 'w1', tab_id: 'w1:t1', cwd: 'D:\\dev\\kiwi' },
+      { pane_id: 'w1:p1', workspace_id: 'w1', tab_id: 'w1:t1', cwd: 'D:\\dev\\shop' },
       { pane_id: 'w1:p4', workspace_id: 'w1', tab_id: 'w1:t4', cwd: 'D:\\dev\\webview' },
       { pane_id: 'w1:p6', workspace_id: 'w1', tab_id: 'w1:t6', cwd: 'd:/dev/webview/' },
       { pane_id: 'w2:p2', workspace_id: 'w2', tab_id: 'w2:t2', cwd: 'D:\\dev\\b' },
@@ -593,13 +593,13 @@ test('renameTab_And_closeTab_Should_TellWhatWasNotDone', async () => {
 test('createTab_Should_AnswerYes_When_ClaudeStartedInItAsksToTrustFolder', async () => {
   const question = (/** @type {'no' | 'yes'} */ cursor) => ` Is this a project you created or one you trust?\n\n ${cursor === 'no' ? '❯' : ' '} No, exit\n ${cursor === 'yes' ? '❯' : ' '} Yes, I trust this folder\n`;
   const herdr = tabsHerdr({ screens: ['ann@box:~$ ', question('no'), question('yes')] });
-  const view = await tabsView(herdr, 'claude-god');
+  const view = await tabsView(herdr, 'claude-fast');
 
   await view.createTab('w2:t1', 'claude', undefined);
   for (let wait = 0; wait < 50 && !herdr.changes.includes('pane send-keys w2:p3 down'); wait++) await new Promise((done) => setTimeout(done, 5));
   await new Promise((done) => setTimeout(done, 20));
 
-  assert.deepEqual(herdr.changes.filter((change) => change.startsWith('pane')), ['pane send-text w2:p3 claude-god', 'pane send-keys w2:p3 enter', 'pane send-keys w2:p3 down', 'pane send-keys w2:p3 enter']);
+  assert.deepEqual(herdr.changes.filter((change) => change.startsWith('pane')), ['pane send-text w2:p3 claude-fast', 'pane send-keys w2:p3 enter', 'pane send-keys w2:p3 down', 'pane send-keys w2:p3 enter']);
 });
 
 // A workspace renamed from the page gets its name in herdr — on one line — and one closed is closed there; a name of
@@ -618,7 +618,7 @@ test('renameWorkspace_And_closeWorkspace_Should_ChangeWorkspaceInHerdr', async (
 // goes to it; for Claude Code the command the viewer was told to start it with is typed into it
 test('createTab_Should_OpenTabBesideOne_And_StartClaudeWithItsCommand', async () => {
   const herdr = tabsHerdr();
-  const view = await tabsView(herdr, 'claude-god');
+  const view = await tabsView(herdr, 'claude-fast');
   await view.layout();
 
   const outcomes = [await view.createTab('w2:t1', 'shell', undefined), await view.createTab('w2:t1', 'claude', '  slow  tests ')];
@@ -630,7 +630,7 @@ test('createTab_Should_OpenTabBesideOne_And_StartClaudeWithItsCommand', async ()
         { ok: true, target: '#/pane/w2:p3' },
         { ok: true, target: '#/pane/w2:p4' },
       ],
-      changes: ['tab create --workspace w2 --cwd D:/shop', 'tab create --workspace w2 --cwd D:/shop', 'tab rename w2:t4 slow tests', 'pane send-text w2:p4 claude-god', 'pane send-keys w2:p4 enter'],
+      changes: ['tab create --workspace w2 --cwd D:/shop', 'tab create --workspace w2 --cwd D:/shop', 'tab rename w2:t4 slow tests', 'pane send-text w2:p4 claude-fast', 'pane send-keys w2:p4 enter'],
       tabs: 4,
     },
   );
@@ -697,7 +697,7 @@ test('history_Should_StayTheSame_WhileNothingChanges', async (t) => {
 });
 
 /**
- * A herdr view whose history already holds these sessions, closed: Claude Code starts with claude-god.
+ * A herdr view whose history already holds these sessions, closed: Claude Code starts with claude-fast.
  * @param {ReturnType<typeof tabsHerdr>} herdr
  * @param {Record<string, Partial<import('../public/model/history.js').Place>>} closed
  */
@@ -705,7 +705,7 @@ async function viewWithHistory(herdr, closed) {
   const folder = tempDir('ccw-workspaces-');
   const kept = Object.fromEntries(Object.entries(closed).map(([session, place]) => [session, { earlierTabs: [], open: false, firstSeen: 1, lastSeen: 2, ...place }]));
   await writeFile(join(folder, 'workspaces.json'), JSON.stringify(kept));
-  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-god', codexCommand: 'codex-yolo' });
+  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-fast', codexCommand: 'codex-yolo' });
 }
 
 // A closed session opens where it was: a new tab of its workspace, named as before, in its folder, Claude Code resuming
@@ -718,7 +718,7 @@ test('reopen_Should_OpenSessionInItsWorkspace_InTabNamedAsBefore', async () => {
 
   assert.deepEqual({ outcome, changes: herdr.changes }, {
     outcome: { ok: true, target: '#/s9' },
-    changes: ['tab create --workspace w2 --cwd D:/web', 'tab rename w2:t3 checkout fix', 'pane send-text w2:p3 claude-god --resume s9', 'pane send-keys w2:p3 enter'],
+    changes: ['tab create --workspace w2 --cwd D:/web', 'tab rename w2:t3 checkout fix', 'pane send-text w2:p3 claude-fast --resume s9', 'pane send-keys w2:p3 enter'],
   });
 });
 
@@ -781,7 +781,7 @@ test('duplicateTab_Should_OpenTabInItsFolder_ForkingItsSession', async () => {
     file: join(folder, 'workspaces.json'),
     refreshMs: 60_000,
     trust: { looks: 3, stepMs: 1 },
-    claudeCommand: 'claude-god',
+    claudeCommand: 'claude-fast',
     codexCommand: 'codex-yolo',
   });
 
@@ -794,7 +794,7 @@ test('duplicateTab_Should_OpenTabInItsFolder_ForkingItsSession', async () => {
       changes: [
         'tab create --workspace w2 --cwd D:/shop',
         'tab rename w2:t5 checkout fix::2',
-        `pane send-text w2:p5 claude-god --resume ${running} --fork-session`,
+        `pane send-text w2:p5 claude-fast --resume ${running} --fork-session`,
         'pane send-keys w2:p5 enter',
         'tab create --workspace w2 --cwd D:/web',
         'tab rename w2:t6 limits::1',
@@ -804,7 +804,7 @@ test('duplicateTab_Should_OpenTabInItsFolder_ForkingItsSession', async () => {
         'tab rename w2:t7 4::1',
         'tab create --workspace w2 --cwd D:/shop',
         'tab rename w2:t8 checkout fix::3',
-        `pane send-text w2:p8 claude-god --resume ${copied} --fork-session`,
+        `pane send-text w2:p8 claude-fast --resume ${copied} --fork-session`,
         'pane send-keys w2:p8 enter',
       ],
     },
@@ -818,7 +818,7 @@ test('duplicateTab_Should_OpenNothing_When_SessionIdIsNoId', async () => {
     panes: [{ pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:/shop', agent: 'claude', pid: 101 }],
   });
   const folder = tempDir('ccw-workspaces-');
-  const view = createHerdrView({ herdr: herdr.run, readRecords: async () => [{ ...runningRecord, sessionId: `${running} & exit` }], codexThreads: async () => [], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-god', codexCommand: 'codex-yolo' });
+  const view = createHerdrView({ herdr: herdr.run, readRecords: async () => [{ ...runningRecord, sessionId: `${running} & exit` }], codexThreads: async () => [], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-fast', codexCommand: 'codex-yolo' });
 
   assert.deepEqual({ outcome: await view.duplicateTab('w2:t1'), changes: herdr.changes }, { outcome: { ok: false, error: 'failed' }, changes: [] });
 });
@@ -835,10 +835,10 @@ test('reopen_Should_OpenWorkspaceAgain_When_ItIsGone', async () => {
     outcomes: [{ ok: true, target: '#/s8' }, { ok: true, target: '#/s7' }],
     changes: [
       'workspace create --label billing --cwd D:/dev/billing',
-      'pane send-text w5:p1 claude-god --resume s8',
+      'pane send-text w5:p1 claude-fast --resume s8',
       'pane send-keys w5:p1 enter',
       'workspace create --label reports --cwd D:/dev/reports',
-      'pane send-text w5:p1 claude-god --resume s7',
+      'pane send-text w5:p1 claude-fast --resume s7',
       'pane send-keys w5:p1 enter',
     ],
   });
@@ -848,7 +848,7 @@ test('reopen_Should_OpenWorkspaceAgain_When_ItIsGone', async () => {
 // started in it — and the page goes to its first pane; a name of nothing or a folder that is not there opens nothing
 test('createWorkspace_Should_OpenWorkspaceInFolder_And_StartClaudeOnRequest', async () => {
   const herdr = tabsHerdr();
-  const view = await tabsView(herdr, 'claude-god');
+  const view = await tabsView(herdr, 'claude-fast');
   const folder = tempDir('ccw-new-workspace-');
 
   const outcomes = [
@@ -862,7 +862,7 @@ test('createWorkspace_Should_OpenWorkspaceInFolder_And_StartClaudeOnRequest', as
     { outcomes, changes: herdr.changes },
     {
       outcomes: [{ ok: true, target: '#/pane/w5:p1' }, { ok: true, target: '#/pane/w5:p1' }, { ok: false, error: 'no-folder' }, { ok: false, error: 'empty' }],
-      changes: [`workspace create --label billing api --cwd ${folder}`, 'pane send-text w5:p1 claude-god', 'pane send-keys w5:p1 enter', `workspace create --label notes --cwd ${folder}`],
+      changes: [`workspace create --label billing api --cwd ${folder}`, 'pane send-text w5:p1 claude-fast', 'pane send-keys w5:p1 enter', `workspace create --label notes --cwd ${folder}`],
     },
   );
 });
@@ -871,7 +871,7 @@ test('createWorkspace_Should_OpenWorkspaceInFolder_And_StartClaudeOnRequest', as
 // cannot be made — a file is in its place — opens nothing
 test('createWorkspace_Should_MakeFolderThatIsNotThere_WhenAsked', async () => {
   const herdr = tabsHerdr();
-  const view = await tabsView(herdr, 'claude-god');
+  const view = await tabsView(herdr, 'claude-fast');
   const root = tempDir('ccw-new-folder-');
   const fresh = join(root, 'agents', 'max');
   await writeFile(join(root, 'notes.txt'), 'x');
@@ -1130,7 +1130,7 @@ test('continueTab_Should_ResumeTabsLatestConversationInItsShell_NeverOverWhatRun
   await writeFile(join(folder, 'workspaces.json'), JSON.stringify({ [checkout]: ran('checkout'), [mail]: ran('mail', { claudeGpt: true }), [limits]: ran('limits'), [deploy]: ran('deploy'), [editor]: ran('editor') }));
   // the deploy tab's conversation runs now in a terminal of its own
   const records = [{ pid: 900, sessionId: deploy, kind: 'interactive', status: 'idle', updatedAt: 1 }];
-  const view = createHerdrView({ herdr: herdr.run, readRecords: async () => records, codexThreads: async () => [], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-god', claudeGptCommand: 'claude-gpt-god', codexCommand: 'codex-yolo' });
+  const view = createHerdrView({ herdr: herdr.run, readRecords: async () => records, codexThreads: async () => [], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-fast', claudeGptCommand: 'claude-via-gpt', codexCommand: 'codex-yolo' });
   /** @param {string} id @param {Partial<import('../server/sessions.js').SessionInfo>} [more] */
   const listed = (id, more = {}) => ({ id, agent: /** @type {import('../server/sessions.js').Agent} */ ('claude'), cwd: 'D:\\web', kind: /** @type {import('../server/sessions.js').SessionKind} */ ('interactive'), modifiedAt: 1, ...more });
   const sessions = [listed(limits, { agent: 'codex', modifiedAt: 20 }), listed(notesEarlier, { modifiedAt: 5 }), listed(notesLatest, { modifiedAt: 9 }), listed(shop, { cwd: 'D:\\shop', modifiedAt: 30 })];
@@ -1141,7 +1141,7 @@ test('continueTab_Should_ResumeTabsLatestConversationInItsShell_NeverOverWhatRun
 
   assert.deepEqual({ outcomes, typed: herdr.changes.filter((change) => change.startsWith('pane send-text')) }, {
     outcomes: [{ ok: true }, { ok: true }, { ok: true }, { ok: true }, { ok: false, error: 'failed' }, { ok: false, error: 'failed' }],
-    typed: [`pane send-text w2:p1 claude-god --resume ${checkout}`, `pane send-text w2:p2 claude-gpt-god --resume ${mail}`, `pane send-text w2:p3 codex-yolo resume ${limits}`, `pane send-text w2:p4 claude-god --resume ${notesLatest}`],
+    typed: [`pane send-text w2:p1 claude-fast --resume ${checkout}`, `pane send-text w2:p2 claude-via-gpt --resume ${mail}`, `pane send-text w2:p3 codex-yolo resume ${limits}`, `pane send-text w2:p4 claude-fast --resume ${notesLatest}`],
   });
 });
 

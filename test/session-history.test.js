@@ -6,13 +6,13 @@ import { observed } from '../server/session-history.js';
 /** @param {number} minutes — after 10:00 */
 const at = (minutes) => Date.UTC(2026, 9, 12, 10, minutes);
 /**
- * A session as herdr shows it now: in the kiwi workspace, in this tab — its pane's terminal herdr's term_<tab> unless
+ * A session as herdr shows it now: in the shop workspace, in this tab — its pane's terminal herdr's term_<tab> unless
  * told.
  * @param {string} session
  * @param {string} tab
  * @param {string} [terminal]
  */
-const running = (session, tab, terminal = `term_${tab}`) => ({ session, workspace: 'kiwi', tab, folder: 'D:/dev/kiwi', terminal });
+const running = (session, tab, terminal = `term_${tab}`) => ({ session, workspace: 'shop', tab, folder: 'D:/dev/shop', terminal });
 
 test('history_Should_KeepGptLaunchForAnUnansweredSession_AfterItClosesAndViewerRestarts', () => {
   const live = observed({}, [{ ...running('s1', 'gateway'), claudeGpt: true }], at(0));
@@ -27,7 +27,7 @@ test('history_Should_KeepGptLaunchForAnUnansweredSession_AfterItClosesAndViewerR
 // since when
 test('observed_Should_RememberWhereSessionRuns_And_SinceWhen', () => {
   assert.deepEqual(observed({}, [running('s1', 'code-review')], at(0)), {
-    history: { s1: { workspace: 'kiwi', tab: 'code-review', earlierTabs: [], terminal: 'term_code-review', folder: 'D:/dev/kiwi', firstSeen: at(0), lastSeen: at(0), open: true, note: undefined } },
+    history: { s1: { workspace: 'shop', tab: 'code-review', earlierTabs: [], terminal: 'term_code-review', folder: 'D:/dev/shop', firstSeen: at(0), lastSeen: at(0), open: true, note: undefined } },
     changed: true,
   });
 });
@@ -44,7 +44,7 @@ test('observed_Should_KeepNamesTabHad_And_TellOnlyChangesWorthKeeping', () => {
     false,
     true,
     [],
-    { workspace: 'kiwi', tab: 'code-review', earlierTabs: ['review'], terminal: 'term_a', folder: 'D:/dev/kiwi', firstSeen: at(0), lastSeen: at(3), open: true, note: undefined },
+    { workspace: 'shop', tab: 'code-review', earlierTabs: ['review'], terminal: 'term_a', folder: 'D:/dev/shop', firstSeen: at(0), lastSeen: at(3), open: true, note: undefined },
   ]);
 });
 
@@ -56,17 +56,17 @@ test('observed_Should_CloseSessionGoneFromHerdr_WhenItWasLastSeen', () => {
 
   assert.deepEqual({ changed, s1: history.s1, s2open: history.s2?.open }, {
     changed: true,
-    s1: { workspace: 'kiwi', tab: 'review', earlierTabs: [], terminal: 'term_review', folder: 'D:/dev/kiwi', firstSeen: at(0), lastSeen: at(0), open: false, note: undefined },
+    s1: { workspace: 'shop', tab: 'review', earlierTabs: [], terminal: 'term_review', folder: 'D:/dev/shop', firstSeen: at(0), lastSeen: at(0), open: false, note: undefined },
     s2open: true,
   });
 });
 
 // What older viewers kept — a session's workspace alone — is a place without a tab; anything unreadable is left out
 test('parseHistory_Should_ReadOlderWorkspacesFile_AsPlacesWithoutTab', () => {
-  const kept = { s1: 'kiwi', s2: { workspace: 'web', tab: 'tests', earlierTabs: ['t'], terminal: 'term_65cd', folder: 'D:/web', firstSeen: at(0), lastSeen: at(1), open: true, note: 'flaky' }, s3: 42 };
+  const kept = { s1: 'shop', s2: { workspace: 'web', tab: 'tests', earlierTabs: ['t'], terminal: 'term_65cd', folder: 'D:/web', firstSeen: at(0), lastSeen: at(1), open: true, note: 'flaky' }, s3: 42 };
 
   assert.deepEqual(parseHistory(kept), {
-    s1: { workspace: 'kiwi', tab: undefined, earlierTabs: [], terminal: undefined, folder: undefined, firstSeen: undefined, lastSeen: undefined, open: false, note: undefined },
+    s1: { workspace: 'shop', tab: undefined, earlierTabs: [], terminal: undefined, folder: undefined, firstSeen: undefined, lastSeen: undefined, open: false, note: undefined },
     s2: { workspace: 'web', tab: 'tests', earlierTabs: ['t'], terminal: 'term_65cd', folder: 'D:/web', firstSeen: at(0), lastSeen: at(1), open: true, note: 'flaky' },
   });
 });

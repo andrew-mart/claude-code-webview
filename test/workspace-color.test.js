@@ -5,7 +5,7 @@ import { workspaceHue } from '../public/model/workspace-color.js';
 // A workspace keeps its colour wherever it shows and whenever the page opens: the hue follows from its name alone, and
 // workspaces named apart get colours apart
 test('workspaceHue_Should_FollowFromWorkspaceNameAlone', () => {
-  const names = ['claude-webview', 'kiwi', 'md-keeper', 'trip-plans', 'plotbot', 'plants', 'web', 'webs'];
+  const names = ['claude-webview', 'shop', 'billing', 'catalog', 'search', 'plants', 'web', 'webs'];
   const hues = names.map(workspaceHue);
 
   assert.deepEqual(

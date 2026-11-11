@@ -102,12 +102,12 @@ test('parseCommand_Should_ReadVsCodeCli', () => {
 // A tab opened from the page starts Claude Code with "claude", or with the command the viewer is given — a wrapper of
 // one's own; a command of nothing is no command
 test('parseCommand_Should_ReadCommandThatStartsClaudeCode', () => {
-  const given = parseCommand(['--claude-command', 'claude-god']);
+  const given = parseCommand(['--claude-command', 'claude-fast']);
   const empty = parseCommand(['--claude-command', ' ']);
 
   assert.deepEqual(
     [given.ok && given.command.claudeCommand, empty],
-    ['claude-god', { ok: false, error: 'Invalid --claude-command value " ": expected the command that starts Claude Code in a terminal, such as claude.' }],
+    ['claude-fast', { ok: false, error: 'Invalid --claude-command value " ": expected the command that starts Claude Code in a terminal, such as claude.' }],
   );
 });
 

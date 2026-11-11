@@ -41,8 +41,8 @@ test('iconsOf_Should_GiveWorkspacesOfOneFolderOneIcon_FromTheFirstLook', async (
   const dir = tempDir('ccw-icons-');
 
   const icons = await iconsIn(dir).iconsOf([
-    { id: 'w8', label: 'bestfit', folder: 'D:/dev/bestfit' },
-    { id: 'w13', label: 'bestfit', folder: 'd:\\dev\\bestfit' },
+    { id: 'w8', label: 'store', folder: 'D:/dev/store' },
+    { id: 'w13', label: 'store', folder: 'd:\\dev\\store' },
   ]);
 
   assert.equal(icons.get('w8'), icons.get('w13'));
