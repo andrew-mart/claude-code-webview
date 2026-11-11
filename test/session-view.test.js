@@ -93,6 +93,8 @@ async function mounted(t, saved, bookmarks) {
   const saves = [];
   /** @type {import('../public/view/session-view.js').SessionMeta[]} */
   const metas = [];
+  /** The statuses told, the latest last. @type {import('../public/view/session-view.js').SessionStatus[]} */
+  const statuses = [];
   const scroller = window.document.createElement('div');
   window.document.body.append(scroller);
   const view = mountSession({
@@ -104,7 +106,7 @@ async function mounted(t, saved, bookmarks) {
     sendQueueNow: undefined,
     startAt: undefined,
     keeping: { load: async () => saved, save: (feed) => void saves.push(feed), online: () => true, onOnline: () => () => undefined },
-    listener: { onMeta: (meta) => metas.push(meta), onStatus: () => undefined, onPrompt: () => undefined, onReset: () => undefined },
+    listener: { onMeta: (meta) => metas.push(meta), onStatus: (status) => void statuses.push(status), onPrompt: () => undefined, onReset: () => undefined },
     openFeed: (wanted) => {
       const feed = new FakeFeed(wanted);
       feeds.push(feed);
@@ -124,7 +126,7 @@ async function mounted(t, saved, bookmarks) {
   });
   /** Whether the mark of being brought up to date sits under the session's latest message, the feed shown. */
   const markUnderFeed = () => view.element.querySelector('.updating')?.previousElementSibling?.matches('.thread:not(.kept)') === true;
-  return { view, source, feeds, saves, seen, markUnderFeed, metas };
+  return { view, source, feeds, saves, seen, markUnderFeed, metas, statuses };
 }
 
 // A session with nothing written down yet — Codex opened in a tab writes its conversation only with the first message —
@@ -208,6 +210,79 @@ test('mountSession_Should_SayItLoads_When_NoCopyIsKept', async (t) => {
   });
 });
 
+// A session never kept opens with its latest entries alone, shown at once, then the rest of its tail: the latest stay in
+// view meanwhile, marked over them where the earlier ones will come, until those are in; one whose latest entries are
+// all there is is not asked for again
+test('mountSession_Should_OpenWithLatestEntriesFirst_ThenEarlierOnes_MarkedWhereTheyWillCome', async (t) => {
+  const { view, feeds, seen } = await mounted(t, undefined);
+  const earlierMark = () => view.element.querySelector('.loading-earlier:not([hidden])') !== null;
+  const latest = feeds[0];
+  assert.ok(latest);
+
+  latest.emit('open');
+  latest.emit('earlier', { count: 2 });
+  latest.emit('entries', [prompt('u3', 'Latest question')]);
+  latest.emit('ready');
+  await settled();
+  const first = { tail: latest.wanted.tail, seen: seen(), earlierMark: earlierMark(), letGo: latest.letGo };
+  const whole = feeds[1];
+  assert.ok(whole, 'the rest of the tail not asked for');
+  whole.emit('open');
+  whole.emit('entries', [prompt('u1', 'First question'), prompt('u2', 'Second question'), prompt('u3', 'Latest question')]);
+  whole.emit('ready');
+  await settled();
+  const then = { tail: whole.wanted.tail, seen: seen(), earlierMark: earlierMark() };
+  view.dispose();
+  const small = await mounted(t, undefined);
+  small.source.emit('open');
+  small.source.emit('entries', [prompt('u1', 'The only question')]);
+  small.source.emit('ready');
+  await settled();
+
+  assert.deepEqual(
+    { first, then, askedAgain: small.feeds.length > 1 },
+    {
+      first: { tail: 50, seen: { prompts: ['Latest question'], loading: false, updating: false }, earlierMark: true, letGo: true },
+      then: { tail: 2000, seen: { prompts: ['First question', 'Second question', 'Latest question'], loading: false, updating: false }, earlierMark: false },
+      askedAgain: false,
+    },
+  );
+});
+
+// "Show earlier" loads the entries before those shown a part at a time — as many as the session opened with — not the
+// whole session: thousands in a long one, a phone's page thrown away for its size. The button tells how many it loads of
+// how many are left; the last part, all that is left
+test('mountSession_Should_LoadEarlierEntriesAPartAtATime_NotTheWholeSession', async (t) => {
+  const { view, feeds } = await mounted(t, undefined);
+  const button = () => view.element.querySelector('.earlier:not([hidden])')?.textContent;
+  const latest = feeds[0];
+  assert.ok(latest);
+  latest.emit('open');
+  latest.emit('earlier', { count: 5049 });
+  latest.emit('entries', [prompt('u9', 'Latest question')]);
+  latest.emit('ready');
+  await settled();
+  const tail = feeds[1];
+  assert.ok(tail);
+  tail.emit('open');
+  tail.emit('earlier', { count: 3050 });
+  tail.emit('entries', [prompt('u8', 'Question before'), prompt('u9', 'Latest question')]);
+  tail.emit('ready');
+  await settled();
+  const first = button();
+
+  void view.loadEarlier();
+  const part = feeds[2];
+  assert.ok(part);
+  part.emit('open');
+  part.emit('earlier', { count: 1050 });
+  part.emit('entries', [prompt('u7', 'Older question'), prompt('u8', 'Question before'), prompt('u9', 'Latest question')]);
+  part.emit('ready');
+  await settled();
+
+  assert.deepEqual({ first, asked: part.wanted.tail, then: button() }, { first: 'Show 2,000 of 3,050 earlier entries', asked: 4000, then: 'Show 1,050 earlier entries' });
+});
+
 // An answer is bookmarked from its corner or from under it — read to its end — both flags showing it bookmarked
 test('mountSession_Should_OfferAnswersBookmarkUnderItToo_BothFlagsShowingIt', async (t) => {
   /** @type {Set<string>} */
@@ -262,6 +337,25 @@ test('mountSession_Should_ShowPromptSentFromPage_UntilClaudeWritesItDown', async
   view.dispose();
 
   assert.deepEqual({ meanwhile, after }, { meanwhile: ['Check the  limits\nagain'], after: { sent: [], prompts: ['Question', 'Check the limits again'] } });
+});
+
+// A call left without its output once the agent is at its prompt — agy, stopped, writes nothing of it — shows cut
+// short, not running; the agent at work again, it runs as far as the feed can tell
+test('mountSession_Should_ShowCallLeftWaiting_CutShort_WhileAgentIsAtItsPrompt', async (t) => {
+  const { view, source } = await mounted(t, undefined);
+  source.emit('open');
+  source.emit('entries', [prompt('u1', 'Write the notes'), { type: 'assistant', uuid: 'a1', timestamp: at, message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Write', input: { file_path: 'D:\\shop\\notes.md', content: '# Notes' } }] } }]);
+  source.emit('ready');
+  await settled();
+  const states = () => [...view.element.querySelectorAll('.tool')].map((tool) => tool.getAttribute('data-state'));
+
+  const working = states();
+  view.agentAtPrompt(true);
+  const atPrompt = states();
+  view.agentAtPrompt(false);
+  const again = states();
+
+  assert.deepEqual({ working, atPrompt, again }, { working: ['pending'], atPrompt: ['stopped'], again: ['pending'] });
 });
 
 // /clear, /new or /resume sent from the page: the tab goes on with another session, and what was sent and not written
@@ -347,24 +441,82 @@ test('mountSession_Should_StopShowingCommandSentFromPage_When_ClaudeWritesItDown
 });
 
 // A copy kept with the viewer's token shows at once as the session itself — marked as being brought up to date under
-// its latest message — and the viewer, asked from the token, sends what came since alone: no entry twice; the copy is
-// kept again with the viewer's new token
+// its latest message — and the viewer, asked from the token, sends what came since alone: no entry twice, the session
+// not asked for again — a long one's copy, earlier entries not in it, as it is; the copy is kept again with the
+// viewer's new token
 test('mountSession_Should_GoOnFromKeptCopyWithToken_ShowingItAtOnceAsTheSession', async (t) => {
   const old = prompt('u1', 'Old question');
-  const { view, source, saves, seen, markUnderFeed } = await mounted(t, { entries: [old], earlier: 0, token: 't1', lastActivity: undefined, savedAt: 1 });
+  const { view, source, feeds, saves, seen, markUnderFeed } = await mounted(t, { entries: [old], earlier: 900, token: 't1', lastActivity: undefined, savedAt: 1 });
   const meanwhile = { ...seen(), from: source.from, markUnderFeed: markUnderFeed() };
 
   source.emit('open', { resumed: true });
   source.emit('entries', [prompt('u2', 'New question')]);
-  source.emit('cursor', cursor('t2', [old, prompt('u2', 'New question')]));
+  source.emit('cursor', cursor('t2', [old, prompt('u2', 'New question')], 900));
   source.emit('ready');
   await settled();
+  const asked = feeds.length;
   view.dispose();
 
   assert.deepEqual(
-    { meanwhile, after: seen(), keptToken: saves.at(-1)?.token },
-    { meanwhile: { prompts: ['Old question'], loading: false, updating: true, from: 't1', markUnderFeed: true }, after: { prompts: ['Old question', 'New question'], loading: false, updating: false }, keptToken: 't2' },
+    { meanwhile, after: seen(), asked, keptToken: saves.at(-1)?.token },
+    { meanwhile: { prompts: ['Old question'], loading: false, updating: true, from: 't1', markUnderFeed: true }, after: { prompts: ['Old question', 'New question'], loading: false, updating: false }, asked: 1, keptToken: 't2' },
   );
+});
+
+/**
+ * The session's scroller laid out as jsdom does not: an entry of the feed 100 px tall, a mark 40 px, none of it in view
+ * but its bottom edge.
+ * @param {{ element: HTMLElement }} view
+ */
+function laidOut(view) {
+  const scroller = view.element.parentElement;
+  assert.ok(scroller);
+  Object.defineProperty(scroller, 'scrollHeight', { get: () => 100 * view.element.querySelectorAll('.thread:not([hidden]) > *').length + 40 * view.element.querySelectorAll('.updating:not([hidden])').length });
+  Object.defineProperty(scroller, 'clientHeight', { get: () => 0 });
+  return scroller;
+}
+
+// What shows under the feed once it is brought to the bottom — the mark of being brought up to date, under a copy kept
+// — lets go of nothing: the reader did not scroll up, and what came since brings them to the latest message
+test('mountSession_Should_EndAtLatestMessage_When_MarkShowsUnderCopyBroughtToBottom', async (t) => {
+  const old = prompt('u1', 'Old question');
+  const { view, source } = await mounted(t, { entries: [old], earlier: 0, token: 't1', lastActivity: undefined, savedAt: 1 });
+  const scroller = laidOut(view);
+  // the browser tells of the feed brought to the bottom as the copy showed — after the mark showed under it
+  scroller.dispatchEvent(new window.Event('scroll'));
+
+  source.emit('open', { resumed: true });
+  const since = [prompt('u2', 'New question'), prompt('u3', 'Newer question')];
+  source.emit('entries', since);
+  source.emit('cursor', cursor('t2', [old, ...since]));
+  source.emit('ready');
+  await settled();
+  const below = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+  const jumpShown = view.element.querySelector('.jump:not([hidden])') !== null;
+  view.dispose();
+
+  assert.deepEqual({ atLatest: below <= 0, jumpShown }, { atLatest: true, jumpShown: false });
+});
+
+// The reader scrolling up is let go of the bottom: what comes next leaves them where they read, the button back to the
+// latest message showing
+test('mountSession_Should_LeaveReaderWhereTheyRead_When_TheyScrollUp', async (t) => {
+  const { view, source } = await mounted(t, undefined);
+  const scroller = laidOut(view);
+  source.emit('open');
+  source.emit('entries', [prompt('u1', 'First question'), prompt('u2', 'Second question'), prompt('u3', 'Third question')]);
+  source.emit('ready');
+  await settled();
+  scroller.dispatchEvent(new window.Event('scroll'));
+
+  scroller.scrollTop = 50;
+  scroller.dispatchEvent(new window.Event('scroll'));
+  source.emit('entries', [prompt('u4', 'Fourth question')]);
+  await settled();
+  const read = { scrollTop: scroller.scrollTop, jumpShown: view.element.querySelector('.jump:not([hidden])') !== null };
+  view.dispose();
+
+  assert.deepEqual(read, { scrollTop: 50, jumpShown: true });
 });
 
 // A copy the viewer cannot go on from — the file rewritten, another build — stays in view, marked as being brought up
@@ -433,6 +585,42 @@ test('mountSession_Should_GoOnAfterReconnect_FromItsCopy_OrStartOverWithEntriesP
   view.dispose();
 
   assert.deepEqual({ goesOnFrom, wentOn, pastToken, after: seen().prompts }, { goesOnFrom: 't1', wentOn: ['First', 'Second'], pastToken: undefined, after: ['First', 'Second', 'Third'] });
+});
+
+// The page's stream lost — a phone's app put away and brought back, the link gone a while — the session shown is behind
+// it, and says so: under its latest message, as being brought up to date, its status no longer the one it had — not
+// "Working" over a feed that stopped moving — until the stream is back and the viewer tells it is up to date again
+test('mountSession_Should_SayItIsBehind_WhileTheStreamIsLostAndBack_UntilTheViewerTellsItIsUpToDate', async (t) => {
+  const { view, source, seen, statuses, markUnderFeed } = await mounted(t, undefined);
+  const first = [prompt('u1', 'First')];
+  source.emit('open');
+  source.emit('entries', first);
+  source.emit('cursor', cursor('t1', first));
+  source.emit('ready');
+  await settled();
+  const upToDate = { ...seen(), status: statuses.at(-1) };
+
+  /** What the mark under the feed says. */
+  const said = () => view.element.querySelector('.updating')?.textContent;
+  source.emit('error');
+  const lost = { ...seen(), status: statuses.at(-1), markUnderFeed: markUnderFeed(), said: said() };
+  source.emit('open', { resumed: true });
+  source.emit('entries', [prompt('u2', 'Second')]);
+  const back = { ...seen(), status: statuses.at(-1), said: said() };
+  source.emit('cursor', cursor('t2', [...first, prompt('u2', 'Second')]));
+  source.emit('ready');
+  await settled();
+  view.dispose();
+
+  assert.deepEqual(
+    { upToDate, lost, back, again: { ...seen(), status: statuses.at(-1) } },
+    {
+      upToDate: { prompts: ['First'], loading: false, updating: false, status: 'idle' },
+      lost: { prompts: ['First'], loading: false, updating: true, status: 'connecting', markUnderFeed: true, said: '✻Reconnecting…' },
+      back: { prompts: ['First', 'Second'], loading: false, updating: true, status: 'connecting', said: '✻Updating…' },
+      again: { prompts: ['First', 'Second'], loading: false, updating: false, status: 'idle' },
+    },
+  );
 });
 
 // A prompt sent from the page and written down otherwise — edited in the terminal before it went, Esc having brought it

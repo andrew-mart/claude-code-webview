@@ -15,7 +15,7 @@ const keptFolders = 20;
  * A folder as it is compared: forward slashes, no slash at the end, a Windows path in one case.
  * @param {string} folder
  */
-function folderKey(folder) {
+export function folderKey(folder) {
   const path = folder.trim().replaceAll('\\', '/').replace(/\/+$/, '');
   return /^[a-z]:/i.test(path) ? path.toLowerCase() : path;
 }

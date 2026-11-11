@@ -3,6 +3,7 @@
 import DOMPurify from 'dompurify';
 import hljs from 'highlight.js';
 import { Marked } from 'marked';
+import { splitLineNumbers } from '../model/code-gutter.js';
 import { h } from './dom.js';
 import { linkFileRefs } from './file-links.js';
 import { icon } from './icons.js';
@@ -88,13 +89,21 @@ export function renderMarkdown(source) {
   }
   for (const code of fragment.querySelectorAll('pre > code')) {
     const language = /language-([\w+-]+)/.exec(code.className)?.[1];
-    if (language !== undefined) highlightInto(code, code.textContent ?? '', language);
     const pre = code.parentElement;
     if (pre === null) continue;
+    // a fragment quoted with its lines' numbers: they go into a column of their own, out of the code copied
+    const numbered = splitLineNumbers(code.textContent ?? '');
+    const source = numbered === undefined ? (code.textContent ?? '') : numbered.code;
+    if (language !== undefined) highlightInto(code, source, language);
+    else if (numbered !== undefined) code.textContent = source;
+    if (numbered !== undefined) {
+      pre.classList.add('numbered');
+      pre.prepend(h('span', { className: 'gutter', text: numbered.numbers }));
+    }
     // codeFrame moves pre inside the frame, so its place in the document is marked first.
     const place = document.createComment('');
     pre.replaceWith(place);
-    place.replaceWith(codeFrame(pre, code.textContent ?? '', language));
+    place.replaceWith(codeFrame(pre, source, language));
   }
   for (const table of fragment.querySelectorAll('table')) {
     const place = document.createComment('');

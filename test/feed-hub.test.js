@@ -28,9 +28,12 @@ class FakeSource {
 
 /**
  * A hub over fake streams, the requests it makes recorded; asks for a feed answered as told.
- * @param {{ watched?: boolean }} [viewer] whether the viewer agrees to the feeds asked for: false, its stream is gone
+ * @param {{ watched?: boolean, now?: () => number }} [viewer] watched — whether the viewer agrees to the feeds asked
+ *   for: false, its stream is gone; now — the page's clock
  */
-function hubOf({ watched = true } = {}) {
+function hubOf({ watched = true, now = () => 0 } = {}) {
+  /** The page brought back into sight, as the test tells. @type {(() => void)[]} */
+  const backs = [];
   /** @type {FakeSource[]} */
   const sources = [];
   /** @type {{ path: string, body: Record<string, unknown> }[]} */
@@ -47,6 +50,9 @@ function hubOf({ watched = true } = {}) {
       return path !== '/api/feeds/watch' || watched;
     },
     retryMs: 0,
+    onBackInSight: (listener) => void backs.push(listener),
+    now,
+    silentMs: 25_000,
   });
   /** @type {string[]} */
   const heard = [];
@@ -60,7 +66,10 @@ function hubOf({ watched = true } = {}) {
     return opened;
   };
   const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
-  return { sources, asked, heard, feed, settle };
+  const backInSight = () => {
+    for (const listener of backs) listener();
+  };
+  return { hub, sources, asked, heard, feed, settle, backInSight };
 }
 
 // Two sessions followed over one stream: each feed asked for with its own name and what it wants — the session, how
@@ -155,4 +164,57 @@ test('feedHub_Should_OpenStreamAgain_ForFeedOpenedAfterItClosed', () => {
   page.feed('b', { session: 's2' });
 
   assert.deepEqual({ closedSeen, sources: page.sources.length }, { closedSeen: true, sources: 2 });
+});
+
+// A page brought back into sight — a phone's app put away a while — whose stream has heard nothing for longer than the
+// viewer's pings come apart opens it anew at once, every feed told it was lost and asked for again: the browser may not
+// notice a stream gone while the app was away, and the feeds would stand still meanwhile. One that heard a ping lately
+// keeps its stream
+test('feedHub_Should_OpenStreamAnew_WhenBackInSight_AfterHearingNothingAWhile', async () => {
+  let now = 0;
+  const page = hubOf({ now: () => now });
+  page.feed('a', { session: 's1' });
+  const [first] = page.sources;
+  assert.ok(first);
+  first.emit('open');
+  await page.settle();
+
+  now = 20_000;
+  first.emit('ping');
+  now = 40_000;
+  page.backInSight();
+  const keptAfterPing = page.sources.length;
+  now = 80_000;
+  page.backInSight();
+  page.sources[1]?.emit('open');
+  await page.settle();
+
+  assert.deepEqual(
+    { keptAfterPing, sources: page.sources.length, firstClosed: first.readyState === FakeSource.CLOSED, heard: page.heard },
+    { keptAfterPing: 1, sources: 2, firstClosed: true, heard: ['a open {"resumed":false}', 'a error null', 'a open {"resumed":false}'] },
+  );
+});
+
+// The viewer tells the page what changed of what it shows — herdr's tabs, the answers seen, the sessions — over the
+// page's stream, open for that with no feed followed: a listener hears the names; once the stream is opened again it
+// hears all may have, the page having heard nothing meanwhile. One that stopped listening — its session put away —
+// hears no more
+test('feedHub_Should_TellWhatChanged_AndThatAllMayHave_OnceTheStreamIsOpenedAgain', () => {
+  const page = hubOf();
+  /** @type {(readonly string[] | 'all')[]} */
+  const heard = [];
+  page.hub.onChanged((topics) => void heard.push(topics));
+  /** @type {(readonly string[] | 'all')[]} */
+  const heardByAway = [];
+  const stopHearing = page.hub.onChanged((topics) => void heardByAway.push(topics));
+  const [source] = page.sources;
+  assert.ok(source, 'no stream opened to hear what changed');
+
+  source.emit('open');
+  source.emit('changed', { topics: ['seen', 'herdr'] });
+  stopHearing();
+  source.emit('error');
+  source.emit('open');
+
+  assert.deepEqual({ streams: page.sources.length, heard, heardByAway }, { streams: 1, heard: [['seen', 'herdr'], 'all'], heardByAway: [['seen', 'herdr']] });
 });

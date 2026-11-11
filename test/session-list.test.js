@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { groupedSessions, listedSessions, mergeSessions } from '../public/model/session-list.js';
+import { groupedSessions, listedSessions, mergeSessions, rowsToDraw } from '../public/model/session-list.js';
 
 /** @type {readonly { id: string, title: string | undefined, cwd: string | undefined, kind: 'interactive' | 'sdk' }[]} */
 const sessions = [
@@ -93,4 +93,25 @@ test('listedSessions_Should_FindSessionByItsTabOrNote', () => {
 // Only the closed ones: the sessions that ran in a herdr tab and do not any more — to find one and open it again
 test('listedSessions_Should_ListOnlySessionsClosedInHerdr_WhenAsked', () => {
   assert.deepEqual(ids(listedSessions(sessions, { sdk: 'shown', search: '', workspaces: new Map(), history, closed: 'only' })), ['naming']);
+});
+
+// On a phone the sidebar draws the first so many sessions, not a thousand — its rows were most of the page's elements: a
+// workspace's head counts its whole group, drawn or not; what is left undrawn is counted for the button that draws more
+test('rowsToDraw_Should_DrawTheFirstSessions_UnderHeadsCountingTheirWholeGroups_AndCountTheRest', () => {
+  /** @param {ReturnType<typeof rowsToDraw<string>>} drawn */
+  const shown = (drawn) => ({ rows: drawn.rows.map((row) => (row.kind === 'head' ? `# ${row.workspace ?? 'none'} ${row.count}` : row.session)), left: drawn.left });
+  const groups = [
+    { workspace: 'shop', sessions: ['s1', 's2', 's3'] },
+    { workspace: 'billing', sessions: ['b1', 'b2', 'b3'] },
+    { workspace: undefined, sessions: ['n1'] },
+  ];
+
+  assert.deepEqual(
+    [shown(rowsToDraw(groups, { limit: 4, heads: 'shown' })), shown(rowsToDraw(groups, { limit: 100, heads: 'shown' })), shown(rowsToDraw([{ workspace: undefined, sessions: ['x1', 'x2', 'x3', 'x4', 'x5'] }], { limit: 2, heads: 'none' }))],
+    [
+      { rows: ['# shop 3', 's1', 's2', 's3', '# billing 3', 'b1'], left: 3 },
+      { rows: ['# shop 3', 's1', 's2', 's3', '# billing 3', 'b1', 'b2', 'b3', '# none 1', 'n1'], left: 0 },
+      { rows: ['x1', 'x2'], left: 3 },
+    ],
+  );
 });

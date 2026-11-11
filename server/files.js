@@ -47,7 +47,7 @@ export async function fileAt(requested, home) {
  * @param {string} home
  * @returns {string}
  */
-function wholePath(requested, home) {
+export function wholePath(requested, home) {
   return /^~[\\/]/.test(requested) ? join(home, requested.slice(2)) : requested;
 }
 

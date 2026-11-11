@@ -16,11 +16,12 @@ export const choices = /** @type {const} */ ({
   tables: ['fit', 'wide'],
   width: ['column', 'full'],
   copy: ['plain', 'markdown'],
-  lamps: ['robots', 'lamps'],
+  lamps: ['lamps', 'robots'],
   workspaces: ['flat', 'grouped'],
   sidebar: ['herdr', 'sessions'],
   closed: ['all', 'only'],
   notes: ['live', 'blocks'],
+  diagnostics: ['off', 'on'],
   // the conversation's text, and the notes', in percent of the usual size: made smaller or larger a step at a time
   // (textSizeStep)
   size: textSizeChoices,
@@ -49,6 +50,7 @@ const resultNames = {
   sidebar: { herdr: "Show herdr's workspaces and tabs", sessions: 'Show every session' },
   closed: { all: 'List every session', only: 'List only the sessions closed in herdr' },
   notes: { live: 'Edit notes with a live preview, as Obsidian does (CodeMirror)', blocks: 'Edit notes as blocks, as Notion does (Milkdown)' },
+  diagnostics: { off: 'Stop recording diagnostics', on: 'Record diagnostics for the viewer' },
   size: {},
   noteSize: {},
 };

@@ -1,6 +1,7 @@
 // @ts-check
 // Files downloaded from the file panel and uploaded into it, from any absolute path as the panel reads and saves them
-// (files.js). A file downloads as it is; a folder as a zip under its own name — every file under it, git's own folder
+// (files.js). A file downloads as it is — a download cut midway taken up from where it stopped, while the file is as
+// it was; a folder as a zip under its own name — every file under it, git's own folder
 // left out as the panel lists them — written as it is read: each file deflated, its checksum and sizes after its data.
 // An upload streams into a file of its own beside where it goes and takes its place once whole: a file by that name
 // already there stays unless it is to be replaced.
@@ -16,7 +17,10 @@ import { folderAt } from './project.js';
 
 /**
  * @typedef {{ path: string, name: string, size: number, modified: Date }} ZipEntry — name: its path in the zip
- * @typedef {{ ok: true, path: string, name: string, size: number } | { ok: false, error: 'not-absolute' | 'not-found' | 'not-a-file' }} Download
+ * @typedef {{ ok: true, path: string, name: string, size: number, modifiedAt: number } | { ok: false, error: 'not-absolute' | 'not-found' | 'not-a-file' }} Download
+ *   — modifiedAt: when the file was written last, in ms
+ * @typedef {{ kind: 'whole' } | { kind: 'part', start: number, end: number } | { kind: 'past-end' }} AskedBytes — of a
+ *   file to download: all of it; the bytes from start to end, both sent; or a part that starts past its end
  * @typedef {{ ok: true, name: string, entries: readonly ZipEntry[] } | { ok: false, error: import('./project.js').FolderRefusal | 'too-large' }} FolderZip
  * @typedef {{ ok: true, path: string } | { ok: false, error: 'exists', name: string } | { ok: false, error: import('./project.js').FolderRefusal | 'bad-name' | 'not-a-file' | 'too-large' }} Upload
  *   — exists: name — the file's there, under which the folder holds it
@@ -40,7 +44,25 @@ export function attachment(name) {
  */
 export async function fileToDownload(requested, home) {
   const found = await fileAt(requested, home);
-  return found.ok ? { ok: true, path: found.path, name: basename(found.path), size: found.size } : found;
+  return found.ok ? { ok: true, path: found.path, name: basename(found.path), size: found.size, modifiedAt: found.modifiedAt } : found;
+}
+
+/**
+ * What of a file a download asks for. A browser taking up a download cut midway asks from the byte it got to — a Range
+ * of one span, from a byte on or between two — naming the file it had by its ETag or its date (If-Range): that part,
+ * while it is still the file; anything else — the file changed meanwhile, a span it cannot tell — the whole file.
+ * @param {{ range: string | undefined, ifRange: string | undefined }} asked — the request's Range and If-Range
+ * @param {{ size: number, etag: string, lastModified: string }} file
+ * @returns {AskedBytes}
+ */
+export function askedBytes({ range, ifRange }, { size, etag, lastModified }) {
+  if (range === undefined || (ifRange !== undefined && ifRange !== etag && ifRange !== lastModified)) return { kind: 'whole' };
+  const [, from, to] = /^bytes=(\d+)-(\d*)$/.exec(range.trim()) ?? [];
+  if (from === undefined || to === undefined) return { kind: 'whole' };
+  const start = Number(from);
+  if (start >= size) return { kind: 'past-end' };
+  const end = to === '' ? size - 1 : Math.min(Number(to), size - 1);
+  return end < start ? { kind: 'whole' } : { kind: 'part', start, end };
 }
 
 /**
@@ -224,6 +246,9 @@ export async function uploadFile(requested, name, body, { existing, maxBytes, ho
       createWriteStream(part, { flags: 'wx' }),
     );
     await rename(part, target);
+    // a file system blind to case may keep the name the folder held, as macOS's does: the file goes under the one it came by
+    const held = await nameThere(folder.path, name);
+    if (held !== name) await rename(join(folder.path, held), target);
     return { ok: true, path: target };
   } catch (error) {
     await rm(part, { force: true });

@@ -134,3 +134,14 @@ test('notesStore_Should_RenameNote_KeepingItsTextAsItStands', async () => {
   assert.deepEqual(renamed, { action: 'edit', id: '1', text: '# Plan\n- more', name: 'Week plan' });
   assert.throws(() => request('edit'), /no request to edit/);
 });
+
+// The notes read anew when asked — another desk taken up: what it has replaces what showed
+test('notesStore_Should_ReadNotesAnew_WhenAsked', async () => {
+  const { store, shown, request } = storeAnsweredByHand();
+  await request('list').answer([note('First desk', '1')]);
+
+  store.reload();
+  await request('list').answer([note('Second desk', '2')]);
+
+  assert.deepEqual(shown, [['First desk'], ['Second desk']]);
+});

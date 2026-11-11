@@ -245,3 +245,33 @@ test('streamTranscript_Should_SendNothingAgain_ButResetCopyOfAnotherBuildOrWithN
     { same: ['cursor', 'ready'], otherBuild: ['reset', 'entries'], noToken: ['reset', 'entries'] },
   );
 });
+
+// A copy as far behind as the tail the page asks for, or less, is gone on from — what came since alone; one further
+// behind is not: what came since would keep the latest waiting behind it — the viewer resets the copy and sends the
+// latest tail first, those before counted as earlier
+test('streamTranscript_Should_SendLatestTailFirst_When_CopyIsFurtherBehindThanTail', async () => {
+  const path = join(tempDir('ccw-resume-'), 'session.jsonl');
+  const line = (/** @type {string} */ uuid, /** @type {string | null} */ parent) => `${JSON.stringify({ type: 'user', uuid, parentUuid: parent, timestamp: stamp(1), message: { role: 'user', content: `question ${uuid}` } })}\n`;
+  await writeFile(path, line('u1', null) + line('u2', 'u1'));
+  const viewer = { transcripts: createTranscriptCache({ maxFiles: 4 }), locate: async () => path, rewoundAt: () => undefined, tail: 2, version: 'v1' };
+  const first = follow(viewer, undefined);
+  await caughtUp(first.copy, await wholeFeed(path, undefined));
+  await first.stop();
+  const kept = first.copy.kept(100);
+  /** @param {ReturnType<typeof follow>} page */
+  const held = (page) => ({ earlier: page.copy.earlier(), entries: page.copy.entries().map((one) => (one !== null && typeof one === 'object' && 'uuid' in one ? one.uuid : '?')) });
+
+  await appendFile(path, line('u3', 'u2') + line('u4', 'u3'));
+  const near = follow(viewer, kept);
+  await caughtUp(near.copy, await wholeFeed(path, undefined));
+  await near.stop();
+  await appendFile(path, line('u5', 'u4'));
+  const far = follow(viewer, kept);
+  await caughtUp(far.copy, await wholeFeed(path, undefined));
+  await far.stop();
+
+  assert.deepEqual(
+    { near: { events: near.events.slice(0, 2), ...held(near) }, far: { events: far.events.slice(0, 3), ...held(far) } },
+    { near: { events: ['entries', 'cursor'], earlier: 0, entries: ['u1', 'u2', 'u3', 'u4'] }, far: { events: ['reset', 'earlier', 'entries'], earlier: 3, entries: ['u4', 'u5'] } },
+  );
+});

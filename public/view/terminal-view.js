@@ -2,8 +2,8 @@
 // A herdr pane's terminal on the page — a shell, nvim, another agent — mirroring the one in herdr: the screen comes
 // from /api/pane/stream whenever it changes, the keys go to /api/pane/input as typed (server/terminal.js). The terminal
 // has the pane's own size; on a narrow screen its font shrinks to fit the width — down to a size still readable, past
-// which the terminal scrolls sideways.
-import { Terminal } from '@xterm/xterm';
+// which the terminal scrolls sideways. xterm.js — over 300 KB, most pages never show a terminal — is asked for the
+// first time one is shown, not with the page.
 import { isRecord } from '../model/narrow.js';
 import { redraw } from '../model/terminal.js';
 import { h } from './dom.js';
@@ -23,6 +23,43 @@ export function mountTerminal({ pane, size }) {
   const host = h('div', { className: 'terminal-host' });
   const notice = h('div', { className: 'terminal-notice', attrs: { hidden: '' } });
   const view = h('div', { className: 'terminal-view' }, [host, notice]);
+  const keys = createKeySender(pane);
+  /** The terminal, once xterm.js has come. */
+  /** @type {ReturnType<typeof startTerminal> | undefined} */
+  let running;
+  let disposed = false;
+  /** The pane's size as last told: the terminal starts at it. */
+  let sized = size;
+  void import('@xterm/xterm').then(
+    ({ Terminal }) => {
+      if (!disposed) running = startTerminal(Terminal, { pane, size: sized, host, view, notice, send: keys.send });
+    },
+    () => {
+      notice.textContent = 'The terminal could not load: the viewer is out of reach.';
+      notice.hidden = false;
+    },
+  );
+  // the terminal, scrolling as it needs, over the keys a phone's keyboard lacks — style.css shows them to a finger only
+  const element = h('div', { className: 'terminal-pane' }, [view, createKeyBar({ send: keys.send, paste: (text) => running?.paste(text), readClipboard: () => navigator.clipboard.readText() })]);
+  return {
+    element,
+    resize(next) {
+      sized = next;
+      running?.resize(next);
+    },
+    dispose() {
+      disposed = true;
+      running?.dispose();
+    },
+  };
+}
+
+/**
+ * The terminal in its host, mirroring the pane: its screen from the viewer, the keys typed to the pane.
+ * @param {typeof import('@xterm/xterm').Terminal} Terminal
+ * @param {{ pane: string, size: import('../model/herdr.js').PaneSize | undefined, host: HTMLElement, view: HTMLElement, notice: HTMLElement, send: (data: string) => void }} parts
+ */
+function startTerminal(Terminal, { pane, size, host, view, notice, send }) {
   const terminal = new Terminal({
     cols: size?.cols ?? 120,
     rows: size?.rows ?? 40,
@@ -53,13 +90,11 @@ export function mountTerminal({ pane, size }) {
     notice.textContent = isRecord(reply) && reply.missing === true ? 'herdr is not running: the terminal cannot be shown.' : 'This pane is closed in herdr.';
     notice.hidden = false;
   });
-
-  const keys = createKeySender(pane);
-  const typing = terminal.onData(keys.send);
-  // the terminal, scrolling as it needs, over the keys a phone's keyboard lacks — style.css shows them to a finger only
-  const element = h('div', { className: 'terminal-pane' }, [view, createKeyBar({ send: keys.send, paste: (text) => terminal.paste(text), readClipboard: () => navigator.clipboard.readText() })]);
+  const typing = terminal.onData(send);
   return {
-    element,
+    /** @param {string} text */
+    paste: (text) => terminal.paste(text),
+    /** @param {import('../model/herdr.js').PaneSize} next */
     resize(next) {
       if (next.cols === terminal.cols && next.rows === terminal.rows) return;
       terminal.resize(next.cols, next.rows);

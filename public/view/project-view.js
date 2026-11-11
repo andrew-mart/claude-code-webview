@@ -7,9 +7,9 @@
 // chosen in the tree — a folder clicked, the file shown: the download gives it, the upload goes into the folder chosen or
 // the one holding the file; with nothing chosen in the project, the project's own folder. One by a name
 // already there is asked about: replace the file there — named as it was or as it came, when the names differ only in
-// case — upload it under a name of its own, or skip it. Both tell how far they got as they go, under the search: an
-// upload of how many picked and its share of the file's length, a download in the panel — saved once it is all there —
-// its share too, or a zip's bytes so far.
+// case — upload it under a name of its own, or skip it. An upload tells how far it got as it goes, under the search: of
+// how many picked, and its share of the file's length. A download is the browser's own, into its downloads, its
+// progress told there: the page does not hold the file meanwhile, which a tablet's page could not keep for a big one.
 import { isDefinition } from '../model/definitions.js';
 import { formatBytes } from '../model/format.js';
 import { h } from './dom.js';
@@ -22,12 +22,10 @@ import { icon } from './icons.js';
  * @typedef {import('../model/project.js').Match} Match
  * @typedef {import('./file-links.js').FileTarget} FileTarget
  * @typedef {import('../model/project.js').UploadOutcome} UploadOutcome
- * @typedef {import('../model/project.js').DownloadOutcome} DownloadOutcome
- * @typedef {{ address: (path: string, kind: 'file' | 'folder') => string, upload: (folder: string, file: File, name: string, existing: 'keep' | 'replace', progress: (sent: number) => void) => Promise<UploadOutcome>, download: (path: string, kind: 'file' | 'folder', progress: (received: number, total: number | undefined) => void) => Promise<DownloadOutcome>, save: (file: Blob, name: string) => void }} Transfer
- *   — address: where a file, or a folder as a zip, downloads from — for the browser's own menu on a link; upload: a
+ * @typedef {{ address: (path: string, kind: 'file' | 'folder') => string, upload: (folder: string, file: File, name: string, existing: 'keep' | 'replace', progress: (sent: number) => void) => Promise<UploadOutcome> }} Transfer
+ *   — address: where a file, or a folder as a zip, downloads from — the browser downloads it from there; upload: a
  *   file into a folder under a name, one by that name there kept — the upload refused — or replaced, its bytes sent so
- *   far told as they go; download: a file, or a folder as a zip, its bytes received so far told as they come — out of
- *   its length, none for a zip being made; save: a file downloaded saved on the device under a name
+ *   far told as they go
  * @typedef {{ path: string, kind: 'file' | 'folder', saved: string }} Downloaded — a file, or a folder as a zip, to
  *   download; saved: the name it is saved under
  * @typedef {{ kind: 'upload', name: string, existing: 'keep' | 'replace' } | { kind: 'skip' }} UploadAnswer — what to do
@@ -51,7 +49,6 @@ const refusals = {
 const uploadRefusals = { 'too-large': 'too big', 'bad-name': 'a name no folder can hold', failed: 'the viewer did not take it' };
 /** Why a file, or a folder's zip, was not downloaded. */
 /** @type {Readonly<Record<'not-found' | 'too-large' | 'failed', string>>} */
-const downloadRefusals = { 'not-found': 'not there — deleted, or renamed', 'too-large': 'too big to zip', failed: 'the viewer did not send it all' };
 
 /** A search waits this long after the last key, so a word typed is searched once. */
 const typingMs = 350;
@@ -81,10 +78,9 @@ export function createProjectView({ root, listFolder, search, openFile, iconOf, 
   const rootName = root.replace(/[\\/]$/, '').split(/[\\/]/).pop() ?? root;
   const picker = h('input', { className: 'project-picker', attrs: { type: 'file', multiple: '', hidden: '', 'aria-hidden': 'true' } });
   const told = h('div', { className: 'project-transfer', attrs: { hidden: '' } });
-  const downloads = h('div', { className: 'project-downloads', attrs: { hidden: '' } });
-  const chosenDownload = downloadLink({ path: root, kind: 'folder', saved: `${rootName}.zip` }, () => chosenTarget());
+  const chosenDownload = downloadLink({ path: root, kind: 'folder', saved: `${rootName}.zip` });
   const chosenUpload = uploadButton(`Upload files into ${rootName}`, () => chosenFolder());
-  const element = h('div', { className: 'project' }, [h('div', { className: 'project-search' }, [field, caseToggle, wordToggle, patternToggle, chosenDownload, chosenUpload]), told, downloads, picker, results, tree]);
+  const element = h('div', { className: 'project' }, [h('div', { className: 'project-search' }, [field, caseToggle, wordToggle, patternToggle, chosenDownload, chosenUpload]), told, picker, results, tree]);
   /** The folders open in the tree, by their paths. */
   /** @type {Set<string>} */
   const open = new Set();
@@ -108,43 +104,13 @@ export function createProjectView({ root, listFolder, search, openFile, iconOf, 
   const childOf = (/** @type {string} */ folder, /** @type {string} */ name) => `${folder.replace(/[\\/]$/, '')}${separator}${name}`;
 
   /**
-   * A file, or a folder as a zip, to download under its own name: in the panel, as it is pressed. Its address stays on
-   * the link for the browser's own menu: open it in a tab, copy it.
-   * @param {Downloaded} target — what the link is for as it is made
-   * @param {() => Downloaded} pressed — what it downloads as it is pressed: what it is for then
-   */
-  function downloadLink(target, pressed = () => target) {
-    const { path, kind, saved } = target;
-    const title = kind === 'file' ? `Download ${saved}` : `Download ${saved.replace(/\.zip$/, '')} as a zip`;
-    const link = h('a', { className: 'project-download', title, attrs: { href: transfer.address(path, kind), download: saved, 'aria-label': title } }, [icon('download')]);
-    link.addEventListener('click', (event) => {
-      event.preventDefault();
-      void download(pressed());
-    });
-    return link;
-  }
-
-  /**
-   * A file, or a folder as a zip, downloaded in the panel, its row under the search telling how far it got, then saved
-   * under its name; the rows of downloads ended before give way to it.
+   * A file, or a folder as a zip, downloaded by the browser under its own name, into its downloads. The download beside
+   * the search is pointed again at what is chosen as that changes (pointDownload).
    * @param {Downloaded} target
    */
-  async function download({ path, kind, saved }) {
-    for (const ended of downloads.querySelectorAll('.project-downloading.ended')) ended.remove();
-    const label = h('span', { className: 'project-transfer-going' });
-    const bar = h('progress', { className: 'project-transfer-bar' });
-    const row = h('div', { className: 'project-downloading' }, [label, bar]);
-    const show = (/** @type {number} */ received, /** @type {number | undefined} */ total) => {
-      label.textContent = `Downloading ${saved} — ${howFar(received, total)}`;
-      fill(bar, received, total);
-    };
-    show(0, undefined);
-    downloads.hidden = false;
-    downloads.append(row);
-    const outcome = await transfer.download(path, kind, show);
-    if (outcome.ok) transfer.save(outcome.file, saved);
-    row.classList.add('ended');
-    row.replaceChildren(outcome.ok ? `Downloaded ${saved} — ${formatBytes(outcome.file.size)}` : `Not downloaded — ${saved}: ${downloadRefusals[outcome.error]}`);
+  function downloadLink({ path, kind, saved }) {
+    const title = kind === 'file' ? `Download ${saved}` : `Download ${saved.replace(/\.zip$/, '')} as a zip`;
+    return h('a', { className: 'project-download', title, attrs: { href: transfer.address(path, kind), download: saved, 'aria-label': title } }, [icon('download')]);
   }
 
   /**

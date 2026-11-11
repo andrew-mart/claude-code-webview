@@ -2,8 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { execFile } from 'node:child_process';
-import { appendFile, mkdir, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { basename, join, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { gunzipSync } from 'node:zlib';
 import { tempDir } from '../test-support/temp-dir.js';
@@ -13,9 +14,11 @@ import { startServer } from '../server/app.js';
 import { createSessionIndex } from '../server/sessions.js';
 import { createBookmarkFile } from '../server/bookmarks.js';
 import { createLaterFile } from '../server/later.js';
-import { createNotesFile } from '../server/notes.js';
+import { createDeskFiles } from '../server/desk-files.js';
+import { createDesks } from '../server/desks.js';
 import { createPinsFile } from '../server/pins.js';
 import { createSeenFile } from '../server/seen.js';
+import { createDiagnosticsLog } from '../server/diagnostics.js';
 import { createKeptFile } from '../server/kept.js';
 import { createUploads } from '../server/uploads.js';
 import { createVsCode } from '../server/vscode.js';
@@ -137,6 +140,16 @@ const webWorkspace = {
  */
 async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true, editor = 'set', vscode = undefined, codexRoot = undefined, codexInUse = false, chatgptUsage = undefined, sessionStatus = undefined, statusRead = Promise.resolve() } = {}) {
   const root = tempDir('csv-');
+  // the folders the sessions started in, for their desks: the session and one beside it in x, another in y
+  const work = tempDir('server-desks-');
+  for (const folder of ['x', 'y']) await mkdir(join(work, folder));
+  /** @type {Record<string, import('../server/desks.js').SessionPlace>} */
+  const places = {
+    [sessionId]: { startedIn: join(work, 'x'), workspace: undefined },
+    '3f2c9a50-1111-4222-8333-944455557777': { startedIn: join(work, 'x'), workspace: undefined },
+    '3f2c9a50-1111-4222-8333-944455558888': { startedIn: join(work, 'y'), workspace: undefined },
+  };
+  const desks = createDesks({ registry: join(work, 'desks.json'), files: createDeskFiles(), limit: 200, place: async (id) => places[id] });
   const project = join(root, 'D--dev-x');
   await mkdir(project);
   const file = join(project, `${sessionId}.jsonl`);
@@ -146,7 +159,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // tabs renamed and closed are recorded
   /** @type {string[][]} */
   const tabChanges = [];
-  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'forkedFrom' | 'layout' | 'renameTab' | 'closeTab' | 'focusTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'createWorkspace' | 'history' | 'reopen' | 'restart'>} */
+  /** @type {Pick<ReturnType<typeof import('../server/herdr-view.js').createHerdrView>, 'workspacesOf' | 'forkedFrom' | 'layout' | 'renameTab' | 'closeTab' | 'focusTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hideWorkspace' | 'showWorkspace' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'continueTab' | 'createWorkspace' | 'history' | 'reopen' | 'restart' | 'exit'>} */
   const herdrView = {
     forkedFrom: async (id) => (id === forkedSession ? sessionId : undefined),
     workspacesOf: async (listed) => ({ herdr: true, sessions: Object.fromEntries(listed.map(({ id }) => [id, 'web'])), icons: {} }),
@@ -168,8 +181,12 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
       tabChanges.push(['focus', tab]);
       return { ok: true };
     },
-    restart: async (session, variables) => {
-      tabChanges.push(['restart', session, variables]);
+    restart: async (session, variables, launcher) => {
+      tabChanges.push(['restart', session, variables, launcher]);
+      return { ok: true };
+    },
+    exit: async (session) => {
+      tabChanges.push(['exit', session]);
       return { ok: true };
     },
     moveTab: async (tab, place) => {
@@ -196,6 +213,14 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
       tabChanges.push(['close workspace', workspace]);
       return { ok: true };
     },
+    hideWorkspace: async (workspace) => {
+      tabChanges.push(['hide workspace', workspace]);
+      return { ok: true };
+    },
+    showWorkspace: async (workspace) => {
+      tabChanges.push(['show workspace', workspace]);
+      return { ok: true };
+    },
     createTab: async (beside, start, label) => {
       tabChanges.push(['create', beside, start, String(label)]);
       return { ok: true, target: '#/pane/w1:p2' };
@@ -203,6 +228,10 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
     duplicateTab: async (tab) => {
       tabChanges.push(['duplicate', tab]);
       return { ok: true, target: '#/pane/w1:p3' };
+    },
+    continueTab: async (tab, sessions) => {
+      tabChanges.push(['continue', tab, sessions.map((listed) => listed.id).join(' ')]);
+      return { ok: true };
     },
     createWorkspace: async (label, folder, start, missing) => {
       tabChanges.push(['workspace', label, folder, start, missing]);
@@ -235,12 +264,12 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // the file manager opens what is asked
   /** @type {import('../server/file-manager.js').FileManagerTarget[]} */
   const shownInFileManager = [];
-  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), later: createLaterFile(join(root, 'later.json')), notes: createNotesFile(join(root, 'notes.json'), { history: join(root, 'notes-history.json'), limit: 200 }), pins: createPinsFile(join(root, 'pins.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), kept: createKeptFile(join(root, 'kept.json'), { limit: 100 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, sessionStatus: async (id) => {
+  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, changesEveryMs: 40, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), later: createLaterFile(join(root, 'later.json')), desks, pins: createPinsFile(join(root, 'pins.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), kept: createKeptFile(join(root, 'kept.json'), { limit: 100 }), diagnostics: createDiagnosticsLog(join(root, 'diagnostics.jsonl'), { maxBytes: 1_000_000 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, system: { read: async () => ({ cpu: 31, memory: { used: 24_000, total: 32_000 }, gpu: undefined }) }, processes: { read: async (by) => [{ pid: 4120, name: `node by ${by}`, cpu: 12, memory: 104_857_600, gpu: by === 'gpu' ? 3 : undefined }] }, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, sessionStatus: async (id) => {
       await statusRead;
       return id === sessionId ? sessionStatus : undefined;
     } });
   t.after(() => server.close());
-  return { file, root, base: `http://127.0.0.1:${server.port}`, port: server.port, calls, typed, tabChanges, opened, shownInFileManager };
+  return { file, root, work, base: `http://127.0.0.1:${server.port}`, port: server.port, calls, typed, tabChanges, opened, shownInFileManager };
 }
 
 /**
@@ -277,6 +306,20 @@ test('send_Should_PassTextFromViewerPageToSessionTerminal', async (t) => {
   assert.equal(response.status, 200);
   assert.deepEqual(JSON.parse(response.body), { ok: true, pane: 'w3D:p1' });
   assert.deepEqual(calls, [['send', sessionId, 'Go on']]);
+});
+
+// A prompt sent again under the id it went by — its reply lost while the page was out of reach — is typed once, the
+// reply it had given back
+test('send_Should_TypePromptOnce_When_SentAgainUnderItsId', async (t) => {
+  const { port, calls } = await withServer(t);
+  const body = JSON.stringify({ session: sessionId, text: 'Go on', id: 'p-1' });
+
+  const replies = [await post(port, '/api/send', pageHeaders(port), body), await post(port, '/api/send', pageHeaders(port), body)];
+
+  assert.deepEqual(
+    { replies: replies.map((reply) => JSON.parse(reply.body)), calls },
+    { replies: [{ ok: true, pane: 'w3D:p1' }, { ok: true, pane: 'w3D:p1' }], calls: [['send', sessionId, 'Go on']] },
+  );
 });
 
 // Sent now — Ctrl+Enter on the page while Claude works — the text and what waits in the queue go at once, an empty box
@@ -327,14 +370,27 @@ test('tabs_Should_PassRenameAndCloseFromViewerPage_And_RefuseWhatIsNoTab', async
   );
 });
 
+// A session's agent quit to its tab's shell from its page; what is no session id is refused before herdr
+test('sessionExit_Should_PassFromViewerPage_And_RefuseWhatIsNoSession', async (t) => {
+  const { port, tabChanges } = await withServer(t);
+
+  const exited = await post(port, '/api/session/exit', pageHeaders(port), JSON.stringify({ session: sessionId }));
+  const strange = await post(port, '/api/session/exit', pageHeaders(port), JSON.stringify({ session: '$(reboot)' }));
+
+  assert.deepEqual({ reply: [exited.status, JSON.parse(exited.body)], refused: strange.status, tabChanges }, { reply: [200, { ok: true }], refused: 400, tabChanges: [['exit', sessionId]] });
+});
+
 // A session restarted from its page: herdr's view restarts it where it runs — plainly, or with the variables given, as a
-// page that tells neither asks; what is no session id is refused before herdr
-test('sessionRestart_Should_PassFromViewerPage_PlainOrWithVariables_And_RefuseWhatIsNoSession', async (t) => {
+// page that tells neither asks; in the launcher it ran in, or in ordinary Claude Code or through GPT, as the page asks;
+// what is no session id is refused before herdr
+test('sessionRestart_Should_PassFromViewerPage_PlainOrWithVariables_InLauncherAsked_And_RefuseWhatIsNoSession', async (t) => {
   const { port, tabChanges } = await withServer(t);
 
   const restarted = await post(port, '/api/session/restart', pageHeaders(port), JSON.stringify({ session: sessionId }));
   await post(port, '/api/session/restart', pageHeaders(port), JSON.stringify({ session: sessionId, variables: 'none' }));
   await post(port, '/api/session/restart', pageHeaders(port), JSON.stringify({ session: sessionId, variables: 'given' }));
+  await post(port, '/api/session/restart', pageHeaders(port), JSON.stringify({ session: sessionId, variables: 'none', launcher: 'claude-gpt' }));
+  await post(port, '/api/session/restart', pageHeaders(port), JSON.stringify({ session: sessionId, variables: 'none', launcher: 'claude' }));
   const strange = await post(port, '/api/session/restart', pageHeaders(port), JSON.stringify({ session: '$(reboot)' }));
 
   assert.deepEqual(
@@ -343,9 +399,11 @@ test('sessionRestart_Should_PassFromViewerPage_PlainOrWithVariables_And_RefuseWh
       reply: [200, { ok: true }],
       refused: 400,
       tabChanges: [
-        ['restart', sessionId, 'given'],
-        ['restart', sessionId, 'none'],
-        ['restart', sessionId, 'given'],
+        ['restart', sessionId, 'given', 'as-it-ran'],
+        ['restart', sessionId, 'none', 'as-it-ran'],
+        ['restart', sessionId, 'given', 'as-it-ran'],
+        ['restart', sessionId, 'none', 'claude-gpt'],
+        ['restart', sessionId, 'none', 'claude'],
       ],
     },
   );
@@ -376,6 +434,19 @@ test('workspaces_Should_PassRenameAndCloseFromViewerPage_And_RefuseWhatIsNoWorks
   assert.deepEqual(
     { replies: [renamed, closed].map((reply) => [reply.status, JSON.parse(reply.body)]), refused: [strange.status, nameless.status], tabChanges },
     { replies: [[200, { ok: true }], [200, { ok: true }]], refused: [400, 400], tabChanges: [['rename workspace', 'w1', 'shop'], ['close workspace', 'w1']] },
+  );
+});
+
+// A herdr workspace is hidden from the page's sidebar and shown there again; what is no workspace is refused
+test('workspaces_Should_PassHideAndShowFromViewerPage_And_RefuseWhatIsNoWorkspace', async (t) => {
+  const { port, tabChanges } = await withServer(t);
+
+  const replies = [await post(port, '/api/workspace/hide', pageHeaders(port), JSON.stringify({ workspace: 'w1' })), await post(port, '/api/workspace/show', pageHeaders(port), JSON.stringify({ workspace: 'w1' }))];
+  const strange = await post(port, '/api/workspace/hide', pageHeaders(port), JSON.stringify({ workspace: '../w1 x' }));
+
+  assert.deepEqual(
+    { replies: replies.map((reply) => [reply.status, reply.status === 200 ? JSON.parse(reply.body) : reply.body]), refused: strange.status, tabChanges },
+    { replies: [[200, { ok: true }], [200, { ok: true }]], refused: 400, tabChanges: [['hide workspace', 'w1'], ['show workspace', 'w1']] },
   );
 });
 
@@ -422,6 +493,20 @@ test('tabs_Should_DuplicateTabOnViewerPagesAsking_And_RefuseWhatIsNoTab', async 
   );
 });
 
+// A tab with nothing running in it goes on with its conversation on the page's asking, the viewer telling it the
+// sessions it lists — the folder's latest among them; what is no tab is refused before anything is asked
+test('tabs_Should_ContinueTabOnViewerPagesAsking_WithSessionsListed_And_RefuseWhatIsNoTab', async (t) => {
+  const { port, tabChanges } = await withServer(t);
+
+  const continued = await post(port, '/api/tab/continue', pageHeaders(port), JSON.stringify({ tab: 'w1:t2' }));
+  const refused = (await post(port, '/api/tab/continue', pageHeaders(port), JSON.stringify({ tab: 7 }))).status;
+
+  assert.deepEqual(
+    { continued: [continued.status, JSON.parse(continued.body)], refused, tabChanges },
+    { continued: [200, { ok: true }], refused: 400, tabChanges: [['continue', 'w1:t2', sessionId]] },
+  );
+});
+
 // An idle session is hidden from herdr's list on the page's asking, and the ones hidden shown again; what is no pane is
 // refused before anything is hidden
 test('herdr_Should_HidePaneOnViewerPagesAsking_AndShowHiddenAgain', async (t) => {
@@ -451,6 +536,36 @@ test('page_Should_GetLucideIconsAndTheirWords_FromTheViewer', async (t) => {
     { statuses: [sprite.status, tags.status], wallet: /<symbol[^>]*id="wallet"/.test(sprite.body.toString('utf8')), finance: typeof words === 'object' && words !== null && 'wallet' in words && Array.isArray(words.wallet) && words.wallet.includes('finance') },
     { statuses: [200, 200], wallet: true, finance: true },
   );
+});
+
+// A workspace's icon is drawn from its own file, the page asking for those it draws rather than the whole set; a name
+// that is not an icon's — another of the package's files, one outside it — finds nothing
+test('page_Should_GetALucideIconOnItsOwn_AndNothingElseUnderItsIcons', async (t) => {
+  const { port } = await withServer(t);
+
+  const wallet = await rawGet(port, '/vendor/lucide/icons/wallet.svg', {});
+  const strangers = await Promise.all(['/vendor/lucide/icons/..%2Fpackage.json', '/vendor/lucide/icons/..%2F..%2Fmarked%2Fpackage.json', '/vendor/lucide/icons/no-such-icon.svg', '/vendor/lucide/icons/wallet.json'].map((path) => rawGet(port, path, {})));
+
+  assert.deepEqual(
+    { status: wallet.status, type: wallet.headers['content-type'], drawn: /^<svg[^>]*lucide-wallet/m.test(wallet.body.toString('utf8')), strangers: strangers.map((reply) => reply.status) },
+    { status: 200, type: 'image/svg+xml', drawn: true, strangers: [404, 404, 404, 404] },
+  );
+});
+
+// A page file's tag follows what is in it, not when it was written: an update of the viewer writes every file anew,
+// and a page that kept the file is told it has not changed, by the tag it kept, as long as what is in it has not
+test('pageFile_Should_KeepItsTag_WhenWrittenAnewTheSame', async (t) => {
+  const { port } = await withServer(t);
+  const file = fileURLToPath(import.meta.resolve('lucide-static/icons/wallet.svg'));
+  const written = await stat(file);
+  t.after(() => utimes(file, written.atime, written.mtime));
+
+  const first = await rawGet(port, '/b/0123abcd/vendor/lucide/icons/wallet.svg', {});
+  await utimes(file, new Date('2026-11-01T10:00:00Z'), new Date('2026-11-01T10:00:00Z'));
+  const anew = await rawGet(port, '/b/4567cdef/vendor/lucide/icons/wallet.svg', {});
+  const asked = await rawGet(port, '/b/4567cdef/vendor/lucide/icons/wallet.svg', { 'If-None-Match': String(first.headers.etag) });
+
+  assert.deepEqual({ same: anew.headers.etag === first.headers.etag, statuses: [first.status, anew.status, asked.status] }, { same: true, statuses: [200, 200, 304] });
 });
 
 // An answer to Claude Code's question goes to the session's terminal as the keys and words the page sent; anything but
@@ -496,19 +611,20 @@ test('workspaces_Should_OpenNewWorkspace_And_RefuseUnknownStart', async (t) => {
   );
 });
 
-// A new tab is asked for beside the open one, under a name or none, with a shell, Claude Code or Codex in it; anything
-// else is refused before herdr
+// A new tab is asked for beside the open one, under a name or none, with a shell, Claude Code, Codex or Antigravity CLI
+// in it; anything else is refused before herdr
 test('tabs_Should_OpenNewTabBesideOne_And_RefuseUnknownStart', async (t) => {
   const { port, tabChanges } = await withServer(t);
 
   const opened = await post(port, '/api/tab/new', pageHeaders(port), JSON.stringify({ tab: 'w1:t1', start: 'claude', label: 'api' }));
   const unnamed = await post(port, '/api/tab/new', pageHeaders(port), JSON.stringify({ tab: 'w1:t1', start: 'shell' }));
   const codex = await post(port, '/api/tab/new', pageHeaders(port), JSON.stringify({ tab: 'w1:t1', start: 'codex' }));
+  const agy = await post(port, '/api/tab/new', pageHeaders(port), JSON.stringify({ tab: 'w1:t1', start: 'agy' }));
   const strange = await post(port, '/api/tab/new', pageHeaders(port), JSON.stringify({ tab: 'w1:t1', start: 'rm -rf' }));
 
   assert.deepEqual(
-    { opened: [opened.status, JSON.parse(opened.body)], unnamed: unnamed.status, codex: codex.status, strange: strange.status, tabChanges },
-    { opened: [200, { ok: true, target: '#/pane/w1:p2' }], unnamed: 200, codex: 200, strange: 400, tabChanges: [['create', 'w1:t1', 'claude', 'api'], ['create', 'w1:t1', 'shell', 'undefined'], ['create', 'w1:t1', 'codex', 'undefined']] },
+    { opened: [opened.status, JSON.parse(opened.body)], unnamed: unnamed.status, codex: codex.status, agy: agy.status, strange: strange.status, tabChanges },
+    { opened: [200, { ok: true, target: '#/pane/w1:p2' }], unnamed: 200, codex: 200, agy: 200, strange: 400, tabChanges: [['create', 'w1:t1', 'claude', 'api'], ['create', 'w1:t1', 'shell', 'undefined'], ['create', 'w1:t1', 'codex', 'undefined'], ['create', 'w1:t1', 'agy', 'undefined']] },
   );
 });
 
@@ -535,6 +651,26 @@ test('tasks_Should_TellWhatSessionRunsInBackground', async (t) => {
 
   const started = { id: 'toolu_dev', kind: 'shell', title: 'Start the dev server', detail: 'npm run dev', startedAt: '2026-10-09T07:03:00.000Z', taskId: 'bdev' };
   assert.deepEqual(replies, [[{ ...started, state: 'running', hasOutput: true }], [{ ...started, state: 'interrupted', hasOutput: false }]]);
+});
+
+// The page asks for a session's tasks every few seconds while one runs, and a long session has a hundred and more: a
+// list as it was comes back as 304 with nothing in it, by the tag of its last reply in a header of the viewer's own too
+// — Cloudflare does not pass ETag on to Safari; a list that changed comes whole
+test('tasks_Should_AnswerUnchangedListWithNotModified', async (t) => {
+  const { port, root, file } = await withServer(t);
+  await appendFile(file, backgroundCommand(join(root, 'bdev.output')));
+  const at = `/api/tasks?session=${sessionId}`;
+
+  const first = await rawGet(port, at, {});
+  const tag = String(first.headers['x-viewer-tag']);
+  const again = await rawGet(port, at, { 'if-none-match': tag });
+  await appendFile(file, backgroundCommand(join(root, 'blint.output')).replaceAll('toolu_dev', 'toolu_lint').replaceAll('bdev', 'blint'));
+  const changed = await rawGet(port, at, { 'if-none-match': tag });
+
+  assert.deepEqual(
+    { first: first.status, again: [again.status, again.body.length], changed: [changed.status, JSON.parse(changed.body.toString('utf8')).length] },
+    { first: 200, again: [304, 0], changed: [200, 2] },
+  );
 });
 
 // A subagent at work tells when it last wrote to its transcript: one silent for long has likely stopped without a word
@@ -616,6 +752,15 @@ test('usage_Should_TellAccountUsage', async (t) => {
   assert.deepEqual({ status: response.status, usage: await response.json() }, { status: 200, usage: { fiveHour: { percent: 22, resetsAt: 1_000_000 }, sevenDay: { percent: 91, resetsAt: 2_000_000 }, readAt: 500 } });
 });
 
+// The page's corner shows how busy the viewer's computer is: its processors, its memory, its card if it has one
+test('system_Should_TellHowBusyTheComputerIs', async (t) => {
+  const { base } = await withServer(t);
+
+  const response = await fetch(`${base}/api/system`);
+
+  assert.deepEqual({ status: response.status, usage: await response.json() }, { status: 200, usage: { cpu: 31, memory: { used: 24_000, total: 32_000 } } });
+});
+
 // A session closed in herdr is opened there again from the page, in the folder its transcript names
 test('history_Should_OpenClosedSessionAgain_InItsFolder', async (t) => {
   const { port, tabChanges } = await withServer(t);
@@ -678,8 +823,10 @@ test('live_Should_ReportWhetherSessionCanReceiveText', async (t) => {
  * @param {ReadableStream<Uint8Array>} body
  * @param {'skipped' | 'read'} [cursors] whether to give the events telling where the reading stands, sent after each
  *   send: their own tests read them
+ * @param {'skipped' | 'read'} [changes] whether to give the events telling a page's stream what changed of what the page
+ *   shows, no feed's: their own tests read them
  */
-function sseEvents(body, cursors = 'skipped') {
+function sseEvents(body, cursors = 'skipped', changes = 'skipped') {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -692,7 +839,7 @@ function sseEvents(body, cursors = 'skipped') {
         const event = /^event: (.+)$/m.exec(block)?.[1];
         const data = /^data: (.+)$/m.exec(block)?.[1];
         // where the reading stands, told after each send: the tests of it read it themselves
-        if (event !== undefined && (event !== 'cursor' || cursors === 'read')) return { event, data: data === undefined ? undefined : JSON.parse(data) };
+        if (event !== undefined && (event !== 'cursor' || cursors === 'read') && (event !== 'changed' || changes === 'read')) return { event, data: data === undefined ? undefined : JSON.parse(data) };
         continue;
       }
       const { value, done } = await reader.read();
@@ -760,6 +907,40 @@ test('feeds_Should_FollowSessionsOverOneStream_EachMarked_UntilLetGo', async (t)
     { watched: watched.map((reply) => reply.status), opening, letGo: letGo.status, afterwards, refused: refused.status },
     { watched: [200, 200], opening: ['a entries u1', 'a ready', 'b entries u1', 'b ready'], letGo: 200, afterwards: ['b entries u2', 'none'], refused: 404 },
   );
+});
+
+// What every page asked about every few seconds — herdr's tabs, the answers seen and kept, the sessions — the viewer
+// looks at itself and tells each page over its stream what changed: an answer seen on another device, and the page
+// hears the answers seen changed, to ask for them then
+test('feeds_Should_TellEveryPageWhatChanged_AnAnswerSeenElsewhere', async (t) => {
+  const { base, port } = await withServer(t);
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const response = await fetch(`${base}/api/feeds?page=p1`, { signal: controller.signal });
+  assert.ok(response.body);
+  const next = sseEvents(response.body, 'skipped', 'read');
+  // the viewer has looked once since the page came: what each is, noted
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  await post(port, '/api/seen', pageHeaders(port), JSON.stringify({ pane: 'w1:p1', count: 3 }));
+
+  assert.deepEqual(await nextWithin(next, 2000), { event: 'changed', data: { topics: ['seen'] } });
+});
+
+// A page's stream tells it is alive now and then, with nothing else to say — as an event the page hears, where a comment
+// it would not: a page brought back into sight tells a stream gone from one that has been quiet (view/feed-hub.js)
+test('feeds_Should_TellThePageTheStreamIsAlive_NowAndThen', async (t) => {
+  const { base } = await withServer(t);
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const response = await fetch(`${base}/api/feeds?page=p1`, { signal: controller.signal });
+  assert.ok(response.body);
+  const next = sseEvents(response.body);
+
+  t.mock.timers.tick(15_000);
+
+  assert.deepEqual(await nextWithin(next, 1000), { event: 'ping', data: null });
 });
 
 // A page closing its stream while a feed over it still reads the session's status — the browser reloaded, a phone
@@ -971,6 +1152,41 @@ test('notesHistory_Should_TellFolderChanges_LatestFirst', async (t) => {
   );
 });
 
+// A session's desk: none before its first note, then the one made in the folder it started in, named after the folder;
+// a desk made anew is the session's, and one chosen again; the desk moved to another folder is still the session's; a
+// note moved to another desk is there, gone from this one; an action of no known kind is refused
+test('desk_Should_TellSessionsDesk_TakeUpOneMadeOrChosen_AndMoveItOrANote', async (t) => {
+  const { base, port, work } = await withServer(t);
+  const desk = async () => (await fetch(`${base}/api/desk?session=${sessionId}`)).json();
+  /** @param {Record<string, unknown>} body */
+  const act = async (body) => JSON.parse((await post(port, '/api/desk', pageHeaders(port), JSON.stringify({ session: sessionId, ...body }))).body);
+
+  const before = await desk();
+  await post(port, '/api/notes', pageHeaders(port), JSON.stringify({ session: sessionId, change: { action: 'add', note } }));
+  const first = (await desk()).current;
+  const made = await act({ action: 'create', name: 'Next task' });
+  const chosen = await act({ action: 'choose', path: first.path });
+  const moved = await act({ action: 'move', folder: work });
+  const left = JSON.parse((await post(port, '/api/notes/move', pageHeaders(port), JSON.stringify({ session: sessionId, id: note.id, to: made.current.path }))).body);
+  const onNext = await act({ action: 'choose', path: made.current.path });
+  const refused = await post(port, '/api/desk', pageHeaders(port), JSON.stringify({ session: sessionId, action: 'paint' }));
+
+  assert.deepEqual(
+    { before, first, made: made.current.name, chosen: chosen.current.name, moved: moved.current.path, left, onNext: (await (await fetch(`${base}/api/notes?session=${sessionId}`)).json()).map((/** @type {{ id: string }} */ one) => one.id), refused: refused.status },
+    {
+      before: { current: null, offered: [] },
+      first: { path: join(work, 'x', '.desks', 'x.json'), name: 'x', folder: join(work, 'x') },
+      made: 'Next task',
+      chosen: 'x',
+      moved: join(work, '.desks', 'x.json'),
+      left: [],
+      onNext: [note.id],
+      refused: 400,
+    },
+  );
+  assert.equal(onNext.ok, true);
+});
+
 /** The start of a PNG file: the bytes do not have to form a whole picture, only to come back unchanged. */
 const pngBytes = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
 /**
@@ -1105,6 +1321,49 @@ test('page_Should_LinkItsFilesUnderCurrentBuildSoNoCacheCanServeOldOnes', async 
   assert.equal(built.status, 200);
   assert.deepEqual(built.body, plain.body);
   assert.match(String(built.headers['cache-control']), /immutable/);
+});
+
+// The page names the modules it loads at its start, for the browser to ask for them at once — not a step at a time as
+// each one's imports come to light, seven steps deep, a round trip each over a slow link: those app.js imports
+// outright, and theirs, under the build path; not app.js itself, which the page's script is, nor those imported when
+// asked — the terminal's xterm.js, the side panel's file-views
+test('page_Should_NameTheModulesItLoadsAtItsStart_ForTheBrowserToAskForThemAtOnce', async (t) => {
+  const { port } = await withServer(t);
+
+  const html = (await rawGet(port, '/', {})).body.toString('utf8');
+  const build = buildOf(html);
+  const named = [...html.matchAll(/<link rel="modulepreload" href="\/b\/([0-9a-f]+)\/([^"]+)">/g)].map(([, under, path]) => (under === build ? path : `${path} under another build`));
+
+  assert.deepEqual(
+    ['view/session-view.js', 'model/feed-check.js', 'vendor/marked.js', 'app.js', 'vendor/xterm.js', 'vendor/file-views/file-views.js'].map((path) => [path, named.includes(path)]),
+    [
+      ['view/session-view.js', true],
+      ['model/feed-check.js', true],
+      ['vendor/marked.js', true],
+      ['app.js', false],
+      ['vendor/xterm.js', false],
+      ['vendor/file-views/file-views.js', false],
+    ],
+  );
+});
+
+// The page's meter of a resource pressed: the computer's processes, the busiest with it first, as the viewer reads them
+// by it — the processors, the memory, the graphics card; another resource is refused
+test('systemProcesses_Should_TellTheProcessesByTheResourceAsked_AndRefuseAnother', async (t) => {
+  const { port } = await withServer(t);
+
+  const [memory, card, disk] = await Promise.all([rawGet(port, '/api/system/processes?by=memory', {}), rawGet(port, '/api/system/processes?by=gpu', {}), rawGet(port, '/api/system/processes?by=disk', {})]);
+
+  /** @param {{ status: number | undefined, body: Buffer }} reply */
+  const told = (reply) => [reply.status, reply.status === 200 ? JSON.parse(reply.body.toString('utf8')) : reply.body.toString('utf8')];
+  assert.deepEqual(
+    { memory: told(memory), card: told(card), disk: disk.status },
+    {
+      memory: [200, { by: 'memory', processes: [{ pid: 4120, name: 'node by memory', cpu: 12, memory: 104_857_600 }] }],
+      card: [200, { by: 'gpu', processes: [{ pid: 4120, name: 'node by gpu', cpu: 12, memory: 104_857_600, gpu: 3 }] }],
+      disk: 400,
+    },
+  );
 });
 
 test('api_Should_NameBuildSoOpenPageNoticesUpdate', async (t) => {
@@ -1284,6 +1543,25 @@ test('rewind_Should_RewindToChosenMessageAndHideItsBranchFromFeedAtOnce', async 
   // the terminal no longer shows the rewound messages, so neither does the page
   assert.equal((await next()).event, 'reset');
   assert.deepEqual(uuids(await next()), ['u1', 'a1']);
+});
+
+// A rewind the terminal did not go through — the next prompt goes on from the branch the page took back, not from beside
+// it — hides that branch no longer: the feed starts over with the conversation as it goes on
+test('rewind_Should_ShowBranchConversationWentOnIn_WhenNextPromptComesFromIt', async (t) => {
+  const { file, base, port } = await withServer(t);
+  await appendFile(file, answerLine('a1', 'u1') + childPrompt('p2', 'a1', 'Now test it') + answerLine('a2', 'p2'));
+  const next = await openStream(base, t);
+  await next();
+  await next();
+  await post(port, '/api/rewind', pageHeaders(port), JSON.stringify({ session: sessionId, prompt: 'p2', action: 'conversation' }));
+  const rewound = [(await next()).event, uuids(await next())];
+
+  // an entry the feed always shows comes with the prompt: the page is sent something either way
+  await appendFile(file, childPrompt('p3', 'a2', 'Go on') + `${JSON.stringify({ type: 'ai-title', aiTitle: 'Testing it' })}\n`);
+
+  const wentOn = [(await next()).event, uuids(await next()).filter((uuid) => uuid !== undefined)];
+
+  assert.deepEqual({ rewound, wentOn }, { rewound: ['reset', ['u1', 'a1']], wentOn: ['reset', ['u1', 'a1', 'p2', 'a2', 'p3']] });
 });
 
 test('rewind_Should_RefuseUnknownMessageOrActionWithoutTouchingTerminal', async (t) => {
@@ -1568,6 +1846,27 @@ test('folderFile_Should_SendPageInSandbox_And_RefuseWhatLiesOutsideItsFolder', a
   );
   assert.equal(await page.text(), '<p>hi</p>');
   assert.deepEqual({ status: outside.status, body: await outside.json() }, { status: 403, body: { ok: false, error: 'outside' } });
+});
+
+// A document linked from the home folder — ~/docs/page.html, as an answer names it — comes from its folder there, as a
+// text file linked so does
+test('folderFile_Should_SendDocumentOfFolderNamedFromHome', async (t) => {
+  const { root, base } = await withServer(t);
+  const saved = { USERPROFILE: process.env.USERPROFILE, HOME: process.env.HOME };
+  process.env.USERPROFILE = root;
+  process.env.HOME = root;
+  t.after(() => {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+  await mkdir(join(root, 'docs'));
+  await writeFile(join(root, 'docs', 'page.html'), '<p>from home</p>');
+
+  const page = await fetch(`${base}/api/folder/${Buffer.from('~/docs').toString('base64url')}/page.html`);
+
+  assert.deepEqual({ status: page.status, body: await page.text() }, { status: 200, body: '<p>from home</p>' });
 });
 
 // The file panel's views come with what they load as they go — the bundle, pdf.js's character maps and decoders, the
@@ -1996,6 +2295,43 @@ test('fileIcons_Should_ServeThemeAndItsIcons_AndNothingElse', async (t) => {
   );
 });
 
+// The page asks which of the paths it found are files on the viewer's computer — a path through a folder with spaces
+// it may link whole: the files there are told, as asked; a folder, nothing there, a path not from a root are not; what
+// is no list of paths is refused
+test('pathsExisting_Should_TellWhichPathsAreFiles', async (t) => {
+  const { port, root } = await withServer(t);
+  const folder = join(root, '20261016 - checkout move', 'server-logic');
+  await mkdir(folder, { recursive: true });
+  const file = join(folder, 'catalog.md');
+  await writeFile(file, '# Catalog\n');
+
+  const reply = await post(port, '/api/paths/existing', pageHeaders(port), JSON.stringify({ paths: [file, folder, join(root, 'nothing.md'), 'server-logic/catalog.md'] }));
+  const strange = await post(port, '/api/paths/existing', pageHeaders(port), JSON.stringify({ paths: 'catalog.md' }));
+
+  const existing = reply.status === 200 ? JSON.parse(reply.body).existing : reply.body;
+
+  assert.deepEqual({ status: reply.status, existing, strange: strange.status }, { status: 200, existing: [file], strange: 400 });
+});
+
+// A page's diagnostics are written down by the viewer with the browser that told them; what is no report is refused,
+// and another site writes none
+test('diagnostics_Should_WriteDownPagesReport_WithItsBrowser', async (t) => {
+  const { port, root } = await withServer(t);
+
+  const elsewhere = await post(port, '/api/diagnostics', { ...pageHeaders(port), origin: 'https://evil.example' }, JSON.stringify({ frames: { frames: 1 } }));
+  const strange = await post(port, '/api/diagnostics', pageHeaders(port), JSON.stringify([1, 2]));
+  const written = await post(port, '/api/diagnostics', { ...pageHeaders(port), 'user-agent': 'iPad Safari' }, JSON.stringify({ frames: { frames: 60 } }));
+  const lines = (await readFile(join(root, 'diagnostics.jsonl'), 'utf8').catch(() => ''))
+    .split('\n')
+    .filter((line) => line !== '')
+    .map((line) => {
+      const { agent, report } = JSON.parse(line);
+      return { agent, report };
+    });
+
+  assert.deepEqual({ statuses: [elsewhere.status, strange.status, written.status], lines }, { statuses: [403, 400, 200], lines: [{ agent: 'iPad Safari', report: { frames: { frames: 60 } } }] });
+});
+
 // An answer seen on one device counts on every one: the page tells the viewer, which keeps it for the others; another
 // site cannot
 test('seen_Should_KeepAnswerSeenFromViewerPage_ForEveryDevice', async (t) => {
@@ -2037,6 +2373,40 @@ test('files_Should_UploadFromViewerPageIntoFolder_AndDownloadFileAndFolderUnderT
       again: { ok: false, error: 'exists', name: 'notes.md' },
       file: ['attachment; filename="notes.md"; filename*=UTF-8\'\'notes.md', 'second'],
       zip: [200, 'application/zip', 'attachment; filename="shop.zip"; filename*=UTF-8\'\'shop.zip', true],
+    },
+  );
+});
+
+// A download cut midway — a tablet's connection gone — is taken up where it stopped: the file tells the browser it can
+// be asked for in parts and what it is now, by its ETag or its date; asked from a byte on, it sends the rest as a part
+// of the whole, while what the browser had is still the file — changed meanwhile, it comes whole; a part past its end
+// is refused, its length named
+test('fileDownload_Should_ResumeFromByteAsked_WhileFileIsAsItWas', async (t) => {
+  const { port } = await withServer(t);
+  const path = join(tempDir('csv-resume-'), 'video.mp4');
+  await writeFile(path, '0123456789');
+  const at = `/api/file/download?${new URLSearchParams({ path })}`;
+
+  const whole = await rawGet(port, at, {});
+  const { etag } = whole.headers;
+  const lastModified = whole.headers['last-modified'];
+  const rest = await rawGet(port, at, { range: 'bytes=4-', ...(etag === undefined ? {} : { 'if-range': etag }) });
+  const byDate = await rawGet(port, at, { range: 'bytes=7-', ...(lastModified === undefined ? {} : { 'if-range': lastModified }) });
+  const middle = await rawGet(port, at, { range: 'bytes=2-5' });
+  const changed = await rawGet(port, at, { range: 'bytes=4-', 'if-range': '"another"' });
+  const past = await rawGet(port, at, { range: 'bytes=20-' });
+  /** @param {{ status: number | undefined, headers: http.IncomingHttpHeaders, body: Buffer }} reply */
+  const part = (reply) => [reply.status, reply.headers['content-range'], reply.headers['content-length'], reply.body.toString()];
+
+  assert.deepEqual(
+    { whole: [whole.status, whole.headers['accept-ranges'], typeof etag, typeof lastModified], rest: part(rest), byDate: part(byDate), middle: part(middle), changed: part(changed), past: [past.status, past.headers['content-range']] },
+    {
+      whole: [200, 'bytes', 'string', 'string'],
+      rest: [206, 'bytes 4-9/10', '6', '456789'],
+      byDate: [206, 'bytes 7-9/10', '3', '789'],
+      middle: [206, 'bytes 2-5/10', '4', '2345'],
+      changed: [200, undefined, '10', '0123456789'],
+      past: [416, 'bytes */10'],
     },
   );
 });

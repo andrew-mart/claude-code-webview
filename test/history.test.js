@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { closedTabs, tabConversations, tabNeighbours } from '../public/model/history.js';
+import { closedTabs, tabConversations, tabNeighbours, tabToContinue } from '../public/model/history.js';
 
 /**
  * Where a session ran in herdr: in the web workspace, closed at this time unless open — as the viewer tells it, an open
@@ -57,4 +57,50 @@ test('tabNeighbours_Should_TellConversationWentOnFrom_AndOneTabRunsNow', () => {
   };
 
   assert.deepEqual([ids('c'), ids('d'), ids('a'), ids('e')], [['a', 'd'], ['c', undefined], [undefined, 'd'], [undefined, undefined]]);
+});
+
+/**
+ * A session as the list tells it: Claude Code's, someone worked in it, in the web folder — as Windows writes it — at
+ * this time unless told otherwise.
+ * @param {string} id
+ * @param {Partial<import('../public/model/history.js').ListedSession>} [more]
+ * @returns {import('../public/model/history.js').ListedSession}
+ */
+const listed = (id, more = {}) => ({ id, agent: 'claude', cwd: 'D:\\web', kind: 'interactive', modifiedAt: 1, ...more });
+
+// A tab with nothing running in it goes on with the conversation that ran last in a tab of its name in its workspace —
+// herdr brings tabs back with terminals of their own, their names kept; not with one that runs in another tab now
+test('tabToContinue_Should_PickLatestConversationOfTabByItsName_UnlessItRunsNow', () => {
+  const history = {
+    earlier: ranIn('term_old', 3),
+    latest: ranIn('term_x', 8),
+    otherTab: ranIn('term_y', 9, { tab: 'docs' }),
+    otherWorkspace: ranIn('term_z', 10, { workspace: 'shop' }),
+    deployNow: ranIn('term_r', 'open', { tab: 'deploy' }),
+    deployBefore: ranIn('term_d', 5, { tab: 'deploy' }),
+  };
+  const sessions = [listed('inFolder', { modifiedAt: 20 })];
+
+  assert.deepEqual(
+    [tabToContinue(history, sessions, { workspace: 'web', tab: 'checkout', folder: 'D:/web' }), tabToContinue(history, sessions, { workspace: 'web', tab: 'deploy', folder: 'D:/web' })],
+    [{ kind: 'conversation', session: 'latest' }, { kind: 'running' }],
+  );
+});
+
+// A tab the history does not know goes on with its folder's latest Claude Code conversation someone worked in, as
+// claude --continue would — however the folder's slashes lean, in any case; none there — nor a folder herdr tells —
+// nothing to go on with
+test('tabToContinue_Should_GoOnWithFoldersLatestClaudeConversation_NothingWhenThereIsNone', () => {
+  const history = { checkout: ranIn('term_x', 8) };
+  const sessions = [
+    listed('notesEarlier', { modifiedAt: 5 }),
+    listed('notesLatest', { modifiedAt: 9 }),
+    listed('codexLater', { agent: 'codex', modifiedAt: 20 }),
+    listed('scriptedLater', { kind: 'sdk', modifiedAt: 21 }),
+    listed('shop', { cwd: 'D:\\shop', modifiedAt: 30 }),
+  ];
+  /** @param {string | undefined} folder */
+  const notesIn = (folder) => tabToContinue(history, sessions, { workspace: 'web', tab: 'notes', folder });
+
+  assert.deepEqual([notesIn('d:/web/'), notesIn('D:/empty'), notesIn(undefined)], [{ kind: 'latest-in-folder', session: 'notesLatest' }, { kind: 'none' }, { kind: 'none' }]);
 });

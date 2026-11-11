@@ -72,6 +72,29 @@ test('read_Should_ReadCodexFileAsClaudeCodesRecords_LinesAppendedOnInTurn', asyn
   );
 });
 
+// An Antigravity CLI conversation's transcript is read as Claude Code's records in turn: a tool's output appended later
+// answers the call read before it
+test('read_Should_ReadAgyTranscriptAsClaudeCodesRecords_OutputsAppendedLaterAnsweringTheirCalls', async () => {
+  const dir = tempDir('ccw-cache-');
+  const path = join(dir, 'transcript_full.jsonl');
+  const step = (/** @type {Record<string, unknown>} */ fields) => `${JSON.stringify({ status: 'DONE', created_at: '2026-11-10T06:35:00Z', ...fields })}\n`;
+  await writeFile(path, step({ step_index: 0, source: 'USER_EXPLICIT', type: 'USER_INPUT', content: '<USER_REQUEST>List the tests</USER_REQUEST>' }) + step({ step_index: 1, source: 'MODEL', type: 'PLANNER_RESPONSE', tool_calls: [{ name: 'run_command', args: { CommandLine: 'npm test -- --list' } }] }));
+  const cache = createTranscriptCache({ maxFiles: 4, agentOf: (file) => (file === path ? 'agy' : 'claude') });
+  await cache.read(path, { scope: 'main', imageUrl });
+  await appendFile(path, step({ step_index: 2, source: 'MODEL', type: 'GENERIC', content: 'Created At: 2026-11-10T11:35:02+05:00\n12 tests' }));
+
+  const read = await cache.read(path, { scope: 'main', imageUrl });
+
+  assert.deepEqual(
+    read.entries.map((entry) => ({ uuid: entry.link.uuid, type: entry.slim?.type, content: isRecord(entry.slim?.message) ? entry.slim.message.content : undefined })),
+    [
+      { uuid: 'agy-0', type: 'user', content: 'List the tests' },
+      { uuid: 'agy-1', type: 'assistant', content: [{ type: 'tool_use', id: 'agy-1-0', name: 'Bash', input: { command: 'npm test -- --list' } }] },
+      { uuid: 'agy-2', type: 'user', content: [{ type: 'tool_result', tool_use_id: 'agy-1-0', content: '12 tests' }] },
+    ],
+  );
+});
+
 // A Codex session that goes on in another file — its user edited a prompt and sent it again — is read as its files in
 // turn: what the file before has past the point it goes on from is no longer the session, so the session read before
 // is read again under a new generation

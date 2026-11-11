@@ -7,6 +7,8 @@ import { isRecord } from '../public/model/narrow.js';
 /**
  * turn — a message the user sent (not a tool result): only such siblings mean a rewind.
  * @typedef {{ uuid: string | undefined, parent: string | undefined, turn: boolean }} Link
+ * @typedef {{ prompt: string, lastPrompt: string }} RewindMark — the prompt the page took back — rewound the session
+ *   to, or stopped before Claude started on it — and the latest prompt the transcript had then
  */
 
 /**
@@ -63,6 +65,31 @@ export function rewoundEntries(links, rewoundAt) {
     stack.push(...(children.get(uuid) ?? []));
   }
   return hidden;
+}
+
+/**
+ * The prompt the page took back, while the page alone is to hide it with all that grew from it: until a prompt comes
+ * after the latest one there was then. One sent from beside it shows the fork in the transcript, which hides the branch
+ * itself; one sent from within its branch means the terminal did not take it back — the conversation went on there.
+ * @param {readonly Link[]} links — the transcript's, in file order
+ * @param {RewindMark | undefined} mark
+ * @returns {string | undefined} — the prompt to hide from
+ */
+export function standingRewind(links, mark) {
+  if (mark === undefined) return undefined;
+  const at = links.findIndex((link) => link.uuid === mark.lastPrompt);
+  // the transcript not read yet: the mark stands
+  if (at < 0) return mark.prompt;
+  return links.slice(at + 1).some((link) => link.turn) ? undefined : mark.prompt;
+}
+
+/**
+ * The latest prompt the user sent, of the transcript's entries.
+ * @param {readonly unknown[]} records — in file order
+ * @returns {string | undefined} — its uuid; none before the first
+ */
+export function latestPrompt(records) {
+  return records.map(linkOf).findLast((link) => link.turn)?.uuid;
 }
 
 /**

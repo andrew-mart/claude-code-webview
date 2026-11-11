@@ -183,3 +183,18 @@ test('sessionHeader_Should_PutMenuAway_WhenRareButtonOpeningElsewhereIsPressed',
     { rare: ['vscode', 'theme'], afterSetting: true, afterOpener: false },
   );
 });
+
+// The session wrote something — a checkout among it, maybe: the header asks for the branch at once, not at its time
+test('sessionHeader_Should_AskForTheBranchAtOnce_WhenPoked', async () => {
+  let asked = 0;
+  const header = createSessionHeader({ sessionId: '3f2c9a50-1111-4222-8333-944455556666', place: undefined, currentBranch: async () => (asked++, 'main'), tables: { value: () => 'default', choose: () => undefined }, leading: window.document.createElement('div'), navigation: [], folds: [], tools: [], rare: [], rareOpeners: [], details: [] });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const atStart = asked;
+
+  header.pokeBranch();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const poked = asked;
+  header.dispose();
+
+  assert.deepEqual({ atStart, poked }, { atStart: 1, poked: 2 });
+});

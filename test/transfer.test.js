@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { lstat, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 import { crc32, inflateRawSync } from 'node:zlib';
@@ -86,11 +86,13 @@ test('folderToZip_Should_RefuseFolderTooBig_AndWhatIsNoFolder', async () => {
 test('fileToDownload_And_attachment_Should_GiveFileUnderItsName', async () => {
   const folder = tempDir('transfer-file-');
   await writeFile(join(folder, 'отчёт 1.pdf'), 'pdf');
+  const written = new Date('2026-10-12T10:00:00.000Z');
+  await utimes(join(folder, 'отчёт 1.pdf'), written, written);
 
   assert.deepEqual(
     { file: await fileToDownload(join(folder, 'отчёт 1.pdf'), 'C:/Users/ann'), folder: await fileToDownload(folder, 'C:/Users/ann'), header: attachment('отчёт 1.pdf') },
     {
-      file: { ok: true, path: join(folder, 'отчёт 1.pdf'), name: 'отчёт 1.pdf', size: 3 },
+      file: { ok: true, path: join(folder, 'отчёт 1.pdf'), name: 'отчёт 1.pdf', size: 3, modifiedAt: 1791799200000 },
       folder: { ok: false, error: 'not-a-file' },
       header: "attachment; filename=\"_____ 1.pdf\"; filename*=UTF-8''%D0%BE%D1%82%D1%87%D1%91%D1%82%201.pdf",
     },

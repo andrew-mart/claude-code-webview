@@ -11,7 +11,7 @@ import { isRecord, text } from './narrow.js';
  * @typedef {{ state: 'herdr-missing' | 'offline' } | { state: 'no-herdr' | 'outside-herdr', status: string } | { state: 'live', status: string, pane: string, dialog: import('./dialog.js').Dialog | undefined, queued: readonly string[] }} LiveState
  *   dialog: the choice the agent waits for in its terminal; queued: what Codex queued to send next — Claude Code's queue
  *   shows in its feed
- * @typedef {'claude' | 'codex'} Agent — whose session: Claude Code's or Codex's
+ * @typedef {'claude' | 'codex' | 'agy'} Agent — whose session: Claude Code's, Codex's or Antigravity CLI's
  * @typedef {{ id: string, agent: Agent }} ComposedSession — the session the box writes to
  * @typedef {'empty' | 'herdr-missing' | 'offline' | 'no-herdr' | 'outside-herdr' | 'asking' | 'subagent' | 'side' | 'not-taken' | 'not-typed' | 'not-sent' | 'send-failed'} SendRefusal
  *   — asking: Codex asks something in its terminal, a picker in its box's place; subagent: Codex's terminal shows a
@@ -29,41 +29,25 @@ import { isRecord, text } from './narrow.js';
  * @typedef {{ ok: true, answer: string } | { ok: false, error: BtwRefusal }} BtwReply — the /api/btw contract
  */
 
-/**
- * How sending works: a phone keyboard has no Shift+Enter, so there Enter starts a new line and the button sends.
- * @type {Readonly<Record<Keyboard, string>>}
- */
-const keysHint = { physical: 'Enter to send, Shift+Enter for a new line.', touch: 'The ↑ button sends, Enter starts a new line.' };
-/**
- * While the agent works a message waits in its queue — or goes at once, past it, into the turn under way, or is set
- * aside for later, sent by hand once the turn is over (later-view.js). ⏩ on a waiting message is Claude Code's: the
- * page sees its queue.
- * @type {Readonly<Record<Agent, Readonly<Record<Keyboard, string>>>>}
- */
-const busyKeysHint = {
-  claude: { physical: 'Enter queues it, Ctrl+Enter sends it now, Alt+Enter sets it aside for later, Shift+Enter for a new line.', touch: 'The ↑ button queues it, Enter starts a new line; ⏩ on a waiting message sends the queue now.' },
-  codex: { physical: 'Enter queues it, Ctrl+Enter sends it now, Alt+Enter sets it aside for later, Shift+Enter for a new line.', touch: 'The ↑ button queues it, Enter starts a new line.' },
-};
 /** @type {Readonly<Record<Agent, string>>} */
-const agentNames = { claude: 'Claude', codex: 'Codex' };
+const agentNames = { claude: 'Claude', codex: 'Codex', agy: 'agy' };
 /**
  * The program that asks in the terminal, by name.
  * @type {Readonly<Record<Agent, string>>}
  */
-export const askerNames = { claude: 'Claude Code', codex: 'Codex' };
+export const askerNames = { claude: 'Claude Code', codex: 'Codex', agy: 'Antigravity CLI' };
 /**
  * What opens a closed session again in a terminal.
  * @type {Readonly<Record<Agent, (id: string) => string>>}
  */
-const resumeCommands = { claude: (id) => `claude --resume ${id}`, codex: (id) => `codex resume ${id}` };
+const resumeCommands = { claude: (id) => `claude --resume ${id}`, codex: (id) => `codex resume ${id}`, agy: (id) => `agy --conversation ${id}` };
 
 /**
  * @param {LiveState} live
  * @param {ComposedSession} session
- * @param {Keyboard} keyboard
  * @returns {ComposerView}
  */
-export function composerState(live, session, keyboard) {
+export function composerState(live, session) {
   switch (live.state) {
     case 'live': {
       // typed now, a prompt would land in the agent's dialog — its keys picking answers
@@ -73,13 +57,14 @@ export function composerState(live, session, keyboard) {
       // and a side conversation — its /btw — which would take a message for a follow-up question
       if (live.status === 'side') return { shown: true, enabled: false, canInterrupt: false, canReopen: false, placeholder: 'Codex shows a side conversation — switch back with Ctrl+/', hint: `In the session's terminal (herdr pane ${live.pane}), Ctrl+/ goes back to the main thread: then the box takes messages again. A key the viewer can press there for you — such as F12, in Codex's config.toml: tui.keymap.global.toggle_side_conversation — lets it go back by itself after a side question.` };
       const busy = live.status === 'busy';
+      // how to send and where the text goes are known to whoever writes here: nothing is said of them
       return {
         shown: true,
         enabled: true,
         canInterrupt: busy,
         canReopen: false,
         placeholder: busy ? `${agentNames[session.agent]} is working — your message will be queued` : `Message ${agentNames[session.agent]}…`,
-        hint: `${(busy ? busyKeysHint[session.agent] : keysHint)[keyboard]} The text goes to the session's terminal (herdr pane ${live.pane}).`,
+        hint: '',
       };
     }
     case 'herdr-missing':
@@ -135,9 +120,9 @@ export function outcomeMessage(outcome) {
     case 'not-taken':
       return 'Codex did not take the message — it was taken back out of its terminal’s box. The text stays in the box.';
     case 'not-sent':
-      return 'Claude Code kept the message in its box — Enter did not send it. Press Enter in the terminal, or clear its box before sending again. The text stays here too.';
+      return 'The agent kept the message in its box — Enter did not send it. Press Enter in the terminal, or clear its box before sending again. The text stays here too.';
     case 'not-typed':
-      return 'The message did not show in Claude Code’s box — something on its screen took the keys, a dialog — so it was not sent. The text stays in the box.';
+      return 'The message did not show in the agent’s box — something on its screen took the keys, a dialog — so it was not sent. The text stays in the box.';
     case 'send-failed':
       return 'herdr did not accept the text — the pane may have closed. The text stays in the box.';
     default:
@@ -271,10 +256,13 @@ export function promptForBox(prompt, draft) {
 
 /**
  * The side question in the box: what follows "/btw" at its start, as the terminal takes it; empty for a bare "/btw".
+ * agy has no side question the viewer drives: its box holds a prompt.
  * @param {string} text — the box
+ * @param {Agent} agent — whose session
  * @returns {string | undefined} — none when the box holds an ordinary prompt
  */
-export function sideQuestionOf(text) {
+export function sideQuestionOf(text, agent) {
+  if (agent === 'agy') return undefined;
   const match = /^\s*\/btw(?:\s+([\s\S]*))?$/.exec(text);
   return match === null ? undefined : (match[1] ?? '').trim();
 }

@@ -88,3 +88,29 @@ test('composer_Should_TellTheFeed_WhenTerminalShowsDialog', async () => {
 
   assert.deepEqual({ shown: await toldOfDialog(servers), none: await toldOfDialog(undefined) }, { shown: true, none: false });
 });
+
+// The session wrote something, or herdr's tabs changed — a dialog may have opened in its terminal: the box asks what the
+// terminal shows at once, not at its time
+test('composer_Should_AskWhatTheTerminalShowsAtOnce_WhenPoked', async () => {
+  let asked = 0;
+  Object.assign(globalThis, {
+    matchMedia: () => ({ matches: false }),
+    requestAnimationFrame: (/** @type {() => void} */ callback) => setTimeout(callback, 0),
+    fetch: async (/** @type {string | URL | Request} */ address) => {
+      if (String(address).startsWith('/api/live')) asked++;
+      return new Response(JSON.stringify({ state: 'live', status: 'idle', pane: 'w1:p1' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    },
+  });
+  const composer = createComposer(sessionId, { agent: 'claude', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined, onDialog: () => undefined });
+  window.document.body.append(composer.element);
+  await settle();
+  const atStart = asked;
+
+  composer.pokeLive();
+  await settle();
+  const poked = asked;
+  composer.dispose();
+  composer.element.remove();
+
+  assert.deepEqual({ atStart, poked }, { atStart: 1, poked: 2 });
+});

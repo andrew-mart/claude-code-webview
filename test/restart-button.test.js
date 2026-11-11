@@ -5,10 +5,10 @@ import { JSDOM } from 'jsdom';
 const { window } = new JSDOM('<!doctype html><html><body></body></html>');
 // the icons are drawn as their module loads: the DOM is set up first
 Object.assign(globalThis, { window, document: window.document });
-const { restartButton } = await import('../public/view/restart-button.js');
+const { exitButton, restartButton } = await import('../public/view/restart-button.js');
 
 const session = '6f1c2a3b-5d4e-4f60-8a7b-9c0d1e2f3a4b';
-/** @param {'claude' | 'codex'} agent @returns {import('../public/model/herdr.js').HerdrLayout} */
+/** @param {'claude' | 'codex' | 'agy'} agent @returns {import('../public/model/herdr.js').HerdrLayout} */
 const runningIn = (agent) => ({
   herdr: true,
   restartEnv: ['CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1'],
@@ -35,6 +35,8 @@ test('restartButton_Should_RestartSessionOnSecondPress_ShownWhileItRunsInClaudeI
   let asked = 0;
   const show = restartButton(button, session, {
     variables: 'given',
+    launcher: 'as-it-ran',
+    throughGpt: () => false,
     restart: async () => {
       asked += 1;
       return outcomes[asked - 1] ?? { ok: false, error: 'failed' };
@@ -82,7 +84,7 @@ test('restartButton_Should_OfferPlainRestart_AndRestartWithVariablesOnlyWhenGive
   /** @param {'given' | 'none'} variables */
   const made = (variables) => {
     const button = document.createElement('button');
-    const show = restartButton(button, session, { variables, restart: async () => (asked.push(variables), { ok: true }) });
+    const show = restartButton(button, session, { variables, launcher: 'as-it-ran', throughGpt: () => false, restart: async () => (asked.push(variables), { ok: true }) });
     return { button, show };
   };
   const plain = made('none');
@@ -103,5 +105,79 @@ test('restartButton_Should_OfferPlainRestart_AndRestartWithVariablesOnlyWhenGive
   assert.deepEqual(
     { withVariables, withNone, plainTitle: plain.button.title.includes('CLAUDE_CODE'), asked },
     { withVariables: ['Restart the session', 'Restart with CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1'], withNone: ['Restart the session', 'hidden'], plainTitle: false, asked: ['none'] },
+  );
+});
+
+// While the viewer has Claude Code through GPT, a restart in the other launcher: through GPT for a session in ordinary
+// Claude Code, in ordinary Claude Code for one through GPT — named so, and asked for so once a second press confirms it
+test('restartButton_Should_OfferRestartInOtherLauncher_WhileViewerHasClaudeGpt', async () => {
+  let throughGpt = false;
+  /** @type {import('../public/model/herdr.js').RestartLauncher[]} */
+  const asked = [];
+  const button = document.createElement('button');
+  const show = restartButton(button, session, { variables: 'none', launcher: 'other', throughGpt: () => throughGpt, restart: async (launcher) => (asked.push(launcher), { ok: true }) });
+  const withGpt = { ...runningIn('claude'), claudeGpt: /** @type {const} */ (true) };
+
+  show(runningIn('claude'));
+  const noGptLauncher = button.hidden;
+  show(withGpt);
+  const inOrdinary = button.textContent;
+  button.click();
+  button.click();
+  await settled();
+  throughGpt = true;
+  show(withGpt);
+  const inGpt = button.textContent;
+  button.click();
+  button.click();
+  await settled();
+
+  assert.deepEqual({ noGptLauncher, inOrdinary, inGpt, asked }, { noGptLauncher: true, inOrdinary: 'Restart in Claude GPT', inGpt: 'Restart in Claude Code', asked: ['claude-gpt', 'claude'] });
+});
+
+// Exit beside the restarts: the session's agent — Claude Code, Codex or agy — quits to its tab's shell once a second
+// press confirms it; there while one of them runs the session in a herdr tab, named in its title, and says so when it
+// did not quit
+test('exitButton_Should_QuitAgentToShellOnSecondPress_ShownWhileClaudeCodexOrAgyRunsInHerdr', async () => {
+  const button = document.createElement('button');
+  /** @type {import('../public/model/herdr.js').TabChange[]} */
+  const outcomes = [{ ok: true }, { ok: false, error: 'failed' }];
+  let asked = 0;
+  const show = exitButton(button, session, {
+    exit: async () => {
+      asked += 1;
+      return outcomes[asked - 1] ?? { ok: false, error: 'failed' };
+    },
+  });
+
+  const before = button.hidden;
+  show(runningIn('codex'));
+  const inCodex = { hidden: button.hidden, words: button.textContent };
+  show(runningIn('agy'));
+  const inAgy = { hidden: button.hidden, title: button.title };
+  show({ herdr: true, workspaces: [] });
+  const nowhere = button.hidden;
+  show(runningIn('claude'));
+  button.click();
+  const first = { asked, words: button.textContent };
+  button.click();
+  await settled();
+  const second = { asked, failed: button.classList.contains('failed') };
+  button.click();
+  button.click();
+  await settled();
+  const third = { asked, failed: button.classList.contains('failed'), words: button.textContent };
+
+  assert.deepEqual(
+    { before, inCodex, inAgy, nowhere, first, second, third },
+    {
+      before: true,
+      inCodex: { hidden: false, words: 'Exit to the terminal' },
+      inAgy: { hidden: false, title: 'Exit to the terminal: Antigravity CLI quits in its tab — its turn and background commands end — and the tab stays at its shell' },
+      nowhere: true,
+      first: { asked: 0, words: 'Press again to exit' },
+      second: { asked: 1, failed: false },
+      third: { asked: 2, failed: true, words: 'Not exited — try again' },
+    },
   );
 });

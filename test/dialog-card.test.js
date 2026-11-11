@@ -74,6 +74,33 @@ test('dialogCard_Should_ShowQuestion_And_AnswerWithChoiceOrOwnWords', async () =
   assert.deepEqual({ question, answers }, { question: true, answers: [[{ key: '2' }], [{ key: '3' }, { text: 'Purple' }, { key: 'enter' }]] });
 });
 
+// Words typed into one's own answer are what Enter answers with: the Answer button is lit, as the one Enter presses — the
+// choice the terminal's cursor is on no longer; the words gone, or the field left, that choice is lit again
+test('dialogCard_Should_LightAnswerButton_WhileOwnWordsAreTyped_AsWhatEnterPresses', () => {
+  const { card } = cardAboveBox();
+  document.body.replaceChildren(card.element);
+  const own = card.element.querySelector('input');
+  assert.ok(own instanceof window.HTMLInputElement);
+  const lit = () => [...card.element.querySelectorAll('button.current')].map((button) => button.textContent);
+  /** @param {string} words */
+  const type = (words) => {
+    own.value = words;
+    own.dispatchEvent(new window.Event('input', { bubbles: true }));
+  };
+
+  const before = lit();
+  own.focus();
+  type('Purple');
+  const typed = lit();
+  type('');
+  const emptied = lit();
+  type('Teal');
+  own.blur();
+  const left = lit();
+
+  assert.deepEqual({ before, typed, emptied, left }, { before: ['1RedWarm'], typed: ['Answer'], emptied: ['1RedWarm'], left: ['1RedWarm'] });
+});
+
 // One's own words are asked for where the terminal has "Type something" — among the answers, above "Chat about this",
 // not under them all, out of sight in a card scrolled by long answers
 test('dialogCard_Should_AskForOwnWords_WhereTheTerminalHasTypeSomething', () => {

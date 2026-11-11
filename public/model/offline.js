@@ -39,3 +39,15 @@ export function lastActivityOf(entries) {
 
 /** How many of a session's latest entries are kept to read offline. */
 export const keptEntries = 3000;
+
+/**
+ * Whether the copies are to be brought up to date now: not until a while after the page started — the session opened
+ * then has the link to itself, a slow one most of all — then once in a while.
+ * @param {number} now
+ * @param {{ startedAt: number, keptAt: number | undefined }} times — keptAt: when they were last, none yet: never
+ * @param {{ everyMs: number, afterStartMs: number }} options
+ * @returns {boolean}
+ */
+export function keepingDue(now, { startedAt, keptAt }, { everyMs, afterStartMs }) {
+  return now - startedAt >= afterStartMs && (keptAt === undefined || now - keptAt >= everyMs);
+}

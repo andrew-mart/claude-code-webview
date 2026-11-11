@@ -17,7 +17,7 @@ import { codeFrame, highlightInto, languageOfPath, renderMarkdown } from './mark
  * @typedef {(toolUseId: string, holder: HTMLElement) => void} OpenSubagent
  * @typedef {(full: number) => Promise<unknown>} LoadEntry — the whole transcript entry on the line that starts at full
  * @typedef {'pending' | 'done' | 'error'} ToolState
- * @typedef {{ mount: () => HTMLDetailsElement, family: import('../model/tool.js').ToolFamily, state: () => ToolState, applyResult: (result: ToolResultEvent) => void, applyNotification: (event: TaskNotificationEvent) => void }} ToolRow — mount: the row's element, built the first time it is shown: a folded group of calls costs no DOM
+ * @typedef {{ mount: () => HTMLDetailsElement, family: import('../model/tool.js').ToolFamily, state: () => ToolState, cutShort: (on: boolean) => void, applyResult: (result: ToolResultEvent) => void, applyNotification: (event: TaskNotificationEvent) => void }} ToolRow — mount: the row's element, built the first time it is shown: a folded group of calls costs no DOM
  */
 
 const shownLines = 400;
@@ -33,6 +33,8 @@ export function createToolRow(call, { openSubagent, loadEntry }) {
   let result;
   /** @type {ToolState} */
   let state = 'pending';
+  /** Whether its agent is at its prompt, the call still waiting for its output. */
+  let cut = false;
   let metaText = '';
   /** @type {BuiltRow | undefined} */
   let built;
@@ -79,7 +81,8 @@ export function createToolRow(call, { openSubagent, loadEntry }) {
   // someone can see pays for it — or the server worked it out already, when it left the output out.
   const show = () => {
     if (built === undefined) return;
-    built.element.dataset.state = state;
+    // a call still waiting while its agent is at its prompt was cut short: its output never comes
+    built.element.dataset.state = state === 'pending' && cut ? 'stopped' : state;
     built.meta.textContent = metaText;
     const changed = result === undefined ? undefined : result.deferred !== undefined ? result.deferred.line : firstChangedLine(diffRows(call.name, call.input, result.details));
     if (built.target instanceof HTMLAnchorElement && changed !== undefined) built.target.setAttribute('data-line', String(changed));
@@ -99,6 +102,10 @@ export function createToolRow(call, { openSubagent, loadEntry }) {
         show();
       }
       return built.element;
+    },
+    cutShort(on) {
+      cut = on;
+      show();
     },
     applyResult(event) {
       result = event;

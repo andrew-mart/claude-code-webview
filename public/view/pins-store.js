@@ -59,6 +59,8 @@ export function createPinsStore(sessionId, onChange) {
   return {
     /** The pins as they stand now. */
     now: () => pins,
+    /** The pins read anew: another desk taken up. */
+    reload,
     /**
      * A file pinned to the session's project folder, or to the session alone: shown at once, gone again if the viewer
      * finds no file at the path — a path typed by hand.

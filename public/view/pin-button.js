@@ -1,6 +1,6 @@
 // @ts-check
-// The pin over a file in the side panel: pins it beside the open session — to the session's project folder, every
-// session in it showing it, or to the session alone, chosen once it is pressed — and, pressed while the file is pinned,
+// The pin over a file in the side panel: pins it beside the open session — on the session's desk (desks.js), every
+// session at the desk showing it, or to the session alone, chosen once it is pressed — and, pressed while it is pinned,
 // unpins it from everywhere it is. A pin the viewer refused, or did not answer, says why under it. There over a file
 // while a session is open, none otherwise.
 import { h } from './dom.js';
@@ -33,7 +33,7 @@ export function createPinButton(pins) {
     return made;
   };
   const choice = h('div', { className: 'panel-pin-choice', attrs: { hidden: '', role: 'group', 'aria-label': 'Pin the file' } }, [
-    toward('folder', 'To the project', "Pin it beside every session in the session's project folder"),
+    toward('folder', 'To the desk', "Pin it on the session's desk: every session at the desk shows it"),
     toward('session', 'To this session', 'Pin it beside this session alone'),
   ]);
   /** Why the file was not pinned, under the pin as the choice is. */
@@ -67,7 +67,7 @@ export function createPinButton(pins) {
     const scopes = path === undefined ? undefined : pins.scopesOf(path);
     element.hidden = scopes === undefined;
     const pinned = scopes !== undefined && scopes.length > 0;
-    const where = (scopes ?? []).map((scope) => (scope === 'folder' ? 'the project' : 'this session')).join(' and ');
+    const where = (scopes ?? []).map((scope) => (scope === 'folder' ? 'the desk' : 'this session')).join(' and ');
     button.title = pinned ? `Unpin the file — pinned to ${where}` : 'Pin the file beside the session, in its outline';
     button.setAttribute('aria-label', button.title);
     button.setAttribute('aria-pressed', String(pinned));

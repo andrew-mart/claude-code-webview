@@ -99,6 +99,40 @@ test('findFileRefs_Should_LeaveClosingQuotesOutsideOfPath', () => {
   );
 });
 
+// A file:/// address in plain text — how a path with spaces is written for a terminal, %20 for each — is one reference:
+// its path decoded, its line taken; the address ends at a space, or at the punctuation after it
+test('findFileRefs_Should_TakeFileAddressInText_DecodingItsSpaces', () => {
+  assert.deepEqual(
+    ['Каталог в file:///D:/work/shop/_docs/20261016%20-%20checkout%20move/catalog.md, рядом в sql/', 'See file:///home/demo/My%20Plan.md:12.'].map((source) =>
+      findFileRefs(source).map(({ text, path, line }) => ({ text, path, line })),
+    ),
+    [
+      [{ text: 'file:///D:/work/shop/_docs/20261016%20-%20checkout%20move/catalog.md', path: 'D:/work/shop/_docs/20261016 - checkout move/catalog.md', line: undefined }],
+      [{ text: 'file:///home/demo/My%20Plan.md:12', path: '/home/demo/My Plan.md', line: 12 }],
+    ],
+  );
+});
+
+// A path cut at a space where a folder's name goes on — ".../20261016 - checkout move/server-logic/catalog.md" — offers
+// the whole one: a few more words, up to one going on through folders to a file's name and line, for the viewer to
+// find the file there; words after a folder with no such file among them, or after a file, offer none
+test('findFileRefs_Should_OfferPathThroughFolderWithSpaces_ForTheViewerToFind', () => {
+  assert.deepEqual(
+    [
+      'Каталог в D:/work/shop/_docs/20261016 - checkout move/server-logic/catalog.md:7, рядом в sql/',
+      'в D:/dev/app файл src/app.ts',
+      'in D:/dev/app then go home',
+      'see D:/dev/app/x.md and y/z.md',
+    ].map((source) => findFileRefs(source).map(({ text, longer }) => ({ text, longer }))),
+    [
+      [{ text: 'D:/work/shop/_docs/20261016', longer: { text: 'D:/work/shop/_docs/20261016 - checkout move/server-logic/catalog.md:7', path: 'D:/work/shop/_docs/20261016 - checkout move/server-logic/catalog.md', line: 7, endLine: undefined } }],
+      [{ text: 'D:/dev/app', longer: { text: 'D:/dev/app файл src/app.ts', path: 'D:/dev/app файл src/app.ts', line: undefined, endLine: undefined } }],
+      [{ text: 'D:/dev/app', longer: undefined }],
+      [{ text: 'D:/dev/app/x.md', longer: undefined }],
+    ],
+  );
+});
+
 // A file whose name has spaces is one reference up to its extension and line — in a sentence, a heading or inline code;
 // a folder followed by words, or a file followed by other words, keeps the spaces out
 test('findFileRefs_Should_TakeFileNameWithSpaces_UpToItsExtension', () => {

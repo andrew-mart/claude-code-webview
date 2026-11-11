@@ -3,8 +3,8 @@
 import { formatAgo } from './model/format.js';
 import { isRecord, text } from './model/narrow.js';
 import { currentIndex, stepTarget } from './model/outline.js';
-import { keptEntries, sessionsToSave } from './model/offline.js';
-import { groupedSessions, listedSessions, mergeSessions } from './model/session-list.js';
+import { keepingDue, keptEntries, sessionsToSave } from './model/offline.js';
+import { groupedSessions, listedSessions, mergeSessions, rowsToDraw } from './model/session-list.js';
 import { actionLabel, choices, nextChoice } from './model/view-settings.js';
 import { agentMark } from './view/agent-marks.js';
 import { createBookmarkStore, moveLocalBookmarksToServer } from './view/bookmark-store.js';
@@ -13,13 +13,18 @@ import { createAsideStore } from './view/aside-store.js';
 import { listenForCopies } from './view/markdown-copy.js';
 import { revalidatedPolls } from './view/revalidated-polls.js';
 import { createDrawers } from './view/drawers.js';
+import { afterDrawing } from './view/after-drawing.js';
+import { pollWhileShown } from './view/polling.js';
+import { downloadAddress } from './model/download-address.js';
 import { watchCloseSwipe, watchEdgeSwipe, watchPullDown } from './view/edge-swipe.js';
 import { createPageAddress } from './view/page-address.js';
 import { agentOfSession, openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf, successorIn } from './model/herdr.js';
 import { folderChoices, folderSearch, foundFolders, rememberFolder, systemFolder } from './model/folders.js';
-import { parseHistory, tabNeighbours } from './model/history.js';
+import { parseHistory, tabNeighbours, tabToContinue } from './model/history.js';
 import { parseUsage, usageView } from './model/usage.js';
 import { createHerdrSidebar, createTabBar } from './view/herdr-panel.js';
+import { createSystemMeters } from './view/system-meters.js';
+import { parseSystemProcesses, parseSystemUsage } from './model/system-usage.js';
 import { keepToggled, keptLit, keptNow, mergeSeen, parseSeen, seeOpened } from './model/lamps.js';
 import { noteFilePath, parseFileCreated } from './model/notes.js';
 import { createSeenStore, tellSeen } from './view/seen-store.js';
@@ -40,6 +45,10 @@ import { createPinsStore } from './view/pins-store.js';
 import { createPinsView } from './view/pins-view.js';
 import { pathOffers, pathTyped, scopesOf } from './model/pins.js';
 import { createNotesView } from './view/notes-view.js';
+import { createDeskView } from './view/desk-view.js';
+import { browserLocks, browserStorage, createOutbox, waitingSessions } from './view/outbox.js';
+import { askerNames, parseOutcome } from './model/composer.js';
+import { parseDeskChanged, parseDeskState } from './model/desks.js';
 import { createTabSwitcher } from './view/tab-switcher.js';
 import { noteOpened, parseRecent, switcherEntries } from './model/recent-tabs.js';
 import { createNotePanel } from './view/note-panel.js';
@@ -49,7 +58,7 @@ import { createNotesHistoryPanel } from './view/notes-history-view.js';
 import { h } from './view/dom.js';
 import { createFilePanel } from './view/file-panel.js';
 import { parseBranchChanges, parseFileDiff } from './model/branch-changes.js';
-import { parseFileLinks, parseFolderListing, parseSearchFound, parseUploadOutcome, projectOfFile, receiveDownload } from './model/project.js';
+import { parseFileLinks, parseFolderListing, parseSearchFound, parseUploadOutcome, projectOfFile } from './model/project.js';
 import { createFileIcons } from './view/file-icons.js';
 import { parseMachine } from './model/machine.js';
 import { splitTabIcon } from './model/tab-icon.js';
@@ -67,29 +76,36 @@ import { createFeedHub } from './view/feed-hub.js';
 import { createFeedKeeper } from './view/feed-keeper.js';
 import { createSessionRelay } from './view/session-relay.js';
 import { createWarmSessions } from './view/warm-sessions.js';
+import { createDiagnostics } from './view/diagnostics.js';
 import { createSidebarHead } from './view/sidebar-head.js';
 import { createTasksView } from './view/tasks-view.js';
 import { createHistoryView, earlierLink } from './view/history-view.js';
 import { herdrTabButton } from './view/herdr-tab-button.js';
-import { restartButton } from './view/restart-button.js';
+import { exitButton, restartButton } from './view/restart-button.js';
+import { createEffortRow } from './view/effort-row.js';
+import { createSystemRow } from './view/system-row.js';
 import { keepLitButton } from './view/keep-lit-button.js';
 
 /**
  * activeAt — the session's last prompt or answer; agent — whose session it is: Claude Code's, or Codex's
- * @typedef {{ id: string, project: string, agent: 'claude' | 'codex', title: string | undefined, cwd: string | undefined, branch: string | undefined, kind: 'interactive' | 'sdk', modifiedAt: number, size: number, activeAt: number }} SessionInfo
+ * @typedef {{ id: string, project: string, agent: import('./model/composer.js').Agent, title: string | undefined, cwd: string | undefined, branch: string | undefined, kind: 'interactive' | 'sdk', modifiedAt: number, size: number, activeAt: number }} SessionInfo
  * @typedef {import('./model/view-settings.js').SettingKey} SettingKey
  */
 
-const refreshMs = 4000;
-/** The herdr workspaces of the sessions change seldom: they are asked about this often. */
-const workspacesEveryMs = 15_000;
-/** What herdr shows — its agents' status above all — is asked about this often. */
-const herdrEveryMs = 3000;
+/**
+ * The sessions, herdr's workspaces and tabs, the answers seen and kept: the viewer tells the page over its stream when
+ * they change (server/changes.js), and they are asked for then — and this often anyway, in case a word of it went
+ * unheard. They were asked about every three or four seconds, most of a page's requests at rest.
+ */
+const toldEveryMs = 60_000;
 /** The polls the viewer answers 304 while nothing changed: herdr's layout, the workspaces, the history. */
 const pollReply = revalidatedPolls((url, init) => fetch(url, init));
 /** While the viewer answers, the copies of the latest sessions are brought up to date this often at most — what came
- * since each copy alone: little to ask for… */
-const keepEveryMs = 60_000;
+ * since each copy alone: little to ask for, but each copy is read from the browser's store and written back whole in
+ * the page's own thread, which a phone or a tablet feels: there seldom… */
+const keepEveryMs = matchMedia('(pointer: coarse)').matches ? 5 * 60_000 : 60_000;
+/** …and not until this long after the page started: the session opened then has the link to itself. */
+const keepAfterStartMs = 30_000;
 /** …that many of the latest ones worked on, within this stretch of time, their latest entries. */
 const keptSessions = 8;
 const keptWithinMs = 3 * 24 * 3600_000;
@@ -98,6 +114,8 @@ const keptTail = 800;
 const activeMs = 2 * 60_000;
 /** The account's usage is asked about this often: it is read anew at most with every reply of Claude. */
 const usageEveryMs = 60_000;
+/** How busy the viewer's computer is, asked this often. */
+const systemEveryMs = 3000;
 
 const list = byId('session-list', HTMLElement);
 const search = byId('search', HTMLInputElement);
@@ -115,6 +133,8 @@ const main = byId('main', HTMLElement);
 const emptyState = byId('empty-state', HTMLElement);
 const usageBadge = byId('usage', HTMLElement);
 const codexUsageBadge = byId('usage-codex', HTMLElement);
+/** How busy the viewer's computer is, in the corner of the tabs' row (view/system-meters.js). */
+const systemMeters = createSystemMeters({ readProcesses });
 const updateNotice = createUpdateNotice();
 // Out of the viewer's reach — the computer is off — the page shows what it saved: the session list and the sessions'
 // feeds (view/offline-store.js); it reconnects by itself.
@@ -129,6 +149,13 @@ const feedHub = createFeedHub({
     return response?.ok === true;
   },
   retryMs: 2000,
+  onBackInSight: (listener) =>
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') listener();
+    }),
+  now: () => Date.now(),
+  // the viewer pings every 15 s
+  silentMs: 25_000,
 });
 // The copies kept of sessions not open, brought up to date in the background (view/feed-keeper.js).
 const feedKeeper = createFeedKeeper({
@@ -143,13 +170,18 @@ const offlineNotice = createOfflineNotice();
 const connection = createConnection((online) => {
   offlineNotice.hidden = online;
   page.renderList();
+  if (online) sendWaitingElsewhere(page.openId());
 });
 
-const drawers = createDrawers({ root: document.documentElement, backdrop: byId('drawer-backdrop', HTMLElement), history });
 // In the iPhone's home-screen app another session takes the place of the one shown, with no page to go back to: the
 // swipe from the left edge — Back there, which at times leaves the page frozen under a picture of the one before — is
 // the page's own, and opens the session list.
-const address = createPageAddress({ location, history: 'standalone' in navigator && navigator.standalone === true ? 'replaced' : 'kept' });
+const homeScreenApp = 'standalone' in navigator && navigator.standalone === true;
+const pages = homeScreenApp ? 'replaced' : 'kept';
+const drawers = createDrawers({ root: document.documentElement, backdrop: byId('drawer-backdrop', HTMLElement), history, pages });
+// a session or a herdr row chosen in the list makes way for it, the one shown too
+drawers.closeOnLinksIn(byId('sidebar', HTMLElement));
+const address = createPageAddress({ location, history: pages });
 address.followLinksIn(document);
 /** Whether a phone shows a session, nothing slid in over it: a swipe from an edge slides in what is there. */
 const swipeOpens = () => matchMedia('(max-width: 820px)').matches && document.documentElement.dataset.view === 'session' && !drawers.isOpen();
@@ -175,8 +207,22 @@ watchCloseSwipe(window, {
 });
 /** The editor of the notes chosen anew in the view settings: the notes open are made anew with it. */
 const notesEditorEvent = 'viewer:notes-editor';
+/** Where this browser keeps the documents put away under the feed, over a reload (file-panel.js). */
+const keptDocsKey = 'viewer.docs';
+/** The diagnostics turned on or off behind ⋯. */
+const diagnosticsEvent = 'viewer:diagnostics';
 // A view setting that resizes the feed keeps the reader at the message they were at.
 const settings = createSettings((change) => page.keepPlace(change));
+/** What keeps this device's page slow, measured here while turned on behind ⋯, sent to the viewer to write down. */
+const diagnostics = createDiagnostics({
+  everyMs: 15_000,
+  send: (report) => void fetch('/api/diagnostics', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Viewer': '1' }, body: JSON.stringify(report), keepalive: true }).catch(() => undefined),
+});
+diagnostics.turn(settings.get('diagnostics') === 'on');
+document.addEventListener(diagnosticsEvent, () => diagnostics.turn(settings.get('diagnostics') === 'on'));
+/** The notes' editor — a live preview or blocks — switched, for the notes and the markdown files alike. */
+/** @type {import('./view/file-editor.js').NotesEngine} */
+const notesEngine = { title: () => actionLabel('notes', settings.get('notes')), switch: () => settings.set('notes', nextChoice('notes', settings.get('notes'))) };
 /** The answers seen: herdr's finished agents' lamps put out. */
 const seenAnswers = createSeenStore(storageOrNone());
 
@@ -191,6 +237,8 @@ const machine = fetch('/api/machine')
 const recentTabsKey = 'viewer.recentTabs';
 const recentTabsKept = 40;
 const page = createPage();
+// prompts left waiting by a page closed out of the viewer's reach go as this one opens
+sendWaitingElsewhere(page.openId());
 const layout = byId('layout', HTMLElement);
 // a file's project: the open session's folder when the file is in it, else the file's own folder
 // files' icons, Material Icon Theme's: its light theme's own on the light page
@@ -209,9 +257,13 @@ const mountNotesEditor = async (host, options) =>
   options.shown === 'preview' && settings.get('notes') === 'blocks'
     ? (await import('./view/note-editor-blocks.js')).mountBlocksEditor(host, options)
     : (await import('./view/note-editor-cm.js')).mountNoteEditor(host, options);
-/** On a phone, the documents the side panel showed, put away under the feed as cards to leaf through (doc-dock.js). */
+/** The documents the side panel showed, put away under the feed as cards to open again, in any session (doc-dock.js). */
 const dock = createDocDock({ docs: () => filePanel.docs(), open: (key) => filePanel.showDoc(key), close: (key) => filePanel.forgetDoc(key), iconOf: (name) => iconOf(name, 'file', false) });
-const filePanel = createFilePanel({ onDocs: () => dock.show(filePanel.isOpen()), markdownEditor: async (host, options) => (await import('./view/markdown-file-editor.js')).mountMarkdownFileEditor(host, options, { mount: mountNotesEditor, onOpen: openFromNote }), panel: byId('file-panel', HTMLElement), layout, editor: createEditorOpener(machine, places), fileManager: { places, show: (path) => void openFileManager({ path }) }, vscode: machine.then((known) => (known?.vscode === true ? (path, line) => vscodeOpener.open({ path, line }) : undefined)), project: (path) => projectSource(projectOfFile(path, page.folder())), folder: projectSource, iconOf, pins: { scopesOf: (path) => { const pins = page.pins(); return pins === undefined ? undefined : scopesOf(pins.now(), path); }, pin: async (path, scope) => { const pins = page.pins(); return pins === undefined ? 'failed' : pins.pin(scope, path); }, unpin: (path) => page.pins()?.unpin(path) } });
+const filePanel = createFilePanel({ onDocs: () => docsChanged(), markdownEditor: async (host, options) => (await import('./view/markdown-file-editor.js')).mountMarkdownFileEditor(host, options, { mount: mountNotesEditor, onOpen: openFromNote }), notesEngine, keptDocs: { read: () => keptJson(readStorage(keptDocsKey)), write: (docs) => writeStorage(keptDocsKey, JSON.stringify(docs)) }, openKeptNote: (noteId, sessionId) => page.openNote(noteId, sessionId), panel: byId('file-panel', HTMLElement), layout, editor: createEditorOpener(machine, places), fileManager: { places, show: (path) => void openFileManager({ path }) }, vscode: machine.then((known) => (known?.vscode === true ? (path, line) => vscodeOpener.open({ path, line }) : undefined)), project: (path) => projectSource(projectOfFile(path, page.folder())), folder: projectSource, iconOf, pins: { scopesOf: (path) => { const pins = page.pins(); return pins === undefined ? undefined : scopesOf(pins.now(), path); }, pin: async (path, scope) => { const pins = page.pins(); return pins === undefined ? 'failed' : pins.pin(scope, path); }, unpin: (path) => page.pins()?.unpin(path) } });
+// the documents put away before a reload, kept by this browser: in the dock as the page opens
+docsChanged();
+// the notes' editor switched — behind ⋯, over a note, over a markdown file: the file being edited goes over to it
+document.addEventListener(notesEditorEvent, () => filePanel.notesEditorChanged());
 // On a phone the side panel is a sheet over the session: pulled down by its top it follows the finger, and drawn far
 // enough it is put away — its document docked under the feed, to come back from there
 const sidePanel = byId('file-panel', HTMLElement);
@@ -287,20 +339,35 @@ closedOnly.addEventListener('change', () => {
 });
 window.addEventListener('hashchange', () => {
   drawers.arrive();
-  page.openFromHash();
-  page.renderHerdr();
+  // the list slides away at once, and the session chosen is put together once the page has drawn that — not the page
+  // standing still under the list until it is
+  afterDrawing(window, () => {
+    page.openFromHash();
+    page.renderHerdr();
+  });
 });
 // Bookmarks the browser kept before they moved to the server go there before a session opens.
+// The session list first — the session the address names opens from it — and then asked about again as the rest is: a
+// while after each answer, and only while the page is in sight (polling.js).
 void moveLocalBookmarksToServer()
+  .then(() => page.restoreList())
   .then(() => page.refresh())
-  .then(() => page.openFromHash());
-setInterval(() => void page.refresh(), refreshMs);
-void page.refreshWorkspaces();
-setInterval(() => void page.refreshWorkspaces(), workspacesEveryMs);
-void page.refreshHerdr();
-setInterval(() => void page.refreshHerdr(), herdrEveryMs);
-void refreshUsage();
-setInterval(() => void refreshUsage(), usageEveryMs);
+  .then(() => {
+    page.openFromHash();
+    const sessionsPoll = pollWhileShown(window, { ask: () => page.refresh(), everyMs: toldEveryMs, first: 'after-a-while' });
+    feedHub.onChanged((topics) => {
+      if (topics === 'all' || topics.includes('sessions')) sessionsPoll.poke();
+    });
+  });
+const workspacesPoll = pollWhileShown(window, { ask: () => page.refreshWorkspaces(), everyMs: toldEveryMs, first: 'now' });
+// herdr's layout comes with the answers seen and kept: told any of them changed, the three are asked for
+const herdrPoll = pollWhileShown(window, { ask: () => page.refreshHerdr(), everyMs: toldEveryMs, first: 'now' });
+feedHub.onChanged((topics) => {
+  if (topics === 'all' || topics.some((topic) => topic === 'workspaces' || topic === 'history')) workspacesPoll.poke();
+  if (topics === 'all' || topics.some((topic) => topic === 'herdr' || topic === 'seen' || topic === 'kept')) herdrPoll.poke();
+});
+pollWhileShown(window, { ask: refreshUsage, everyMs: usageEveryMs, first: 'now' });
+pollWhileShown(window, { ask: refreshSystem, everyMs: systemEveryMs, first: 'now' });
 // The page itself opens from the browser's copy when the viewer is out of reach (sw.js); the browser is asked to keep
 // the saved copies rather than clear them to make room.
 if ('serviceWorker' in navigator) {
@@ -328,8 +395,14 @@ function createPage() {
   /** @type {number | undefined} */
   let listVersion;
   let listMinute = 0;
-  /** agent: whose the session was taken for when it was opened; putAway: out of sight, kept as shown (warm) */
-  /** @type {{ id: string, agent: SessionInfo['agent'], pins: ReturnType<typeof createPinsStore>, dispose: () => void, putAway: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, keepPlace: (change: () => void) => void, rewound: (reply: import('./model/rewind.js').RewindReply) => void, stop: () => boolean, forgetSent: () => void, showTab: () => void, showHerdr: () => void } | undefined} */
+  /** A note kept in the dock from before a reload, to open once its session's notes are read. */
+  /** @type {{ noteId: string, sessionId: string } | undefined} */
+  let noteToOpen;
+  /**
+   * agent: whose the session was taken for when it was opened; putAway: out of sight, kept as shown (warm); openNote: a
+   * note on its desk shown in the side panel — false for one its desk does not hold
+   */
+  /** @type {{ id: string, agent: SessionInfo['agent'], pins: ReturnType<typeof createPinsStore>, openNote: (noteId: string) => boolean, dispose: () => void, putAway: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, keepPlace: (change: () => void) => void, rewound: (reply: import('./model/rewind.js').RewindReply) => void, stop: () => boolean, forgetSent: () => void, showTab: () => void, showHerdr: () => void } | undefined} */
   let current;
   /** How long each session has been written to: its robots' story goes on as its row is drawn again. */
   const workClock = createWorkClock(() => Date.now());
@@ -436,6 +509,8 @@ function createPage() {
     separator: () => pathSeparator,
     renameWorkspace: (workspace, label) => changeTab('/api/workspace/rename', { workspace, label }),
     closeWorkspace: (workspace) => changeTab('/api/workspace/close', { workspace }),
+    hideWorkspace: (workspace) => changeTab('/api/workspace/hide', { workspace }),
+    showWorkspace: (workspace) => changeTab('/api/workspace/show', { workspace }),
     setWorkspaceIcon: (workspace, icon) => changeTab('/api/workspace/icon', { workspace, icon: icon === undefined ? null : icon }),
     iconTags: lucideTags,
     renameTab: (tab, label) => changeTab('/api/tab/rename', { tab, label }),
@@ -475,9 +550,21 @@ function createPage() {
     },
     create: (tab, start, label) => newTab(tab, start, label),
     duplicate: (tab) => duplicateTab(tab),
+    // a tab with nothing running in it goes on with the conversation that ran there last, or its folder's latest, named on
+    // its button; with none, it offers nothing
+    continuing: (where) => {
+      const next = tabToContinue(history, sessions, where);
+      if (next.kind === 'running' || next.kind === 'none') return undefined;
+      const info = sessions.find((session) => session.id === next.session);
+      const named = `“${info?.title ?? 'a conversation'}”`;
+      if (next.kind === 'latest-in-folder') return { title: `Claude Code resumes ${named}, the latest conversation of this tab's folder, as claude --continue does` };
+      return { title: `${info === undefined ? askerNames.claude : askerNames[info.agent]} resumes ${named}, the conversation that ran here last` };
+    },
+    continueTab: (tab) => changeTab('/api/tab/continue', { tab }),
     renameWorkspace: (workspace, label) => changeTab('/api/workspace/rename', { workspace, label }),
     setWorkspaceIcon: (workspace, icon) => changeTab('/api/workspace/icon', { workspace, icon: icon === undefined ? null : icon }),
     iconTags: lucideTags,
+    corner: systemMeters.element,
   });
   /** The side questions (/btw) of the sessions opened: an answer outlives the session's box. */
   const asides = createAsideStore();
@@ -556,8 +643,8 @@ function createPage() {
     const where = h('span', { className: 'session-place' }, [h('span', { className: 'session-folder', text: folder })]);
     if (tab !== '') where.prepend(h('span', { className: 'session-tab', text: tab }));
     if (named !== '') where.prepend(h('span', { className: 'session-workspace', text: splitTabIcon(named).name }));
-    // Codex's sessions among Claude Code's
-    if (session.agent === 'codex') where.prepend(h('span', { className: 'session-agent', text: 'codex' }));
+    // Codex's sessions and agy's conversations among Claude Code's
+    if (session.agent !== 'claude') where.prepend(h('span', { className: 'session-agent', text: session.agent }));
     const link = h('a', { className: 'session-item', attrs: { href: `#/${session.id}` } }, [
       h('span', { className: 'session-title' }, [...workspaceIconOf(icon), title]),
       h('span', { className: 'session-sub' }, [where, h('span', { text: closed ? `closed · ${ago}` : ago })]),
@@ -595,13 +682,35 @@ function createPage() {
     groupHeads.set(workspace ?? '', { look, element: head });
     return head;
   };
+  /**
+   * How many sessions the sidebar draws: on a touch screen the first so many — a thousand rows were most of a phone's
+   * page — more as the reader gets to the end of them; a search typed starts again from the first ones.
+   */
+  const firstRows = matchMedia('(pointer: coarse)').matches ? 150 : Number.POSITIVE_INFINITY;
+  let rowsLimit = firstRows;
+  let rowsSearched = '';
+  const more = h('button', { className: 'session-more', attrs: { type: 'button' } });
+  const drawMore = () => {
+    rowsLimit += firstRows;
+    renderList();
+  };
+  more.addEventListener('click', drawMore);
+  // drawn as the reader scrolls to it too
+  new IntersectionObserver((entries) => {
+    if (entries.some((entry) => entry.isIntersecting)) drawMore();
+  }).observe(more);
   const renderList = () => {
     const now = Date.now();
+    if (search.value !== rowsSearched) {
+      rowsSearched = search.value;
+      rowsLimit = firstRows;
+    }
     const shown = listed(search.value);
-    const elements =
-      workspaces.herdr && groupWorkspaces.checked
-        ? groupedSessions(shown, workspaces.of).flatMap((group) => [headOf(group.workspace, group.sessions.length), ...group.sessions.map((session) => itemOf(session, now, undefined))])
-        : shown.map((session) => itemOf(session, now, workspaces.of.get(session.id)));
+    const grouped = workspaces.herdr && groupWorkspaces.checked;
+    const { rows, left } = rowsToDraw(grouped ? groupedSessions(shown, workspaces.of) : [{ workspace: undefined, sessions: shown }], { limit: rowsLimit, heads: grouped ? 'shown' : 'none' });
+    const elements = rows.map((row) => (row.kind === 'head' ? headOf(row.workspace, row.count) : itemOf(row.session, now, grouped ? undefined : workspaces.of.get(row.session.id))));
+    more.textContent = left > firstRows ? `Show ${firstRows} more of ${left.toLocaleString('en-US')} sessions` : `Show ${left} more sessions`;
+    if (left > 0) elements.push(more);
     const unchanged = elements.length === list.children.length && elements.every((element, index) => list.children[index] === element);
     if (!unchanged) list.replaceChildren(...elements);
   };
@@ -626,10 +735,12 @@ function createPage() {
   // While the viewer answers, the copies of the latest sessions worked on are brought up to date now and then — even
   // ones this browser has not opened, and with the page put away: a session opened shows what is current at once, and
   // a session read offline is not long out of date.
-  let keptAt = 0;
+  const startedAt = Date.now();
+  /** @type {number | undefined} */
+  let keptAt;
   let keepingUp = false;
   const keepRecent = async () => {
-    if (!connection.online() || keepingUp || Date.now() - keptAt < keepEveryMs) return;
+    if (!connection.online() || keepingUp || !keepingDue(Date.now(), { startedAt, keptAt }, { everyMs: keepEveryMs, afterStartMs: keepAfterStartMs })) return;
     keptAt = Date.now();
     keepingUp = true;
     try {
@@ -699,11 +810,13 @@ function createPage() {
   /**
    * The sessions opened lately, kept as shown while out of sight, their feeds going on: one opened again shows at once,
    * up to date. As many as their feeds' elements allow — each costs the page about 3 KB, a long session's feed some
-   * 20,000 of them — a phone fewer: a page put away that holds much is the first a phone lets go of.
+   * 20,000 of them — a phone far fewer: an iPhone's Safari let go of a page that kept seven feeds of some 17,000
+   * elements together beside its own, and opened it anew — every feed gone, the one shown too. A tablet, wide as it
+   * is, has a phone's Safari behind it: more than a phone, far fewer than a computer.
    */
   const warm = createWarmSessions({
     most: 20,
-    budget: matchMedia('(max-width: 820px)').matches ? 80_000 : 200_000,
+    budget: matchMedia('(max-width: 820px)').matches ? 8_000 : matchMedia('(pointer: coarse)').matches ? 20_000 : 200_000,
     weigh: (/** @type {FeedPart} */ part) => part.scroller.getElementsByTagName('*').length,
     letGo: (/** @type {FeedPart} */ part) => part.dispose(),
   });
@@ -722,7 +835,8 @@ function createPage() {
       sessionId: id,
       agentId: undefined,
       bookmarks,
-      onRewind: (prompt) => rewindDialog.open(id, prompt, agent),
+      // Antigravity CLI is rewound in its terminal alone
+      onRewind: agent === 'agy' ? undefined : (prompt) => rewindDialog.open(id, prompt, agent),
       sendQueueNow: () => queue.send(),
       startAt: places.get(id),
       openFeed: feedHub.open,
@@ -771,7 +885,11 @@ function createPage() {
     const tables = sessionTables(id, scroller, (change) => (current === undefined ? change() : current.keepPlace(change)));
     tables.apply();
     const herdrTab = herdrTabButtonFor(id);
-    const restart = restartButtonFor(id);
+    const restart = restartButtonFor(id, () => history[id]?.claudeGpt === true);
+    // how hard Claude Code thinks in it: /effort typed into its terminal
+    const effort = createEffortRow(id, { set: (level) => typeIntoSession(id, `/effort ${level}`) });
+    // how busy the viewer's computer is, on a phone: the tabs' row there has no room for it
+    const system = createSystemRow({ page: window, read: readSystem, readProcesses, everyMs: systemEveryMs });
     const keepLit = keepLitButtonFor(id);
     const folder = () => sessions.find((session) => session.id === id)?.cwd;
     // from the conversation outward: the side panels of this conversation, its tab, its branch, its project; then where
@@ -780,14 +898,17 @@ function createPage() {
     const [tabHistory, branchChanges, vscode, fileManager] = [historyButton(historyView), changesButton(id), vscodeButton(folder), fileManagerButton(folder)];
     const folds = [tabHistory, branchChanges, herdrTab.button, fileManager].map(labelled);
     const navigation = [headGroup([drawerButton('outline', 'list', 'Outline'), tabHistory, branchChanges, filesButton(folder)]), headGroup([herdrTab.button, keepLit.button, fileManager])];
-    const header = createSessionHeader({ sessionId: id, place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation, folds, tools: settings.buttons(), rare: [createTextSizeControl({ label: 'Text size', size: () => settings.get('size'), choose: (size) => settings.set('size', size) }), createTextSizeControl({ label: 'Note text size', size: () => settings.get('noteSize'), choose: (size) => settings.set('noteSize', size) }), ...settings.rareButtons()], rareOpeners: [labelled(vscode)], details: [restart.row] });
+    const header = createSessionHeader({ sessionId: id, place: info, currentBranch: () => fetchBranch(id), tables, leading: drawerButton('sessions', 'menu', 'Sessions'), navigation, folds, tools: settings.buttons(), rare: [createTextSizeControl({ label: 'Text size', size: () => settings.get('size'), choose: (size) => settings.set('size', size) }), createTextSizeControl({ label: 'Note text size', size: () => settings.get('noteSize'), choose: (size) => settings.set('noteSize', size) }), ...settings.rareButtons()], rareOpeners: [labelled(vscode)], details: [restart.row, effort.row, system.row] });
     const outlineElement = h('aside', { className: 'outline', attrs: { 'aria-label': 'Outline' } });
     const outline = createOutline({
       element: outlineElement,
       onJump: (anchorId) => {
         drawers.close();
-        // A bookmark in the part of a long session that is not loaded yet: the rest is loaded first.
-        if (!view.scrollToAnchor(anchorId) && view.hasEarlier()) void view.loadEarlier().then(() => view.scrollToAnchor(anchorId));
+        // A bookmark in the part of a long session that is not loaded yet: the parts before the one shown are loaded, one
+        // after another, until it is in.
+        void (async () => {
+          while (!view.scrollToAnchor(anchorId) && view.hasEarlier()) await view.loadEarlier();
+        })();
       },
       onRemove: (bookmark) => bookmarks.toggle(bookmark),
     });
@@ -843,21 +964,64 @@ function createPage() {
             return parseFileCreated(await response?.json().catch(() => undefined));
           },
         },
-        engine: { title: () => actionLabel('notes', settings.get('notes')), switch: () => settings.set('notes', nextChoice('notes', settings.get('notes'))) },
+        engine: notesEngine,
         note: () => notesNow.find((one) => one.id === noteId),
         edit: (shownId, text) => notes.edit(shownId, text),
         rename: (shownId, name) => notes.rename(shownId, name),
         remove: (shownId) => notes.remove(shownId),
         // a note removed — here or elsewhere — is left at once: the side panel put away, if it shows it
         leave: () => filePanel.forgetDoc(`note:${noteId}`),
+        // the note put on another desk around: gone from this one, the panel leaves it as the notes are read anew
+        toDesk: {
+          others: () => deskNow.offered.filter((desk) => desk.path !== deskNow.current?.path),
+          move: async (path) => {
+            const response = await fetch('/api/notes/move', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Viewer': '1' }, body: JSON.stringify({ session: id, id: noteId, to: path }) }).catch(() => undefined);
+            if (response?.ok === true) notes.reload();
+            return response?.ok === true;
+          },
+        },
         editorOf: noteEditorOf,
       });
       noteShown = panel;
       drawers.close();
-      filePanel.showNote({ ...panel, id: noteId });
+      filePanel.showNote({ ...panel, id: noteId, session: id });
       return panel;
     };
+    /** What is in the folder a path is typed in, for a path to type: a file to pin, a folder to move the desk to. @param {string} typed */
+    const pathsOnDisk = async (typed) => {
+      const where = pathTyped(typed);
+      if (where === undefined) return [];
+      const listing = await fetchFolder(where.folder);
+      return listing?.ok === true ? pathOffers(where, listing.entries) : [];
+    };
+    // The session's desk, named over its notes (desks.js): another taken up, one made, the desk moved — its notes and
+    // the files pinned on it read anew. Read as the session opens, as the window is come back to, and while there is
+    // none, as a note or a file pinned makes one.
+    /** @type {import('./model/desks.js').DeskState} */
+    let deskNow = { current: undefined, offered: [] };
+    const deskView = createDeskView({
+      change: async (what) => {
+        const response = await fetch('/api/desk', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Viewer': '1' }, body: JSON.stringify({ session: id, ...what }) }).catch(() => undefined);
+        const changed = parseDeskChanged(response?.ok === true, await response?.json().catch(() => undefined));
+        if (changed.ok) {
+          deskNow = changed.desk;
+          notes.reload();
+          pins.reload();
+        }
+        return changed;
+      },
+      foldersOnDisk: pathsOnDisk,
+    });
+    const readDesk = async () => {
+      const response = await fetch(`/api/desk?session=${id}`).catch(() => undefined);
+      if (response?.ok !== true) return;
+      deskNow = parseDeskState(await response.json().catch(() => undefined));
+      deskView.show(deskNow);
+    };
+    window.addEventListener('focus', readDesk);
+    void readDesk();
     const notesView = createNotesView({
+      desk: { label: deskView.label, panel: deskView.panel },
       // a note written set apart, in the side panel, the cursor in it: unfolded, it shows in full here
       add: () => openNote(notes.add('', 'panel', '')).focus(),
       edit: (noteId, text) => notes.edit(noteId, text),
@@ -875,20 +1039,21 @@ function createPage() {
     });
     const notes = createNotesStore(id, (list) => {
       notesNow = list;
+      // a note kept in the dock from before a reload, its session opened for it: shown once the notes are read
+      const waiting = noteToOpen;
+      if (waiting !== undefined && waiting.sessionId === id && list.some((one) => one.id === waiting.noteId)) {
+        noteToOpen = undefined;
+        openNote(waiting.noteId);
+      }
       notesView.show(list);
+      if (deskNow.current === undefined) void readDesk();
       // the note, or the history, drawn again — and the side panel's title, a note renamed
       if (noteShown !== undefined) void filePanel.listChanged(noteShown);
     });
     outlineElement.prepend(notesView.element);
-    // the files pinned beside the session, under its notes: its own and its project folder's, opened in the side panel
+    // the files pinned beside the session, under its notes: its own and its desk's, opened in the side panel
     const pinsView = createPinsView({
-      // what is in the folder a path is typed in, for the path to pin
-      pathsOnDisk: async (typed) => {
-        const where = pathTyped(typed);
-        if (where === undefined) return [];
-        const listing = await fetchFolder(where.folder);
-        return listing?.ok === true ? pathOffers(where, listing.entries) : [];
-      },
+      pathsOnDisk,
       open: (path) => {
         drawers.close();
         filePanel.open({ path, line: undefined, endLine: undefined });
@@ -897,10 +1062,17 @@ function createPage() {
       pinPath: (scope, path) => pins.pin(scope, path),
       rename: (path, name) => pins.rename(path, name),
       iconOf: (name) => iconOf(name, 'file', false),
+      // the path to pin starts at the desk's folder — before there is a desk, the session's — as the viewer's computer
+      // writes paths
+      startPath: () => {
+        const where = deskNow.current === undefined ? folder() : deskNow.current.folder;
+        return where === undefined ? undefined : `${where.replace(/[\\/]+$/, '')}${pathSeparator}`;
+      },
     });
     const pins = createPinsStore(id, (now) => {
       pinsView.show(now);
       filePanel.pinsChanged();
+      if (deskNow.current === undefined) void readDesk();
     });
     notesView.element.after(pinsView.element);
     const spy = createScrollSpy(scroller, () => view.promptElements(), outline.setCurrent);
@@ -915,6 +1087,11 @@ function createPage() {
       onSent: (text) => view?.expectPrompt(text),
       // a dialog in the terminal — /mcp sent opened it: the slash commands sent may never be written down
       onDialog: () => view?.forgetSentCommands(),
+      // agy stopped writes nothing of it: its calls still waiting once it is at its prompt were cut short. Claude Code
+      // and Codex write what was stopped, and a call of theirs waits for an answer at the prompt
+      onAtPrompt: (at) => {
+        if (agent === 'agy') view?.agentAtPrompt(at);
+      },
       // a tab numbered by herdr says little: only a named one is told; the conversation it went on with, while it runs
       placeOf: () => {
         const place = history[id];
@@ -927,10 +1104,8 @@ function createPage() {
     });
     const tasks = createTasksView({
       sessionId: id,
-      load: async (path) => {
-        const response = await fetch(path).catch(() => undefined);
-        return response?.ok ? response.json().catch(() => undefined) : undefined;
-      },
+      // the list asked with the tag of its last reply: the same list again comes back as 304, nothing in it
+      load: pollReply,
       openSubagent: (toolUseId, holder) => void openSubagentTranscript(id, toolUseId, holder, feedHub.open),
     });
     followedTo = undefined;
@@ -949,10 +1124,27 @@ function createPage() {
     // shown at once as it was, the reader where they were
     if (part === kept) view.restore(places.get(id) ?? { kind: 'bottom' });
     // what the feed told while out of sight — or before — told to the header and outline first, then what comes
+    // What the box, the tasks and the branch show is asked for as the session's status changes — a turn begun or ended,
+    // the feed back — not every few seconds; what the box shows also as herdr's tabs change: a dialog open in the
+    // terminal makes its pane wait. They ask now and then anyway.
+    /** @type {import('./view/session-view.js').SessionStatus | undefined} */
+    let statusBefore;
+    const stopHearing = feedHub.onChanged((topics) => {
+      if (topics === 'all' || topics.includes('herdr')) composer.pokeLive();
+    });
     part.relay.attach({
-      onMeta: header.onMeta,
+      onMeta(next) {
+        header.onMeta(next);
+        effort.showCurrent(next.effort);
+      },
       onStatus(next) {
         header.onStatus(next);
+        if (statusBefore !== undefined && next !== statusBefore) {
+          composer.pokeLive();
+          tasks.poke();
+          header.pokeBranch();
+        }
+        statusBefore = next;
         if (loaded || next === 'connecting') return;
         loaded = true;
         spy.update();
@@ -965,13 +1157,16 @@ function createPage() {
     });
     /** What shows the session — its header, outline, box — let go of. */
     const closeShown = () => {
+      stopHearing();
       part.relay.detach();
       part.queue.send = () => undefined;
       header.dispose();
+      system.dispose();
       composer.dispose();
       tasks.dispose();
       unsubscribe();
       notes.dispose();
+      window.removeEventListener('focus', readDesk);
       document.removeEventListener(notesEditorEvent, remakeNoteEditors);
       pins.dispose();
       spy.dispose();
@@ -980,6 +1175,11 @@ function createPage() {
       id,
       agent,
       pins,
+      openNote: (noteId) => {
+        if (!notesNow.some((one) => one.id === noteId)) return false;
+        openNote(noteId);
+        return true;
+      },
       header,
       place: () => view.place(),
       keepPlace: (change) => view.keepPlace(change),
@@ -998,6 +1198,7 @@ function createPage() {
       showHerdr() {
         herdrTab.show(herdrLayout);
         restart.show(herdrLayout);
+        effort.show(herdrLayout);
         keepLit.show(herdrLayout, keptPanes);
       },
       // Like the terminal, the rewound message comes back into the box to be edited and sent again.
@@ -1035,6 +1236,8 @@ function createPage() {
     renderList,
     /** The files pinned beside the open session, none while no session is open. */
     pins: () => current?.pins,
+    /** The open session's id, none while no session is open. */
+    openId: () => current?.id,
     /** The open session's folder, none while no session is open or its folder is not known. */
     folder: () => (current === undefined ? undefined : sessions.find((session) => session.id === current?.id)?.cwd),
     /**
@@ -1057,6 +1260,19 @@ function createPage() {
     nameOpenTab() {
       tabBar.nameOpenTab();
     },
+    /**
+     * The session list saved the last time the viewer answered, shown at once as the page opens, and the session the
+     * address names opened from it: the viewer is then asked only for what changed since — the whole list of a thousand
+     * sessions takes seconds over a slow link. One saved without its version is left for the viewer to send whole.
+     */
+    async restoreList() {
+      const saved = await offline.readList();
+      if (saved?.version === undefined || sessions.length > 0) return;
+      sessions = parseSessions(saved.sessions);
+      listVersion = saved.version;
+      renderList();
+      this.openFromHash();
+    },
     async refresh() {
       const response = await fetch(`/api/sessions?since=${listVersion ?? ''}`).catch(() => undefined);
       // No answer, or a proxy's error page for the viewer: out of reach.
@@ -1077,10 +1293,11 @@ function createPage() {
       listMinute = minute;
       sessions = merged;
       renderList();
-      // a conversation of a tab is shown once the list has it
+      // a conversation of a tab is shown once the list has it — and named on the tab bar's Continue
       current?.showTab();
       redrawHistory();
-      void offline.saveList(sessions);
+      tabBar.refresh();
+      void offline.saveList(sessions, listVersion);
       void keepRecent();
       const info = sessions.find((session) => session.id === current?.id);
       // a session opened before the list had it was taken for Claude Code's: once the list tells it is Codex's, it is
@@ -1091,8 +1308,7 @@ function createPage() {
     },
     /** The herdr workspaces of the sessions: they group the list and are searched by. */
     async refreshWorkspaces() {
-      void this.refreshHistory();
-      const reply = await pollReply('/api/workspaces');
+      const [reply] = await Promise.all([pollReply('/api/workspaces'), this.refreshHistory()]);
       // Out of the viewer's reach the page keeps what it knew.
       if (reply === undefined) return;
       const next = parseWorkspaces(reply);
@@ -1117,6 +1333,7 @@ function createPage() {
       renderList();
       current?.showTab();
       redrawHistory();
+      tabBar.refresh();
     },
     followLatest() {
       const [latest] = listed('');
@@ -1167,9 +1384,7 @@ function createPage() {
     },
     /** What herdr shows now: its workspaces, tabs, panes and their agents' status. */
     async refreshHerdr() {
-      void this.refreshSeen();
-      void this.refreshKept();
-      const reply = await pollReply('/api/herdr');
+      const [reply] = await Promise.all([pollReply('/api/herdr'), this.refreshSeen(), this.refreshKept()]);
       // Out of the viewer's reach the page keeps what it knew.
       if (reply === undefined) return;
       const known = JSON.stringify(reply);
@@ -1220,6 +1435,17 @@ function createPage() {
       const place = opened === undefined ? undefined : placeOf(herdrLayout, opened);
       const pane = place?.tab.panes.find((one) => (opened?.kind === 'session' ? one.session === opened.id : one.id === opened?.id));
       if (pane !== undefined) this.toggleKept(pane);
+    },
+    /**
+     * A note kept in the dock from before a reload, opened again: in the session open now if its desk holds it, else in
+     * the session it was opened from, once that one's notes are read.
+     * @param {string} noteId
+     * @param {string} sessionId
+     */
+    openNote(noteId, sessionId) {
+      if (current?.openNote(noteId) === true) return;
+      noteToOpen = { noteId, sessionId };
+      if (current?.id !== sessionId) address.go(`#/${sessionId}`);
     },
     async refreshSeen() {
       const reply = await pollReply('/api/seen');
@@ -1291,7 +1517,9 @@ const rareSettings = [
   ['width', 'widen'],
   ['tables', 'table'],
   ['lamps', 'agent'],
+  ['notes', 'type'],
   ['theme', 'moon'],
+  ['diagnostics', 'sliders'],
 ];
 const headerSettings = [...headerSettingGroups.flat(), ...rareSettings];
 
@@ -1330,6 +1558,11 @@ function createSettings(keepPlace) {
     if (root.dataset.notes !== get('notes')) {
       root.dataset.notes = get('notes');
       document.dispatchEvent(new Event(notesEditorEvent));
+    }
+    // the diagnostics started or stopped as set
+    if (root.dataset.diagnostics !== get('diagnostics')) {
+      root.dataset.diagnostics = get('diagnostics');
+      document.dispatchEvent(new Event(diagnosticsEvent));
     }
     relabelTables(document);
     const activity = get('activity');
@@ -1391,6 +1624,7 @@ function settingKeyOf(value) {
     case 'copy':
     case 'lamps':
     case 'notes':
+    case 'diagnostics':
       return value;
     default:
       return undefined;
@@ -1455,6 +1689,38 @@ function drawerButton(name, iconName, label) {
 }
 
 /**
+ * A line typed into a session's terminal from the page, as the box sends a prompt — a slash command the page offers.
+ * @param {string} sessionId
+ * @param {string} text
+ * @returns {Promise<boolean>} — whether the terminal took it
+ */
+async function typeIntoSession(sessionId, text) {
+  const response = await fetch('/api/send', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Viewer': '1' }, body: JSON.stringify({ session: sessionId, text, images: [] }) }).catch(() => undefined);
+  return response?.ok === true && parseOutcome(await response.json().catch(() => undefined))?.ok === true;
+}
+
+/**
+ * The prompts waiting in this browser for sessions not open — sent out of the viewer's reach (outbox.js) — sent now, in
+ * order, each gone once the viewer says it went; the open session's box sends its own and shows them.
+ * @param {string | undefined} openId
+ */
+function sendWaitingElsewhere(openId) {
+  for (const sessionId of waitingSessions(browserStorage)) {
+    if (sessionId === openId) continue;
+    const outbox = createOutbox(sessionId, {
+      storage: browserStorage,
+      locks: browserLocks(),
+      send: async ({ id, text }) => {
+        const response = await fetch('/api/send', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Viewer': '1' }, body: JSON.stringify({ session: sessionId, text, images: [], id }) }).catch(() => undefined);
+        return response?.ok === true ? parseOutcome(await response.json().catch(() => undefined)) : undefined;
+      },
+      onChange: () => undefined,
+    });
+    void outbox.flush();
+  }
+}
+
+/**
  * Whether the viewer answers: told by the session list's polls, heard by the open session to reconnect.
  * @param {(online: boolean) => void} onChange
  */
@@ -1483,6 +1749,15 @@ function createConnection(onChange) {
 }
 
 /**
+ * The documents shown or put away changed: the dock under the feed shows those put away, and how busy the computer is
+ * gives way in the tabs' corner while the side panel shows one.
+ */
+function docsChanged() {
+  dock.show(filePanel.shownDoc());
+  systemMeters.giveWay(filePanel.shownDoc() !== undefined);
+}
+
+/**
  * The page and its files, saved for the service worker to open offline. The first visit loads them before the
  * worker runs, so the worker never sees them: the page hands them over itself — its build's files as the browser
  * loaded them, and the page as the viewer serves it now. The cache names are the ones sw.js uses.
@@ -1503,6 +1778,30 @@ async function keepPageForOffline() {
  * and Codex's under it while Codex is in use, each row marked with its agent's mark then. Hidden until read; kept as it
  * is while the viewer is out of reach.
  */
+/** How busy the viewer's computer is, shown in the tabs' corner; nothing while the viewer does not tell. */
+async function refreshSystem() {
+  // a phone's screen has no room for them there: it shows them in a session's details, asked for while those are open
+  // (view/system-row.js)
+  if (matchMedia('(max-width: 820px)').matches) return;
+  systemMeters.show(await readSystem());
+}
+
+/**
+ * The viewer's computer's processes, the busiest with a resource first — a meter of it pressed; nothing while the viewer
+ * does not tell.
+ * @param {import('./model/system-usage.js').Resource} by
+ */
+async function readProcesses(by) {
+  const response = await fetch(`/api/system/processes?${new URLSearchParams({ by })}`).catch(() => undefined);
+  return parseSystemProcesses(response?.ok ? await response.json().catch(() => undefined) : undefined);
+}
+
+/** How busy the viewer's computer is now; nothing while the viewer does not tell. */
+async function readSystem() {
+  const response = await fetch('/api/system').catch(() => undefined);
+  return parseSystemUsage(response?.ok ? await response.json().catch(() => undefined) : undefined);
+}
+
 async function refreshUsage() {
   const [claude, codex] = await Promise.all([readUsageAt('/api/usage'), readUsageAt('/api/usage/codex')]);
   if (claude !== 'unreachable') showUsage(usageBadge, claude, codex !== 'unreachable' && codex !== undefined ? 'claude' : undefined);
@@ -1526,7 +1825,7 @@ async function readUsageAt(path) {
  * A row of meters: a window its agent does not have — Codex's plans may count the week alone — is left out.
  * @param {HTMLElement} badge
  * @param {import('./model/usage.js').Usage | undefined} usage
- * @param {import('./model/composer.js').Agent | undefined} agent — whose, when two rows show
+ * @param {keyof typeof usageAgents | undefined} agent — whose, when two rows show
  */
 function showUsage(badge, usage, agent) {
   badge.hidden = usage === undefined;
@@ -1571,7 +1870,7 @@ function usageMeter(meter) {
 
 /** A strip at the top of the page while the viewer is out of reach. */
 function createOfflineNotice() {
-  const element = h('div', { className: 'offline-notice', title: 'The viewer is out of reach: the sessions saved in this browser can be read. It reconnects by itself.', attrs: { role: 'status', hidden: '' } }, [
+  const element = h('div', { className: 'offline-notice', title: 'The viewer is out of reach: the sessions saved in this browser can be read, and prompts sent wait here to go once it is back. It reconnects by itself.', attrs: { role: 'status', hidden: '' } }, [
     h('span', { className: 'offline-dot' }),
     h('span', { text: 'Offline · reading saved copies' }),
   ]);
@@ -1689,16 +1988,7 @@ function filesButton(folder) {
  * @returns {import('./view/file-panel.js').Project}
  */
 function projectSource(root) {
-  return { root, listFolder: fetchFolder, search: (query) => fetchSearch(root, query), links: (path) => fetchLinks(root, path), transfer: { address: downloadAddress, upload: uploadInto, download: downloadFrom, save: saveFile } };
-}
-
-/**
- * Where a file downloads from as it is, or a folder as a zip.
- * @param {string} path
- * @param {'file' | 'folder'} kind
- */
-function downloadAddress(path, kind) {
-  return `/api/${kind}/download?${new URLSearchParams({ path })}`;
+  return { root, listFolder: fetchFolder, search: (query) => fetchSearch(root, query), links: (path) => fetchLinks(root, path), transfer: { address: (path, kind) => downloadAddress(path, kind, { opens: homeScreenApp ? 'safari' : 'this-browser', origin: location.origin }), upload: uploadInto } };
 }
 
 /**
@@ -1724,28 +2014,6 @@ function uploadInto(folder, file, name, existing, progress) {
     request.addEventListener('loadend', () => resolve(parseUploadOutcome(request.response)));
     request.send(file);
   });
-}
-
-/**
- * A file downloaded, or a folder as a zip, its bytes received told as they come.
- * @param {string} path
- * @param {'file' | 'folder'} kind
- * @param {(received: number, total: number | undefined) => void} progress
- */
-async function downloadFrom(path, kind, progress) {
-  return receiveDownload(await fetch(downloadAddress(path, kind)).catch(() => undefined), progress);
-}
-
-/**
- * A file downloaded saved on the device under a name, by the browser's own download of it from the page.
- * @param {Blob} file
- * @param {string} name
- */
-function saveFile(file, name) {
-  const address = URL.createObjectURL(file);
-  h('a', { attrs: { href: address, download: name } }).click();
-  // the browser takes the file from the address as it can: it is let go of well after that
-  setTimeout(() => URL.revokeObjectURL(address), 60_000);
 }
 
 /**
@@ -1840,25 +2108,33 @@ function herdrTabButtonFor(sessionId) {
 
 /**
  * The row of a session's details that restarts it — Claude Code quits in its herdr tab and resumes it there, with the
- * variables the viewer was given — once a second press confirms it; there while it runs in Claude Code in herdr, its
- * button hidden — and the row with it — otherwise.
+ * variables the viewer was given, or in the other launcher: through GPT, or in ordinary Claude Code — or quits it to the
+ * tab's shell, Claude Code or Codex, once a second press confirms it; there while it runs in either in herdr, its
+ * buttons hidden — and the row with them — otherwise.
  * @param {string} sessionId
+ * @param {() => boolean} throughGpt — whether the session runs through GPT now, as the history of the sessions tells
  * @returns {{ row: HTMLElement, show: (layout: import('./model/herdr.js').HerdrLayout) => void }}
  */
-function restartButtonFor(sessionId) {
-  /** @param {'none' | 'given'} variables */
-  const made = (variables) => {
+function restartButtonFor(sessionId, throughGpt) {
+  /** @param {'none' | 'given'} variables @param {'as-it-ran' | 'other'} launcher */
+  const made = (variables, launcher) => {
     const button = h('button', { className: 'head-restart', attrs: { type: 'button' } });
-    return { button, show: restartButton(button, sessionId, { variables, restart: () => changeTab('/api/session/restart', { session: sessionId, variables }) }) };
+    return { button, show: restartButton(button, sessionId, { variables, launcher, throughGpt, restart: (asked) => changeTab('/api/session/restart', { session: sessionId, variables, launcher: asked }) }) };
   };
-  const [plain, given] = [made('none'), made('given')];
-  const row = h('div', { className: 'head-detail' }, [h('dt', { text: 'Restart' }), h('dd', { className: 'head-restarts' }, [plain.button, given.button])]);
+  const buttons = [made('none', 'as-it-ran'), made('given', 'as-it-ran'), made('none', 'other')];
+  // and beside them Claude Code — or Codex — quit to the tab's shell
+  const exiting = h('button', { className: 'head-restart head-exit', attrs: { type: 'button' } });
+  const showExit = exitButton(exiting, sessionId, { exit: () => changeTab('/api/session/exit', { session: sessionId }) });
+  const named = h('dt', { text: 'Restart' });
+  const row = h('div', { className: 'head-detail' }, [named, h('dd', { className: 'head-restarts' }, [...buttons.map(({ button }) => button), exiting])]);
   return {
     row,
     /** @param {import('./model/herdr.js').HerdrLayout} layout */
     show: (layout) => {
-      plain.show(layout);
-      given.show(layout);
+      for (const { show } of buttons) show(layout);
+      showExit(layout);
+      // a Codex session has no restart, only the way out
+      named.textContent = buttons.some(({ button }) => !button.hidden) ? 'Restart' : 'Exit';
     },
   };
 }
@@ -1957,6 +2233,17 @@ function parseWorkspaces(json) {
 }
 
 /**
+ * Whose session the list says it is: one no agent is named of — a viewer's from before Codex's sessions — is Claude
+ * Code's.
+ * @param {unknown} named
+ * @returns {SessionInfo['agent']}
+ */
+function sessionAgentOf(named) {
+  if (named === 'codex' || named === 'agy') return named;
+  return 'claude';
+}
+
+/**
  * @param {unknown} json — the /api/sessions response
  * @returns {SessionInfo[]}
  */
@@ -1968,7 +2255,7 @@ function parseSessions(json) {
     if (id === undefined || project === undefined || typeof item.modifiedAt !== 'number' || typeof item.size !== 'number' || typeof item.activeAt !== 'number') return [];
     const kind = item.kind === 'sdk' ? 'sdk' : 'interactive';
     // a viewer from before Codex's sessions names no agent: its sessions are Claude Code's
-    const agent = item.agent === 'codex' ? 'codex' : 'claude';
+    const agent = sessionAgentOf(item.agent);
     return [{ id, project, agent, title: text(item.title), cwd: text(item.cwd), branch: text(item.branch), kind, modifiedAt: item.modifiedAt, size: item.size, activeAt: item.activeAt }];
   });
 }
@@ -2051,6 +2338,19 @@ function sessionTables(sessionId, feed, keepPlace) {
   };
 }
 
+/**
+ * @param {string | undefined} kept — a JSON text this browser kept
+ * @returns {unknown} — none for one that cannot be read
+ */
+function keptJson(kept) {
+  if (kept === undefined) return undefined;
+  try {
+    return JSON.parse(kept);
+  } catch {
+    return undefined;
+  }
+}
+
 /** @param {string} key */
 function readStorage(key) {
   try {
@@ -2103,8 +2403,8 @@ function typedFolders() {
  * A herdr tab or workspace named or closed — or a workspace's icon picked, an idle session hidden, the hidden shown again,
  * herdr taken to a tab — from the tab bar, the sidebar or over a session; once done the page looks at herdr again, so the
  * change shows at once.
- * @param {'/api/tab/rename' | '/api/tab/close' | '/api/tab/focus' | '/api/tab/move' | '/api/workspace/rename' | '/api/workspace/close' | '/api/workspace/icon' | '/api/herdr/hide' | '/api/herdr/show' | '/api/session/restart'} path
- * @param {{ tab: string, label?: string } | { tab: string, place: number } | { workspace: string, label?: string } | { workspace: string, icon: string | null } | { pane: string } | { session: string, variables: 'none' | 'given' } | Record<string, never>} change
+ * @param {'/api/tab/rename' | '/api/tab/close' | '/api/tab/focus' | '/api/tab/move' | '/api/tab/continue' | '/api/workspace/rename' | '/api/workspace/close' | '/api/workspace/hide' | '/api/workspace/show' | '/api/workspace/icon' | '/api/herdr/hide' | '/api/herdr/show' | '/api/session/restart' | '/api/session/exit'} path
+ * @param {{ tab: string, label?: string } | { tab: string, place: number } | { workspace: string, label?: string } | { workspace: string, icon: string | null } | { pane: string } | { session: string, variables: 'none' | 'given', launcher: import('./model/herdr.js').RestartLauncher } | { session: string } | Record<string, never>} change
  *   — an icon: one of Lucide's, kept for the workspace; null: none
  * @returns {Promise<import('./model/herdr.js').TabChange>}
  */

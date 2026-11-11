@@ -2,15 +2,104 @@
 
 [Русская версия](README.ru.md)
 
-Watch your [Claude Code](https://code.claude.com) sessions live in the browser, laid out the way Claude Desktop shows
-them: your prompts in bubbles, answers in rendered markdown, tool calls folded into compact rows with diffs and output.
-Every line Claude Code writes to the session transcript shows up on the page within half a second.
+A web interface for working with **[Claude Code](https://code.claude.com)**, **Codex**, **Antigravity CLI (`agy`)**, and regular **shell terminals** on top of **[herdr](https://herdr.dev)** workspaces.
+
+Instead of juggling separate terminal windows, you get a single browser app with your workspaces and tabs on the left, live agent conversations in the middle, and documents, diffs, notes, and bookmarks on the right. It feels like a native desktop app on a large monitor, adapts cleanly to a phone screen, and works remotely when placed behind Cloudflare.
 
 ![Claude Code Webview](docs/screenshot.png)
 
+---
+
+## What's inside
+
+### Claude Code, Codex, Antigravity CLI, and shell terminals in one place
+
+Run and follow all your coding sessions side by side:
+
+- **Three coding agents** — supports **Claude Code**, **Codex**, and **Antigravity CLI (`agy`)**. Each session shows your prompts, rendered Markdown replies, thinking durations, and expandable tool calls (`Bash`, `Read`, `Edit`, `Write`, subagents) with diffs and command output. Long runs of tool calls fold into a single summary line (`4 commands, 1 read, 6 edits`) by default and can be expanded anytime.
+- **Drive sessions from the browser** — type prompts directly into running sessions, paste or attach screenshots, use `/` command autocomplete, ask side questions without polluting the transcript (`/btw`), rewind code and conversation turns (`/rewind`), switch models (`/model`), and inspect `/mcp` servers.
+- **Interactive terminal prompts above the input box** — when an agent waits for a choice or confirmation in the terminal (`AskUserQuestion`, folder trust, command permission), the options appear as buttons right above the input box. Click the card header to fold it into a single line while reading the conversation.
+- **Switch between Claude Code and `ccproxy` (`Claude GPT`)** — pass `--claude-gpt-command` to keep standard Claude Code and a GPT-gateway launcher available together. Start new tabs in either mode, or restart a running session from one into the other without losing conversation history.
+- **Live shell terminals** — any `herdr` tab running a shell, `nvim`, a test runner, or `htop` opens as a live `xterm.js` terminal right in the browser.
+
+![Claude Code, Codex, Antigravity CLI, and a shell terminal](docs/agents.png)
+
+![Interactive agent question over the input box, expanded and folded](docs/question.png)
+
+---
+
+### `herdr` convenience in a modern interface
+
+When you run sessions inside [herdr](https://herdr.dev), the viewer mirrors your `herdr` workspaces and tabs with the comfort of a desktop UI:
+
+- **Workspaces and tabs** — your workspaces and session list sit in the left sidebar; the active workspace's tabs sit in a bar above the conversation. Drag tabs to reorder them, rename with `F2`, pick custom icons, close tabs, or **duplicate a tab and fork its conversation** (`claude --resume <id> --fork-session` or `codex fork <id>`). Press **`Ctrl+Tab`** to switch between recently used tabs.
+- **Status lamps and reminders** — colored lamps show whether an agent is working, waiting for your input, or finished with an unread reply. Opening a finished session clears its lamp across all devices; press the clock button or **`Ctrl+Q`** to keep a blue lamp lit until you come back to that task.
+- **Hide idle workspaces without closing them** — click the crossed-out eye on an idle workspace or tab to declutter the sidebar while keeping its processes running. As soon as an agent inside finishes a turn or asks a question, the workspace automatically reappears.
+- **Session history and restoring closed tabs** — the history button above a session lists earlier conversations from the same tab alongside **closed `herdr` tabs**. Open any past conversation to read it, or click **Restore** to reopen a closed tab in its workspace. After a system reboot, **Continue** resumes the last conversation of an idle tab in one click.
+- **Rate limits and system load at a glance** — the sidebar header shows 5-hour and weekly usage bars for both **Claude** and **ChatGPT / Codex** (green while under pace, red when running ahead of the clock). The top-right corner shows live **CPU**, **RAM**, and **GPU** usage — click any meter to inspect the busiest processes.
+
+![A herdr shell terminal in the dark theme](docs/terminal.png)
+
+---
+
+### Files, documents, and whole-branch diffs while you work
+
+Open files mentioned by the agent or inspect repository changes without leaving the conversation:
+
+- **Inline viewer for common file types** — click any file path in an answer (`/Users/ann/app/src/x.ts:42`, `~/notes.md`, `C:\repo\a.cs:10-20`) or in a `Read` / `Edit` / `Write` row to open the live file from disk in the side panel:
+  - **Markdown** — rendered with images, tables, code highlighting, and **Mermaid diagrams** (click to zoom);
+  - **HTML** — rendered in a sandboxed `iframe` with its local styles and assets (scripts stay off unless enabled with `⚡` in an isolated origin);
+  - **DOCX and PDF** — clean paginated rendering for Word documents and PDFs (with selectable text via `pdf.js`);
+  - **Images, CSV tables, and source code** — syntax highlighting, line-number jumps, and quick in-page text editing (`✎`, `Ctrl+S`).
+- **Desks and pinned files** — pin specs, schemas, PDFs, or `README` files to the project's **Desk** (`.desks/<name>.json`) or to a single session so they stay one click away in the right-hand Outline across every session in the workspace. When browsing on the host computer, a button opens any file at its exact line in your local IDE (VS Code, Rider and other JetBrains IDEs, Sublime, Notepad++) or in browser **VS Code** (`--vscode`).
+- **Whole-branch diffs (`Branch changes`)** — instead of looking at one commit at a time, click **Branch changes** above a session to see everything changed on the current Git branch since it branched off: all commits, uncommitted edits, and untracked files compared against the base branch (with a picker to compare against any other branch).
+
+![Markdown document with a Mermaid diagram in the side panel](docs/file-panel.png)
+
+![PDF, Word, HTML page, and image rendered in the side panel](docs/documents.png)
+
+![Notes and pinned files in the Outline alongside pinning a file](docs/pins.png)
+
+---
+
+### Two Markdown editors, notes, and conversation navigation
+
+Keep task notes, checklists, and design docs right beside the chat:
+
+- **Two Markdown editors** — press **`T`** (or use the `⋯` menu) to switch notes and `.md` files between two editing modes:
+  - **Live preview (Obsidian style)** — built on CodeMirror: headings, lists, interactive `[ ]` checkboxes, editable tables, and highlighted code blocks render as a clean document while revealing raw Markdown marks only on the active cursor line (`</>` switches to raw source);
+  - **Block editor (Notion style)** — built on Milkdown Crepe: type `/` to insert blocks, drag blocks by their left handle, and format selected text with a floating toolbar.
+- **Note history and undo** — notes save automatically as you type, support `Ctrl+Z` / `Ctrl+Shift+Z`, export to project files (`⤓`), and keep a 200-step change log (**Notes history**) where you can inspect previous versions and restore deleted notes in one click.
+- **Bookmarks and jumping between your prompts** — the right-hand **Outline** lists all your prompts in the session (jump between them with **`Alt+↑`** and **`Alt+↓`**). Click the flag on any prompt, answer, or subagent report to save a **bookmark** synced across all your devices.
+- **Copy selection as Markdown** — select any part of an answer and press `Ctrl+C` to copy clean Markdown (headings, lists, links, tables, fenced code blocks with language tags) together with rich text formatting.
+- **Set prompts aside for later (`Alt+Enter`)** — if you think of the next task while an agent is still working and don't want it auto-sent from the terminal queue, click the clock next to the send button (`Alt+Enter`). The prompt waits above the input box across all your devices until you choose to edit or send it.
+
+![Two Markdown editors: Obsidian-style live preview and Notion-style block editor](docs/editors.png)
+
+![Notes change history in the side panel](docs/notes-history.png)
+
+---
+
+### Remote work behind Cloudflare and full mobile support
+
+By default the server listens only on `127.0.0.1`. Putting it behind **Cloudflare Tunnel** and **Cloudflare Access** (`--public-url`) lets you work from any browser or phone anywhere:
+
+- **Project tree, file download, and upload** — browse the session's folder tree, run project-wide regex searches, **download individual files** (with HTTP resume if the connection drops) **or entire folders as streaming `.zip` archives** (up to 2 GB, `.git` excluded), and **upload files** into any folder with conflict handling (`Replace`, `Rename`, `Skip`).
+- **Designed for mobile screens**:
+  - swipe from the left edge to open workspaces and sessions; swipe from the right edge to open the Outline (notes, pins, bookmarks, prompts), and swipe left again to reopen the last viewed document;
+  - files and notes open in a bottom sheet: pull it down to minimize the document into a compact card dock above the input box so you can keep several files open at once and switch between them with a tap;
+  - mobile terminals include an extra key bar (**`Esc`**, **`Tab`**, arrows, **`Enter`**, **`Ctrl+C`**, paste), and the composer paperclip attaches photos from your camera or gallery.
+- **Fast on large transcripts and works offline** — 100+ MB sessions open in about a second by streaming the latest messages first and lazy-loading large tool outputs. A Service Worker caches the UI and recent sessions so you can read conversations and queue prompts even when offline or while your computer is asleep.
+
+![Project file tree with download, upload, and conflict prompt](docs/files.png)
+
+![Mobile layout: session view, herdr workspace drawer, and dark terminal](docs/mobile.png)
+
+---
+
 ## Quick start
 
-The viewer runs from its source. Requires Node.js 22 or newer.
+Requires **Node.js 22** or newer. Runs directly from source with no build step:
 
 ```bash
 git clone https://github.com/andrew-mart/claude-code-webview.git
@@ -19,540 +108,107 @@ npm install --omit=dev
 node bin/claude-code-webview.js
 ```
 
-The viewer starts on http://127.0.0.1:7788 and opens in your browser. If it is already running, the command just
-opens the browser. Press Ctrl+C to stop; `node bin/claude-code-webview.js --background` runs it without a terminal
-window. To update: `git pull`, `npm install --omit=dev`, then `node bin/claude-code-webview.js --restart`.
+Opens `http://127.0.0.1:7788` in your browser (if already running, it simply opens a browser tab).
 
-## What you get
+- **Background mode** (no terminal window): `node bin/claude-code-webview.js --background`
+- **Stop / restart**: `node bin/claude-code-webview.js --stop` and `node bin/claude-code-webview.js --restart`
+- **Connecting `herdr`**: start the viewer once from inside a [herdr](https://herdr.dev) pane — it saves the socket and binary paths in `~/.claude-code-webview/herdr.json` for future launches (such as a desktop shortcut). Without `herdr`, session reading, documents, notes, diffs, and bookmarks all work on their own.
 
-- **All sessions** of every project, newest first, with titles, project folder and age; an orange dot marks a session
-  written to in the last two minutes. "Follow the active session" switches to whichever session was written to last.
-  A session started just now is there before its first message too — untitled, in its folder, as Claude Code has it
-  open. Sessions that a program drives (`claude -p`, the Agent SDK) are hidden until you tick "Show SDK sessions". These
-  options open from the sliders at the sidebar's head — one row, the account's usage and its buttons, so the lists get
-  the height; the magnifier opens the search in its place, Escape or ✕ closes it.
-- **Codex sessions** beside Claude Code's, marked `codex`: prompts, answers, reasoning summaries, commands with their
-  output, patches by the files they change, plans as task lists. `codex exec` runs and subagents count as driven by a
-  program. A Codex session running in herdr is written to from the page as Claude Code's is: Enter sends, and while
-  Codex works Enter queues the message (Codex's Tab) and Ctrl+Enter puts it into the turn under way (Codex's Enter);
-  Stop is Esc. While Codex asks something in its terminal — trusting a folder, an update — nothing is typed: its picker
-  would take the Enter. A closed Codex session opens again with `codex resume`. Side questions (`/btw`) and rewinding
-  stay Claude Code's.
-- **The feed**:
-  - prompts with images, slash commands and `!` shell commands with their output;
-  - answers in markdown with syntax highlighting, a line break kept as a line break, as in the terminal; a code
-    block's long lines scroll sideways, or wrap in its width with the wrap button over it — a `text` block's wrap from
-    the start;
-  - thinking with its duration (Claude Code usually does not store the thinking text — then only the duration is shown);
-  - tool calls as one-line rows that expand: Bash shows the command and output, Read the file with line numbers,
-    Edit and Write a diff with line numbers, Agent its task, report and a live view of the subagent's own transcript;
-  - markers for interrupts, background task results, context compaction, API errors and turn duration.
-- **Show briefly / Show in detail.** Briefly (default) folds each run of tool calls into one line —
-  `4 commands, 1 read, 6 edits, 5 thoughts · 1 error` — like Claude Code itself; the call that is running right now
-  stays visible. In detail shows every call.
-- **File links.** Absolute paths in answers (`/Users/ann/app/src/x.ts:42`, `~/notes.md`, `C:\repo\a.cs:10-20`),
-  `file:///` links and paths in Read/Edit/Write rows open the file in a side panel, scrolled to and highlighting the line.
-  The panel shows the file as it is on disk now, not at the time of the answer, drawn by what it is by
-  [file-views](https://github.com/andrew-mart/file-views):
-  - markdown as a document — its pictures and links read from its folder, mermaid diagrams drawn as wide as the panel,
-    a wider one smaller to fit, a click showing it at its own size; the button over the panel shows its source, and a
-    link to one of its lines opens the source there;
-  - a CSV table with its columns coloured, a text file with its web addresses as links, code highlighted, a picture;
-  - an HTML page with what lies beside it, in a sandbox, its scripts off until the ⚡ button runs them;
-  - a Word document as its pages, fitted to the panel, its styles and links checked;
-  - a PDF as its pages, their text selectable, drawn by pdf.js as they come into view.
+---
 
-  Text that is not UTF-8 is read as Windows-1251. A button opens the file in your editor — in a browser on the viewer's
-  own computer, where the editor shows up. On Windows it is the program set for the file's kind, as a double click in
-  Explorer would use: at the marked line for the editors that take one — Rider and the other JetBrains IDEs in the
-  file's project (the nearest folder above it with a `.sln`, `.slnx` or `.git`), VS Code in its git work tree,
-  Notepad++, Sublime Text; any other program as a double click opens it; a kind with no program set has Windows ask
-  which. A kind of file whose program would run it — a script, `.reg`, `.exe` — opens in the program set to edit it, or
-  not at all. `--editor-command` sets one editor for every file instead, and is how there is one off Windows. ✎ edits a
-  text file here, in the page — Save or Ctrl+S writes it, never over the file as it was written meanwhile — and a
-  markdown file in the notes' editor, a live preview or blocks, as the T among a note's buttons has it. A page opened
-  through a tunnel finds out where the browser is by asking the viewer at the browser's 127.0.0.1 whether it is the same
-  one: Chrome asks once to let the page reach apps on the device. In such a browser one more button over a file shows it
-  in its folder in the computer's file manager — Explorer and Finder pick it out, elsewhere `xdg-open` opens its folder
-  — and one over a session opens the session's folder there; a browser on another computer or a phone has neither.
+## Remote access with Cloudflare
 
-  ![A markdown note with a mermaid diagram in the file panel, beside the session](docs/file-panel.png)
-- **Branch changes.** A button over a session shows in the side panel what the branch checked out in its folder
-  changed since it was made — its commits and its files, what is not committed yet included, new files too — against
-  the branch it was made from, as git recorded making it; with no such record, the main branch; on the main branch
-  itself, what it was pushed to. Another base can be chosen among the repository's branches. A file opened shows its
-  diff, and opens in the panel with a way back to the changes.
-- **The project's files.** The folder button over a session shows the session's folder in the side panel as a tree,
-  with a search over the project's text (case, whole word, regex); a file opened from either opens in the panel. Each
-  file downloads as it is and each folder as a zip, `.git` left out; the arrow up beside a folder uploads the files
-  picked into it. The two buttons beside the search go by what is chosen in the tree — the folder clicked last, or the
-  file shown: the download gives that folder or file, the upload goes into that folder or the one holding the file;
-  with nothing chosen, both are for the project's own folder, and their titles say which. A file whose name is there
-  already is asked about: replace the one there, upload it under another name, or skip it; where the file system does
-  not tell case apart (Windows, macOS) a name that differs only in case is the same file, and replacing it asks which
-  of the two names it keeps. Both show their progress under the search, with a bar: an upload its share of the file
-  and which of the files picked it is; a download its share of the file, or a zip — made as it goes, its size not
-  known ahead — its megabytes so far. A download comes in the page first and is saved once it is all there, so one
-  cut midway is not saved half. A zip holds up to 2 GB and 20,000 files; an upload takes up to 1 GB a file.
+You can reach the viewer from your phone or another laptop without renting a VPS or opening router ports — a domain on Cloudflare and the free Zero Trust plan are enough:
 
-  ![The project's files beside a session: a folder chosen, a row's download and upload, an upload of a name already there asked about](docs/files.png)
-- **VS Code.** Started with `--vscode <the VS Code CLI>`, the viewer runs VS Code in the browser — Microsoft's own
-  `code serve-web` — at `/vscode/`, and a button over a session opens it in the session's folder in a tab of its own:
-  the whole of VS Code, its search, its git, its extensions and their language servers (go to a definition, find the
-  uses). A button over a file in the file panel opens VS Code at the file's project — the nearest folder above it with
-  `.git`, a worktree's own, else the file's folder — with the file at its line. In a browser on the viewer's own
-  computer (found out as for "Open in the editor") both buttons open the computer's own VS Code instead, with its
-  settings, extensions and keys: `code` itself, or on Windows `Code.exe` beside the `bin` folder of `code-tunnel.exe`.
-  The first start downloads VS Code's server, about 100 MB, into `~/.vscode/cli`; its extensions are its own, in
-  `~/.vscode-server`. It stops with the viewer, however the viewer stops.
-- **Outline and bookmarks.** A right-hand outline lists your prompts (the one on screen is highlighted; Alt+↑ / Alt+↓
-  jump between them) and your bookmarks: hover a prompt, an answer or a subagent report and click the flag to keep it
-  one click away. Bookmarks are kept by the viewer in `~/.claude-code-webview/bookmarks.json`, so every browser and
-  device that opens it sees the same ones.
-- **Notes.** First in the outline, notes in markdown on the session's project folder: every session in the folder —
-  Claude Code's, whose project stays the folder it started in after a `cd`, and Codex's — shows the same ones. A note is
-  always there to be typed in, shown as it reads — a heading as a heading, a list's bullets as dots, a task's [ ] as a
-  box to tick, a code block coloured by its language, a table as a table, a click on a cell editing that cell in place
-  (Enter keeps it, Tab goes on to the next, Esc leaves it) — its markdown's marks showing only where the cursor is, as
-  Obsidian's live preview has it; what is saved is the markdown as typed. It is saved a second after the typing stops,
-  and at once when it is left; a note may be empty. ↶ and ↷ — in the side panel's head, and over a note's corner in the
-  outline while there is something to undo or do again — undo what was typed and do it again, as Ctrl+Z and Ctrl+Shift+Z
-  do; what the note comes to is saved as what is typed is. A note changed on another device and shown here has nothing
-  to undo. A link in a note — and a file's path — opens on Ctrl+click: a file in the side panel at its line, a page in a
-  tab. The `</>` button shows a note's markdown as typed, and back. ⤓ among a note's buttons in the side panel saves it
-  to a file — in the session's folder under the note's name, unless another path is typed; a file there already is
-  written over only once **Replace it** says so. **T** among a note's buttons in the side panel switches the notes to
-  blocks, as Notion has them — Milkdown's Crepe: **/** makes a block, a handle on its left drags it, a toolbar comes
-  over the words selected, a table is edited in place; a note typed into there is saved as Milkdown writes markdown —
-  its lists' marks and escapes its own — and a note only read is not saved. **+** writes a new note set apart — in the
-  side panel, under a name in the field above it (with none, its first line names it) — listed in the outline by its
-  name, which opens it in the side panel; the button at the end of a name shows the note in full in the outline, and the
-  one beside the bin sets it apart again. The bin removes a note once ✓ confirms; a note removed — here or on another
-  device — while the side panel shows it closes the panel. The notes stand in the order they are put in — a new one
-  first: a note is moved among the others by the grip among its buttons, one listed by its name by its whole row,
-  dragged with the mouse or with a finger resting on it a moment, and every device shows the order alike. The clock
-  lists the notes' changes, the latest first — added, edited, removed, set apart; a note's edits one after another,
-  within ten minutes, are one — each with the text it had before and ↶, which puts the note back as it was: a note
-  removed comes back, an edit is undone. Kept in `~/.claude-code-webview/notes.json`, as the bookmarks are, each note
-  with its way, so every device shows it alike; the last 200 changes of each folder in `notes-history.json` beside it.
+1. **Create a tunnel** — in the Cloudflare dashboard, go to **Networking → Tunnels → Create a tunnel** and install the `cloudflared` service on your computer using the command shown.
+2. **Add a route** — in the tunnel settings (**Routes → Add route → Published application**), point a subdomain such as `viewer.example.com` to `http://localhost:7788`.
+3. **Protect with Cloudflare Access (mandatory)** — under **Zero Trust → Access controls → Applications → Create new application → Self-hosted**, create an application for `viewer.example.com` with an **Allow** policy for your email (One-time PIN, Google, or GitHub). *Do not skip this step: transcripts contain secrets and `herdr` gives terminal access.*
+4. **Verify tokens in `cloudflared`** — enable [Protect with Access](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/origin-parameters/) on the tunnel route so `cloudflared` rejects requests without a valid Access token.
+5. **Pass `--public-url` to the viewer**:
+   ```bash
+   node bin/claude-code-webview.js --background --public-url https://viewer.example.com
+   ```
+   The server only answers requests matching `127.0.0.1` or an explicit `--public-url`.
 
-  ![The notes' changes in the side panel, the latest first, the text of a note removed opened](docs/notes-history.png)
-- **Pinned files.** Under the notes, the files pinned beside the session — a spec, a design, a README; any file the side
-  panel shows: markdown, a page, a Word document, a PDF, a table, a picture, code. The pin over a file open in the side
-  panel pins it, to the session's project folder — every session in it shows it — or to this session alone, chosen as it
-  is pinned; pressed again, it unpins it. A file the viewer did not pin — gone from its path, or the viewer not
-  answering — is told under the pin. A click on a pinned file opens it in the side panel, × unpins it; each is marked by
-  where it is pinned. **+** over the list pins a file by its path, typed or pasted in — what is on the disk offered
-  under it as it is typed, folder by folder — to the project or to the session; a path with no file there is refused,
-  saying so. ✎ on a row names the file in the list as you like, the file's own name left as it is. Kept in
-  `~/.claude-code-webview/pins.json`, so every device shows them.
+On iPhone, add the page to the Home Screen (Safari: Share → Add to Home Screen) to get an icon in your chosen `--palette` color and persistent offline storage.
 
-  ![The outline's notes, one inline and two set apart, and the files pinned under them, each marked by where; beside it a file in the side panel being pinned, to the project or to this session](docs/pins.png)
-- **Session header.** Under the title, one line of facts: the folder, the branch checked out there now, the model and
-  its effort, a ring that fills as the context window does (`412k/1M`; amber past 70%, red past 90%) and the cost.
-  A click opens the details: the full path and how much context is used and left. The window comes from the model
-  as Claude Code gives it (1M for Opus 4.7+, Sonnet 5+, Haiku 5.5, Fable; 200K for earlier ones unless the session ran
-  their `[1m]` variant); for a model Claude Code does not know only the size is shown.
-- **Usage.** Under the viewer's name, a meter for your plan's 5-hour window and one for the week. What is used is a
-  thick light-blue bar that narrows smoothly into a thinner line. While the use lags behind the time, the thin line is
-  pale green — room to spare — up to how much of the window has gone by; once the use runs ahead of the time, the bar
-  is red past that point — overspent. Hover for when each resets and how old the reading is. Claude Code reads
-  the usage only now and then and keeps the reading in `~/.claude.json`, so it may be hours old. A statusline command
-  is given a fresh one with every reply (`rate_limits` in its input); have yours drop it into
-  `~/.claude-code-webview/rate-limits.json` and the viewer shows whichever reading is fresher. In a bash statusline:
-  `input=$(cat); echo "$input" | jq -c '.rate_limits // empty' > ~/.claude-code-webview/rate-limits.json`.
-- **Phones.** On a narrow screen the session list and the outline slide in from the sides, bookmark flags stay
-  visible without hover, the view buttons fold into a "⋯" menu — the buttons over a session used less often with them,
-  as its first group, so the session's title has room — and on a touch keyboard Enter starts a new line while the ↑
-  button sends.
-- **Long sessions** open with their latest part (2000 entries, 800 on a phone); "Show N earlier entries" above it loads
-  the rest, keeping your place. A tool's big output — a command's stdout, a file read or written — is not sent up
-  front: the row shows its summary, and the output loads when the row is opened. A 120 MB transcript opens in about
-  a second. Images load only
-  when they scroll into view, and replies are gzipped, so a long session costs a phone about a megabyte, not dozens.
-- **Offline.** With the viewer out of reach — the computer off, a proxy in front of it answering with an error, no
-  network — the page still opens (a service worker keeps it) and shows what this browser saved: the session list and
-  the sessions you opened, plus the latest few sessions worked on, saved in the background while the viewer answered.
-  "Offline · reading saved copies" shows meanwhile; once the viewer answers, the page reconnects and catches up, keeping
-  your place. On an iPhone, add the page to the Home Screen: Safari may clear a website's saved data after a week
-  without visits. The saved copies serve online too: a session opened again shows at once as it was last time, marked
-  "Updating…" until the viewer's fresh copy takes its place. The sessions you switched away from lately stay
-  connected out of sight, over the page's one stream: switching back shows them up to date at once, where you left
-  them. As many stay as their size allows — about ten long ones on a computer, four on a phone, many more short ones,
-  twenty at most; the last one you left always stays.
-- **Background work.** Over the input box, what the session runs in the background — subagents and commands — and
-  how many have ended; opened, every task with how it stands: a command with its output as it grows, a subagent with
-  its own transcript as it works. A subagent quiet for long is shown as such, not as running for days.
-- **Copying.** A part of an answer selected and copied comes as markdown, as the answer was written — headings,
-  emphasis, code, links, lists, quotes, code blocks with their language and tables — with the formatting along with it
-  for a paste that takes it. A view button turns this off, and the browser copies as it does.
-- **Tables.** A table fits the answer's width, narrowing its columns down to whole words. When that is too cramped —
-  on a phone especially — "Wide" under the table gives each column a comfortable width and lets the table scroll
-  sideways. The same choice can be made for all tables of a session (in the header's details) or of the whole viewer
-  (a view button); the table's own button overrides the session, the session overrides the viewer.
-- Light and dark themes, optional display of Claude Code's service messages. The buttons used rarely — VS Code, the
-  conversation's width, the tables', lamps or robots, the theme — stand behind "⋯" at the end of the row over a session.
-  There too A− and A+ make the conversation's text smaller or larger, from 85% to 150% — and, in a row of their own,
-  the notes' — each browser keeping its own.
-- **Palettes.** `--palette sea` (or `moss`, `plum`; `clay`, Claude's own, is the default) changes the accent colour, tints the
-  session list a little and colours the tab icon and the iPhone home screen icon — two viewers, say on two computers, are
-  told apart at a glance.
+---
 
-## With herdr: workspaces, tabs, terminals and sending prompts (optional)
+## Rate limits and `ccproxy` (`Claude GPT`) setup
 
-herdr is not needed to read sessions. If you run Claude Code inside [herdr](https://herdr.dev), the viewer can do more:
-lay herdr out as herdr does — its workspaces, their tabs with the agents' status, terminals — and type prompts into
-the sessions. Without herdr — not installed, not running, or turned off with `--no-herdr` — everything else works, and
-the herdr view, the terminals, the input box, Stop and rewind are simply not shown.
+### Live rate-limit snapshots
 
-### herdr's layout
+- **Claude** — by default the viewer reads `~/.claude.json`, which Claude Code updates only periodically. For live numbers after every turn, have your Claude Code `statusline` command write `rate_limits` to `~/.claude-code-webview/rate-limits.json`:
+  ```bash
+  input=$(cat); echo "$input" | jq -c '.rate_limits // empty' > ~/.claude-code-webview/rate-limits.json
+  ```
+- **ChatGPT / Codex** — Codex usage is read automatically; if you also use a GPT gateway, pass `--chatgpt-usage-file <path>` pointing to a JSON snapshot (`{ "at": <ms>, "status": 200, "limits": { "five_hour": { "used_percentage": 28, "resets_at": <sec> }, "seven_day": { ... } } }`).
+- **Gateway model and context telemetry** — a gateway statusline can write live session metadata to `~/.claude-code-webview/session-status/<session-uuid>.json` (`{ "at": <ms>, "model": "<id>", "contextTokens": 64000, "contextWindow": 1000000, "effort": "high" }`).
 
-The sidebar switches between "herdr" and "Sessions" with the button at its head that shows the other list's icon. In
-"herdr" it shows herdr's workspaces in herdr's order, each
-with its agents' status — working, waiting for you, done, idle — and under them every session of every workspace:
-Claude Code, Codex and other agents, those with their lamp lit — at work, waiting for you, done with an answer not seen,
-kept to come back to — above the idle ones, and in each the one whose agent changed state last first, as herdr lists
-its agents; or, chosen at the head of the list ("Lamps first" / "Latest first", which the browser remembers), by the
-latest change alone. Above an
-open session — or terminal — the tabs of its workspace sit in a row, as in herdr, to switch between them. A session or
-tab with Claude Code or Codex opens its feed; any other tab — a shell, nvim, another agent — opens its terminal. Codex
-keeps no record of its processes: a Codex pane shows the thread Codex holds open in the pane's folder, and when a folder
-has more than one, the one whose name Codex put in the pane's title. The search finds
-workspaces and sessions by name and by what runs in them.
+### Running Claude Code through a GPT gateway (`ccproxy`)
 
-**Ctrl+Tab** switches between herdr's tabs in the order they were opened, as an editor does: a list of them shows, each
-as the session list has it — the session's title, its workspace and tab, its lamp — the one opened before this one
-marked; Tab with Ctrl held moves the mark down, Shift+Tab and the arrows move it either way, the wheel too — not zooming
-the page, and letting go of Ctrl opens the tab marked — Enter or a click does too, Esc leaves the tab as it was. A
-browser keeps Ctrl+Tab to itself in its tabs: the page gets it in a window of its own — installed as an app, in Chrome,
-Edge or Brave — or in full screen.
-
-A finished agent's lamp goes out once its answer is seen — its session opened in the page, on any device. To come back
-to one later, keep its lamp lit — blue, steady: the clock over the session, the one among an open session's buttons in
-the sidebar or among the open tab's in the tab bar, or **Ctrl+Q**. It stays lit — its tab's and its workspace's too —
-until you press it again or the agent starts working again; kept by the viewer in `~/.claude-code-webview/kept.json`, so
-every device shows it.
-
-A second click on the open tab shows its buttons: the first is its icon (☺ while it has none), picked there and then
-without naming the tab; ✎ names it — so does **F2**, anywhere but in a terminal — the next
-one duplicates it, × closes it (after asking with ✓ and ✕ — what runs in it stops), and the page moves to the tab next
-to it. A duplicate is a new tab of the workspace, in the same folder, named `<name>::1` (then `::2`, …; a copy of a copy
-counts on from the same name), with the session in it forked: `claude --resume <id> --fork-session` — the conversation
-so far, going on as a new session, its feed showing that conversation at once, before the copy's first message — or
-`codex fork <id>`; a tab with no session gets a terminal. A tab's emoji icon is
-kept ahead of its name in herdr's label, so herdr shows it too. **+** at the end of the row opens a tab
-beside the open one, in its folder and under the name (and icon) you give it: a terminal, or Claude Code started in it
-with `claude` — or with the command given by `--claude-command`, a wrapper of your own — or Codex, with `codex` or
-`--codex-command`; the page goes from the new tab's terminal to its session as soon as the agent's session starts there. When Claude Code started from the page — in a new tab or
-workspace, or resuming a session — asks whether to trust its folder, the viewer answers yes: the folder is the one
-you chose, and the dialog's arrows and Enter are out of reach on a phone. Tabs that do not fit the row scroll sideways
-under the mouse wheel. A tab dragged along the row goes where it is let go, in herdr too — on a phone, after a finger
-rests on it a moment, a swipe still scrolls the row.
-
-A workspace has a colour of its own — its hue follows from its name — on the left edge of its row and of the rows of
-the sessions that run or ran in it, and an icon left of its name, one at random until you pick one — kept for its
-folder. A press on the icon at the head of its tabs, over the open session, picks another (a second click on the open
-workspace's icon in the sidebar too): an emoji, which goes ahead of its name in herdr, or one of Lucide's icons, found
-by its words, in a colour of your choice. **+** beside the search opens one: its folder — picked from the folders
-offered under its box, or typed anew — its name, the folder's unless you give another, and a terminal, Claude Code or
-Codex in it; a folder that is not there is offered to be made, and the workspace opens in it as asked. The folders
-offered for what is typed are first those worked in — typed before, where sessions ran — then those on the disk: for
-a path, the folders in the one it is typed in whose names start with what follows the last slash; for a word, the
-folders with it in their names beside those worked in lately. They are written as the viewer's computer writes paths —
-backslashes on Windows — and so is the folder a workspace opens in. A second click on the
-open workspace or session in the sidebar shows its buttons, as the open tab's do: ✎ names the workspace or the
-session's tab, × closes it. An idle session also gets a crossed-out eye: it hides the session from the list until its
-agent changes state — it starts working, say — on every device (`~/.claude-code-webview/hidden-panes.json`). The list's
-head tells how many are hidden, and a press on that brings them all back.
-
-A terminal mirrors the one in herdr, at its size: the keys you type go to it as they are — Enter, arrows, Ctrl+C — and
-what herdr shows comes back within a few hundredths of a second (the viewer talks to herdr through its socket; where the
-socket is not known, through the herdr program, a fifth of a second). herdr does not tell where the cursor is, so no
-cursor is drawn. On a phone the terminal's font shrinks to fit the width, down to a readable size, and it scrolls
-sideways past that. Under it a phone has the keys its keyboard lacks — Esc, Tab, the arrows, Enter, Ctrl+C — and one
-that pastes what the clipboard holds; a long press on the terminal brings up the phone's own menu, with Paste. A tab
-split into several panes shows the one running Claude Code, or else its first pane.
-
-![A herdr tab's terminal next to the herdr sidebar](docs/terminal.png)
-
-### Claude Code through a GPT gateway
-
-Keep ordinary Claude Code and a gateway-backed launcher available together:
+To keep standard Claude Code and a gateway-backed launcher available side by side:
 
 ```bash
 node bin/claude-code-webview.js --claude-gpt-command my-claude-gpt
 ```
 
-This adds **Claude GPT** beside Claude Code when opening a tab or workspace. GPT sessions use that launcher when
-reopened or duplicated, retaining their last model. Sessions launched outside the viewer are recognized by their
-`gpt-*` model IDs. The ordinary Claude Code command stays separate. The gateway must be running and reachable by
-the launcher.
+New tabs and workspaces offer both **Claude Code** and **Claude GPT**, and any active session's details panel includes **Restart in Claude GPT** / **Restart in Claude Code** to switch modes in place.
 
-Send `/model` from the input box to open Claude Code's model picker on the page. Clicking a model applies it to that
-session only, leaving the global Claude Code default alone. The picker shows the options configured in Claude Code.
+---
 
-`/mcp` sent the same way shows its screens on the page: the MCP servers by their state (a click opens one), a
-server's menu, its tools, what a tool does; **Back (Esc)** goes to the screen before. What `/mcp` does is written down
-in the conversation as Claude Code writes it; left with Esc, it leaves nothing there, and the page shows it as sent no
-longer.
+## CLI options
 
-A gateway statusline can publish the session's live model and context to
-`~/.claude-code-webview/session-status/<session-uuid>.json`: `{ "at": <Unix milliseconds>, "model": "<model-id>",
-"contextTokens": <input tokens including cache>, "contextWindow": <window size>, "effort": "high" }`.
-Only `at` and `model` are required. The viewer reads these facts independently of transcript entries, so the model
-can appear before the first answer, and uses the reported window for gateway models. A newer reading takes
-precedence over older transcript messages. The file should contain only these display fields.
-
-`--chatgpt-usage-file <path>` reads a gateway statusline's usage snapshot and shows the freshest reading beside
-Codex's usage, under **ChatGPT / Codex**. The file has `{ "at": <Unix milliseconds>, "status": 200, "limits": { ... } }`;
-`limits.five_hour` and `limits.seven_day` each hold `used_percentage` and `resets_at` (Unix seconds). Missing, failed,
-or expired readings are hidden. Only the windows and their reading time are sent to the browser.
-
-Codex questions issued while work continues appear in the conversation with their choices, outside folded action
-groups. Reply through the input box.
-
-### Sending prompts
-
-An input box appears under the feed: the text is typed into
-the session's terminal and submitted with Enter, exactly as if you typed it there. While Claude is busy, Claude Code
-queues it. "Stop" — or Esc in the box, or anywhere on the page with nothing else to close — sends Esc; Esc in the box
-closes nothing on the page, a note open beside it stays. A long text pasted in
-need not cover the conversation: a box taller than a few lines folds to them with the button in its corner. As in the terminal, a prompt Claude had not started on comes back for editing: the viewer
-takes it out of the terminal's input box and puts it into the page's box, exactly as it was sent, before anything
-already typed there. Drafts are kept per session.
-
-What comes to mind while Claude works need not break into its turn — Claude Code's queue hands a prompt over as soon
-as it can — nor be lost: the clock beside ↑ (Alt+Enter) sets the box's text aside for later. The prompts set aside
-wait over the box in the order written; each goes into the box to be edited, is sent from an empty box with one tap,
-or is removed. The viewer keeps them in `~/.claude-code-webview/later.json`, so the phone and the computer see the
-same ones.
-
-Images can go with a prompt: pick them with the paperclip (on a phone — from the gallery or the camera), paste a
-screenshot anywhere on the page (Ctrl+V), or drop files on the box. The page scales photos down to 2048 px before sending; the viewer saves them in
-`~/.claude-code-webview/uploads/` and lists their paths at the end of the prompt, and Claude Code opens them with its
-Read tool. In the feed the list shows as pictures again.
-
-A slash at the start of the box offers the session's commands over it, as the terminal's menu does, narrowed by what is
-typed: Claude Code's own, the skills and command files of yours (`~/.claude/skills`, `~/.claude/commands`) and of the
-session's folder (`.claude/`), and those of the plugins turned on, as `/<plugin>:<name>`; for Codex its own and your
-prompts. ↑ and ↓ go through them, Enter or Tab puts one in the box — to send as it is or with arguments — and Esc puts
-the list away.
-
-`/btw <question>` in the box asks a side question, as in the terminal: Claude answers from what the conversation already
-holds, with no tools, even while it is busy, and nothing is added to the conversation. Claude Code shows the answer only
-in a panel over its prompt box, so the viewer reads it off the terminal — scrolling to its end — closes the panel and
-shows the answer above the page's box. Prompts sent meanwhile wait until the panel is closed. The answer belongs to its
-session: opening another session and coming back — even before it came — shows it again, until you close it. The
-connection lost while Claude answers — the viewer restarted, the network dropped — or the page reloaded, the page asks
-again for the answer of the question asked, not the question anew: the viewer reads it off the panel still open. The
-side answers before it — the session's latest twenty, kept in the browser — are leafed through with ‹ and › over the
-answer; closed, `/btw` with no question shows them again.
-
-Rewind works as Esc Esc does in the terminal: the ↶ next to one of your messages offers the same choices — restore
-code and conversation, the conversation, or the code, summarize from or up to that message. The viewer drives
-Claude Code's `/rewind` menu with keys, checks every step on the screen (the message by its full text on the
-confirmation) and closes the menu if anything looks different. It works only while Claude waits for input. After the
-conversation is restored, the message comes back into the box on the page to be edited and sent again.
-
-The feed shows only the active branch of a conversation: a rewind deletes nothing from the transcript, so the
-messages it undid are left out.
-
-### A tab's conversations
-
-`/clear` (or `/new`), `/resume` and `/branch` go on in the same Claude Code with another conversation. Typed in a tab —
-from the page or in the terminal — the page showing the conversation before goes on with the new one, its box with it,
-and "Earlier in this tab" over the new one's feed opens the one before. The history button over a session shows in the
-side panel the conversations of its tab — the one it runs now first, then those it went on from — and the herdr tabs
-closed, the latest first, each with its conversations: a click opens one to read, and "Restore" opens the tab again in
-its workspace, its latest conversation resumed and the others still its own. A conversation its tab went on from has,
-in the box's place, "Resume here" — `/resume` typed into the tab, which keeps the conversation it ran in its history —
-and "New tab", a copy of the tab with Claude Code resuming the conversation there. A tab is told from the others by
-herdr's id of its terminal, kept with every session in `~/.claude-code-webview/workspaces.json`; a session seen before
-the viewer kept it is a closed tab of its own. While a session runs in a herdr tab, a button over it takes herdr to that
-tab, its workspace with it (`herdr tab focus`); and the session's details — a click on the line of its facts — offer to
-restart it there: a second press confirms it, its Claude Code ends — its turn and its background commands with it — and
-starts again in the tab resuming it (`<command>
---resume <id>`) — plainly, or, with the button that names them, with the variables given by `--restart-env` set ahead
-of it — as PowerShell sets them on Windows,
-`$env:NAME='VALUE';`, and as a POSIX shell does elsewhere, `NAME=VALUE <command>`. Say Claude Code has stopped a
-session's idle background commands for want of memory: started with
-`--restart-env CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1`, the viewer restarts it so that it no longer does. The
-viewer ends Claude Code by the process its registry names, so it has to see the processes of the sessions' computer —
-in a container, the host's (`pid: host`).
-
-### Workspaces in the session list
-
-In "Sessions" the session list shows each session's herdr workspace next to its folder (unless they are named alike), the search
-finds sessions by workspace, and "Group by herdr workspace" gathers the list under the workspaces' names — the latest
-worked on first, the sessions with no workspace last. A session's workspace is:
-
-- the one whose pane runs it, while it runs — and it stays its workspace after the session ends
-  (`~/.claude-code-webview/workspaces.json`);
-- for a session never seen running, the workspace whose panes are open in its folder, if just one workspace has panes
-  there.
-
-### Finding herdr
-
-To let the viewer find your herdr, start it once from a herdr pane — herdr sets `HERDR_BIN_PATH` and
-`HERDR_SOCKET_PATH` there, and the viewer remembers them in `~/.claude-code-webview/herdr.json` for launches outside
-herdr (for example from a desktop shortcut).
-
-How a prompt reaches the terminal:
-
-```
-~/.claude/sessions/<pid>.json        → which process has the session open (Claude Code keeps this registry)
-herdr pane list + pane process-info  → the herdr pane running that process
-herdr pane send-text + send-keys     → the text and Enter, into that pane
-```
-
-What the agent asks in its terminal — a question with options (AskUserQuestion), a choice Codex waits on — shows above
-the box, its choices as buttons, a click being the key the terminal gets. A click on the card's head folds it to that
-one line, who asks and the question, leaving the conversation the room; it stays so while the question is asked, and
-the next one shows unfolded.
-
-![What the agent asks over its box, and the same folded to one line](docs/question.png)
-
-## On your phone
-
-The viewer answers on your computer only (`127.0.0.1`). To open it from a phone — at home or anywhere — put it behind
-[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/get-started/create-remote-tunnel/)
-and [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/),
-right on the computer that runs the viewer. `cloudflared` connects out to Cloudflare, so there is no server to rent, no
-port to open on the router and no address to keep track of. The free plans are enough; you need a domain on Cloudflare.
-
-1. **Tunnel.** In the Cloudflare dashboard, **Networking → Tunnels → Create a tunnel**, and install `cloudflared` on
-   the computer with the command the dashboard shows: it runs as a service and starts with the computer.
-2. **Route.** In the tunnel, **Routes → Add route → Published application**: a hostname such as `viewer.example.com`
-   and the service URL `http://localhost:7788`.
-3. **Login.** **Zero Trust → Access controls → Applications → Create new application → Self-hosted and private**, for
-   the same hostname, with the policy **Allow · Include · Emails · you@example.com** and the One-time PIN login (a code
-   by email) or a Google or GitHub account. A long **Session Duration**, a month say, saves logging in again on the
-   phone. Do not skip this step: without it the tunnel shows your sessions — secrets included — to anyone who finds
-   the address, and with herdr lets them type into your terminals.
-4. **Belt and braces.** On the route, turn on
-   [Protect with Access](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/origin-parameters/)
-   (it asks for your team name and the application's AUD tag): `cloudflared` then passes on only requests that carry a
-   valid Access token, even if the Access application is changed or deleted later.
-5. **The viewer.** Start it with its public address:
-   `node bin/claude-code-webview.js --background --public-url https://viewer.example.com`. The viewer answers only its
-   own addresses, so without `--public-url` it turns away whatever comes through the tunnel.
-
-Open `https://viewer.example.com` on the phone, log in, and add the page to the Home Screen (Safari: Share → Add to
-Home Screen). It gets an icon in the viewer's palette, and Safari keeps its saved copies: with the computer off the
-page still opens and shows what it saved, and catches up once the computer is back (see **Offline** above).
-
-On a phone the session list and the outline slide in from the sides, and the swipe from the left edge — the browser's
-Back — brings back the list the session was chosen in; the swipe from the right edge, to the left, slides in the outline
-— the notes, the files pinned, the bookmarks, the prompts — and the same swipe again opens the document the side panel
-showed last, a file or a note. A swipe back toward its side closes either — not one begun on a table or a code block
-that scrolls sideways. On the touch keyboard Enter starts a new line and ↑ sends; the paperclip takes photos from the
-gallery or the camera.
-
-A file or a note opens on a phone in a sheet from the bottom, the session's head in sight above it, its own head in two
-rows — the name and ×, its buttons in a row under it scrolling sideways. Pulled down by its top, the sheet is put away
-and its document waits as a card under the feed, over the box, so the session can go on; the documents put away — files
-and notes — line up there as cards to leaf through sideways, the latest first. A card opens its document again; its ×,
-or × on the sheet, closes it for good.
-
-![On a phone: a session with its herdr tabs, the herdr sidebar, a terminal](docs/mobile.png)
-
-Several computers? Give each its own tunnel, hostname and `--palette`, and the pages are told apart at a glance.
-
-## Commands
-
-| Command | What it does |
+| Option | What it does |
 | --- | --- |
-| `node bin/claude-code-webview.js` | start and open the browser; Ctrl+C stops it |
-| `node bin/claude-code-webview.js --background` | start without a terminal window (log: `~/.claude-code-webview/server.log`) |
-| `node bin/claude-code-webview.js --stop` | stop the running viewer |
-| `node bin/claude-code-webview.js --restart` | stop and start again in the background |
-| `node bin/claude-code-webview.js --port 7800` | use another port |
-| `node bin/claude-code-webview.js --palette sea` | another accent colour: clay (default), sea, moss, plum |
-| `node bin/claude-code-webview.js --public-url https://viewer.example.com` | also answer at this address, behind a tunnel (see **On your phone**); repeat for more |
-| `node bin/claude-code-webview.js --no-open` | do not open the browser |
-| `node bin/claude-code-webview.js --no-herdr` | do not use herdr even if it is found: the page only reads sessions |
-| `node bin/claude-code-webview.js --claude-command my-claude` | start Claude Code with this command in a tab opened from the page (default: `claude`) |
-| `node bin/claude-code-webview.js --codex-command "codex --full-auto"` | start Codex with this command in a tab opened from the page, and `<command> resume <id>` to open a closed Codex session again (default: `codex`) |
-| `node bin/claude-code-webview.js --restart-env CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1` | a variable a session restarted from the page — from its details — starts again with, `NAME=VALUE`, the value with no space, quote or `$`; repeat for more |
-| `node bin/claude-code-webview.js --editor-command "code --goto {path}:{line}"` | open a file of the file panel in an editor of this computer; `{path}`, `{line}` and `{project}` — the nearest folder above the file with a `.sln`, `.slnx` or `.git` — are filled in; the program is started directly, not through a shell — on Windows name its `.exe`. Rider: `"C:/Program Files/JetBrains/Rider/bin/rider64.exe" {project} --line {line} {path}` |
-| `node bin/claude-code-webview.js --vscode "C:/Users/ann/AppData/Local/Programs/Microsoft VS Code/bin/code-tunnel.exe"` | run VS Code in the browser at `/vscode/`, opened from a button over a session: the VS Code CLI — `code-tunnel.exe` of VS Code on Windows, `code` elsewhere |
-| `node bin/claude-code-webview.js --install-shortcut` | Windows: desktop shortcut that starts the viewer in the background (`--start-menu` for the Start menu) |
+| *(no options)* | Start on `127.0.0.1:7788` and open the browser (`Ctrl+C` stops) |
+| `--background`, `-b` | Start in the background without a terminal window (log: `~/.claude-code-webview/server.log`) |
+| `--stop` | Stop the running viewer |
+| `--restart` | Restart the viewer in the background |
+| `--port <port>`, `-p` | Listen port on `127.0.0.1` (default: `7788`) |
+| `--palette <name>` | Accent color and app icon palette: `clay` (default), `sea`, `moss`, `plum` |
+| `--public-url <url>` | Allow access through an authenticated tunnel at this URL (repeatable) |
+| `--no-open` | Do not open the browser on start |
+| `--no-herdr` | Read-only mode: ignore `herdr` even if running |
+| `--claude-command <cmd>` | Command used to launch Claude Code in new tabs (default: `claude`) |
+| `--claude-gpt-command <cmd>` | Command used to launch Claude Code through a GPT gateway (**Claude GPT**) |
+| `--chatgpt-usage-file <path>` | Path to a gateway statusline's ChatGPT usage snapshot |
+| `--codex-command <cmd>` | Command used to start and resume Codex (default: `codex`, e.g. `"codex --full-auto"`) |
+| `--agy-command <cmd>` | Command used to start and resume Antigravity CLI (default: `agy`) |
+| `--restart-env <NAME=VALUE>` | Environment variable added when restarting a session from the UI (e.g. `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1`) |
+| `--editor-command <cmd>` | Command to open files in a local editor (`{path}`, `{line}`, `{project}`; Windows uses file associations by default) |
+| `--vscode <program>` | Run browser VS Code (`code serve-web`) at `/vscode/` and open desktop VS Code when browsing locally (`code-tunnel.exe` on Windows, `code` elsewhere) |
+| `--install-shortcut` | Windows: create a Desktop shortcut (`--start-menu` for the Start menu) |
 
-`npm start -- <options>` does the same as `node bin/claude-code-webview.js <options>`.
+**Where session data is read from:**
+- **Claude Code:** `~/.claude/projects` (or `$CLAUDE_CONFIG_DIR/projects`), including subagent transcripts.
+- **Codex:** `~/.codex/sessions` (or `$CODEX_HOME/sessions`), `thread-writer-locks/`, and `session_index.jsonl`.
+- **Antigravity CLI:** `~/.gemini/antigravity-cli` (transcripts in `brain/<id>/.system_generated/logs/`, titles in `conversation_summaries.db`, and run logs in `log/`).
 
-`--stop` only stops a process that answers on the port as this viewer; another program on the port is left alone.
-Sessions are read from `~/.claude/projects`; if you moved the Claude Code folder, `CLAUDE_CONFIG_DIR` is respected.
-Codex sessions are read from `~/.codex/sessions`, or from `sessions` under `CODEX_HOME` when it is set; the threads it has
-open, from its `thread-writer-locks`, and their names, from its `session_index.jsonl`.
+---
 
-The desktop shortcut starts the viewer from the folder it was created in: after moving the folder, create it again.
+## How it works and security
 
-## How it works
-
-```
-~/.claude/projects/<project>/<session>.jsonl    ← Claude Code appends one line per block
-        │  the server checks the size every 400 ms and reads what was appended
-        ▼  only what the feed needs is kept (no file snapshots, system prompt, …)
-SSE /api/stream?session=<id>
-        ▼
-transcript record → feed events (pure functions) → DOM
+```text
+Agent transcript (.jsonl)  ──(checked every 400 ms, reads appended bytes only)──►  SSE /api/stream  ──►  DOM
+Browser input              ──(Origin + X-Viewer, direct shell-free herdr call)──►  herdr pane
 ```
 
-Subagent transcripts live next to the session (`<session>/subagents/agent-<id>.jsonl`) and are linked to their Agent
-call through `agent-<id>.meta.json`. A session moved with `/cd` is found in its new folder automatically.
+- **Protected against cross-site access** — the server binds to `127.0.0.1` only, validates `Host` headers against DNS rebinding, and requires matching `Origin` and `X-Viewer` headers on all write operations (sending prompts, saving files, uploading).
+- **Safe rendering** — transcript Markdown is sanitized with DOMPurify; HTML previews run inside a sandboxed `iframe` scoped to their folder (no `..` traversal) with scripts isolated in a separate origin.
+- **Shell-free execution and atomic writes** — `herdr` is invoked directly without a shell so prompt text is never interpreted as a shell command; uploaded files are written to temporary sibling files first and moved into place atomically.
 
-## Security
-
-Transcripts contain everything the agent has seen, secrets included. So the viewer:
-
-- listens on `127.0.0.1` only and answers only requests whose `Host` is that address (or one given with
-  `--public-url`), so a web page cannot read it through DNS rebinding;
-- leaves the login on a public address to whatever stands in front of it: an address given with `--public-url` must be
-  behind one, such as Cloudflare Access (see **On your phone**);
-- sanitizes markdown from transcripts with DOMPurify;
-- accepts the one write operation — sending a prompt to a terminal — only from its own page: the request must carry
-  the viewer's `Origin`, a JSON body and an `X-Viewer` header, which another site cannot send without a CORS preflight
-  that the server never allows. herdr is run without a shell, so the prompt text is never interpreted as a command;
-- serves file contents for the side panel (`/api/file`, any text file up to 2 MB by absolute path) under the same rules.
-  An HTML page drawn in the panel, and what it loads beside it, comes from `/api/folder/…`: only from the page's folder
-  and below — no `..` out, no link in it that leads out — in a sandbox, also when opened in a tab of its own. Its
-  scripts are off; the button over the panel runs them in an origin of their own, out of reach of the viewer's page:
-  such a page can neither read what the viewer serves nor send a prompt;
-- downloads a file or a folder as a zip (`/api/file/download`, `/api/folder/download`) by absolute path, and takes an
-  upload (`/api/file/upload`) only from its own page — its `Origin`, an `X-Viewer` header and a binary body — into a
-  folder by absolute path, under a plain file name: no slash, no `..`. The file is written beside its place first and
-  takes it once whole, so a broken upload leaves no half of it there;
-- reaches VS Code (`--vscode`) only through itself: VS Code's server listens on 127.0.0.1 with a token the viewer makes,
-  keeps in a file of its own and adds to each request. VS Code's page gets the token too, as a cookie of the viewer's
-  address — its client opens its connection with it — so another site's page cannot read it. A request to `/vscode/` from another
-  site — a picture, a form, a WebSocket — is turned away by what the browser says of where it comes from
-  (`Sec-Fetch-Site`, `Origin`). VS Code reads and writes any file and has a terminal: on a public address it is as open
-  as the login in front of the viewer, the same as sending prompts to a session is.
-
-## Limitations
-
-- After rewinding a conversation (Esc Esc) both branches stay in the transcript; the feed shows records in file order.
-- Cost appears in the header only when Claude Code wrote it to the transcript.
+---
 
 ## Development
 
 ```bash
-npm install          # with the development tools: TypeScript, jsdom
-npm start            # run from the working copy
-npm test             # node:test — transcript parsing, file links, server, markdown (jsdom), CLI
-npm run check        # TypeScript checks the JavaScript through JSDoc in strict mode
-node scripts/build-milkdown.mjs  # rebuilds public/lib/milkdown — the notes' blocks editor — after updating Milkdown
+npm install                      # install dev dependencies (TypeScript, jsdom)
+npm start                        # run from working copy
+npm test                         # run test suite (node:test)
+npm run check                    # strict TypeScript type-checking via JSDoc
+node scripts/build-milkdown.mjs  # rebuild public/lib/milkdown bundle after updating Milkdown
 ```
-
-| Folder | Contents |
-| --- | --- |
-| `bin/`, `cli/` | the `claude-code-webview` command: arguments, foreground/background start, stop, shortcut |
-| `server/` | HTTP server, session list, transcript stream, file panel; through herdr: its layout, terminals, sending prompts |
-| `public/model/` | pure functions: transcript parsing, tool rows and diffs, file links, outline, formatting |
-| `public/view/` | rendering of the feed, tool rows, markdown, file panel, outline, input box, herdr view, terminal |
-| `public/lib/` | Milkdown's Crepe bundled into one module and one stylesheet: kept built, as the viewer has no build step |
-| `assets/`, `scripts/` | shortcut icon, and the script that draws it and the home screen icons (`public/favicons/*.png`); the Milkdown bundle's build |
-| `test/` | tests |
 
 ## License
 

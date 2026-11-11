@@ -14,8 +14,9 @@ const design = { path: 'D:\\dev\\shop\\docs\\design.pdf', at: '2026-10-28T09:05:
  * The pinned files' section in a page, what it asks for recorded; a path pinned by hand comes to these outcomes in turn;
  * the disk holds D:\\dev\\shop\\ with docs in it, and spec.md in docs.
  * @param {readonly import('../public/view/pins-store.js').PinOutcome[]} outcomes
+ * @param {string} [start] - the path to pin starts at: the session's project folder; none — the session's folder unknown
  */
-function pinsShown(outcomes = []) {
+function pinsShown(outcomes = [], start = undefined) {
   /** @type {string[][]} */
   const asked = [];
   const left = [...outcomes];
@@ -34,6 +35,7 @@ function pinsShown(outcomes = []) {
       return [];
     },
     iconOf: (name) => Object.assign(window.document.createElement('span'), { className: 'file-icon', title: name }),
+    startPath: () => start,
   });
   window.document.body.replaceChildren(view.element);
   /** @param {string} selector */
@@ -62,7 +64,7 @@ test('pinsView_Should_ListPinnedFilesOnce_MarkedByWhereTheyArePinned_OpeningAndU
     {
       rows: [
         ['design.pdf', 'session'],
-        ['spec.md', 'session · project'],
+        ['spec.md', 'session · desk'],
       ],
       asked: [
         ['open', spec.path],
@@ -137,6 +139,26 @@ test('pinsView_Should_OfferPathsOnDisk_ToPin_FolderByFolder', async () => {
       ],
     },
   );
+});
+
+// The path to pin starts at the session's project folder — what is in it offered at once, the cursor after it; with the
+// session's folder unknown it starts empty
+test('pinsView_Should_StartPathToPinAtProjectFolder_OfferingWhatIsInIt', async () => {
+  /** @param {string | undefined} start */
+  const opened = async (start) => {
+    const shown = pinsShown([], start);
+    shown.view.show({ folder: [], session: [] });
+    shown.element('.pins-add').click();
+    await shown.settled();
+    const field = shown.element('input.pins-path');
+    assert.ok(field instanceof window.HTMLInputElement);
+    return { field: field.value, cursor: field.selectionStart, offered: [...shown.view.element.querySelectorAll('.pins-offers button')].map((one) => one.textContent), asked: shown.asked };
+  };
+
+  assert.deepEqual([await opened('D:\\dev\\shop\\'), await opened(undefined)], [
+    { field: 'D:\\dev\\shop\\', cursor: 12, offered: ['docs'], asked: [['offers', 'D:\\dev\\shop\\']] },
+    { field: '', cursor: 0, offered: [], asked: [] },
+  ]);
 });
 
 // A pinned file is named in the list as one likes, the file's own name left as it is: ✎ on its row gives a field — the

@@ -78,6 +78,8 @@ export function createDialogCard({ asker, answer }) {
       h('span', { className: 'dialog-option-text' }, [h('span', { className: 'dialog-option-label', text: `${mark}${option.label}` }), ...(option.detail === undefined ? [] : [h('span', { className: 'dialog-option-detail', text: option.detail })])]),
     ]);
     made.classList.toggle('current', option.current);
+    // the terminal's cursor on it: lit again once one's own words no longer take Enter
+    made.dataset.current = String(option.current);
     made.addEventListener('click', () => send(dialog.previews ? walkTo(dialog, option) : [{ key: digitOf(option.key) }]));
     return made;
   };
@@ -102,6 +104,13 @@ export function createDialogCard({ asker, answer }) {
       event.preventDefault();
       submit();
     });
+    // what Enter presses is lit: with words typed here, this button — else the choice the terminal's cursor is on
+    const lightWhatEnterPresses = () => {
+      const typed = document.activeElement === words && words.value.trim() !== '';
+      go.classList.toggle('current', typed);
+      for (const one of element.querySelectorAll('.dialog-option')) one.classList.toggle('current', !typed && one.getAttribute('data-current') === 'true');
+    };
+    for (const happening of ['input', 'focus', 'blur']) words.addEventListener(happening, lightWhatEnterPresses);
     return h('div', { className: 'dialog-own-row' }, [words, go]);
   };
 

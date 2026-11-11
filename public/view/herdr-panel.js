@@ -4,7 +4,7 @@
 // between, the open one to name or close.
 import { folderOffers, workspaceNameOf } from '../model/folders.js';
 import { iconColors, iconValue, parseIcon, searchIcons } from '../model/icon-choice.js';
-import { agentPaneOf, placeOf, searchLayout, sessionsByActivity, tabTarget } from '../model/herdr.js';
+import { agentPaneOf, placeOf, searchLayout, sessionsByActivity, tabTarget, workspacesShown } from '../model/herdr.js';
 import { groupLamp, paneLamp } from '../model/lamps.js';
 import { isRecord } from '../model/narrow.js';
 import { jokeAt, storyAt } from '../model/stories.js';
@@ -16,7 +16,7 @@ import { workingRobots } from './robot.js';
 import { waverInOwnTime } from './lamp-time.js';
 import { workspaceIconOf } from './workspace-icon.js';
 import { sessionRowParts } from './session-row.js';
-import { lucideIcon } from './lucide.js';
+import { lucideIcon, putAllLucideIcons } from './lucide.js';
 import { createWorkClock } from './work-clock.js';
 import { tintByWorkspace } from './workspace-tint.js';
 import { workspaceHue } from '../model/workspace-color.js';
@@ -172,8 +172,9 @@ function createIconPalette({ icons, lucide, onChoose, onEscape }) {
   let color;
   const loadIcons = () => {
     if (lucide === undefined) return Promise.resolve();
-    loadingIcons ??= lucide.tags().then(
-      (tags) => {
+    // the whole set in one file before the grid draws it: else each icon of it would be asked for on its own
+    loadingIcons ??= Promise.all([lucide.tags(), putAllLucideIcons()]).then(
+      ([tags]) => {
         const search = h('input', { className: 'herdr-icon-search', attrs: { type: 'search', placeholder: 'Search icons — finance, chart…', 'aria-label': 'Search icons', spellcheck: 'false', autocomplete: 'off' } });
         const grid = h('span', { className: 'herdr-icon-grid' });
         const buttons = new Map(
@@ -372,7 +373,7 @@ function link(target, className, children) {
 
 /**
  * @typedef {import('../model/herdr.js').TabChange} TabChange
- * @typedef {{ createWorkspace: (label: string, folder: string, start: import('../model/herdr.js').TabStart, missing: import('../model/herdr.js').MissingFolder) => Promise<import('../model/herdr.js').NewWorkspace>, open: (target: string) => void, folders: () => readonly string[], foldersOnDisk: (typed: string) => Promise<readonly string[]>, separator: () => import('../model/folders.js').PathSeparator, renameWorkspace: (workspaceId: string, label: string) => Promise<TabChange>, closeWorkspace: (workspaceId: string) => Promise<TabChange>, setWorkspaceIcon: (workspaceId: string, icon: string | undefined) => Promise<TabChange>, iconTags: () => Promise<Readonly<Record<string, readonly string[]>>>, renameTab: (tabId: string, label: string) => Promise<TabChange>, closeTab: (tabId: string) => Promise<TabChange>, hidePane: (paneId: string) => Promise<TabChange>, showHidden: () => Promise<TabChange>, keptLit: (pane: import('../model/herdr.js').HerdrPane) => boolean, keepLit: (pane: import('../model/herdr.js').HerdrPane) => void, sessionOrder: { value: () => import('../model/herdr.js').SessionOrder, choose: (order: import('../model/herdr.js').SessionOrder) => void } }} SidebarActions
+ * @typedef {{ createWorkspace: (label: string, folder: string, start: import('../model/herdr.js').TabStart, missing: import('../model/herdr.js').MissingFolder) => Promise<import('../model/herdr.js').NewWorkspace>, open: (target: string) => void, folders: () => readonly string[], foldersOnDisk: (typed: string) => Promise<readonly string[]>, separator: () => import('../model/folders.js').PathSeparator, renameWorkspace: (workspaceId: string, label: string) => Promise<TabChange>, closeWorkspace: (workspaceId: string) => Promise<TabChange>, hideWorkspace: (workspaceId: string) => Promise<TabChange>, showWorkspace: (workspaceId: string) => Promise<TabChange>, setWorkspaceIcon: (workspaceId: string, icon: string | undefined) => Promise<TabChange>, iconTags: () => Promise<Readonly<Record<string, readonly string[]>>>, renameTab: (tabId: string, label: string) => Promise<TabChange>, closeTab: (tabId: string) => Promise<TabChange>, hidePane: (paneId: string) => Promise<TabChange>, showHidden: () => Promise<TabChange>, keptLit: (pane: import('../model/herdr.js').HerdrPane) => boolean, keepLit: (pane: import('../model/herdr.js').HerdrPane) => void, sessionOrder: { value: () => import('../model/herdr.js').SessionOrder, choose: (order: import('../model/herdr.js').SessionOrder) => void } }} SidebarActions
  *   — createWorkspace, and the renames and closings, resolve once the page shows the change; open goes to a page address;
  *   folders: the folders to offer for a new workspace — typed before, where sessions ran; foldersOnDisk: those on the
  *   viewer's computer for what is typed, offered after them; separator: how that computer parts a path; keptLit: whether an agent is
@@ -381,9 +382,10 @@ function link(target, className, children) {
  * @typedef {{ atHand: readonly string[], current: string | undefined, setIcon: (icon: string | undefined) => Promise<TabChange>, tags: () => Promise<Readonly<Record<string, readonly string[]>>> }} RowIcon
  *   — a row's icon, picked as it is named: the emoji at hand; the icon now; how one its name cannot hold — Lucide's — is
  *   kept, or taken back; the words Lucide's icons are found by
- * @typedef {{ label: string, icon: RowIcon | undefined, rename: (label: string) => Promise<TabChange>, close: () => Promise<TabChange>, hide: (() => Promise<TabChange>) | undefined, keep: { lit: () => boolean, toggle: () => void } | undefined, names: string, closes: string }} RowSubject
- *   — what a row stands for, to name and close: its name now, its icon — none: no icon to pick — how to change it; keep:
- *   its agent kept lit to come back to — lit: whether it is now — none: a row of no one agent; the buttons' titles
+ * @typedef {{ label: string, icon: RowIcon | undefined, rename: (label: string) => Promise<TabChange>, close: () => Promise<TabChange>, hiding: { way: 'hide' | 'show', change: () => Promise<TabChange>, title: string } | undefined, keep: { lit: () => boolean, toggle: () => void } | undefined, names: string, closes: string }} RowSubject
+ *   — what a row stands for, to name and close: its name now, its icon — none: no icon to pick — how to change it;
+ *   hiding: it hidden from the list, or one hidden shown there again — none: it is not hidden from there; keep: its
+ *   agent kept lit to come back to — lit: whether it is now — none: a row of no one agent; the buttons' titles
  * @typedef {{ label: string, keeps: boolean, icon: string | undefined }} Naming
  *   — a row's name as herdr is to hold it, and whether the viewer keeps an icon for it: which — none: no icon
  */
@@ -473,7 +475,7 @@ const newWorkspaceRefusals = {
  * @param {HTMLElement} element — the sidebar's place for it
  * @param {SidebarActions} actions
  */
-export function createHerdrSidebar(element, { createWorkspace, open, folders, foldersOnDisk, separator, renameWorkspace, closeWorkspace, setWorkspaceIcon, iconTags, renameTab, closeTab, hidePane, showHidden, keptLit, keepLit, sessionOrder }) {
+export function createHerdrSidebar(element, { createWorkspace, open, folders, foldersOnDisk, separator, renameWorkspace, closeWorkspace, hideWorkspace, showWorkspace, setWorkspaceIcon, iconTags, renameTab, closeTab, hidePane, showHidden, keptLit, keepLit, sessionOrder }) {
   /** How long each workspace and agent has been at work: their robots' story goes on across redrawing. */
   const clock = createWorkClock(() => Date.now());
   let shown = '';
@@ -499,6 +501,8 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, fo
   /** While a row is being named or closed the lists stay as they are: a look at herdr every few seconds would undo the
    * typing. */
   let busy = false;
+  /** Whether the workspaces hidden from the list are shown at its end, from its button. */
+  let hiddenOpen = false;
   const redraw = () => {
     busy = false;
     shown = '';
@@ -603,9 +607,10 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, fo
       dressed.append(...[...row.childNodes].filter((child) => child !== status));
       const naming = iconButton('herdr-row-rename', 'edit', subject.names);
       const closing = iconButton('herdr-row-close', 'cross', subject.closes);
-      const hide = subject.hide;
-      // an idle session only: hidden from the list until its agent changes state
-      const hiding = hide === undefined ? undefined : iconButton('herdr-row-hide', 'hide', 'Hide until its agent changes state');
+      // hidden from the list — an idle session until its agent changes state, a workspace until shown again — or shown
+      // there again
+      const hide = subject.hiding;
+      const hiding = hide === undefined ? undefined : hide.way === 'hide' ? iconButton('herdr-row-hide', 'hide', hide.title) : iconButton('herdr-row-show', 'eye', hide.title);
       // its agent's lamp kept lit to come back to, until the mark is taken off or the agent changes state
       const keep = subject.keep;
       const lit = keep?.lit() === true;
@@ -624,7 +629,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, fo
       closing.addEventListener('click', () => startClosing(actions, subject));
       hiding?.addEventListener('click', () => {
         hiding.disabled = true;
-        void hide?.().then(redraw);
+        void hide?.change().then(redraw);
       });
       keeping?.addEventListener('click', () => {
         keep?.toggle();
@@ -761,7 +766,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, fo
     const cancel = iconButton('herdr-new-cancel', 'cross', 'Cancel (Esc)');
     cancel.addEventListener('click', showButton);
     // the folder first: the name follows it
-    const form = h('div', { className: 'herdr-new-workspace' }, [folder, choices, name, h('div', { className: 'herdr-new-actions' }, [choice('herdr-new-shell', 'Terminal', 'shell'), choice('herdr-new-claude', 'Claude Code (Enter)', 'claude'), ...(given?.layout.claudeGpt === true ? [choice('herdr-new-gpt', 'Claude GPT', 'claude-gpt')] : []), choice('herdr-new-codex', 'Codex', 'codex'), cancel]), error, create]);
+    const form = h('div', { className: 'herdr-new-workspace' }, [folder, choices, name, h('div', { className: 'herdr-new-actions' }, [choice('herdr-new-shell', 'Terminal', 'shell'), choice('herdr-new-claude', 'Claude Code (Enter)', 'claude'), ...(given?.layout.claudeGpt === true ? [choice('herdr-new-gpt', 'Claude GPT', 'claude-gpt')] : []), choice('herdr-new-codex', 'Codex', 'codex'), ...(given?.layout.agy === true ? [choice('herdr-new-agy', 'Antigravity CLI', 'agy')] : []), cancel]), error, create]);
     // Enter starts Claude Code there, Escape leaves the form
     form.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') showButton();
@@ -790,6 +795,25 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, fo
       });
     });
     return [button];
+  };
+  /**
+   * The end of the workspaces' list: how many are hidden from it — none while none is — and, once its button is pressed,
+   * those workspaces under it, dimmed; pressed again, it puts them away.
+   * @param {readonly import('../model/herdr.js').HerdrWorkspace[]} hidden
+   * @param {(workspace: import('../model/herdr.js').HerdrWorkspace) => HTMLElement} rowOf
+   * @returns {HTMLElement[]}
+   */
+  const hiddenAtEnd = (hidden, rowOf) => {
+    if (hidden.length === 0) return [];
+    const button = h('button', { className: 'herdr-workspaces-hidden', text: `${hidden.length} hidden`, title: hiddenOpen ? 'Put the hidden workspaces away' : 'Show the workspaces hidden from the list', attrs: { type: 'button', 'aria-expanded': String(hiddenOpen) } });
+    button.addEventListener('click', () => {
+      hiddenOpen = !hiddenOpen;
+      shown = '';
+      if (given !== undefined) sidebar.render(given.layout, given.opened, given.search, given.seen);
+    });
+    const rows = hiddenOpen ? hidden.map(rowOf) : [];
+    for (const row of rows) row.classList.add('herdr-workspace-hidden');
+    return [button, ...rows];
   };
   /** The button that names the order the sessions are listed in; a press goes to the other, the list drawn anew. */
   const orderButton = () => {
@@ -832,7 +856,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, fo
       const workspaces = searchLayout(layout.workspaces, search);
       const sessions = sessionsByActivity(layout.workspaces, search, seen, sessionOrder.value());
       const place = opened === undefined ? undefined : placeOf(layout, opened);
-      const look = JSON.stringify([workspaces, sessions.map(({ pane }) => pane.id), [...seen]]);
+      const look = JSON.stringify([workspaces, sessions.map(({ pane }) => pane.id), [...seen], hiddenOpen]);
       const pick = JSON.stringify([place?.workspace.id, opened]);
       if (look === shown) {
         // the same rows: only which one is open moves — made anew, a long list and its robots cost a phone a moment
@@ -844,7 +868,8 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, fo
       picked = pick;
       workspaceRows = [];
       sessionRows = [];
-      const list = workspaces.map((workspace) => {
+      /** @param {import('../model/herdr.js').HerdrWorkspace} workspace */
+      const workspaceRow = (workspace) => {
         const active = workspace.tabs.find((tab) => tab.id === workspace.activeTab) ?? workspace.tabs[0];
         const row = link(active === undefined ? undefined : tabTarget(active), 'herdr-workspace', [
           h('span', { className: 'herdr-number', text: String(workspace.number) }),
@@ -860,7 +885,10 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, fo
           icon: { atHand: workspaceIcons, current: workspace.icon, setIcon: (icon) => setWorkspaceIcon(workspace.id, icon), tags: iconTags },
           rename: (label) => renameWorkspace(workspace.id, label),
           close: () => closeWorkspace(workspace.id),
-          hide: undefined,
+          hiding:
+            workspace.hidden === true
+              ? { way: 'show', change: () => showWorkspace(workspace.id), title: 'Show this workspace in the list again' }
+              : { way: 'hide', change: () => hideWorkspace(workspace.id), title: 'Hide this workspace from the list, open as it is: it comes back while an agent of it waits for you' },
           keep: undefined,
           names: 'Name this workspace',
           closes: 'Close the workspace: what runs in its tabs stops',
@@ -868,7 +896,11 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, fo
         offerChanges(row, '.herdr-name', subject);
         offerIcon(row, subject);
         return row;
-      });
+      };
+      // the workspaces hidden are left out — one whose agent waits is in its place — counted at the list's end, whose
+      // press shows them under it
+      const { listed: listedWorkspaces, hidden: hiddenWorkspaces } = workspacesShown(workspaces, seen);
+      const list = [...listedWorkspaces.map(workspaceRow), ...hiddenAtEnd(hiddenWorkspaces, workspaceRow)];
       // the sessions their user hid while idle are left out, until their agents change state
       const listed = sessions.filter(({ pane }) => pane.hidden !== true);
       const rows = listed.map(({ workspace, tab, pane }) => {
@@ -880,7 +912,7 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, fo
           icon: undefined,
           rename: (label) => renameTab(tab.id, label),
           close: () => closeTab(tab.id),
-          hide: paneLamp(pane, seen) === 'idle' ? () => hidePane(pane.id) : undefined,
+          hiding: paneLamp(pane, seen) === 'idle' ? { way: 'hide', change: () => hidePane(pane.id), title: 'Hide until its agent changes state' } : undefined,
           keep: { lit: () => keptLit(pane), toggle: () => keepLit(pane) },
           names: 'Name its tab',
           closes: 'Close its tab: what runs in it stops',
@@ -897,12 +929,14 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, fo
 }
 
 /**
- * @typedef {{ keptLit: (pane: import('../model/herdr.js').HerdrPane) => boolean, keepLit: (pane: import('../model/herdr.js').HerdrPane) => void, rename: (tabId: string, label: string) => Promise<import('../model/herdr.js').TabChange>, close: (tabId: string) => Promise<import('../model/herdr.js').TabChange>, move: (tabId: string, place: number) => Promise<import('../model/herdr.js').TabChange>, open: (target: string) => void, create: (besideTab: string, start: import('../model/herdr.js').TabStart, label: string | undefined) => Promise<import('../model/herdr.js').NewTab>, duplicate: (tabId: string) => Promise<import('../model/herdr.js').NewTab>, renameWorkspace: (workspaceId: string, label: string) => Promise<TabChange>, setWorkspaceIcon: (workspaceId: string, icon: string | undefined) => Promise<TabChange>, iconTags: () => Promise<Readonly<Record<string, readonly string[]>>> }} TabActions
+ * @typedef {{ keptLit: (pane: import('../model/herdr.js').HerdrPane) => boolean, keepLit: (pane: import('../model/herdr.js').HerdrPane) => void, rename: (tabId: string, label: string) => Promise<import('../model/herdr.js').TabChange>, close: (tabId: string) => Promise<import('../model/herdr.js').TabChange>, move: (tabId: string, place: number) => Promise<import('../model/herdr.js').TabChange>, open: (target: string) => void, create: (besideTab: string, start: import('../model/herdr.js').TabStart, label: string | undefined) => Promise<import('../model/herdr.js').NewTab>, duplicate: (tabId: string) => Promise<import('../model/herdr.js').NewTab>, continuing: (where: import('../model/history.js').TabByName) => { title: string } | undefined, continueTab: (tabId: string) => Promise<TabChange>, renameWorkspace: (workspaceId: string, label: string) => Promise<TabChange>, setWorkspaceIcon: (workspaceId: string, icon: string | undefined) => Promise<TabChange>, iconTags: () => Promise<Readonly<Record<string, readonly string[]>>>, corner: HTMLElement }} TabActions
  *   — keptLit: whether an agent is kept lit to come back to now; keepLit: it marked so, or its mark taken off
  *   (model/lamps.js); rename, close, move, create and duplicate resolve once the page shows the change; move: to a
  *   place between the tabs as they stand, 0 before the first; duplicate: a copy of the tab, the session in it forked;
+ *   continuing: what a tab with nothing running in it would go on with, told on its button — none, nothing to offer;
+ *   continueTab: it started there;
  *   open goes to a page address; renameWorkspace, setWorkspaceIcon and iconTags: the workspace's icon picked from the
- *   bar's head
+ *   bar's head; corner: what stands at the bar's right end, after the tabs — how busy the computer is
  */
 
 /**
@@ -911,20 +945,23 @@ export function createHerdrSidebar(element, { createWorkspace, open, folders, fo
  * named goes by its number — and closed, which
  * stops what runs in it, so closing asks first; the page then stays in the
  * workspace, on the tab after the closed one, or before it when it was the last. "+" opens a tab beside the open one —
- * a terminal, or Claude Code — and the page goes to it.
+ * a terminal, or Claude Code — and the page goes to it. An open tab with nothing running in it — as herdr brings tabs
+ * back after a restart of the computer — offers to go on with its conversation.
  * @param {TabActions} actions
  */
-export function createTabBar({ keptLit, keepLit, rename, close, move, open, create, duplicate, renameWorkspace, setWorkspaceIcon, iconTags }) {
+export function createTabBar({ keptLit, keepLit, rename, close, move, open, create, duplicate, continuing, continueTab, renameWorkspace, setWorkspaceIcon, iconTags, corner }) {
   /** How long each tab has been at work: its robots' story goes on across redrawing. */
   const clock = createWorkClock(() => Date.now());
   const element = h('nav', { className: 'herdr-tab-bar', attrs: { 'aria-label': 'herdr tabs', hidden: '' } });
+  // the tabs scroll sideways in a strip of their own, beside the corner — not under it, where it hid the last of them
+  const strip = h('span', { className: 'herdr-tab-strip' });
   // tabs that do not fit scroll sideways under the mouse wheel; tabs that fit leave the wheel to the page
-  element.addEventListener(
+  strip.addEventListener(
     'wheel',
     (event) => {
-      if (element.scrollWidth <= element.clientWidth || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+      if (strip.scrollWidth <= strip.clientWidth || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
       event.preventDefault();
-      element.scrollLeft += event.deltaY;
+      strip.scrollLeft += event.deltaY;
     },
     { passive: false },
   );
@@ -952,7 +989,7 @@ export function createTabBar({ keptLit, keepLit, rename, close, move, open, crea
     items: () => [...element.querySelectorAll('.herdr-chip')].filter((chip) => chip instanceof window.HTMLElement),
     axis: 'x',
     grip: undefined,
-    scroller: element,
+    scroller: strip,
     idOf: (chip) => chip.dataset.tab,
     canStart: () => !busy,
     onStart: () => {
@@ -1120,6 +1157,26 @@ export function createTabBar({ keptLit, keepLit, rename, close, move, open, crea
   };
 
   /**
+   * The open tab with nothing running in it goes on with its conversation on a press — the page looks at herdr again
+   * and finds it there; one not started is told beside the button.
+   * @param {import('../model/herdr.js').HerdrTab} tab
+   * @param {{ title: string }} offer
+   */
+  const continueButton = (tab, offer) => {
+    const button = h('button', { className: 'herdr-tab-continue', text: 'Continue', title: offer.title, attrs: { type: 'button' } });
+    button.addEventListener('click', () => {
+      button.disabled = true;
+      if (button.nextElementSibling?.matches('.herdr-tab-continue-failed')) button.nextElementSibling.remove();
+      void continueTab(tab.id).then((outcome) => {
+        if (outcome.ok) return;
+        button.disabled = false;
+        button.after(h('span', { className: 'herdr-tab-continue-failed', text: 'Not continued: something runs in this tab, or its conversation runs already.' }));
+      });
+    });
+    return button;
+  };
+
+  /**
    * The tab's icon picked from its buttons, no naming first: the icons open under it — the emoji only, which its name in
    * herdr holds — the one picked goes ahead of the tab's name, the name kept, ✕ takes it off; one herdr does not take is
    * told beside the buttons.
@@ -1195,7 +1252,7 @@ export function createTabBar({ keptLit, keepLit, rename, close, move, open, crea
     });
     const cancel = iconButton('herdr-tab-new-cancel', 'cross', 'Cancel (Esc)');
     cancel.addEventListener('click', finish);
-    const choices = h('span', { className: 'herdr-tab-confirm' }, [picker.element, name, choice('shell', 'Terminal', 'herdr-tab-new-shell'), choice('claude', 'Claude Code (Enter)', 'herdr-tab-new-claude'), ...(given?.layout.claudeGpt === true ? [choice('claude-gpt', 'Claude GPT', 'herdr-tab-new-gpt')] : []), choice('codex', 'Codex', 'herdr-tab-new-codex'), cancel, message]);
+    const choices = h('span', { className: 'herdr-tab-confirm' }, [picker.element, name, choice('shell', 'Terminal', 'herdr-tab-new-shell'), choice('claude', 'Claude Code (Enter)', 'herdr-tab-new-claude'), ...(given?.layout.claudeGpt === true ? [choice('claude-gpt', 'Claude GPT', 'herdr-tab-new-gpt')] : []), choice('codex', 'Codex', 'herdr-tab-new-codex'), ...(given?.layout.agy === true ? [choice('agy', 'Antigravity CLI', 'herdr-tab-new-agy')] : []), cancel, message]);
     adding.replaceWith(choices);
     name.focus();
   };
@@ -1211,7 +1268,9 @@ export function createTabBar({ keptLit, keepLit, rename, close, move, open, crea
       given = { layout, opened, seen };
       if (busy) return;
       const place = opened === undefined ? undefined : placeOf(layout, opened);
-      const look = JSON.stringify([place?.workspace, place?.tab.id, [...seen]]);
+      // what the open tab would go on with, nothing running in it — the conversation that ran there ends meanwhile
+      const offer = place === undefined || agentPaneOf(place.tab) !== undefined ? undefined : continuing({ workspace: place.workspace.label, tab: place.tab.label, folder: place.tab.folder });
+      const look = JSON.stringify([place?.workspace, place?.tab.id, [...seen], offer]);
       if (look === shown) return;
       shown = look;
       element.hidden = place === undefined;
@@ -1236,6 +1295,7 @@ export function createTabBar({ keptLit, keepLit, rename, close, move, open, crea
         // its agent kept lit to come back to — none for a tab with no agent in it
         const agent = agentPaneOf(tab);
         const actions = h('span', { className: 'herdr-tab-actions' }, [...(agent === undefined ? [] : [keepButton(agent)]), picking, naming, duplicating, closing]);
+        const going = offer === undefined ? [] : [continueButton(tab, offer)];
         actions.hidden = buttonsOf !== tab.id;
         // the open tab is open already: a click on it shows or hides its buttons
         chip.addEventListener('click', (event) => {
@@ -1248,16 +1308,21 @@ export function createTabBar({ keptLit, keepLit, rename, close, move, open, crea
         picking.addEventListener('click', () => startPickingIcon(picking, actions, place.workspace, tab));
         duplicating.addEventListener('click', () => startDuplicating(duplicating, actions, tab));
         closing.addEventListener('click', () => startClosing(actions, tab, place.workspace.tabs));
-        return [chip, actions];
+        return [chip, ...going, actions];
       });
       const adding = h('button', { className: 'icon-button herdr-tab-new', title: 'New tab', attrs: { type: 'button', 'aria-label': 'New tab' } }, [icon('plus')]);
       adding.addEventListener('click', () => startAdding(adding, place.tab));
-      element.replaceChildren(h('span', { className: 'herdr-chip-workspace' }, [...workspaceIconButton(place.workspace), workspaceName(place.workspace)]), ...chips, adding);
+      strip.replaceChildren(h('span', { className: 'herdr-chip-workspace' }, [...workspaceIconButton(place.workspace), workspaceName(place.workspace)]), ...chips, adding);
+      element.replaceChildren(strip, corner);
       element.querySelector('.herdr-chip.selected')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     },
     /** Names the open tab, as its ✎ does — F2 on the page; while a tab is being named, closed or dragged, nothing. */
     nameOpenTab() {
       if (!busy) nameOpen?.();
+    },
+    /** Drawn again as herdr was told last: what the open tab goes on with comes with the session list and its history. */
+    refresh() {
+      if (given !== undefined) bar.render(given.layout, given.opened, given.seen);
     },
   };
   return bar;

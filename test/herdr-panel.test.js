@@ -33,7 +33,7 @@ const web = {
 };
 
 /** A sidebar nobody opens a workspace from. @type {import('../public/view/herdr-panel.js').SidebarActions} */
-const noActions = { createWorkspace: async () => ({ ok: false, error: 'failed' }), open: () => undefined, folders: () => [], foldersOnDisk: async () => [], separator: () => '/', renameWorkspace: async () => ({ ok: false, error: 'failed' }), closeWorkspace: async () => ({ ok: false, error: 'failed' }), setWorkspaceIcon: async () => ({ ok: false, error: 'failed' }), iconTags: async () => ({}), renameTab: async () => ({ ok: false, error: 'failed' }), closeTab: async () => ({ ok: false, error: 'failed' }), hidePane: async () => ({ ok: false, error: 'failed' }), showHidden: async () => ({ ok: false, error: 'failed' }), keptLit: () => false, keepLit: () => undefined, sessionOrder: { value: () => 'lamps', choose: () => undefined } };
+const noActions = { createWorkspace: async () => ({ ok: false, error: 'failed' }), open: () => undefined, folders: () => [], foldersOnDisk: async () => [], separator: () => '/', renameWorkspace: async () => ({ ok: false, error: 'failed' }), closeWorkspace: async () => ({ ok: false, error: 'failed' }), hideWorkspace: async () => ({ ok: false, error: 'failed' }), showWorkspace: async () => ({ ok: false, error: 'failed' }), setWorkspaceIcon: async () => ({ ok: false, error: 'failed' }), iconTags: async () => ({}), renameTab: async () => ({ ok: false, error: 'failed' }), closeTab: async () => ({ ok: false, error: 'failed' }), hidePane: async () => ({ ok: false, error: 'failed' }), showHidden: async () => ({ ok: false, error: 'failed' }), keptLit: () => false, keepLit: () => undefined, sessionOrder: { value: () => 'lamps', choose: () => undefined } };
 
 test('tabBar_Should_OfferSeparateGptStartOnlyWhenConfigured', async () => {
   const { bar, asked, click } = barAboveSession();
@@ -64,6 +64,30 @@ test('herdrSidebar_Should_StartWorkspaceWithGpt_WhenConfigured', async () => {
   await settled();
   assert.deepEqual(started, ['claude-gpt']);
 });
+// A new tab, a new workspace, may start agy only where the viewer tells it has run: its button there, drawn with its mark
+test('tabBar_And_herdrSidebar_Should_OfferAgyStart_OnlyWhereAgyIs', async () => {
+  const { bar, asked, click } = barAboveSession();
+  click('.herdr-tab-new');
+  const before = bar.element.querySelector('.herdr-tab-new-agy');
+  click('.herdr-tab-new-cancel');
+  bar.render({ herdr: true, agy: true, workspaces: [web] }, { kind: 'session', id: 's1' }, new Map());
+  click('.herdr-tab-new');
+  const agy = bar.element.querySelector('.herdr-tab-new-agy');
+  const mark = agy?.querySelector('svg[role="img"]')?.getAttribute('aria-label');
+  if (agy instanceof window.HTMLButtonElement) agy.click();
+  const element = window.document.createElement('div');
+  /** @type {import('../public/model/herdr.js').TabStart[]} */
+  const started = [];
+  const sidebar = createHerdrSidebar(element, { ...noActions, createWorkspace: async (label, folder, start) => { started.push(start); return { ok: true, target: '#/pane/w5:p1' }; } });
+  sidebar.render({ herdr: true, agy: true, workspaces: [web] }, undefined, '', new Map());
+  sidebar.newButton.click();
+  const workspaceAgy = element.querySelector('.herdr-new-agy');
+  if (workspaceAgy instanceof window.HTMLButtonElement) workspaceAgy.click();
+  await settled();
+
+  assert.deepEqual({ before, mark, asked, started }, { before: null, mark: 'Antigravity CLI', asked: [['create', 'w2:t1', 'agy', undefined], ['open', '#/pane/w2:p9']], started: ['agy'] });
+});
+
 /** Lucide's icons a test picks from, with the words they are found by. */
 const lucideTags = { star: ['favorite'], wallet: ['money', 'finance'], coins: ['finance'] };
 
@@ -129,9 +153,11 @@ test('tabNaming_Should_StartFromEmptyBox_ForUnnamedTabMovedElsewhere', () => {
  * opens as w2:p9.
  * @param {string} [session]
  * @param {import('../public/model/herdr.js').HerdrWorkspace} [workspace]
- * @param {{ copies: boolean }} [herdr] - copies: herdr opens a tab's copy, as w2:p8; it does unless told
+ * @param {{ copies: boolean, continuing?: import('../public/view/herdr-panel.js').TabActions['continuing'], continues?: boolean, corner?: HTMLElement }} [herdr]
+ *   - copies: herdr opens a tab's copy, as w2:p8; it does unless told; continuing: what a tab with nothing in it would go
+ *   on with — nothing, unless told; continues: whether herdr starts it there; corner: what stands at the bar's end
  */
-function barAboveSession(session = 's1', workspace = web, { copies } = { copies: true }) {
+function barAboveSession(session = 's1', workspace = web, { copies, continuing = () => undefined, continues = true, corner = document.createElement('div') } = { copies: true }) {
   /** @type {(string | undefined)[][]} */
   const asked = [];
   /** The panes whose agents are kept lit. */
@@ -154,6 +180,11 @@ function barAboveSession(session = 's1', workspace = web, { copies } = { copies:
       asked.push(['duplicate', tab]);
       return copies ? { ok: true, target: '#/pane/w2:p8' } : { ok: false, error: 'failed' };
     },
+    continuing,
+    continueTab: async (tab) => {
+      asked.push(['continue', tab]);
+      return continues ? { ok: true } : { ok: false, error: 'failed' };
+    },
     rename: async (tab, label) => {
       asked.push(['rename', tab, label]);
       return { ok: true };
@@ -175,6 +206,7 @@ function barAboveSession(session = 's1', workspace = web, { copies } = { copies:
       return { ok: true };
     },
     iconTags: async () => lucideTags,
+    corner,
   });
   bar.render({ herdr: true, workspaces: [workspace] }, { kind: 'session', id: session }, new Map());
   /** @param {string} selector */
@@ -241,6 +273,80 @@ test('tabBar_Should_DuplicateOpenTab_And_GoToItsCopy', async () => {
   assert.deepEqual(
     { copied: copied.asked, refused: refused.asked, told: refused.bar.element.querySelector('.herdr-tab-duplicate-failed')?.textContent },
     { copied: [['duplicate', 'w2:t3'], ['open', '#/pane/w2:p8']], refused: [['duplicate', 'w2:t3']], told: 'herdr did not open a copy.' },
+  );
+});
+
+/** web after a restart of the computer: its tabs deploy and scratch brought back with their shells alone. */
+const restarted = {
+  ...web,
+  tabs: [
+    ...web.tabs,
+    { id: 'w2:t4', number: 4, label: 'deploy', status: /** @type {const} */ ('unknown'), folder: 'D:/web', panes: [paneOf({ id: 'w2:p4', agent: undefined })] },
+    { id: 'w2:t5', number: 5, label: 'scratch', status: /** @type {const} */ ('unknown'), panes: [paneOf({ id: 'w2:p5', agent: undefined })] },
+  ],
+};
+
+// An open tab with nothing running in it — as herdr brings tabs back after a restart of the computer — offers to go on
+// with the conversation that ran in it, or in its folder, named on the button's hover; a press asks for it, and one not
+// started is told beside it; a tab with an agent in it, or with nothing to go on with, offers nothing
+test('tabBar_Should_OfferToContinueOpenTabWithNothingInIt_AndAskForIt', async () => {
+  /** @type {import('../public/view/herdr-panel.js').TabActions['continuing']} */
+  const continuing = ({ workspace, tab, folder }) => (workspace === 'web' && tab === 'deploy' && folder === 'D:/web' ? { title: 'Resume “Ship the release”, the conversation that ran here last' } : undefined);
+  /** @param {boolean} continues @param {string | undefined} pane — the terminal open; none, the session s1 */
+  const barOver = (continues, pane) => {
+    const made = barAboveSession('s1', restarted, { copies: true, continuing, continues });
+    if (pane !== undefined) made.bar.render({ herdr: true, workspaces: [restarted] }, { kind: 'pane', id: pane }, new Map());
+    return made;
+  };
+  const [started, refused, scratch, withAgent] = [barOver(true, 'w2:p4'), barOver(false, 'w2:p4'), barOver(true, 'w2:p5'), barOver(true, undefined)];
+  const hover = started.bar.element.querySelector('.herdr-tab-continue')?.getAttribute('title');
+
+  started.click('.herdr-tab-continue');
+  refused.click('.herdr-tab-continue');
+  await settled();
+
+  assert.deepEqual(
+    {
+      hover,
+      started: started.asked,
+      refused: refused.asked,
+      told: refused.bar.element.querySelector('.herdr-tab-continue-failed')?.textContent,
+      offered: [scratch, withAgent].map((one) => one.bar.element.querySelector('.herdr-tab-continue') !== null),
+    },
+    {
+      hover: 'Resume “Ship the release”, the conversation that ran here last',
+      started: [['continue', 'w2:t4']],
+      refused: [['continue', 'w2:t4']],
+      told: 'Not continued: something runs in this tab, or its conversation runs already.',
+      offered: [false, false],
+    },
+  );
+});
+
+// What the open tab goes on with is named once the page knows it — the session list in after herdr was looked at: the
+// bar drawn again tells it, herdr unchanged
+test('tabBar_Should_NameWhatOpenTabContinues_OnceThePageKnowsIt', () => {
+  let title = 'Claude Code resumes “a conversation”, the conversation that ran here last';
+  const { bar } = barAboveSession('s1', restarted, { copies: true, continuing: () => ({ title }) });
+  bar.render({ herdr: true, workspaces: [restarted] }, { kind: 'pane', id: 'w2:p4' }, new Map());
+
+  title = 'Claude Code resumes “Ship the release”, the conversation that ran here last';
+  bar.refresh();
+
+  assert.equal(bar.element.querySelector('.herdr-tab-continue')?.getAttribute('title'), 'Claude Code resumes “Ship the release”, the conversation that ran here last');
+});
+
+// What the page puts in the bar's corner — how busy the computer is — stands at its right end, beside the strip the tabs
+// and "+" scroll in, not over them, as the tabs are drawn again
+test('tabBar_Should_PutCornerAtItsEnd_BesideTheStripOfTabsAndNewTab', () => {
+  const corner = document.createElement('div');
+  const { bar } = barAboveSession('s1', web, { copies: true, corner });
+  bar.render({ herdr: true, workspaces: [moved] }, { kind: 'session', id: 's1' }, new Map());
+  const strip = bar.element.querySelector('.herdr-tab-strip');
+
+  assert.deepEqual(
+    { cornerLast: bar.element.lastElementChild === corner, stripBeside: corner.previousElementSibling === strip, newTabLastInStrip: strip?.lastElementChild?.classList.contains('herdr-tab-new'), cornerInStrip: strip?.contains(corner) },
+    { cornerLast: true, stripBeside: true, newTabLastInStrip: true, cornerInStrip: false },
   );
 });
 
@@ -467,6 +573,8 @@ test('herdrSidebar_Should_OpenNewWorkspace_FromItsNameAndFolder', async () => {
     sessionOrder: { value: () => 'lamps', choose: () => undefined },
     renameWorkspace: async () => ({ ok: false, error: 'failed' }),
     closeWorkspace: async () => ({ ok: false, error: 'failed' }),
+    hideWorkspace: async () => ({ ok: false, error: 'failed' }),
+    showWorkspace: async () => ({ ok: false, error: 'failed' }),
     setWorkspaceIcon: async () => ({ ok: false, error: 'failed' }),
     iconTags: async () => ({}),
     renameTab: async () => ({ ok: false, error: 'failed' }),
@@ -586,16 +694,18 @@ test('herdrSidebar_Should_OfferToMakeFolderThatIsNotThere_AndOpenWorkspaceInIt',
   );
 });
 
-// Tabs that do not fit scroll sideways under the mouse wheel; tabs that fit leave the wheel to the page
+// Tabs that do not fit their strip scroll sideways in it under the mouse wheel; tabs that fit leave the wheel to the page
 test('tabBar_Should_ScrollTabsSideways_WithMouseWheel_WhenTheyDoNotFit', () => {
   /** @param {number} scrollWidth */
   const wheelOver = (scrollWidth) => {
     const { bar } = barAboveSession();
-    Object.defineProperty(bar.element, 'scrollWidth', { value: scrollWidth });
-    Object.defineProperty(bar.element, 'clientWidth', { value: 300 });
+    const strip = bar.element.querySelector('.herdr-tab-strip');
+    assert.ok(strip instanceof window.HTMLElement, 'no strip of tabs');
+    Object.defineProperty(strip, 'scrollWidth', { value: scrollWidth });
+    Object.defineProperty(strip, 'clientWidth', { value: 300 });
     const wheel = new window.WheelEvent('wheel', { deltaY: 120, cancelable: true });
-    bar.element.dispatchEvent(wheel);
-    return { scrolled: bar.element.scrollLeft, pageKeepsWheel: !wheel.defaultPrevented };
+    strip.dispatchEvent(wheel);
+    return { scrolled: strip.scrollLeft, pageKeepsWheel: !wheel.defaultPrevented };
   };
 
   assert.deepEqual([wheelOver(800), wheelOver(300)], [
@@ -711,6 +821,8 @@ function changingSidebar() {
     ...noActions,
     renameWorkspace: (workspace, label) => done(['rename workspace', workspace, label]),
     closeWorkspace: (workspace) => done(['close workspace', workspace]),
+    hideWorkspace: (workspace) => done(['hide workspace', workspace]),
+    showWorkspace: (workspace) => done(['show workspace', workspace]),
     setWorkspaceIcon: (workspace, icon) => done(['icon', workspace, icon ?? 'none']),
     iconTags: async () => lucideTags,
     renameTab: (tab, label) => done(['rename tab', tab, label]),
@@ -1235,7 +1347,7 @@ test('herdrSidebar_Should_PickLucideIconForWorkspace_FoundByItsWords', async () 
 });
 
 // The open session idle — its agent not at work, its answer seen — is hidden from the list from its buttons, shown on a
-// second click, until its agent changes state; one at work, and a workspace, have none to hide them
+// second click, until its agent changes state; one at work has none to hide it
 test('herdrSidebar_Should_HideOpenIdleSession_FromItsButtons', async () => {
   const { element, sidebar, changes } = changingSidebar();
   const working = { ...web, tabs: web.tabs.map((tab) => (tab.id === 'w2:t2' ? { ...tab, panes: tab.panes.map((one) => ({ ...one, status: /** @type {const} */ ('working') })) } : tab)) };
@@ -1247,11 +1359,42 @@ test('herdrSidebar_Should_HideOpenIdleSession_FromItsButtons', async () => {
   sidebar.render({ herdr: true, workspaces: [working] }, { kind: 'pane', id: 'w2:p2' }, '', new Map());
   clickOn(element, '.herdr-tab.selected');
   const atWork = element.querySelector('.herdr-row-hide') !== null;
-  clickOn(element, '.herdr-tab.selected');
-  clickOn(element, '.herdr-workspace.selected');
-  const workspace = element.querySelector('.herdr-row-hide') !== null;
 
-  assert.deepEqual({ changes, atWork, workspace }, { changes: [['hide', 'w2:p1']], atWork: false, workspace: false });
+  assert.deepEqual({ changes, atWork }, { changes: [['hide', 'w2:p1']], atWork: false });
+});
+
+/** The workspace shop: one tab, its session idle. */
+const shop = {
+  id: 'w3',
+  number: 3,
+  label: 'shop',
+  status: /** @type {const} */ ('idle'),
+  activeTab: 'w3:t1',
+  tabs: [{ id: 'w3:t1', number: 1, label: 'cart', status: /** @type {const} */ ('idle'), panes: [paneOf({ id: 'w3:p1', session: 's9', activity: 2 })] }],
+};
+
+// The open workspace is hidden from the list from its buttons, shown on a second click, and stays open: the list's end
+// tells how many are hidden, its press shows them under it, dimmed, and a hidden one's buttons show it in the list again
+test('herdrSidebar_Should_HideOpenWorkspace_AndShowHiddenOnesUnderListsEnd', async () => {
+  const { element, sidebar, changes } = changingSidebar();
+  const settle = () => new Promise((done) => setTimeout(done, 0));
+  const names = () => [...element.querySelectorAll('.herdr-workspace')].map((row) => `${row.querySelector('.herdr-name')?.textContent}${row.classList.contains('herdr-workspace-hidden') ? ' (hidden)' : ''}`);
+  sidebar.render({ herdr: true, workspaces: [web, shop] }, { kind: 'session', id: 's1' }, '', new Map());
+  const noneHidden = element.querySelector('.herdr-workspaces-hidden') === null;
+
+  clickOn(element, '.herdr-workspace.selected');
+  pressIn(element, '.herdr-row-hide');
+  await settle();
+  sidebar.render({ herdr: true, workspaces: [{ ...web, hidden: /** @type {const} */ (true) }, shop] }, { kind: 'session', id: 's1' }, '', new Map());
+  const listed = names();
+  const told = element.querySelector('.herdr-workspaces-hidden')?.textContent;
+  pressIn(element, '.herdr-workspaces-hidden');
+  const opened = names();
+  clickOn(element, '.herdr-workspace.selected');
+  pressIn(element, '.herdr-row-show');
+  await settle();
+
+  assert.deepEqual({ noneHidden, listed, told, opened, changes }, { noneHidden: true, listed: ['shop'], told: '1 hidden', opened: ['shop', 'web (hidden)'], changes: [['hide workspace', 'w2'], ['show workspace', 'w2']] });
 });
 
 // The sessions hidden are left out of the list; its head tells how many, and its button shows them again

@@ -19,17 +19,18 @@ import { noteName, noteTitle } from '../model/notes.js';
 const saveAfter = 1000;
 
 /**
- * @param {{ toFile: { path: () => string, create: (path: string, content: string, replace: boolean) => Promise<import('../model/notes.js').FileCreated> }, engine: { title: () => string, switch: () => void }, note: () => Note | undefined, edit: (id: string, text: string) => void, rename: (id: string, name: string) => void, remove: (id: string) => void, leave: () => void, editorOf: EditorOf }} source
+ * @param {{ toFile: { path: () => string, create: (path: string, content: string, replace: boolean) => Promise<import('../model/notes.js').FileCreated> }, engine: { title: () => string, switch: () => void }, note: () => Note | undefined, edit: (id: string, text: string) => void, rename: (id: string, name: string) => void, remove: (id: string) => void, leave: () => void, toDesk: { others: () => readonly import('../model/desks.js').DeskRef[], move: (path: string) => Promise<boolean> }, editorOf: EditorOf }} source
  *   — toFile: the note saved to a file — path: the one offered, in the session's folder under the note's name; create:
  *   the file written, one there written over only when told to replace it; engine: the notes' editor, as the viewer's setting has it — title: what a press does; switch: the other one, every
  *   note's editor made anew; note: the note as the page has it now, none once it is removed; edit: its new text;
  *   rename: its new name, a blank one none; remove: it removed; leave: the note gone — removed here or elsewhere — the
- *   panel leaves it
+ *   panel leaves it; toDesk: the note put on another desk — others: the desks around but the session's; move: the note
+ *   put on the one picked, whether it went
  * @returns {{ element: HTMLElement, actions: HTMLElement, name: () => string, reload: () => Promise<void>, summary: () => string | undefined, focus: () => void }}
  *   — the side panel's list in place of a file (file-panel.js: ShownList): actions — its buttons, for the panel's head;
  *   name — the panel's title, the note's name as it is now; focus: the cursor in the note, to write it
  */
-export function createNotePanel({ toFile, engine, note, edit, rename, remove, leave, editorOf }) {
+export function createNotePanel({ toFile, engine, note, edit, rename, remove, leave, toDesk, editorOf }) {
   const first = note();
   const element = h('div', { className: 'note-panel' });
   const actions = h('span', { className: 'note-panel-actions' });
@@ -44,7 +45,9 @@ export function createNotePanel({ toFile, engine, note, edit, rename, remove, le
   const editor = editorOf({ text: first.text, save: (text) => edit(id, text) });
   /** The note saved to a file: the path, Save, and what came of it, between the name and the note while it is asked. */
   const filing = h('div', { className: 'note-file', attrs: { hidden: '' } });
-  element.replaceChildren(field, filing, editor.element);
+  /** The note put on another desk: the desks around but the session's, under the name while they are asked. */
+  const desking = h('div', { className: 'note-desks', attrs: { hidden: '' } });
+  element.replaceChildren(field, filing, desking, editor.element);
 
   /** The name as last saved: the field differs from it while a save waits. */
   let savedName = field.value;
@@ -127,7 +130,30 @@ export function createNotePanel({ toFile, engine, note, edit, rename, remove, le
     path.focus();
     path.select();
   };
-  const showButtons = () => actions.replaceChildren(editor.buttons.undo, editor.buttons.redo, switching, source, toFileButton, removing);
+  const toDeskButton = button('note-to-desk', 'desk', 'Move the note to another desk');
+  toDeskButton.addEventListener('click', () => {
+    if (desking.hidden) listDesks();
+    else desking.hidden = true;
+  });
+  /** The desks the note can go to: the one picked takes it — gone from this desk, the panel leaves it then. */
+  const listDesks = () => {
+    const told = h('div', { className: 'note-desk-told', attrs: { role: 'status' } });
+    const others = toDesk.others();
+    const rows = others.map((desk) => {
+      const row = h('button', { className: 'note-desk-row', title: desk.path, attrs: { type: 'button' } }, [h('span', { className: 'note-desk-name', text: desk.name }), h('span', { className: 'note-desk-folder', text: desk.folder })]);
+      row.addEventListener('click', () => {
+        told.textContent = '';
+        void toDesk.move(desk.path).then((moved) => {
+          if (!moved) told.textContent = 'The note was not moved: that desk may be gone.';
+        });
+      });
+      return row;
+    });
+    if (others.length === 0) told.textContent = 'No other desk around: make one over the notes first.';
+    desking.replaceChildren(...rows, told);
+    desking.hidden = false;
+  };
+  const showButtons = () => actions.replaceChildren(editor.buttons.undo, editor.buttons.redo, switching, source, toFileButton, toDeskButton, removing);
   showButtons();
   source.addEventListener('click', () => {
     editor.setShown(editor.shown() === 'source' ? 'preview' : 'source');

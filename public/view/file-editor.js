@@ -21,6 +21,8 @@ import { icon } from './icons.js';
  * @typedef {{ path: string, editor: CodeEditor, version: string, saved: string }} Editing — version: the file's as the
  *   text was read or last saved; saved: the text the file holds at that version
  * @typedef {{ text: string, version: string, saved: string }} Draft — changes left unsaved, over the version they were made on
+ * @typedef {{ title: () => string, switch: () => void }} NotesEngine — the notes' editor, a live preview or blocks: title
+ *   names what a switch does; switch: the other one chosen — for the notes and the markdown files alike
  */
 
 /** Why a file did not open for editing. */
@@ -43,23 +45,28 @@ const saveRefusals = {
 };
 
 /**
- * @param {{ fetchFile: FetchFile, makeEditor: MakeEditor, onName: OnName }} deps — makeEditor: CodeMirror in the page, a
- *   stand-in in tests; onName: the name at the cursor looked for in the project
- * @returns {{ element: HTMLElement, open: (target: FileTarget) => Promise<void>, leave: () => void, changed: () => boolean, text: () => string | undefined }}
- *   — text: the text being edited, saved or not; none while no file is
+ * @param {{ fetchFile: FetchFile, makeEditor: MakeEditor, onName: OnName, notesEngine: NotesEngine }} deps — makeEditor:
+ *   CodeMirror in the page, a stand-in in tests; onName: the name at the cursor looked for in the project; notesEngine:
+ *   switched over a markdown file, the page makes it anew (remake)
+ * @returns {{ element: HTMLElement, open: (target: FileTarget) => Promise<void>, leave: () => void, remake: () => Promise<void>, changed: () => boolean, text: () => string | undefined }}
+ *   — text: the text being edited, saved or not; none while no file is; remake: the markdown file being edited made anew
+ *   in the notes' editor chosen now
  */
-export function createFileEditor({ fetchFile, makeEditor, onName }) {
+export function createFileEditor({ fetchFile, makeEditor, onName, notesEngine }) {
   const save = h('button', { className: 'code-edit-save', text: 'Save', title: 'Save (Ctrl+S)', attrs: { type: 'button' } });
   const undo = barButton('undo', 'Undo');
   const redo = barButton('redo', 'Redo');
   const find = barButton('search', 'Find and replace (Ctrl+F)');
   const definition = barButton('definition', 'Go to definition');
   const uses = barButton('uses', 'Find uses');
+  // a markdown file's: the notes' editor switched — a live preview, or blocks
+  const notesSwitch = barButton('type', '');
+  notesSwitch.hidden = true;
   const status = h('span', { className: 'code-edit-status', attrs: { role: 'status' } });
   const note = h('div', { className: 'code-edit-note' });
   note.hidden = true;
   const host = h('div', { className: 'code-edit-host' });
-  const element = h('div', { className: 'code-edit' }, [h('div', { className: 'code-edit-bar' }, [save, undo, redo, find, definition, uses, status]), note, host]);
+  const element = h('div', { className: 'code-edit' }, [h('div', { className: 'code-edit-bar' }, [save, undo, redo, find, definition, uses, notesSwitch, status]), note, host]);
   /** @type {Editing | undefined} */
   let editing;
   /** The opens begun, and left: one overtaken by a later — or by leaving — shows nothing once its file is read. */
@@ -120,8 +127,39 @@ export function createFileEditor({ fetchFile, makeEditor, onName }) {
     // the file unchanged is its text as the editor writes it: Milkdown writes markdown its own way, and a file only
     // opened in it is not to be saved
     editing = { path: target.path, editor, version: draft?.version ?? read.version, saved: draft?.saved ?? editor.text() };
-    for (const button of [find, definition, uses]) button.hidden = editor.tools === 'prose';
+    dressFor(editor);
     status.textContent = '';
+    showChanged();
+  };
+
+  /** The bar's tools for what is edited: a code's, or a markdown file's switch of the notes' editor. @param {CodeEditor} editor */
+  const dressFor = (editor) => {
+    for (const button of [find, definition, uses]) button.hidden = editor.tools === 'prose';
+    notesSwitch.hidden = editor.tools !== 'prose';
+    notesSwitch.title = notesEngine.title();
+    notesSwitch.setAttribute('aria-label', notesSwitch.title);
+  };
+
+  const remake = async () => {
+    const at = editing;
+    if (at === undefined || at.editor.tools !== 'prose') return;
+    opens++;
+    const turn = opens;
+    const typed = at.editor.text();
+    const unchanged = typed === at.saved;
+    at.editor.dispose();
+    editing = undefined;
+    host.replaceChildren();
+    const editor = await makeEditor(host, { text: typed, path: at.path, line: undefined, onChange: showChanged, onSave: () => void saveNow() });
+    if (turn !== opens) {
+      // overtaken while the editor was made: what was typed goes to the drafts, as leaving would keep it
+      if (!unchanged) drafts.set(at.path, { text: typed, version: at.version, saved: at.saved });
+      editor.dispose();
+      return;
+    }
+    // untouched, it is the file as the new editor writes it: nothing to save
+    editing = { path: at.path, editor, version: at.version, saved: unchanged ? editor.text() : at.saved };
+    dressFor(editor);
     showChanged();
   };
 
@@ -183,7 +221,8 @@ export function createFileEditor({ fetchFile, makeEditor, onName }) {
   };
   definition.addEventListener('click', () => lookFor('definition'));
   uses.addEventListener('click', () => lookFor('uses'));
-  return { element, open, leave, changed, text: () => editing?.editor.text() };
+  notesSwitch.addEventListener('click', () => notesEngine.switch());
+  return { element, open, leave, remake, changed, text: () => editing?.editor.text() };
 }
 
 /**

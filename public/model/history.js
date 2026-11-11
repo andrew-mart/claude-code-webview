@@ -9,8 +9,12 @@
  *   its conversations one after another in it; none when older viewers kept it; firstSeen, lastSeen: when the viewer
  *   saw it in a pane first and last, ms; open: it is in a pane now; note: what the session is for, in the user's words
  * @typedef {Readonly<Record<string, Place>>} History — places by session id
+ * @typedef {{ id: string, agent: import('./composer.js').Agent, cwd: string | undefined, kind: 'interactive' | 'sdk', modifiedAt: number }} ListedSession
+ *   — a session as the session list tells it: whose it is, the folder it ran in, whether someone worked in it or a
+ *   script ran it, when it changed last, ms
  */
 
+import { folderKey } from './folders.js';
 import { isRecord, text } from './narrow.js';
 
 /**
@@ -136,4 +140,45 @@ export function tabNeighbours(history, sessionId, readable) {
     earlier: conversations.slice(at + 1).find((conversation) => readable(conversation.id)),
     runningNow: first !== undefined && first.place.open && first.id !== sessionId ? first : undefined,
   };
+}
+
+/**
+ * @typedef {{ kind: 'conversation', session: string } | { kind: 'latest-in-folder', session: string } | { kind: 'running' } | { kind: 'none' }} TabToContinue
+ *   — what a tab with nothing running in it goes on with: a conversation of its own; its folder's latest Claude Code
+ *   conversation (claude --continue), the history knowing no tab of its name; nothing, its latest conversation running
+ *   now in another tab; or nothing at all, no conversation in its folder either
+ */
+
+/**
+ * @typedef {{ workspace: string, tab: string, folder: string | undefined }} TabByName — a herdr tab by its workspace's
+ *   name and its own, with the folder its first pane is in, as herdr tells it
+ */
+
+/**
+ * What a tab with nothing running in it goes on with: the conversation that ran last in a tab of its name in its
+ * workspace — herdr brings tabs back, as after a restart of the computer, with terminals of their own, their names kept;
+ * for a tab the history does not know, its folder's latest Claude Code conversation someone worked in.
+ * @param {History} history
+ * @param {readonly ListedSession[]} sessions — the session list
+ * @param {TabByName} where
+ * @returns {TabToContinue}
+ */
+export function tabToContinue(history, sessions, { workspace, tab, folder }) {
+  const [latest] = Object.entries(history)
+    .flatMap(([id, place]) => (place.workspace === workspace && place.tab === tab ? [{ id, place }] : []))
+    .sort(byLatestLeft);
+  if (latest !== undefined) return latest.place.open ? { kind: 'running' } : { kind: 'conversation', session: latest.id };
+  const inFolder = folder === undefined ? undefined : latestInFolder(sessions, folder);
+  return inFolder === undefined ? { kind: 'none' } : { kind: 'latest-in-folder', session: inFolder };
+}
+
+/**
+ * The Claude Code conversation claude --continue goes on with in a folder: its latest one there someone worked in.
+ * @param {readonly ListedSession[]} sessions
+ * @param {string} folder
+ * @returns {string | undefined}
+ */
+function latestInFolder(sessions, folder) {
+  const [latest] = sessions.filter((one) => one.agent === 'claude' && one.kind === 'interactive' && one.cwd !== undefined && folderKey(one.cwd) === folderKey(folder)).sort((a, b) => b.modifiedAt - a.modifiedAt);
+  return latest?.id;
 }

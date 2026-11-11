@@ -66,7 +66,7 @@ export function latestRecords(records) {
  * @returns {import('./sessions.js').StartedSession[]}
  */
 export function startedSessions(records) {
-  return [...latestRecords(records).values()].flatMap(({ sessionId, cwd, startedAt }) => (cwd === undefined || startedAt === undefined ? [] : [{ id: sessionId, cwd, startedAt }]));
+  return [...latestRecords(records).values()].flatMap(({ sessionId, cwd, startedAt }) => (cwd === undefined || startedAt === undefined ? [] : [{ id: sessionId, cwd, startedAt, agent: 'claude' }]));
 }
 
 /**

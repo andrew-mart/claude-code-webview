@@ -227,6 +227,41 @@ test('choiceDialog_Should_ReadMcpToolDescription_ToGoBackFrom', () => {
 });
 
 // While the prompt box is there nothing waits for a choice, numbered lists in the conversation included
+// /cd asks before the session moves to a folder it has not worked in: what it asks under an edge as wide as the terminal,
+// its two answers with no digits — the cursor ❯ on one — and Enter to confirm, Esc to cancel under them. The page gets
+// what it asks and both answers, gone to with the arrows and picked with Enter
+test('choiceDialog_Should_ReadMoveToNewDirectory_AnsweredWithArrows', () => {
+  const moving = [
+    ...above,
+    '─'.repeat(120),
+    ' Moving to a new directory:',
+    '',
+    ' D:\\work\\ledger-reports',
+    '',
+    " This session hasn't worked here before. Is this a directory you created or one you trust?",
+    '',
+    " Claude Code'll be able to read, edit, and execute files here.",
+    '',
+    ' Security guide',
+    '',
+    ' ❯ No, stay put',
+    '   Yes, move here',
+    '',
+    ' Enter to confirm · Esc to cancel',
+    '',
+  ].join('\n');
+
+  assert.deepEqual(choiceDialog(moving), {
+    lines: ['Moving to a new directory:', 'D:\\work\\ledger-reports', "This session hasn't worked here before. Is this a directory you created or one you trust?", "Claude Code'll be able to read, edit, and execute files here.", 'Security guide'],
+    options: [
+      { key: '', label: 'No, stay put', detail: undefined, checked: undefined, current: true },
+      { key: '', label: 'Yes, move here', detail: undefined, checked: undefined, current: false },
+    ],
+    tabs: false,
+    previews: true,
+  });
+});
+
 test('choiceDialog_Should_FindNothing_When_PromptBoxIsShown', () => {
   const waiting = [...above, rule, '● Here is the plan:', '  1. Read the config', '  2. Fix the test', 'Press Esc to cancel it.', rule, '❯ ', rule, '  ⏵⏵ auto mode on'].join('\n');
 

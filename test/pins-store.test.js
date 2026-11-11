@@ -80,3 +80,21 @@ test('pinsStore_Should_TellWhetherPathIsPinned_AndNamePinWhereverItIsPinned', as
     },
   );
 });
+
+// The pins read anew when asked — another desk taken up: what it has replaces what showed
+test('pinsStore_Should_ReadPinsAnew_WhenAsked', async () => {
+  /** @type {((json: unknown) => void)[]} */
+  const replies = [];
+  globalThis.fetch = async () => new Promise((resolve) => void replies.push((json) => resolve(new Response(JSON.stringify(json)))));
+  /** @type {number[]} */
+  const shown = [];
+  const store = createPinsStore('s1', (pins) => shown.push(pins.folder.length));
+  replies.shift()?.({ folder: [], session: [] });
+  await new Promise((settled) => setTimeout(settled, 0));
+
+  store.reload();
+  replies.shift()?.({ folder: [{ path: spec, at: '2026-10-31T09:00:00.000Z' }], session: [] });
+  await new Promise((settled) => setTimeout(settled, 0));
+
+  assert.deepEqual(shown, [0, 1]);
+});

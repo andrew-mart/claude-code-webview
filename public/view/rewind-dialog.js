@@ -76,7 +76,8 @@ export function createRewindDialog({ onDone }) {
     /**
      * @param {string} sessionId
      * @param {Anchor} prompt
-     * @param {import('../model/composer.js').Agent} agent — whose session: Codex rewinds its conversation alone
+     * @param {'claude' | 'codex'} agent — whose session: Codex rewinds its conversation alone; Antigravity CLI's is
+     *   rewound in its terminal, not from here
      */
     open(sessionId, prompt, agent) {
       target = { sessionId, prompt };

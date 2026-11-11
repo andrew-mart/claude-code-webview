@@ -203,13 +203,69 @@ test('composer_Should_ShowWhatCodexQueued_AboveTheBox', async () => {
     window.document.body.append(composer.element);
     await settle();
     const list = composer.element.querySelector('.composer-queued');
-    const shown = { items: list instanceof window.HTMLElement && !list.hidden ? [...list.querySelectorAll('li')].map((item) => item.textContent) : [], note: list?.querySelector('.composer-queued-note')?.textContent };
+    const shown = { items: list instanceof window.HTMLElement && !list.hidden ? [...list.querySelectorAll('li .composer-queued-text')].map((item) => item.textContent) : [], note: list?.querySelector('.composer-queued-note')?.textContent };
     composer.dispose();
     composer.element.remove();
     return shown;
   };
 
   assert.deepEqual([await open(['Then update the docs.', 'And the changelog.']), (await open([])).items], [{ items: ['Then update the docs.', 'And the changelog.'], note: 'Codex sends these next, once its turn is over.' }, []]);
+});
+
+// Whether the agent is at its prompt, told as the session's state comes: at it — idle, asking nothing — or closed; not
+// while it works or asks. A feed of an agent that writes nothing when stopped — agy — learns so that its calls left
+// waiting were cut short
+test('composer_Should_TellWhetherAgentIsAtItsPrompt', async () => {
+  /** @param {unknown} live */
+  const told = async (live) => {
+    Object.assign(globalThis, { matchMedia: () => ({ matches: false }), fetch: async () => new Response(JSON.stringify(live), { status: 200, headers: { 'Content-Type': 'application/json' } }) });
+    /** @type {boolean[]} */
+    const said = [];
+    const composer = createComposer(sessionId, { agent: 'agy', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined, onDialog: () => undefined, onAtPrompt: (at) => said.push(at) });
+    window.document.body.append(composer.element);
+    await settle();
+    composer.dispose();
+    composer.element.remove();
+    return said.at(-1);
+  };
+  const asking = { lines: ['Run command?'], options: [{ key: '', label: 'Allow once', detail: undefined, checked: undefined, current: true }], tabs: false, previews: true };
+
+  assert.deepEqual(
+    [await told({ state: 'live', status: 'idle', pane: 'w2:p1', queued: [] }), await told({ state: 'live', status: 'busy', pane: 'w2:p1', queued: [] }), await told({ state: 'live', status: 'idle', pane: 'w2:p1', dialog: asking, queued: [] }), await told({ state: 'offline' })],
+    [true, false, false, true],
+  );
+});
+
+// The message Codex queued last can go now, into its turn under way, not waiting for the turn to end: its button sends
+// the session's queue now with nothing in the box — Codex takes back the one it queued last (shift+←). Only the last
+// one has it: Codex takes back no other
+test('composer_Should_SendCodexsLastQueuedMessageNow_ByItsButton', async () => {
+  /** @type {string[]} */
+  const posted = [];
+  Object.assign(globalThis, {
+    matchMedia: () => ({ matches: false }),
+    fetch: async (/** @type {string} */ path, /** @type {RequestInit | undefined} */ init) => {
+      if (path === '/api/send') {
+        posted.push(String(init?.body));
+        return new Response(JSON.stringify({ ok: true, pane: 'w4:p1' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ state: 'live', status: 'busy', pane: 'w4:p1', queued: ['Then update the docs.', 'And the changelog.'] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    },
+  });
+  const composer = createComposer(sessionId, { agent: 'codex', focusBox: 'no', placeOf: () => undefined, asides: createAsideStore(), onSent: () => undefined, onDialog: () => undefined });
+  window.document.body.append(composer.element);
+  await settle();
+  const buttons = [...composer.element.querySelectorAll('.composer-queued li')].map((item) => item.querySelector('button.composer-queued-now') !== null);
+  const now = composer.element.querySelector('.composer-queued li:last-child button.composer-queued-now');
+  if (now instanceof window.HTMLButtonElement) now.click();
+  await settle();
+  composer.dispose();
+  composer.element.remove();
+
+  assert.deepEqual(
+    { buttons, posted: posted.map((body) => JSON.parse(body)).map(({ text, now: sentNow }) => ({ text, now: sentNow })) },
+    { buttons: [false, true], posted: [{ text: '', now: true }] },
+  );
 });
 
 /**

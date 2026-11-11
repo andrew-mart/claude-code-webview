@@ -8,10 +8,11 @@
  *   when it sent them, to go on from (model/feed-copy.js): none in a copy from before tokens; lastActivity — the last
  *   prompt or answer
  * @typedef {{ lastActivity: number | undefined, savedAt: number }} SavedMark — that a session's feed is kept, and how fresh
- * @typedef {{ sessions: unknown, savedAt: number }} SavedList — the session list as the server sent it
+ * @typedef {{ sessions: unknown, savedAt: number, version: number | undefined }} SavedList — the session list as the
+ *   server sent it; version: the viewer's for it, while it was whole — the page asks for what changed since then
  * @typedef {{
  *   readList: () => Promise<SavedList | undefined>,
- *   saveList: (sessions: unknown) => Promise<void>,
+ *   saveList: (sessions: unknown, version: number | undefined) => Promise<void>,
  *   readFeed: (sessionId: string) => Promise<SavedFeed | undefined>,
  *   saveFeed: (sessionId: string, feed: SavedFeed) => Promise<void>,
  *   marks: () => Promise<Map<string, SavedMark>>,
@@ -48,11 +49,12 @@ export function openOfflineStore() {
     readList: () =>
       using(['list'], 'readonly', async (transaction) => {
         const value = await result(transaction.objectStore('list').get('sessions'));
-        return isSavedList(value) ? value : undefined;
+        // one saved before lists kept their version has none
+        return isSavedList(value) ? { sessions: value.sessions, savedAt: value.savedAt, version: 'version' in value && typeof value.version === 'number' ? value.version : undefined } : undefined;
       }, undefined),
-    saveList: (sessions) =>
+    saveList: (sessions, version) =>
       using(['list'], 'readwrite', async (transaction) => {
-        await result(transaction.objectStore('list').put({ sessions, savedAt: Date.now() }, 'sessions'));
+        await result(transaction.objectStore('list').put({ sessions, savedAt: Date.now(), ...(version === undefined ? {} : { version }) }, 'sessions'));
       }, undefined),
     readFeed: (sessionId) =>
       using(['feeds'], 'readonly', async (transaction) => {

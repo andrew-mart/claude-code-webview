@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentOfSession, openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf, searchLayout, sessionsByActivity, successorIn, tabTarget } from '../public/model/herdr.js';
+import { agentOfSession, openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf, searchLayout, sessionsByActivity, successorIn, tabTarget, workspacesShown } from '../public/model/herdr.js';
 
 const session = '7d4e1b20-2222-4333-8444-955566667777';
 
@@ -13,7 +13,7 @@ const tripPlans = {
   activeTab: 'w2:t3',
   tabs: [
     { id: 'w2:t1', number: 1, label: 'hotels', status: 'done', panes: [{ id: 'w2:p1', agent: 'claude', status: 'done', title: 'Packing list draft', session, size: undefined, activity: 40, hidden: true }] },
-    { id: 'w2:t2', number: 2, label: 'visas', status: 'unknown', panes: [{ id: 'w2:p2', agent: undefined, status: 'unknown', title: 'powershell', session: undefined, size: { cols: 120, rows: 40 }, activity: undefined }] },
+    { id: 'w2:t2', number: 2, label: 'visas', status: 'unknown', folder: 'D:/trips/visas', panes: [{ id: 'w2:p2', agent: undefined, status: 'unknown', title: 'powershell', session: undefined, size: { cols: 120, rows: 40 }, activity: undefined }] },
     { id: 'w2:t3', number: 3, label: 'search', status: 'working', panes: [{ id: 'w2:p3', agent: 'claude', status: 'working', title: 'Hostels across the EU', session: undefined, size: undefined, activity: 90 }] },
   ],
 };
@@ -83,13 +83,60 @@ test('openedAt_Should_ReadSessionOrPaneFromAddress', () => {
   );
 });
 
+/**
+ * A workspace of one tab and one Claude pane, herdr telling them at the status given, the agent's changes counted 7.
+ * @param {string} label
+ * @param {import('../public/model/herdr.js').AgentStatus} status
+ * @param {{ hidden?: true, kept?: true }} [marks] - hidden: its user hid it; kept: its agent kept lit to come back to
+ * @returns {import('../public/model/herdr.js').HerdrWorkspace}
+ */
+const workspaceAt = (label, status, { hidden, kept } = {}) => ({
+  id: label,
+  number: 1,
+  label,
+  status,
+  activeTab: `${label}:t1`,
+  ...(hidden === undefined ? {} : { hidden }),
+  tabs: [{ id: `${label}:t1`, number: 1, label: '1', status, panes: [{ id: `${label}:p1`, agent: 'claude', status, title: undefined, session: undefined, size: undefined, activity: 7, ...(kept === undefined ? {} : { kept }) }] }],
+});
+
+// A workspace its user hid is left out of the sidebar's list, under its button — but listed in its place again while one
+// of its agents waits for its user: done with an answer not seen, asking, kept lit to come back to. At work, or done with
+// its answer seen, it stays hidden
+test('workspacesShown_Should_LeaveHiddenWorkspacesOut_UnlessOneOfTheirAgentsWaits', () => {
+  const workspaces = [
+    workspaceAt('shop', 'idle'),
+    workspaceAt('drafts', 'idle', { hidden: true }),
+    workspaceAt('answered', 'done', { hidden: true }),
+    workspaceAt('asking', 'blocked', { hidden: true }),
+    workspaceAt('busy', 'working', { hidden: true }),
+    workspaceAt('read', 'done', { hidden: true }),
+    workspaceAt('later', 'idle', { hidden: true, kept: true }),
+  ];
+  const seen = new Map([['read:p1', 7]]);
+
+  const { listed, hidden } = workspacesShown(workspaces, seen);
+
+  assert.deepEqual({ listed: listed.map((one) => one.label), hidden: hidden.map((one) => one.label) }, { listed: ['shop', 'answered', 'asking', 'later'], hidden: ['drafts', 'busy', 'read'] });
+});
+
 // The page reads /api/herdr at its boundary: what does not fit the contract is left out, not guessed
 test('parseHerdrLayout_Should_KeepWhatFitsContract_AndDropTheRest', () => {
-  const reply = JSON.parse(JSON.stringify({ herdr: true, workspaces: [tripPlans, { id: 'broken' }] }));
+  /** @type {import('../public/model/herdr.js').HerdrWorkspace} */
+  const hiddenNotebook = { ...notebook, hidden: true };
+  const reply = JSON.parse(JSON.stringify({ herdr: true, workspaces: [tripPlans, hiddenNotebook, { id: 'broken' }] }));
 
-  assert.deepEqual(parseHerdrLayout(reply), { herdr: true, workspaces: [tripPlans] });
+  assert.deepEqual(parseHerdrLayout(reply), { herdr: true, workspaces: [tripPlans, hiddenNotebook] });
   assert.deepEqual(parseHerdrLayout({ herdr: false, workspaces: [] }), { herdr: false, workspaces: [] });
   assert.deepEqual(parseHerdrLayout('a proxy error page'), { herdr: false, workspaces: [] });
+});
+
+// Whether a new tab may start agy, as the viewer tells it — agy has run on its computer; anything else is no
+test('parseHerdrLayout_Should_TellWhetherNewTabMayStartAgy', () => {
+  assert.deepEqual([parseHerdrLayout({ herdr: true, agy: true, workspaces: [] }), parseHerdrLayout({ herdr: true, agy: 'yes', workspaces: [] })], [
+    { herdr: true, agy: true, workspaces: [] },
+    { herdr: true, workspaces: [] },
+  ]);
 });
 
 // The variables a session restarted starts with, as the viewer tells them: each NAME=VALUE; anything else is left out

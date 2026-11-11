@@ -97,9 +97,9 @@ export function parseNoteChange(value) {
 
 /**
  * The folder a session's notes are kept under: Claude Code's project — the folder it started in, as Claude Code names
- * it, the same after a cd — or, for Codex, the folder it runs in, named as Claude Code would: Claude Code and Codex in one
- * folder share their notes. None for a session with no folder known.
- * @param {{ agent: 'claude' | 'codex', project: string, cwd: string | undefined }} session
+ * it, the same after a cd — or, for Codex and Antigravity CLI, the folder it runs in, named as Claude Code would: the
+ * agents in one folder share their notes. None for a session with no folder known.
+ * @param {{ agent: 'claude' | 'codex' | 'agy', project: string, cwd: string | undefined }} session
  * @returns {string | undefined}
  */
 export function notesFolderOf(session) {

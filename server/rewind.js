@@ -83,8 +83,10 @@ export async function driveRewind(terminal, { stepsUp, prompt, action, wait }) {
 
   const confirmation = await findMessage(terminal, { stepsUp, prompt, settle });
   if (confirmation === undefined) return refuse('message-not-found');
-  const key = optionKey(confirmation, action);
-  if (key === undefined) return refuse(action === 'both' || action === 'code' ? 'no-code-changes' : 'option-not-found');
+  // without code changes the menu has no code options: the code and the conversation restored is the conversation
+  const chosen = action === 'both' && optionKey(confirmation, 'both') === undefined ? 'conversation' : action;
+  const key = optionKey(confirmation, chosen);
+  if (key === undefined) return refuse(chosen === 'code' ? 'no-code-changes' : 'option-not-found');
   await terminal.keys(key);
   const after = await settle((next) => !next.includes(listMarker) && !next.includes(confirmMarker));
   if (after === undefined) return refuse('not-finished');

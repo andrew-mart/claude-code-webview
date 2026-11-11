@@ -162,3 +162,55 @@ test('renderMarkdown_Should_WrapTextBlocksFromStart_AndAnyBlockOnItsButton', () 
     ['off false', 'on true', 'off false'],
   ]);
 });
+
+// A fragment quoted with its lines' numbers — right-aligned in a column before the code, "..." where lines are left out —
+// shows them in a column of their own, out of the code: the copy button copies the code alone. A block whose lines only
+// start with numbers, not in such a column, stays as it is
+test('renderMarkdown_Should_KeepLineNumbersOfQuotedFragmentOutOfCodeCopied', async (t) => {
+  /** @type {string[]} */
+  const copied = [];
+  Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (/** @type {string} */ text) => void copied.push(text) }, configurable: true });
+  t.after(() => Reflect.deleteProperty(navigator, 'clipboard'));
+  const holder = html(renderMarkdown('```js\n  9  function total(cart) {\n 10\n ...\n 14    return sum;\n```\n\n```text\n3  apples\n12  pears\n```'));
+  const [fragment, list] = [...holder.querySelectorAll('.code-frame')];
+  assert.ok(fragment instanceof window.HTMLElement && list instanceof window.HTMLElement, 'no frames around the code');
+  fragment.querySelector('.code-bar button.copy')?.dispatchEvent(new window.MouseEvent('click'));
+  list.querySelector('.code-bar button.copy')?.dispatchEvent(new window.MouseEvent('click'));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(
+    { numbers: fragment.querySelector('pre > .gutter')?.textContent, code: fragment.querySelector('pre code')?.textContent, copied, listNumbers: list.querySelector('.gutter') },
+    { numbers: '9\n10\n...\n14', code: 'function total(cart) {\n\n\n  return sum;', copied: ['function total(cart) {\n\n\n  return sum;', '3  apples\n12  pears\n'], listNumbers: null },
+  );
+});
+
+// A path cut at a space where a folder's name goes on is linked whole once the viewer finds the file there — asked once
+// for every such path in the answer, the words after it joining the link; one it does not find stays as it was, the
+// words after it words
+test('renderMarkdown_Should_LinkPathThroughFolderWithSpaces_WhenViewerFindsTheFile', async (t) => {
+  /** @type {unknown[]} */
+  const asked = [];
+  const before = globalThis.fetch;
+  Object.assign(globalThis, {
+    fetch: async (/** @type {string} */ url, /** @type {RequestInit | undefined} */ init) => {
+      asked.push([url, JSON.parse(String(init?.body))]);
+      return new Response(JSON.stringify({ existing: ['D:/work/shop/_docs/20261016 - checkout move/server-logic/catalog.md'] }), { headers: { 'Content-Type': 'application/json' } });
+    },
+  });
+  t.after(() => Object.assign(globalThis, { fetch: before }));
+  const answer = 'Каталог в D:/work/shop/_docs/20261016 - checkout move/server-logic/catalog.md, рядом в sql/\n\nв D:/dev/app файл src/app.ts';
+  const holder = html(renderMarkdown(answer));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(
+    { asked, links: [...holder.querySelectorAll('a')].map((link) => [link.textContent, link.getAttribute('data-path')]), text: holder.textContent },
+    {
+      asked: [['/api/paths/existing', { paths: ['D:/work/shop/_docs/20261016 - checkout move/server-logic/catalog.md', 'D:/dev/app файл src/app.ts'] }]],
+      links: [
+        ['D:/work/shop/_docs/20261016 - checkout move/server-logic/catalog.md', 'D:/work/shop/_docs/20261016 - checkout move/server-logic/catalog.md'],
+        ['D:/dev/app', 'D:/dev/app'],
+      ],
+      text: 'Каталог в D:/work/shop/_docs/20261016 - checkout move/server-logic/catalog.md, рядом в sql/\nв D:/dev/app файл src/app.ts\n',
+    },
+  );
+});

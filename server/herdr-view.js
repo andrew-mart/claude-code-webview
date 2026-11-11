@@ -12,30 +12,33 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isRecord, text } from '../public/model/narrow.js';
+import { agyPanes } from './agy-live.js';
 import { codexPanes } from './codex-live.js';
 import { folderKey } from './folders.js';
-import { foregroundPids, forkedFrom, snapshotOf, succeeded } from './herdr.js';
+import { foregroundPids, forkedFrom, overShell, shellAtPrompt, snapshotOf, succeeded } from './herdr.js';
 import { latestRecords, processKey } from './registry.js';
 import { acceptTrust } from './trust.js';
-import { parseHistory } from '../public/model/history.js';
+import { parseHistory, tabToContinue } from '../public/model/history.js';
 import { observed } from './session-history.js';
 
 /**
  * @typedef {{ herdr: boolean, sessions: Record<string, string>, icons: Record<string, string> }} SessionWorkspaces — the
  *   /api/workspaces reply.
  *   herdr: whether herdr answers; without it the page shows no workspaces. sessions: the workspace's name, by session id
- * @typedef {{ snapshot: import('./herdr.js').HerdrSnapshot, sessionByPane: ReadonlyMap<string, string>, byFolder: ReadonlyMap<string, string>, icons: ReadonlyMap<string, string>, hidden: ReadonlySet<string> } | undefined} HerdrView
+ * @typedef {{ snapshot: import('./herdr.js').HerdrSnapshot, sessionByPane: ReadonlyMap<string, string>, byFolder: ReadonlyMap<string, string>, icons: ReadonlyMap<string, string>, hidden: ReadonlySet<string>, hiddenWorkspaces: ReadonlySet<string> } | undefined} HerdrView
  *   what herdr showed, the sessions running in its panes, the workspace of each folder, and each workspace's icon by
- *   its id; undefined: no herdr
+ *   its id; the panes hidden from the page's list, and the workspaces, by their ids; undefined: no herdr
  * @typedef {import('./herdr.js').Pane} Pane
- * @typedef {{ found: 'pane', pane: string, working: boolean } | { found: 'elsewhere' | 'none' }} CodexPlace — where a
- *   Codex session runs: in a herdr pane, its agent at work or not; elsewhere — Codex has it open outside herdr; none —
- *   closed
+ * @typedef {{ found: 'pane', pane: string, working: boolean } | { found: 'elsewhere' | 'none' }} AgentPlace — where a
+ *   Codex session runs, an agy conversation: in a herdr pane, its agent at work or not; elsewhere — the agent has it
+ *   open outside herdr, or in a pane not told apart; none — closed
  * @typedef {{ name: string, value: string }} ShellVariable — set for a command typed into a shell: a name and value
  *   no shell reads otherwise than as written
  * @typedef {{ env: readonly ShellVariable[], shell: 'powershell' | 'posix', endProcess: (pid: number) => Promise<boolean> }} Restarting
  *   — how a session is restarted: env — the variables its agent starts again with; shell — the panes' shell, which
  *   sets them its way; endProcess — a process ended, true once it is gone
+ * @typedef {{ launcher: 'claude' | 'claude-gpt', at: number }} Launch — a Claude Code session started by the viewer: in
+ *   ordinary Claude Code or through GPT, and when, in ms
  */
 
 /** A viewer told nothing of restarting: no process of its is ended, so no session restarts. */
@@ -43,13 +46,16 @@ import { observed } from './session-history.js';
 const noRestarting = { env: [], shell: 'posix', endProcess: async () => false };
 
 /**
- * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, codexThreads: () => Promise<readonly import('./codex-live.js').LiveThread[]>, icons: { iconsOf: (workspaces: readonly import('./workspace-icons.js').IconedWorkspace[]) => Promise<ReadonlyMap<string, string>>, setIcon: (folder: string, icon: string | undefined) => Promise<void> }, hidden: ReturnType<typeof import('./hidden-panes.js').createHiddenPanes>, file: string, refreshMs: number, claudeCommand: string, claudeGptCommand?: string | undefined, claudeModelOf?: ((session: string) => Promise<string | undefined>) | undefined, codexCommand: string, trust: { looks: number, stepMs: number }, restart?: Restarting }} deps
- *   readRecords — contents of ~/.claude/sessions/*.json; codexThreads — the threads Codex has open now; icons — each
- *   workspace's (workspace-icons.js); hidden — the panes hidden from the page's list (hidden-panes.js); file — where the
+ * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, codexThreads: () => Promise<readonly import('./codex-live.js').LiveThread[]>, icons: { iconsOf: (workspaces: readonly import('./workspace-icons.js').IconedWorkspace[]) => Promise<ReadonlyMap<string, string>>, setIcon: (folder: string, icon: string | undefined) => Promise<void> }, hidden: ReturnType<typeof import('./hidden-panes.js').createHiddenPanes>, hiddenWorkspaces: ReturnType<typeof import('./hidden-workspaces.js').createHiddenWorkspaces>, file: string, refreshMs: number, claudeCommand: string, claudeGptCommand?: string | undefined, claudeModelOf?: ((session: string) => Promise<import('./claude-model.js').LastAnswer | undefined>) | undefined, codexCommand: string, agyCommand?: string | undefined, agyRuns?: () => Promise<readonly import('./agy-live.js').AgyRun[]>, trust: { looks: number, stepMs: number }, restart?: Restarting }} deps
+ *   readRecords — contents of ~/.claude/sessions/*.json; codexThreads — the threads Codex has open now; agyRuns — agy's
+ *   processes alive now (agy-live.js), none told — no agy; icons — each
+ *   workspace's (workspace-icons.js); hidden — the panes hidden from the page's list (hidden-panes.js);
+ *   hiddenWorkspaces — the workspaces hidden from it, by their ids (hidden-workspaces.js); file — where the
  *   workspaces of sessions seen running are kept; refreshMs — herdr is asked at most this often; claudeCommand,
- *   codexCommand — what starts Claude Code, and Codex, in a new tab; restart — how a session is restarted where it runs
+ *   codexCommand, agyCommand — what starts Claude Code, Codex and Antigravity CLI in a new tab — none, no agy;
+ *   restart — how a session is restarted where it runs
  */
-export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidden, file, refreshMs, claudeCommand, claudeGptCommand, claudeModelOf = async () => undefined, codexCommand, trust, restart = noRestarting }) {
+export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidden, hiddenWorkspaces, file, refreshMs, claudeCommand, claudeGptCommand, claudeModelOf = async () => undefined, codexCommand, agyCommand, agyRuns = async () => [], trust, restart = noRestarting }) {
   /**
    * A process's pane does not change while it runs: process-info is asked once for each Claude process — by its key
    * (registry.js): the number goes to another process once it is gone.
@@ -70,6 +76,12 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
   const outsideHerdr = new Map();
   /** New GPT panes not yet associated with a session in Claude Code's registry. @type {Set<string>} */
   const gptPanes = new Set();
+  /**
+   * The launcher each session the viewer resumed was last started in, and when: it runs there — until it answers again,
+   * which tells it anew.
+   * @type {Map<string, Launch>}
+   */
+  const launches = new Map();
   /** Where every session seen running was — read from the file once, then kept here and written back. */
   /** @type {Promise<{ history: import('../public/model/history.js').History, writtenAt: number }> | undefined} */
   let kept;
@@ -117,9 +129,9 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
       const workspace = labels.get(pane.workspaceId);
       const tab = pane.tabId === undefined ? undefined : tabLabels.get(pane.tabId);
       if (session === undefined || workspace === undefined) return undefined;
-      const model = pane.agent === 'claude' && claudeGptCommand !== undefined ? await claudeModelOf(session) : undefined;
-      const gpt = gptPanes.delete(pane.paneId) || isGptModel(model) || (model === undefined && store.history[session]?.claudeGpt === true);
-      return { session, workspace, tab, terminal: pane.terminal, folder: pane.cwd, ...(gpt ? { claudeGpt: true } : {}) };
+      // through GPT or not as the launch or the answer tells it; neither telling, the history keeps what it knew
+      const gpt = pane.agent !== 'claude' || claudeGptCommand === undefined ? undefined : gptPanes.delete(pane.paneId) ? true : throughGptNow(await claudeModelOf(session), launches.get(session));
+      return { session, workspace, tab, terminal: pane.terminal, folder: pane.cwd, ...(gpt === undefined ? {} : { claudeGpt: gpt }) };
     }));
     const running = sightings.filter((sighting) => sighting !== undefined);
     const now = Date.now();
@@ -159,12 +171,16 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
     const snapshot = succeeded(reply) ? snapshotOf(reply.json) : undefined;
     if (snapshot === undefined) return undefined;
     const claude = await runningSessions(snapshot.panes);
-    // Codex's threads are looked at only while a pane runs Codex
+    // Codex's threads are looked at only while a pane runs Codex; agy's runs, while one runs agy
     const codex = snapshot.panes.some((pane) => pane.agent === 'codex') ? codexPanes(snapshot.panes, await codexThreads()) : new Map();
-    const sessionByPane = new Map([...claude, ...codex]);
-    await rememberRunning(snapshot, sessionByPane);
+    const agy = snapshot.panes.some((pane) => pane.agent === 'agy') ? agyPanes(snapshot.panes, await agyRuns()) : { conversations: new Map(), started: new Map() };
+    const sessions = new Map([...claude, ...codex, ...agy.conversations]);
+    // an agy run before its first message shows by its own id, which no tab goes on with: agy makes the conversation
+    await rememberRunning(snapshot, sessions);
+    const sessionByPane = new Map([...sessions, ...agy.started]);
     const iconed = await icons.iconsOf(snapshot.workspaces.map((workspace) => ({ id: workspace.id, label: workspace.label, folder: workspaceFolder(snapshot, workspace.id) })));
-    return { snapshot, sessionByPane, byFolder: workspaceByFolder(snapshot.panes, workspaceLabels(snapshot)), icons: iconed, hidden: await hidden.hiddenAmong(snapshot.panes) };
+    const hiddenIds = await hiddenWorkspaces.hiddenAmong(snapshot.workspaces.map((workspace) => workspace.id));
+    return { snapshot, sessionByPane, byFolder: workspaceByFolder(snapshot.panes, workspaceLabels(snapshot)), icons: iconed, hidden: await hidden.hiddenAmong(snapshot.panes), hiddenWorkspaces: hiddenIds };
   };
 
   /**
@@ -179,31 +195,38 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
   };
 
   /**
-   * Claude Code, or Codex, in a new tab's shell: its command typed once the shell shows its prompt — what is typed before
+   * Claude Code, Codex or Antigravity CLI in a new tab's shell: its command typed once the shell shows its prompt — what is typed before
    * it may be lost. Claude Code asked whether to trust the folder the user chose for it is answered yes, out of the
    * reply's way.
    * @param {string} pane
    * @param {Exclude<import('../public/model/herdr.js').TabStart, 'shell'>} agent
    * @param {GoOn | undefined} goOn — the session it goes on with: resumed, or forked into a new one; none for a new session
    * @param {string} [ahead] - typed ahead of the command in the same line: the variables it starts with
+   * @param {'as-it-ran' | 'as-asked'} [launcher] - as-it-ran: ordinary Claude Code starts through GPT if the session it
+   *   goes on with ran so; as-asked: it starts in ordinary Claude Code all the same
    * @returns {Promise<boolean>} — whether herdr took the keys
    */
-  const startAgent = async (pane, agent, goOn, ahead = '') => {
-    const model = agent !== 'codex' && goOn !== undefined ? await claudeModelOf(goOn.session) : undefined;
-    const gptModel = isGptModel(model) ? model : undefined;
-    const remembered = goOn === undefined ? undefined : (await keptHistory()).history[goOn.session]?.claudeGpt;
-    const gpt = agent !== 'codex' && (agent === 'claude-gpt' || gptModel !== undefined || remembered === true);
-    const launcher = agent === 'codex' ? codexCommand : gpt ? claudeGptCommand : claudeCommand;
-    if (launcher === undefined) return false;
+  const startAgent = async (pane, agent, goOn, ahead = '', launcher = 'as-it-ran') => {
+    const claude = agent === 'claude' || agent === 'claude-gpt';
+    const answer = claude && goOn !== undefined ? await claudeModelOf(goOn.session) : undefined;
+    const gptModel = answer !== undefined && isGptModel(answer.model) ? answer.model : undefined;
+    // the session it goes on with ran through GPT as its launch or its answer tells — neither telling, as the history does
+    const told = goOn === undefined ? undefined : throughGptNow(answer, launches.get(goOn.session));
+    const ranThroughGpt = told === undefined ? goOn !== undefined && (await keptHistory()).history[goOn.session]?.claudeGpt === true : told;
+    const gpt = agent === 'claude-gpt' || (agent === 'claude' && launcher === 'as-it-ran' && ranThroughGpt);
+    const startCommand = agent === 'codex' ? codexCommand : agent === 'agy' ? agyCommand : gpt ? claudeGptCommand : claudeCommand;
+    if (startCommand === undefined) return false;
     for (let look = 0; look < shellLooks; look++) {
       const screen = await herdr(['pane', 'read', pane, '--source', 'visible', '--format', 'text']);
       if (screen.ok && screen.text.trim() !== '') break;
       await delay(shellStepMs);
     }
-    const command = [launcher, ...(agent === 'codex' ? codexGoingOn(goOn) : claudeGoingOn(goOn)), ...(gptModel === undefined ? [] : ['--model', gptModel])];
+    const goingOn = agent === 'codex' ? codexGoingOn(goOn) : agent === 'agy' ? agyGoingOn(goOn) : claudeGoingOn(goOn);
+    const command = [startCommand, ...goingOn, ...(gpt && gptModel !== undefined ? ['--model', gptModel] : [])];
     const started = succeeded(await herdr(['pane', 'send-text', pane, `${ahead}${command.join(' ')}`])) && succeeded(await herdr(['pane', 'send-keys', pane, 'enter']));
     if (started && gpt) gptPanes.add(pane);
-    if (started && agent !== 'codex') void acceptTrust(herdr, pane, trust).catch(() => undefined); // herdr gone meanwhile: nothing to answer
+    if (started && claude && goOn?.as === 'resume') launches.set(goOn.session, { launcher: gpt ? 'claude-gpt' : 'claude', at: Date.now() });
+    if (started && claude) void acceptTrust(herdr, pane, trust).catch(() => undefined); // herdr gone meanwhile: nothing to answer
     return started;
   };
 
@@ -366,6 +389,30 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
       return { ok: true };
     },
     /**
+     * Hides a workspace from the page's list — that one alone, kept by its id — until shown again.
+     * @param {string} workspaceId
+     * @returns {Promise<import('../public/model/herdr.js').TabChange>}
+     */
+    async hideWorkspace(workspaceId) {
+      const view = await currentView();
+      if (view?.snapshot.workspaces.some((workspace) => workspace.id === workspaceId) !== true) return { ok: false, error: 'failed' };
+      await hiddenWorkspaces.hide(workspaceId);
+      latest = undefined;
+      return { ok: true };
+    },
+    /**
+     * Shows a hidden workspace in the page's list again.
+     * @param {string} workspaceId
+     * @returns {Promise<import('../public/model/herdr.js').TabChange>}
+     */
+    async showWorkspace(workspaceId) {
+      const view = await currentView();
+      if (view?.snapshot.workspaces.some((workspace) => workspace.id === workspaceId) !== true) return { ok: false, error: 'failed' };
+      await hiddenWorkspaces.show(workspaceId);
+      latest = undefined;
+      return { ok: true };
+    },
+    /**
      * Hides a pane's session from the page's list until its agent changes state.
      * @param {string} paneId
      * @returns {Promise<import('../public/model/herdr.js').TabChange>}
@@ -415,13 +462,14 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
     /**
      * A Claude Code session restarted where it runs: its process ended — its turn and its background commands with it —
      * and Claude Code started again in its tab resuming it, the variables given (--restart-env) set ahead of it, or
-     * none. A session running in no herdr tab, or whose process did not end, is not: nothing is typed over a Claude Code
-     * still there.
+     * none; in the launcher it ran in, or in the one asked — ordinary Claude Code, or Claude Code through GPT. A session
+     * running in no herdr tab, or whose process did not end, is not: nothing is typed over a Claude Code still there.
      * @param {string} sessionId
      * @param {'given' | 'none'} variables — those given set ahead of Claude Code, or none: a plain restart
+     * @param {import('../public/model/herdr.js').RestartLauncher} launcher
      * @returns {Promise<import('../public/model/herdr.js').TabChange>}
      */
-    async restart(sessionId, variables) {
+    async restart(sessionId, variables, launcher) {
       const view = await currentView();
       const pane = view?.snapshot.panes.find((one) => one.agent === 'claude' && view.sessionByPane.get(one.paneId) === sessionId);
       const record = latestRecords(await readRecords()).get(sessionId);
@@ -431,8 +479,27 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
       latest = undefined;
       // the shell is back once Claude Code is gone: what is typed meanwhile waits for it
       await delay(shellStepMs);
-      const started = await startAgent(pane.paneId, 'claude', { session: sessionId, as: 'resume' }, shellVariables(variables === 'given' ? restart.env : [], restart.shell));
+      const ahead = shellVariables(variables === 'given' ? restart.env : [], restart.shell);
+      const started = await startAgent(pane.paneId, launcher === 'claude-gpt' ? 'claude-gpt' : 'claude', { session: sessionId, as: 'resume' }, ahead, launcher === 'as-it-ran' ? 'as-it-ran' : 'as-asked');
       return started ? { ok: true } : { ok: false, error: 'failed' };
+    },
+    /**
+     * A session's agent quit to its tab's shell: what runs over the shell — Claude Code, or Codex — ends, its turn and
+     * its background commands with it; the tab stays, at its shell's prompt. A session in no herdr tab, or a pane whose
+     * shell herdr does not tell, is not touched.
+     * @param {string} sessionId
+     * @returns {Promise<import('../public/model/herdr.js').TabChange>}
+     */
+    async exit(sessionId) {
+      const view = await currentView();
+      const pane = view?.snapshot.panes.find((one) => view.sessionByPane.get(one.paneId) === sessionId);
+      if (pane === undefined) return { ok: false, error: 'failed' };
+      const info = await herdr(['pane', 'process-info', '--pane', pane.paneId]);
+      const running = succeeded(info) ? overShell(info.json) : [];
+      if (running.length === 0) return { ok: false, error: 'failed' };
+      latest = undefined;
+      for (const pid of running) if (!(await restart.endProcess(pid))) return { ok: false, error: 'failed' };
+      return { ok: true };
     },
     /**
      * A closed session opened again where it ran: a new tab of its workspace — the workspace opened again if it is gone,
@@ -463,6 +530,39 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
       return { ok: true, target: `#/${sessionId}` };
     },
     /**
+     * A tab with nothing running in it — its shell at its prompt, as herdr brings tabs back after a restart of the
+     * computer — goes on with the conversation that ran last in it (model/history.js): Claude Code resumes it there,
+     * through GPT when it ran so, or Codex does, or agy; a tab the history does not know goes on with its folder's latest
+     * Claude Code conversation, as claude --continue would, resumed by its id. Nothing is typed into a tab where
+     * something runs, nor is a conversation Claude Code or agy runs anywhere now started twice.
+     * @param {string} tabId
+     * @param {readonly Pick<import('./sessions.js').SessionInfo, 'id' | 'agent' | 'cwd' | 'kind' | 'modifiedAt'>[]} sessions
+     *   — the session list: whose each session is, and the folder's latest
+     * @returns {Promise<import('../public/model/herdr.js').TabChange>}
+     */
+    async continueTab(tabId, sessions) {
+      const view = await currentView();
+      if (view === undefined) return { ok: false, error: 'failed' };
+      const tab = view.snapshot.tabs.find((known) => known.id === tabId);
+      const workspace = tab === undefined ? undefined : workspaceLabels(view.snapshot).get(tab.workspaceId);
+      const panes = view.snapshot.panes.filter((pane) => pane.tabId === tabId);
+      const [pane] = panes;
+      if (tab === undefined || workspace === undefined || pane === undefined) return { ok: false, error: 'failed' };
+      const next = tabToContinue((await keptHistory()).history, sessions, { workspace, tab: tab.label, folder: pane.cwd });
+      if (next.kind === 'running' || next.kind === 'none') return { ok: false, error: 'failed' };
+      const session = next.session;
+      // a session's id is typed into a shell: one that is no id is not
+      if (!sessionIdPattern.test(session) || latestRecords(await readRecords()).has(session)) return { ok: false, error: 'failed' };
+      if ((await agyRuns()).some((run) => run.conversation === session)) return { ok: false, error: 'failed' };
+      for (const one of panes) {
+        const info = await herdr(['pane', 'process-info', '--pane', one.paneId]);
+        if (!succeeded(info) || !shellAtPrompt(info.json)) return { ok: false, error: 'failed' };
+      }
+      latest = undefined;
+      const agent = sessions.find((listed) => listed.id === session)?.agent ?? 'claude';
+      return (await startAgent(pane.paneId, agent, { session, as: 'resume' })) ? { ok: true } : { ok: false, error: 'failed' };
+    },
+    /**
      * Where the sessions ran in herdr, the ones closed since included. An open session's place leaves out when it was
      * last seen — it is seen now: the reply stays the same while nothing changes, and the page's poll of it comes back
      * as 304.
@@ -476,18 +576,32 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
     /**
      * Where a Codex session runs, for the composer to type into it.
      * @param {string} sessionId
-     * @returns {Promise<CodexPlace>}
+     * @returns {Promise<AgentPlace>}
      */
     async codexPlace(sessionId) {
       const view = await currentView();
-      const pane = view?.snapshot.panes.find((one) => view.sessionByPane.get(one.paneId) === sessionId);
+      const pane = view?.snapshot.panes.find((one) => one.agent === 'codex' && view.sessionByPane.get(one.paneId) === sessionId);
       if (pane !== undefined) return { found: 'pane', pane: pane.paneId, working: pane.status === 'working' };
       return (await codexThreads()).some((thread) => thread.id === sessionId) ? { found: 'elsewhere' } : { found: 'none' };
+    },
+    /**
+     * Where agy runs a conversation, for the composer to type into it: in its pane; elsewhere — a program's run, a pane
+     * not told apart from another agy's in its folder; or closed.
+     * @param {string} sessionId
+     * @returns {Promise<AgentPlace>}
+     */
+    async agyPlace(sessionId) {
+      const view = await currentView();
+      const pane = view?.snapshot.panes.find((one) => one.agent === 'agy' && view.sessionByPane.get(one.paneId) === sessionId);
+      if (pane !== undefined) return { found: 'pane', pane: pane.paneId, working: pane.status === 'working' };
+      return (await agyRuns()).some((run) => run.conversation === sessionId) ? { found: 'elsewhere' } : { found: 'none' };
     },
     /** @returns {Promise<import('../public/model/herdr.js').HerdrLayout>} */
     async layout() {
       const view = await currentView();
-      return view === undefined ? { herdr: false, workspaces: [] } : { herdr: true, ...(claudeGptCommand === undefined ? {} : { claudeGpt: /** @type {const} */ (true) }), ...(restart.env.length === 0 ? {} : { restartEnv: restart.env.map(({ name, value }) => `${name}=${value}`) }), workspaces: layoutOf(view.snapshot, view.sessionByPane, view.icons, view.hidden) };
+      /** @type {{ agy?: true }} */
+      const agy = agyCommand === undefined ? {} : { agy: true };
+      return view === undefined ? { herdr: false, workspaces: [] } : { herdr: true, ...(claudeGptCommand === undefined ? {} : { claudeGpt: /** @type {const} */ (true) }), ...agy, ...(restart.env.length === 0 ? {} : { restartEnv: restart.env.map(({ name, value }) => `${name}=${value}`) }), workspaces: layoutOf(view.snapshot, view.sessionByPane, view.icons, view.hidden, view.hiddenWorkspaces) };
     },
   };
 }
@@ -498,15 +612,28 @@ function isGptModel(model) {
 }
 
 /**
+ * Whether a Claude Code session runs through GPT now: as the viewer last started it — unless it has answered since —
+ * else as its last answer came; unknown while neither tells.
+ * @param {import('./claude-model.js').LastAnswer | undefined} answer
+ * @param {Launch | undefined} launch
+ * @returns {boolean | undefined}
+ */
+function throughGptNow(answer, launch) {
+  if (launch !== undefined && (answer === undefined || answer.at < launch.at)) return launch.launcher === 'claude-gpt';
+  return answer === undefined ? undefined : isGptModel(answer.model);
+}
+
+/**
  * herdr's workspaces and tabs in its own order — the workspaces by their numbers, the tabs as herdr lists them: a tab
  * keeps the number it was opened with when it is moved — with the panes in each tab.
  * @param {import('./herdr.js').HerdrSnapshot} snapshot
  * @param {ReadonlyMap<string, string>} sessionByPane
  * @param {ReadonlyMap<string, string>} icons — by workspace id
  * @param {ReadonlySet<string>} hidden — the panes hidden from the page's list
+ * @param {ReadonlySet<string>} hiddenWorkspaces — the workspaces hidden from it, by id
  * @returns {import('../public/model/herdr.js').HerdrWorkspace[]}
  */
-function layoutOf(snapshot, sessionByPane, icons, hidden) {
+function layoutOf(snapshot, sessionByPane, icons, hidden, hiddenWorkspaces) {
   const byNumber = (/** @type {{ number: number }} */ a, /** @type {{ number: number }} */ b) => a.number - b.number;
   return [...snapshot.workspaces].sort(byNumber).map((workspace) => ({
     id: workspace.id,
@@ -515,17 +642,21 @@ function layoutOf(snapshot, sessionByPane, icons, hidden) {
     ...(icons.has(workspace.id) ? { icon: icons.get(workspace.id) } : {}),
     status: workspace.status,
     activeTab: workspace.activeTab,
+    ...(hiddenWorkspaces.has(workspace.id) ? { hidden: true } : {}),
     tabs: snapshot.tabs
       .filter((tab) => tab.workspaceId === workspace.id)
-      .map((tab) => ({
-        id: tab.id,
-        number: tab.number,
-        label: tab.label,
-        status: tab.status,
-        panes: snapshot.panes
-          .filter((pane) => pane.tabId === tab.id)
-          .map((pane) => ({ id: pane.paneId, agent: pane.agent, status: pane.status, title: pane.title, session: sessionByPane.get(pane.paneId), size: pane.size, activity: pane.activity, ...(hidden.has(pane.paneId) ? { hidden: true } : {}) })),
-      })),
+      .map((tab) => {
+        const panes = snapshot.panes.filter((pane) => pane.tabId === tab.id);
+        const folder = panes[0]?.cwd;
+        return {
+          id: tab.id,
+          number: tab.number,
+          label: tab.label,
+          status: tab.status,
+          ...(folder === undefined ? {} : { folder }),
+          panes: panes.map((pane) => ({ id: pane.paneId, agent: pane.agent, status: pane.status, title: pane.title, session: sessionByPane.get(pane.paneId), size: pane.size, activity: pane.activity, ...(hidden.has(pane.paneId) ? { hidden: true } : {}) })),
+        };
+      }),
   }));
 }
 
@@ -676,7 +807,17 @@ function codexGoingOn(goOn) {
   return goOn.as === 'resume' ? ['resume', goOn.session] : ['fork', goOn.session];
 }
 
-/** A session's id, as Claude Code and Codex make them. */
+/**
+ * What follows Antigravity CLI's command to go on with a conversation: agy goes on with it by its id; it makes no copy of
+ * one, and a copy goes on with it as well.
+ * @param {GoOn | undefined} goOn
+ * @returns {string[]}
+ */
+function agyGoingOn(goOn) {
+  return goOn === undefined ? [] : ['--conversation', goOn.session];
+}
+
+/** A session's id, as Claude Code, Codex and Antigravity CLI make them. */
 const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**

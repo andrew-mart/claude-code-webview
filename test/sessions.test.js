@@ -2,7 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { appendFile, mkdir, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { agyHome } from '../test-support/agy-home.js';
 import { tempDir } from '../test-support/temp-dir.js';
+import { createAgyConversations } from '../server/agy-conversations.js';
 import { createSessionIndex, summarizeSession } from '../server/sessions.js';
 
 const at = '2026-10-09T07:02:11.686Z';
@@ -158,17 +160,21 @@ test('list_Should_PutSessionWithLatestMessageFirstWhateverTheFileTime', async ()
   );
 });
 
-// A session started just now has no transcript until its first message: it is listed as Claude Code has it open — in
-// its folder, untitled, since it started — and a session open with a transcript is listed by the transcript, once
+// A session started just now has no transcript until its first message: it is listed as its agent has it open — in its
+// folder, untitled, since it started, Claude Code's or agy's — and a session open with a transcript is listed by the
+// transcript, once
 test('list_Should_ListStartedSessionInItsFolder_BeforeItsTranscriptIsWritten', async () => {
   const root = tempDir('csv-');
   await mkdir(join(root, 'D--dev-a'));
   const talked = '3f2c9a50-1111-4222-8333-000000000001';
   const fresh = '3f2c9a50-1111-4222-8333-000000000002';
+  const agyFresh = '5d1e7a0c-2b4f-8a91-9c3e-7f60b1d2e4a8';
   await writeFile(join(root, 'D--dev-a', `${talked}.jsonl`), `${line({ type: 'user', uuid: 'q', timestamp: '2026-10-08T10:00:00.000Z', cwd: 'D:\\dev\\a', message: { role: 'user', content: 'Talked already' } })}\n`);
+  /** @returns {Promise<import('../server/sessions.js').StartedSession[]>} */
   const started = async () => [
-    { id: talked, cwd: 'D:\\dev\\a', startedAt: Date.parse('2026-10-08T09:00:00.000Z') },
-    { id: fresh, cwd: 'D:\\dev\\shop', startedAt: Date.parse('2026-10-09T08:00:00.000Z') },
+    { id: talked, cwd: 'D:\\dev\\a', startedAt: Date.parse('2026-10-08T09:00:00.000Z'), agent: 'claude' },
+    { id: fresh, cwd: 'D:\\dev\\shop', startedAt: Date.parse('2026-10-09T08:00:00.000Z'), agent: 'claude' },
+    { id: agyFresh, cwd: 'D:\\dev\\maps', startedAt: Date.parse('2026-10-09T09:00:00.000Z'), agent: 'agy' },
   ];
 
   const sessions = await createSessionIndex(root, { summaryBudgetMs: 1000, missRetryMs: 0, started }).list();
@@ -176,6 +182,7 @@ test('list_Should_ListStartedSessionInItsFolder_BeforeItsTranscriptIsWritten', a
   assert.deepEqual(
     sessions.map((session) => [session.id, session.agent, session.title, session.cwd, session.activeAt]),
     [
+      [agyFresh, 'agy', undefined, 'D:\\dev\\maps', Date.parse('2026-10-09T09:00:00.000Z')],
       [fresh, 'claude', undefined, 'D:\\dev\\shop', Date.parse('2026-10-09T08:00:00.000Z')],
       [talked, 'claude', 'Talked already', 'D:\\dev\\a', Date.parse('2026-10-08T10:00:00.000Z')],
     ],
@@ -192,7 +199,7 @@ test('changes_Should_BringStartedSessionOnce_ToCallerThatAskedBeforeItWasListed'
 
   const before = await index.changes(undefined);
   await new Promise((resolve) => setTimeout(resolve, 5));
-  open = [{ id: fresh, cwd: 'D:\\dev\\shop', startedAt: before.version - 1000 }];
+  open = [{ id: fresh, cwd: 'D:\\dev\\shop', startedAt: before.version - 1000, agent: 'claude' }];
   const first = await index.changes(before.version);
   await new Promise((resolve) => setTimeout(resolve, 5));
   const next = await index.changes(first.version);
@@ -239,6 +246,43 @@ test('list_Should_ListCodexSessionsBesideClaudeCodesOnes_ToldApartByAgent', asyn
         { id: '3f2c9a50-1111-4222-8333-944455556666', agent: 'claude', title: 'Claude question', cwd: 'D:\dev\a', branch: 'master', kind: 'interactive' },
       ],
       codexFile: 'codex',
+    },
+  );
+});
+
+// Antigravity CLI's conversations are listed beside Claude Code's, told apart by their agent: with the title agy gave
+// one — the first line of its request when it gave none — the folder agy keeps for it, and a program's run (agy -p) as
+// one. Each is found by its id, and is known for agy's by its file
+test('list_Should_ListAgyConversationsBesideClaudeCodesOnes_ToldApartByAgent', async () => {
+  const root = tempDir('csv-');
+  await mkdir(join(root, 'D--dev-a'));
+  await writeFile(join(root, 'D--dev-a', '3f2c9a50-1111-4222-8333-944455556666.jsonl'), `${prompt('Claude question', 'D:\dev\a')}\n`);
+  const titled = '9342f993-b892-4839-845d-ce2d261b092e';
+  const run = '2632fe17-eb57-4aa1-b031-4ea2fd962dda';
+  const home = await agyHome({
+    conversations: [
+      { id: titled, request: 'Count the shop tests', summary: { title: 'Shop tests', folder: 'file:///D:/dev/shop' } },
+      { id: run, request: 'Summarize the log\nof yesterday', summary: { title: '', folder: 'file:///D:/dev/shop' } },
+    ],
+    typedIn: [],
+  });
+  const index = createSessionIndex(root, { summaryBudgetMs: 1000, missRetryMs: 0, agy: createAgyConversations(home) });
+
+  const sessions = await index.list();
+  const found = await index.find(titled);
+
+  assert.deepEqual(
+    {
+      sessions: sessions.map(({ id, agent, title, cwd, kind }) => ({ id, agent, title, cwd, kind })).sort((a, b) => a.id.localeCompare(b.id)),
+      agyFile: found === undefined ? undefined : index.agentOf(found),
+    },
+    {
+      sessions: [
+        { id: run, agent: 'agy', title: 'Summarize the log', cwd: 'D:/dev/shop', kind: 'sdk' },
+        { id: '3f2c9a50-1111-4222-8333-944455556666', agent: 'claude', title: 'Claude question', cwd: 'D:\dev\a', kind: 'interactive' },
+        { id: titled, agent: 'agy', title: 'Shop tests', cwd: 'D:/dev/shop', kind: 'interactive' },
+      ],
+      agyFile: 'agy',
     },
   );
 });

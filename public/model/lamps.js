@@ -112,14 +112,13 @@ export function keepToggled(pane, kept) {
 }
 
 /**
- * The answers seen here and elsewhere together: of the same agent, the later count — an answer seen after the one
- * before.
- * @param {SeenPanes} one
- * @param {SeenPanes} other
+ * The answers seen as the viewer keeps them — the latest any device saw, a lower count too: herdr started anew counts
+ * again from the start, and a page's higher count from before would keep the lamp lit for ever — beside the page's own
+ * the viewer has not got.
+ * @param {SeenPanes} page — the page's own
+ * @param {SeenPanes} viewer — the viewer's (/api/seen)
  * @returns {SeenPanes}
  */
-export function mergeSeen(one, other) {
-  const merged = new Map(one);
-  for (const [pane, count] of other) merged.set(pane, Math.max(count, merged.get(pane) ?? count));
-  return merged;
+export function mergeSeen(page, viewer) {
+  return new Map([...page, ...viewer]);
 }

@@ -126,6 +126,37 @@ export function foregroundPids(json) {
 }
 
 /**
+ * Whether a pane's shell is at its prompt: nothing it started — Claude Code, an editor — runs in the foreground.
+ * @param {unknown} json — the `herdr pane process-info` reply
+ * @returns {boolean}
+ */
+export function shellAtPrompt(json) {
+  const shell = shellPid(json);
+  const pids = foregroundPids(json);
+  return shell !== undefined && pids.length > 0 && pids.every((pid) => pid === shell);
+}
+
+/**
+ * What runs in a pane over its shell — Claude Code, Codex, an editor: its foreground processes but the shell; none for a
+ * pane whose shell herdr does not tell, what to end and what to leave unknown.
+ * @param {unknown} json — the `herdr pane process-info` reply
+ * @returns {readonly number[]}
+ */
+export function overShell(json) {
+  const shell = shellPid(json);
+  return shell === undefined ? [] : foregroundPids(json).filter((pid) => pid !== shell);
+}
+
+/**
+ * @param {unknown} json — the `herdr pane process-info` reply
+ * @returns {number | undefined}
+ */
+function shellPid(json) {
+  const info = isRecord(json) && isRecord(json.result) && isRecord(json.result.process_info) ? json.result.process_info : {};
+  return typeof info.shell_pid === 'number' ? info.shell_pid : undefined;
+}
+
+/**
  * The session a pane's process goes on from as a fork of its own — Claude Code started `--resume <id> --fork-session`,
  * as a tab duplicated from the page is: none for another process, or one that resumes a session without forking it.
  * Claude Code writes the fork's transcript only with its first new message; until then the session it was forked from

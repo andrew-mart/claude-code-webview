@@ -636,6 +636,20 @@ button {
   text-transform: uppercase;
 }
 
+/* Under the sessions a touch screen draws, the button that draws more of them (app.js: rowsToDraw). */
+.session-more {
+  display: block;
+  margin: 10px auto 16px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--text-3);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
 .session-group:first-child {
   margin-top: 4px;
 }
@@ -705,6 +719,30 @@ button {
 .herdr-workspace.selected,
 .herdr-tab.selected {
   background: var(--bg-selected);
+}
+
+/* the workspaces hidden from the list, at its end: how many, a press shows them under it — dimmed — or puts them away */
+.herdr-workspaces-hidden {
+  align-self: flex-start;
+  margin: 3px 0 2px 10px;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.herdr-workspaces-hidden:hover,
+.herdr-workspaces-hidden[aria-expanded='true'] {
+  border-color: var(--border-strong);
+  color: var(--text-2);
+}
+
+.herdr-workspace.herdr-workspace-hidden {
+  opacity: 0.6;
 }
 
 /* a row of a herdr workspace, or of a session that runs or ran in one: the workspace's colour on its left edge — its
@@ -897,6 +935,7 @@ button {
 .herdr-status[data-status="blocked"] {
   --lamp: var(--lamp-wait);
   background: var(--lamp);
+  box-shadow: 0 0 7px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
   animation: lamp 0.9s ease-in-out infinite;
 }
 
@@ -947,13 +986,22 @@ button {
 
 /* The tabs of the open session's or terminal's herdr workspace, above it. */
 .herdr-tab-bar {
+  container: tab-bar / inline-size;
   display: flex;
   flex: none;
   align-items: center;
-  gap: 4px;
-  overflow-x: auto;
   padding: 6px 12px 0;
   border-bottom: 1px solid var(--border);
+}
+
+/* The tabs, scrolling sideways when they do not fit, in a strip of their own beside how busy the computer is. */
+.herdr-tab-strip {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
   scrollbar-width: none;
 }
 
@@ -1082,6 +1130,214 @@ button {
   color: var(--text-3);
 }
 
+/* An open tab with nothing running in it — brought back after a restart of the computer — goes on with its conversation
+   (herdr-panel.js: continueButton): a small button of the accent's colour beside it, there without a click on the tab. */
+.herdr-tab-continue {
+  flex: none;
+  align-self: center;
+  margin: 0 4px;
+  padding: 2px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.herdr-tab-continue:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.herdr-tab-continue:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* How busy the viewer's computer is, at the right end of the tabs' row (system-meters.js): the processors in a share,
+   the memory and the graphics card's in GB, each with a short bar — red when nearly full; beside the tabs' strip, which
+   scrolls sideways on its own. A phone has no room for it. */
+.system-meters {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+  padding: 0 2px 6px 14px;
+  background: var(--bg);
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A meter is a button: pressed, it lists the computer's processes by its resource (system-meters.js). */
+.system-meter {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.system-meter:hover .system-meter-name,
+.system-meter[aria-expanded="true"] .system-meter-name {
+  color: var(--text);
+}
+
+/* The computer's processes by a meter's resource, the busiest first: under the meters, over what is below them. */
+.system-meters {
+  position: relative;
+}
+
+.system-processes {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  z-index: 40;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 3px 14px;
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+
+.system-process {
+  display: contents;
+}
+
+.system-process-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-process-value {
+  color: var(--text);
+  font-weight: 600;
+  text-align: right;
+}
+
+.system-process-other {
+  color: var(--text-3);
+  text-align: right;
+}
+
+.system-processes-note {
+  grid-column: 1 / -1;
+  color: var(--text-3);
+}
+
+.system-meter-name {
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.system-meter-bar {
+  width: 32px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--border);
+}
+
+.system-meter-fill {
+  display: block;
+  height: 100%;
+  background: var(--text-3);
+}
+
+.system-meter-value,
+.system-meter-short {
+  min-width: 3.5ch;
+  text-align: right;
+}
+
+/* In a narrow row each says its share alone — the card its load — for the tabs to have room beside them. */
+.system-meter-short {
+  display: none;
+}
+
+@container tab-bar (max-width: 900px) {
+  .system-meter-value {
+    display: none;
+  }
+
+  .system-meter-short {
+    display: inline;
+  }
+}
+
+.system-meter.full .system-meter-fill {
+  background: var(--danger);
+}
+
+.system-meter.full .system-meter-value,
+.system-meter.full .system-meter-short {
+  color: var(--danger);
+}
+
+@media (max-width: 820px) {
+  .system-meters {
+    display: none;
+  }
+}
+
+/* On a phone they are a row of a session's details instead (system-row.js), in the details' grid as its other rows are,
+   wrapping when the row is too narrow for them; a wider screen shows them in the tabs' row, not here. */
+.head-system {
+  display: contents;
+}
+
+/* in a session's details on a phone, the list on a line of its own under the meters */
+.head-system .system-processes {
+  position: static;
+  flex-basis: 100%;
+  width: 100%;
+  margin-top: 6px;
+  box-shadow: none;
+}
+
+.head-system .system-meters {
+  position: static;
+  flex: 0 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  background: none;
+  font-size: inherit;
+}
+
+@media (max-width: 820px) {
+  .head-system .system-meters {
+    display: flex;
+  }
+}
+
+@media (min-width: 821px) {
+  .head-system {
+    display: none;
+  }
+}
+
+.herdr-tab-continue-failed,
 .herdr-tab-duplicate-failed,
 .herdr-tab-icon-failed {
   align-self: center;
@@ -2033,12 +2289,14 @@ input.herdr-row-name.failed {
 }
 
 /* Rows of the page's own in a session's details, each a dt and its dd in one element: they lie in the details' grid as
-   its other rows do, and go while none of the buttons they hold shows. */
+   its other rows do, and go while none of the buttons they hold shows — or while the row itself is hidden, which
+   display: contents would otherwise keep in view. */
 .head-detail {
   display: contents;
 }
 
-.head-detail:not(:has(> dd > button:not([hidden]))) {
+.head-detail:not(:has(> dd button:not([hidden]))),
+.head-detail[hidden] {
   display: none;
 }
 
@@ -2182,14 +2440,16 @@ input.herdr-row-name.failed {
     display: none;
   }
 
+  /* as tall as its words: a label on two lines does not run over the next item */
   .head-rare .icon-button {
     display: flex;
     align-items: center;
     justify-content: flex-start;
     gap: 12px;
     width: 100%;
-    height: 38px;
-    padding: 0 12px;
+    height: auto;
+    min-height: 38px;
+    padding: 6px 12px;
     color: var(--text-2);
     font: inherit;
     font-size: 13.5px;
@@ -2509,10 +2769,31 @@ input.herdr-row-name.failed {
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
   color: var(--text-3);
   font-size: 12.5px;
-  backdrop-filter: blur(6px);
 }
 
 .updating .spark {
+  display: inline-block;
+  color: var(--accent);
+  animation: spin 2.4s linear infinite;
+}
+
+/* A session opened with its latest messages first: over them, where the earlier ones will be, a mark that they are
+   coming (session-view.js: quickTail) — gone once they are in. */
+.loading-earlier {
+  display: flex;
+  width: max-content;
+  align-items: center;
+  gap: 7px;
+  margin: 4px auto 12px;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
+.loading-earlier .spark {
   display: inline-block;
   color: var(--accent);
   animation: spin 2.4s linear infinite;
@@ -2988,13 +3269,17 @@ pre.code .prompt {
   user-select: none;
 }
 
-pre.code.numbered {
+/* a file read with its lines' numbers, and a fragment quoted so in an answer (markdown.js): the numbers in a column of
+   their own, out of the code selected and copied */
+pre.code.numbered,
+.code-frame pre.numbered {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 14px;
 }
 
-pre.code .gutter {
+pre.code .gutter,
+.code-frame pre.numbered > .gutter {
   color: var(--text-4);
   text-align: right;
   user-select: none;
@@ -3167,6 +3452,13 @@ summary::-webkit-details-marker {
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+}
+
+/* a call cut short: its agent at its prompt, its output never coming (tool-view.js) */
+.tool[data-state="stopped"] .tool-status::before {
+  content: "–";
+  color: var(--text-3);
+  font-size: 12px;
 }
 
 .tool[data-state="error"] .tool-status::before {
@@ -3721,6 +4013,94 @@ table.diff tr.gap td {
   content: '↳ ';
 }
 
+/* the last one queued can go now, into the turn under way (composer-view.js): its button after its words */
+.composer-queued-now {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  vertical-align: baseline;
+  cursor: pointer;
+}
+
+.composer-queued-now:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+/* The prompts sent out of the viewer's reach, waiting over the box to go once it answers (outbox.js): one line each,
+   what became of it — waiting, or why the viewer refused it — Send again for one refused, Back to the box */
+.composer-waiting {
+  margin: 0 0 6px;
+  padding: 4px 6px 4px 10px;
+  border: 1px dashed var(--accent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-elev));
+}
+
+.composer-waiting-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.composer-waiting-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.composer-waiting-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-waiting-state {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-waiting-row.refused .composer-waiting-state {
+  color: var(--danger);
+}
+
+.composer-waiting-again,
+.composer-waiting-back {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.composer-waiting-again:hover,
+.composer-waiting-back:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
 /* The prompts set aside for later, over the box: one line each, the whole of it in its tooltip and in the box. */
 .later {
   margin: 0 0 6px;
@@ -3866,8 +4246,10 @@ table.diff tr.gap td {
   cursor: pointer;
 }
 
+/* lit: what Enter presses — the choice the terminal's cursor is on, or Answer while one's own words are typed */
 .dialog-option:hover,
-.dialog-option.current {
+.dialog-option.current,
+.dialog-own-send.current {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border-strong));
   background: var(--bg-hover);
 }
@@ -4552,6 +4934,179 @@ table.diff tr.gap td {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+/* The session's desk (desk-view.js): its name in the notes' title; pressed, under it the desks around — another taken
+   up — a new one made by its name, this one moved to a folder typed, the folders on the disk offered as it is typed */
+.desk-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 62%;
+  margin: 0 auto 0 6px;
+  padding: 1px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-3);
+  font: inherit;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.desk-label:hover,
+.desk-label[aria-expanded="true"] {
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.desk-label .icon {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+
+.desk-label-name,
+.desk-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desk-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 4px 8px;
+}
+
+.desk-list,
+.desk-offers {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.desk-offers:empty,
+.desk-told:empty {
+  display: none;
+}
+
+.desk-row,
+.desk-offer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.desk-row {
+  justify-content: space-between;
+}
+
+.desk-row:hover,
+.desk-offer:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.desk-row[aria-current="true"] {
+  background: var(--bg-selected);
+  color: var(--text);
+  cursor: default;
+}
+
+.desk-row-folder {
+  flex: none;
+  color: var(--text-4);
+  font-size: 11.5px;
+}
+
+.desk-offer .icon {
+  flex: none;
+  width: 13px;
+  height: 13px;
+}
+
+.desk-new-name,
+.desk-move-folder {
+  padding: 4px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.desk-new-name:focus,
+.desk-move-folder:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.desk-told {
+  color: var(--danger);
+  font-size: 12.5px;
+}
+
+/* a note put on another desk (note-panel.js): the desks around but the session's, under the note's name */
+.note-desks {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 2px 0 10px;
+}
+
+.note-desk-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.note-desk-row:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.note-desk-folder {
+  overflow: hidden;
+  color: var(--text-4);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-desk-told {
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
+.note-desk-told:empty {
+  display: none;
 }
 
 .notes .icon-button,
@@ -5339,7 +5894,13 @@ table.diff tr.gap td {
   line-height: 1.55;
 }
 
-.note-panel .note-editor :is(.cm-editor, .milkdown .ProseMirror) {
+/* a code block in a note not being edited marks no line as the cursor's: CodeMirror's highlight waits for the focus */
+.note-editor .cm-editor:not(.cm-focused) :is(.cm-activeLine, .cm-activeLineGutter) {
+  background-color: transparent;
+}
+
+/* the note's editor itself, not a code block's in it: Milkdown draws each with a CodeMirror of its own */
+.note-panel .note-editor :is(.note-editor-host > .cm-editor, .milkdown .ProseMirror) {
   min-height: 60vh;
 }
 
@@ -5785,6 +6346,89 @@ a.file-link:hover {
   display: none;
 }
 
+/* The documents put away — files, notes — under the feed over the box, in whichever session is open: small cards in a
+   row, the latest first, the one the side panel shows left out; a card opens its document again, its × closes it for
+   good (doc-dock.js). A phone's are larger, leafed through sideways. */
+@media (min-width: 821px) {
+  .doc-dock:not([hidden]) {
+    display: flex;
+    flex: none;
+    gap: 6px;
+    width: 100%;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 0 24px 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  :root[data-width="full"] .doc-dock:not([hidden]) {
+    max-width: none;
+  }
+
+  .doc-dock::-webkit-scrollbar {
+    display: none;
+  }
+
+  .doc-card {
+    display: flex;
+    flex: none;
+    align-items: center;
+    max-width: 240px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--bg-elev);
+  }
+
+  .doc-card:hover {
+    border-color: var(--border-strong);
+  }
+
+  .doc-card-open {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 4px 0 4px 9px;
+    border: 0;
+    background: transparent;
+    color: var(--text-2);
+    font: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+
+  .doc-card-open:hover {
+    color: var(--text);
+  }
+
+  .doc-card-open .icon,
+  .doc-card-open .file-icon {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    margin: 0;
+  }
+
+  .doc-card-open span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .doc-card-close.icon-button {
+    flex: none;
+    width: 22px;
+    height: 22px;
+  }
+
+  .doc-card-close svg {
+    width: 12px;
+    height: 12px;
+  }
+}
+
 /* the file — its head, its body */
 .panel-main {
   display: flex;
@@ -6056,7 +6700,9 @@ a.file-link:hover {
   min-width: 10ch;
 }
 
-.panel-body:has(> .fv-document > .fv-frame) {
+/* a page's frame scrolls the page, the panel holds it — unless the frame grows as tall as the page, on a touch screen
+   (file-panel.js): then the panel scrolls it */
+.panel-body:has(> .fv-document:not(.fv-grows) > .fv-frame) {
   overflow: hidden;
 }
 
@@ -6474,26 +7120,8 @@ a.file-link:hover {
   min-width: 0;
 }
 
-/* what downloads in the panel, and what was downloaded, under the search: a row each, the bar under its words */
-.project-downloads {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--border);
-  color: var(--text-2);
-  font-size: 12.5px;
-  overflow-wrap: anywhere;
-}
-
-.project-downloading {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 6px;
-}
-
-/* a transfer's bar, as wide as the panel: filled as far as it got, or going on without an end while there is no
-   length to fill — a zip being made */
+/* an upload's bar, as wide as the panel: filled as far as it got, or going on without an end while there is no length
+   to fill — an empty file */
 .project-transfer-bar {
   flex: 1 1 100%;
   width: 100%;
@@ -12088,6 +12716,7 @@ a.file-link:hover {
   margin: 0;
   border-radius: 50%;
   background: var(--lamp);
+  box-shadow: 0 0 7px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
   animation: lamp 1.2s ease-in-out infinite;
 }
 
@@ -12112,52 +12741,45 @@ a.file-link:hover {
   padding-right: 18px;
 }
 
-/* a lamp at work: lit all the while, a touch brighter and dimmer at uneven moments — gently, not a blink */
+/* a lamp at work: lit all the while, a touch brighter and dimmer at uneven moments — gently, not a blink; its glow
+   stays still on it (a glow changed in each frame is painted anew in the page's own thread, every lamp, sixty times a
+   second — a tablet's typing and switching wait for it), only its opacity wavers */
 @keyframes lamp-waver {
   0%,
   100% {
     opacity: 1;
-    box-shadow: 0 0 7px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
   }
 
   8% {
     opacity: 0.9;
-    box-shadow: 0 0 6px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
   }
 
   15% {
     opacity: 0.97;
-    box-shadow: 0 0 7px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
   }
 
   29% {
     opacity: 0.86;
-    box-shadow: 0 0 5px 1px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
   }
 
   36% {
     opacity: 1;
-    box-shadow: 0 0 7px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
   }
 
   51% {
     opacity: 0.92;
-    box-shadow: 0 0 6px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
   }
 
   58% {
     opacity: 0.98;
-    box-shadow: 0 0 7px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
   }
 
   71% {
     opacity: 0.88;
-    box-shadow: 0 0 5px 1px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
   }
 
   84% {
     opacity: 0.95;
-    box-shadow: 0 0 6px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
   }
 }
 
@@ -12178,19 +12800,18 @@ a.file-link:hover {
   }
 }
 
-/* a lamp that blinks: lit and glowing, then nearly out */
+/* a lamp that blinks: lit and glowing, then nearly out — its glow with it, in opacity and scale alone, which the
+   browser draws apart from the page */
 @keyframes lamp {
   0%,
   100% {
     opacity: 1;
     transform: scale(1.15);
-    box-shadow: 0 0 7px 2px color-mix(in srgb, var(--lamp) var(--lamp-glow), transparent);
   }
 
   50% {
     opacity: 0.15;
     transform: scale(0.8);
-    box-shadow: 0 0 0 0 transparent;
   }
 }
 
@@ -12393,14 +13014,16 @@ a.file-link:hover {
     display: flex;
   }
 
+  /* as tall as its words: a label on two lines does not run over the next item */
   .head-tools .icon-button {
     display: flex;
     align-items: center;
     justify-content: flex-start;
     gap: 12px;
     width: 100%;
-    height: 42px;
-    padding: 0 12px;
+    height: auto;
+    min-height: 42px;
+    padding: 8px 12px;
     color: var(--text-2);
     font: inherit;
     font-size: 14px;
@@ -12478,6 +13101,11 @@ a.file-link:hover {
     touch-action: pan-x;
   }
 
+  /* a swipe past the document's end stays in the sheet: the session behind does not scroll */
+  .file-panel .panel-body {
+    overscroll-behavior: contain;
+  }
+
   .file-panel .panel-grip {
     display: block;
     width: 36px;
@@ -12526,6 +13154,11 @@ a.file-link:hover {
   }
 
   .file-panel .panel-tools::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* put away by pulling the sheet down: no button for it */
+  .file-panel .panel-put-away {
     display: none;
   }
 
@@ -12690,6 +13323,11 @@ table.diff,
 }
 
 /* Out of the viewer's reach: a strip at the bottom of the screen, above the prompt box, while it lasts. */
+/* on a session's page the box tells it is out of reach, and the prompts waiting sit over it: no notice there */
+:root[data-view="session"] .offline-notice {
+  display: none;
+}
+
 .offline-notice {
   position: fixed;
   left: 50%;

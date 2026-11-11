@@ -1,11 +1,14 @@
 // @ts-check
-// Prompts from the web page into a live Claude Code or Codex session: find its terminal in herdr and type the text there.
+// Prompts from the web page into a live Claude Code, Codex or Antigravity CLI (agy) session: find its terminal in herdr
+// and type the text there.
 //
 //   ~/.claude/sessions/<pid>.json  → pid of the process that has the session open (written by Claude Code itself)
 //   herdr pane list + process-info → the pane where that process is in the foreground
-//   the herdr view                 → the pane a Codex session runs in (herdr-view.js: codexPlace)
+//   the herdr view                 → the pane a Codex session or an agy conversation runs in (herdr-view.js: codexPlace,
+//                                    agyPlace)
 //   herdr pane send-text / send-keys → the text and Enter, as if the user typed them
 import { setTimeout as delay } from 'node:timers/promises';
+import { agyDialog, agyInputBox } from './agy-screen.js';
 import { driveBtw, readBtw, withPanelClosed } from './btw.js';
 import { inputBox, plainScreen, settleOn, settleWithin, squash } from './claude-screen.js';
 import { driveCodexBtw } from './codex-btw.js';
@@ -27,7 +30,8 @@ import { driveStop } from './stop.js';
  * @typedef {import('./rewind.js').RewindOutcome | { ok: false, error: 'herdr-missing' | 'offline' | 'no-herdr' | 'outside-herdr' | 'busy' | 'subagent' }} RewindReply
  * @typedef {import('../public/model/composer.js').StopOutcome} StopReply
  * @typedef {import('../public/model/composer.js').BtwReply} BtwReply
- * @typedef {{ pane: string, agent: 'claude' | 'codex', status: string, forget: () => void }} Place — the pane a session
+ * @typedef {'claude' | 'codex' | 'agy'} PaneAgent — whose session runs in the pane: Claude Code's, Codex's, agy's
+ * @typedef {{ pane: string, agent: PaneAgent, status: string, forget: () => void }} Place — the pane a session
  *   runs in, whose agent, busy or not; forget: the pane may have closed — look for it again next time
  * @typedef {{ kind: 'herdr-missing' | 'offline' } | { kind: 'no-herdr' | 'outside-herdr', status: string } | { kind: 'live', place: Place }} Location
  */
@@ -46,11 +50,11 @@ const enterTries = 3;
 const enterLooks = 8;
 
 /**
- * @param {{ readRecords: () => Promise<readonly unknown[]>, herdr: RunHerdr, codexPlace: (sessionId: string) => Promise<import('./herdr-view.js').CodexPlace> }} deps
- *   readRecords — contents of ~/.claude/sessions/*.json; herdr — runs the herdr CLI with arguments; codexPlace — where a
- *   Codex session runs
+ * @param {{ readRecords: () => Promise<readonly unknown[]>, herdr: RunHerdr, codexPlace: (sessionId: string) => Promise<import('./herdr-view.js').AgentPlace>, agyPlace?: (sessionId: string) => Promise<import('./herdr-view.js').AgentPlace> }} deps
+ *   readRecords — contents of ~/.claude/sessions/*.json; herdr — runs the herdr CLI with arguments; codexPlace, agyPlace
+ *   — where a Codex session runs, an agy conversation; none told — no agy here
  */
-export function createComposer({ readRecords, herdr, codexPlace }) {
+export function createComposer({ readRecords, herdr, codexPlace, agyPlace = async () => ({ found: 'none' }) }) {
   /**
    * A process's pane does not change while the process is alive: the search across all panes runs only the first time.
    * By its process's key (registry.js): the number goes to another process once it is gone.
@@ -121,7 +125,7 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
 
   /**
    * Where the session is: without herdr it cannot be written to at all (and no input box is needed); without a process it
-   * is not running. A session Claude Code has no record of may be Codex's.
+   * is not running. A session Claude Code has no record of may be agy's, or Codex's.
    * @param {string} sessionId
    * @returns {Promise<Location>}
    */
@@ -129,7 +133,10 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
     const presence = await herdrPresence();
     if (presence === 'missing') return { kind: 'herdr-missing' };
     const record = latestRecords(await readRecords()).get(sessionId);
-    if (record === undefined) return locateCodex(sessionId, presence);
+    if (record === undefined) {
+      const agy = await agyPlace(sessionId);
+      return agy.found === 'none' ? locatedAt(await codexPlace(sessionId), 'codex', presence) : locatedAt(agy, 'agy', presence);
+    }
     if (presence === 'unreachable') return { kind: 'no-herdr', status: record.status };
     const place = await paneOf(record);
     if (!place.found) return { kind: place.reason, status: record.status };
@@ -137,22 +144,23 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
   }
 
   /**
-   * A Codex session: in a herdr pane, busy while herdr sees its agent at work; open in Codex outside herdr; or closed.
-   * @param {string} sessionId
+   * A Codex session, an agy conversation: in a herdr pane, busy while herdr sees its agent at work; open outside herdr;
+   * or closed.
+   * @param {import('./herdr-view.js').AgentPlace} place
+   * @param {'codex' | 'agy'} agent
    * @param {'present' | 'unreachable'} presence
-   * @returns {Promise<Location>}
+   * @returns {Location}
    */
-  async function locateCodex(sessionId, presence) {
-    const place = await codexPlace(sessionId);
+  function locatedAt(place, agent, presence) {
     switch (place.found) {
       case 'pane':
-        return { kind: 'live', place: { pane: place.pane, agent: 'codex', status: place.working ? 'busy' : 'idle', forget: () => undefined } };
+        return { kind: 'live', place: { pane: place.pane, agent, status: place.working ? 'busy' : 'idle', forget: () => undefined } };
       case 'elsewhere':
         return { kind: presence === 'unreachable' ? 'no-herdr' : 'outside-herdr', status: 'idle' };
       case 'none':
         return { kind: 'offline' };
       default:
-        throw new Error(`No such place of a Codex session: ${JSON.stringify(place)}`);
+        throw new Error(`No such place of a ${agent} session: ${JSON.stringify(place)}`);
     }
   }
 
@@ -194,8 +202,7 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
   async function typeIn(place, input, landing) {
     const typed = await press(place, [['send-text', input]]);
     if (!typed.ok) return typed;
-    const boxOf = place.agent === 'codex' ? codexInputBox : inputBox;
-    const landed = await settleOn(terminalOf(place.pane), (ms) => delay(ms), (screen) => showsTyped(boxOf(screen), input));
+    const landed = await settleOn(terminalOf(place.pane), (ms) => delay(ms), (screen) => showsTyped(boxOf(place.agent, screen), input));
     return landed === undefined && landing === 'required' ? { ok: false, error: 'not-typed' } : typed;
   }
 
@@ -239,6 +246,27 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
   }
 
   /**
+   * The message Codex queued last put into its turn under way, not left for the turn's end: Codex takes it back into its
+   * box — shift+← — and Enter puts it in. Nothing queued — nothing to send.
+   * @param {Place} place
+   * @returns {Promise<SendOutcome>}
+   */
+  async function sendQueuedToCodexNow(place) {
+    const terminal = terminalOf(place.pane);
+    const screen = await terminal.read();
+    const last = screen === undefined ? undefined : codexQueued(screen).at(-1);
+    if (last === undefined) return { ok: false, error: 'empty' };
+    const taken = await press(place, [['send-keys', 'shift+left']]);
+    if (!taken.ok) return taken;
+    const back = await settleOn(terminal, (ms) => delay(ms), (now) => holdsTyped(codexInputBox(now), last));
+    if (back === undefined) return { ok: false, error: 'not-typed' };
+    const sent = await press(place, [['send-keys', 'enter']]);
+    if (!sent.ok) return sent;
+    const letGo = await settleOn(terminal, (ms) => delay(ms), (now) => !holdsTyped(codexInputBox(now), last));
+    return letGo === undefined ? { ok: false, error: 'not-taken' } : sent;
+  }
+
+  /**
    * A prompt Codex did not take, taken back out of its box: a long paste's mark — whole at one key, or the rest of it
    * key by key — or the prompt as typed, its end at the box's end — a long one scrolls the box, its start out of sight.
    * @param {import('./claude-screen.js').Terminal} terminal
@@ -279,9 +307,25 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
   }
 
   /**
-   * Enter for the prompt in Claude Code's box, again while the box holds it: an Enter right after a long paste Claude
-   * Code may take for none. The box letting the prompt go — sent, or queued — is the prompt sent; still holding it after
-   * a few, it is not, and the page is told: the terminal has it.
+   * A prompt into agy's box, then Enter — while agy works, it queues the prompt itself. Not while agy asks something in
+   * the box's place: the keys would answer it.
+   * @param {Place} place
+   * @param {string} input
+   * @returns {Promise<SendOutcome>}
+   */
+  async function sendToAgy(place, input) {
+    const terminal = terminalOf(place.pane);
+    // a screen agy is drawing anew shows no box for a moment
+    const screen = await settleOn(terminal, (ms) => delay(ms), (now) => agyInputBox(now) !== undefined);
+    if (screen === undefined) return { ok: false, error: 'asking' };
+    const typed = await typeIn(place, input, 'required');
+    return typed.ok ? enterUntilTaken(place, input) : typed;
+  }
+
+  /**
+   * Enter for the prompt in the box — Claude Code's, agy's — again while the box holds it: an Enter right after a long
+   * paste Claude Code may take for none. The box letting the prompt go — sent, or queued — is the prompt sent; still
+   * holding it after a few, it is not, and the page is told: the terminal has it.
    * @param {Place} place
    * @param {string} input
    * @returns {Promise<SendOutcome>}
@@ -291,7 +335,7 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
     for (let tries = 0; tries < enterTries; tries++) {
       const sent = await press(place, [['send-keys', 'enter']]);
       if (!sent.ok) return sent;
-      const letGo = await settleWithin(terminal, (ms) => delay(ms), (screen) => !holdsTyped(inputBox(screen), input), enterLooks);
+      const letGo = await settleWithin(terminal, (ms) => delay(ms), (screen) => !holdsTyped(boxOf(place.agent, screen), input), enterLooks);
       if (letGo !== undefined) return sent;
     }
     return { ok: false, error: 'not-sent' };
@@ -391,7 +435,7 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
         const found = await target(sessionId);
         if (!found.ok) return found;
         const { place } = found;
-        const outcome = place.agent === 'codex' ? await sendToCodex(place, input, place.status === 'busy' ? 'tab' : 'enter') : await sendToClaude(place, input);
+        const outcome = place.agent === 'codex' ? await sendToCodex(place, input, place.status === 'busy' ? 'tab' : 'enter') : place.agent === 'agy' ? await sendToAgy(place, input) : await sendToClaude(place, input);
         if (outcome.ok) sentPrompts.set(sessionId, [...(sentPrompts.get(sessionId) ?? []), input].slice(-keptPrompts));
         return outcome;
       });
@@ -400,7 +444,8 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
      * What waits in Claude Code's queue, sent at once with the box's text: its send-now key — Ctrl+Enter, which a terminal
      * may pass on as plain Enter; Ctrl+X Ctrl+S reaches it from any. Claude's work that can go to the background goes
      * there and Claude reads the messages in the same turn; otherwise the turn is stopped and they go next.
-     * Codex's Enter puts a prompt into its turn under way: it has no queue the viewer sends.
+     * Codex's Enter puts a prompt into its turn under way; with nothing in the box, the message it queued last goes there
+     * instead. agy has no queue the viewer sends: the prompt goes as any.
      * @param {string} sessionId
      * @param {string} text — none: the queue goes alone
      * @returns {Promise<SendOutcome>}
@@ -411,8 +456,9 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
         const found = await target(sessionId);
         if (!found.ok) return found;
         const { place } = found;
-        if (place.agent === 'codex' && input === '') return { ok: false, error: 'empty' };
-        const outcome = place.agent === 'codex' ? await sendToCodex(place, input, 'enter') : await sendNowToClaude(place, input);
+        if (place.agent === 'codex' && input === '') return sendQueuedToCodexNow(place);
+        if (place.agent === 'agy' && input === '') return { ok: false, error: 'empty' };
+        const outcome = place.agent === 'codex' ? await sendToCodex(place, input, 'enter') : place.agent === 'agy' ? await sendToAgy(place, input) : await sendNowToClaude(place, input);
         if (outcome.ok && input !== '') sentPrompts.set(sessionId, [...(sentPrompts.get(sessionId) ?? []), input].slice(-keptPrompts));
         return outcome;
       });
@@ -428,6 +474,8 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
       const reply = inTurn(sessionId, /** @returns {Promise<BtwReply>} */ async () => {
         const where = await locate(sessionId);
         if (where.kind !== 'live') return { ok: false, error: where.kind };
+        // agy has no side question the viewer drives
+        if (where.place.agent === 'agy') return { ok: false, error: 'not-asked' };
         const terminal = terminalOf(where.place.pane);
         // Codex answers it in a side conversation of its own (codex-btw.js)
         const recent = () => recentOf(where.place.pane);
@@ -454,7 +502,7 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
       return inTurn(sessionId, async () => {
         const where = await locate(sessionId);
         if (where.kind !== 'live') return { ok: false, error: where.kind };
-        if (where.place.agent === 'codex') return { ok: false, error: 'panel-closed' };
+        if (where.place.agent !== 'claude') return { ok: false, error: 'panel-closed' };
         return readBtw(terminalOf(where.place.pane), { question, wait: (ms) => delay(ms) });
       });
     },
@@ -483,7 +531,7 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
     },
     /**
      * Interrupt the current turn — Esc in the session's terminal. A prompt Claude had not started on comes back, as
-     * the page sent it, and leaves the terminal's box; Codex's Esc stops its turn, and that is all.
+     * the page sent it, and leaves the terminal's box; Codex's Esc — and agy's — stops its turn, and that is all.
      * @param {string} sessionId
      * @returns {Promise<StopReply>}
      */
@@ -492,7 +540,7 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
         const found = await target(sessionId);
         if (!found.ok) return found;
         const { place } = found;
-        if (place.agent === 'codex') {
+        if (place.agent !== 'claude') {
           const stopped = await press(place, [['send-keys', 'esc']]);
           return stopped.ok ? { ok: true, pane: place.pane, prompt: undefined } : stopped;
         }
@@ -506,7 +554,7 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
     /**
      * Rewind the session to before a message, through Claude Code's /rewind menu in its terminal, or Codex's backtrack.
      * Only while the agent waits for input: the keys would interrupt a turn in progress. Codex rewinds the conversation
-     * alone — its files stay as they are — and not from a sub-agent's thread.
+     * alone — its files stay as they are — and not from a sub-agent's thread. agy's is not rewound from here.
      * @param {string} sessionId
      * @param {RewindRequest} request
      * @returns {Promise<RewindReply>}
@@ -520,7 +568,7 @@ export function createComposer({ readRecords, herdr, codexPlace }) {
           if (place.status === 'busy') return { ok: false, error: 'busy' };
           return driveRewind(terminalOf(place.pane), { ...request, wait: (ms) => delay(ms) });
         }
-        if (request.action !== 'conversation') return { ok: false, error: 'option-not-found' };
+        if (place.agent === 'agy' || request.action !== 'conversation') return { ok: false, error: 'option-not-found' };
         if (place.status === 'busy') return { ok: false, error: 'busy' };
         const terminal = terminalOf(place.pane);
         const screen = await terminal.read();
@@ -543,12 +591,40 @@ function showsTyped(box, text) {
 
 /**
  * What the agent asks in its terminal, as its screen shows it.
- * @param {'claude' | 'codex'} agent
+ * @param {PaneAgent} agent
  * @param {string} screen
  * @returns {import('../public/model/dialog.js').Dialog | undefined}
  */
 function dialogOf(agent, screen) {
-  return agent === 'claude' ? choiceDialog(screen) : codexDialog(screen);
+  switch (agent) {
+    case 'claude':
+      return choiceDialog(screen);
+    case 'codex':
+      return codexDialog(screen);
+    case 'agy':
+      return agyDialog(screen);
+    default:
+      throw new Error(`No such agent in a pane: ${JSON.stringify(agent)}`);
+  }
+}
+
+/**
+ * The text in the agent's prompt box, as its screen shows it; none while something takes the box's place.
+ * @param {PaneAgent} agent
+ * @param {string} screen
+ * @returns {string | undefined}
+ */
+function boxOf(agent, screen) {
+  switch (agent) {
+    case 'claude':
+      return inputBox(screen);
+    case 'codex':
+      return codexInputBox(screen);
+    case 'agy':
+      return agyInputBox(screen);
+    default:
+      throw new Error(`No such agent in a pane: ${JSON.stringify(agent)}`);
+  }
 }
 
 /**

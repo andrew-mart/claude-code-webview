@@ -74,6 +74,8 @@ function notesShown() {
       editors.push(editor);
       return editor;
     },
+    // the session's desk: its name for the title, its panel under it (desk-view.js)
+    desk: { label: Object.assign(window.document.createElement('button'), { className: 'desk-label', textContent: 'orders' }), panel: Object.assign(window.document.createElement('div'), { className: 'desk-panel' }) },
   });
   window.document.body.replaceChildren(view.element);
   view.show([todo, idea]);
@@ -261,5 +263,16 @@ test('notesView_Should_LeaveNoteInFullInPlace_WhenNotesComeAgain', async () => {
   assert.deepEqual(
     takenOut.map((node) => (node instanceof window.HTMLElement ? `${node.className} ${node.dataset.id}` : 'text')),
     ['note-line n1'],
+  );
+});
+
+// The notes are the session's desk's: its name stands in their title, after "Notes", and what it lists opens under it
+test('notesView_Should_NameSessionsDeskInTitle_ItsListUnderIt', () => {
+  const { view } = notesShown();
+
+  const title = view.element.querySelector('.outline-title');
+  assert.deepEqual(
+    { title: [...(title?.children ?? [])].map((one) => one.className || one.textContent), under: title?.nextElementSibling?.className },
+    { title: ['Notes', 'desk-label', 'notes-title-end'], under: 'desk-panel' },
   );
 });

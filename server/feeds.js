@@ -64,5 +64,15 @@ export function createFeedPages() {
       opened?.feeds.get(feed)?.abort();
       opened?.feeds.delete(feed);
     },
+    /** Whether any page's stream is open. */
+    anyOpen: () => pages.size > 0,
+    /**
+     * An event of no feed's to every page — what changed that they all show (changes.js).
+     * @param {string} event
+     * @param {unknown} data
+     */
+    tellAll(event, data) {
+      for (const opened of pages.values()) opened.send(event, data);
+    },
   };
 }

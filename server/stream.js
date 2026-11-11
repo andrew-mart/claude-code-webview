@@ -5,8 +5,10 @@
 // After what it sends each time the stream tells the page where its reading stands — a token — with the count of entries
 // the page should hold and a hash of the latest of them, for the page to check its copy by (feed-check.js). A page that
 // comes back with a copy and its token is sent what came since alone: the stream goes on as if it had never stopped.
-// The token holds the entries read for the page chained one on another, the rewind it was read under and the viewer's
-// build: a file rewritten or moved since, a rewind or another build, and the copy is dropped — the feed starts over.
+// The token holds the entries read for the page chained one on another, the rewind it was read under and the version
+// of what entries are (feed-version.js): a file rewritten or moved since, a rewind, entries read another way since, and
+// the copy is dropped — the feed starts over;
+// so is a copy further behind than the tail the page asks for: what came since would keep the latest waiting behind it.
 import { setTimeout as delay } from 'node:timers/promises';
 import { checkedEntries, chainOn, chainStart, tailCheck } from '../public/model/feed-check.js';
 import { rewoundEntries } from './branch.js';
@@ -16,7 +18,7 @@ const batchSize = 1000;
 /**
  * @typedef {(event: 'entries' | 'earlier' | 'ready' | 'reset' | 'missing' | 'cursor' | 'session-status', data: unknown) => void} Send
  * @typedef {{ version: string, sent: number, chain: string, point: string | undefined }} Place — where a page's reading of
- *   the transcript stands: how many of its entries were read for it, chained, under which rewind, by which build
+ *   the transcript stands: how many of its entries were read for it, chained, under which rewind, read which way
  * @typedef {(lineStart: number, n: number) => string} ImageUrl — the link to the n-th image of the entry on the line that starts at lineStart
  * @typedef {import('./transcript-cache.js').CachedEntry} CachedEntry
  * @typedef {ReturnType<typeof import('./transcript-cache.js').createTranscriptCache>} TranscriptCache
@@ -24,12 +26,13 @@ const batchSize = 1000;
 
 /**
  * Runs until the signal is aborted. The file is looked up again on every round: after /cd it moves.
- * @param {{ locate: () => Promise<string | undefined>, running: () => Promise<boolean>, scope: 'main' | 'subagent', imageUrl: ImageUrl, rewoundAt: () => string | undefined, send: Send, signal: AbortSignal, pollMs: number, transcripts: TranscriptCache, tail: number | undefined, version: string, from: string | undefined, sessionStatus?: (() => Promise<import('../public/model/session-status.js').SessionStatus | undefined>) | undefined }} options
+ * @param {{ locate: () => Promise<string | undefined>, running: () => Promise<boolean>, scope: 'main' | 'subagent', imageUrl: ImageUrl, rewoundAt: (links: readonly import('./branch.js').Link[]) => string | undefined, send: Send, signal: AbortSignal, pollMs: number, transcripts: TranscriptCache, tail: number | undefined, version: string, from: string | undefined, sessionStatus?: (() => Promise<import('../public/model/session-status.js').SessionStatus | undefined>) | undefined }} options
  *   running — whether Claude Code has the session open; rewoundAt — the prompt this page rewound the session to, if it
- *   did; tail — how many of the latest entries to send at first ("earlier" tells how many were left out); undefined —
- *   all of them; version: the viewer's build — a token of another is not gone on from; from — the token of the copy the
- *   page holds: what came since is sent alone, or — the token not to be gone on from — "reset" and the feed from its
- *   start
+ *   did, while the transcript — its entries' links, none before it is read — shows no prompt since (branch.js:
+ *   standingRewind); tail — how many of the latest entries to send at first ("earlier" tells how many were left out); undefined —
+ *   all of them; version: of what entries are (feed-version.js) — a token of another is not gone on from; from — the
+ *   token of the copy the page holds: what came since is sent alone, or — the token not to be gone on from, or more
+ *   than the tail come since — "reset" and the feed from its start
  */
 export async function streamTranscript({ locate, running, scope, imageUrl, rewoundAt, send, signal, pollMs, transcripts, tail, version, from, sessionStatus = async () => undefined }) {
   /** How many of the file's entries this page has been given. */
@@ -50,7 +53,7 @@ export async function streamTranscript({ locate, running, scope, imageUrl, rewou
   /** Entries that already have a prompt sent from them: another prompt from there means the conversation was rewound. */
   /** @type {Set<string>} */
   let promptParents = new Set();
-  let point = rewoundAt();
+  let point = rewoundAt([]);
   /** The file followed, kept read while the page follows it: reading other sessions does not push it out. */
   /** @type {{ path: string, letGo: () => void } | undefined} */
   let kept;
@@ -86,7 +89,7 @@ export async function streamTranscript({ locate, running, scope, imageUrl, rewou
           // the page's copy: gone on from where its token says, if the file still holds what was read for it then
           const place = placeOf(goOnFrom);
           goOnFrom = undefined;
-          if (place !== undefined && place.version === version && place.sent <= read.entries.length && chainOver(read.entries, 0, place.sent, chainStart) === place.chain) {
+          if (place !== undefined && place.version === version && place.sent <= read.entries.length && chainOver(read.entries, 0, place.sent, chainStart) === place.chain && (tail === undefined || shownSince(read.entries, place) <= tail)) {
             sent = place.sent;
             chain = place.chain;
             point = place.point;
@@ -94,7 +97,7 @@ export async function streamTranscript({ locate, running, scope, imageUrl, rewou
             generation = read.generation;
           } else send('reset', null);
         }
-        const nextPoint = rewoundAt();
+        const nextPoint = rewoundAt(read.entries.map(({ link }) => link));
         // The file was rewritten, or the page rewound the session: the feed starts over.
         if ((generation !== undefined && read.generation !== generation) || (nextPoint !== point && sent > 0)) restart();
         generation = read.generation;
@@ -157,6 +160,16 @@ function placeOf(token) {
   const [version = '', count = '', chain = '', point = ''] = read;
   const sent = Number(count);
   return /^\d+$/.test(count) && Number.isSafeInteger(sent) && chain !== '' ? { version, sent, chain, point: point === '' ? undefined : point } : undefined;
+}
+
+/**
+ * How many entries a page whose copy stands at this place is yet to be sent.
+ * @param {readonly CachedEntry[]} entries — the whole transcript
+ * @param {Place} place
+ * @returns {number}
+ */
+function shownSince(entries, place) {
+  return shownEntries(entries.slice(place.sent), rewoundEntries(entries.map(({ link }) => link), place.point)).length;
 }
 
 /**

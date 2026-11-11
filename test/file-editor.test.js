@@ -11,14 +11,22 @@ const { createFileEditor } = await import('../public/view/file-editor.js');
  *   types the whole text over
  */
 
+/** What the notes' switch says it does, as the page names it, by the editor chosen now. */
+const switchTitles = { live: 'Edit notes as blocks, as Notion does (Milkdown)', blocks: 'Edit notes with a live preview, as Obsidian does (CodeMirror)' };
+
 /**
  * A viewer serving files from a map of path → text, each with its version — the text's count of writes — and the
- * panel's editor over it, an editor that keeps its text as typed — written its own way as it takes the file, unless told
- * not to — with a code's tools, unless told it edits prose.
+ * panel's editor over it, an editor that keeps its text as typed — written its own way as it takes the file, by the
+ * notes' editor chosen, unless told not to — with a code's tools, unless told it edits prose. The notes' editor is the
+ * live preview until switched, as the page switches it: the choice changed, the file being edited made anew.
  * @param {Record<string, string>} files
- * @param {{ writes: (text: string) => string, tools: 'code' | 'prose' }} [kind]
+ * @param {{ writes: (text: string, notes: 'live' | 'blocks') => string, tools: 'code' | 'prose' }} [kind]
  */
 function editing(files, { writes, tools } = { writes: (same) => same, tools: 'code' }) {
+  /** @type {'live' | 'blocks'} */
+  let notes = 'live';
+  /** The notes' editor each editor was made in, in turn. @type {('live' | 'blocks')[]} */
+  const madeIn = [];
   /** @type {Map<string, { text: string, version: number }>} */
   const disk = new Map(Object.entries(files).map(([path, text]) => [path, { text, version: 1 }]));
   /** @type {unknown[]} */
@@ -50,10 +58,18 @@ function editing(files, { writes, tools } = { writes: (same) => same, tools: 'co
   };
   const files_ = createFileEditor({
     onName: (intent, name, path) => named.push([intent, name, path]),
+    notesEngine: {
+      title: () => switchTitles[notes],
+      switch: () => {
+        notes = notes === 'live' ? 'blocks' : 'live';
+        void files_.remake();
+      },
+    },
     fetchFile,
     makeEditor: async (_host, { text, line, onChange }) => {
+      madeIn.push(notes);
       const made = {
-        text: writes(text),
+        text: writes(text, notes),
         line,
         /** @param {string} typed */
         typed: (typed) => {
@@ -81,7 +97,7 @@ function editing(files, { writes, tools } = { writes: (same) => same, tools: 'co
   const cursorOn = (at) => {
     word = at;
   };
-  return { files: files_, disk, saves, editor: () => editor, editors: () => madeEditors, press, status, settle, named, cursorOn };
+  return { files: files_, disk, saves, editor: () => editor, editors: () => madeEditors, madeIn, press, status, settle, named, cursorOn };
 }
 
 // A file opened for editing shows its text at the line asked for; what is typed is saved from the viewer's page with
@@ -132,9 +148,39 @@ test('fileEditor_Should_TakeFileAsTheEditorWritesIt_ForUnchanged_UntilTypedInto'
   );
 });
 
+// The notes' editor switched over a markdown file being edited — its button over the text — makes the file anew in the
+// editor switched to, its text as it was: typed and not saved, it stays to save over the version read; untouched, it is
+// the file as the new editor writes it, nothing to save
+test('fileEditor_Should_MakeProseAnewInNotesEditorSwitchedTo_KeepingWhatIsTypedAndWhatIsSaved', async () => {
+  /** Milkdown writes a list's marks its own way. @param {string} taken @param {'live' | 'blocks'} notes */
+  const writes = (taken, notes) => (notes === 'blocks' ? taken.replaceAll('* ', '- ') : taken);
+  const typedInto = editing({ 'D:/dev/shop/plan.md': '* one\n' }, { writes, tools: 'prose' });
+  const untouched = editing({ 'D:/dev/shop/plan.md': '* one\n' }, { writes, tools: 'prose' });
+  await typedInto.files.open({ path: 'D:/dev/shop/plan.md', line: undefined, endLine: undefined });
+  await untouched.files.open({ path: 'D:/dev/shop/plan.md', line: undefined, endLine: undefined });
+  typedInto.editor()?.typed('* one\n* two\n');
+
+  typedInto.press(switchTitles.live);
+  untouched.press(switchTitles.live);
+  await typedInto.settle();
+  const switched = { madeIn: typedInto.madeIn, firstLetGo: typedInto.editors()[0]?.disposed, text: typedInto.editor()?.text, status: typedInto.status() };
+  typedInto.press('Save');
+  await typedInto.settle();
+  const save = [...untouched.files.element.querySelectorAll('button')].find((one) => one.textContent === 'Save');
+
+  assert.deepEqual(
+    { switched, saved: typedInto.saves.map((one) => (one instanceof Object && 'body' in one ? one.body : one)), untouched: { text: untouched.editor()?.text, status: untouched.status(), saving: save instanceof window.HTMLButtonElement && !save.disabled } },
+    {
+      switched: { madeIn: ['live', 'blocks'], firstLetGo: true, text: '- one\n- two\n', status: 'Unsaved changes' },
+      saved: [{ path: 'D:/dev/shop/plan.md', content: '- one\n- two\n', version: 'v1' }],
+      untouched: { text: '- one\n', status: '', saving: false },
+    },
+  );
+});
+
 // A file of prose — markdown in the notes' editor — has no code's tools over it: no finding and replacing, no
-// definitions or uses to look for; its Save, ↶ and ↷ stay
-test('fileEditor_Should_LeaveCodesToolsOut_ForProse', async () => {
+// definitions or uses to look for; its Save, ↶ and ↷ stay, and the notes' editor's switch is there — not over code
+test('fileEditor_Should_LeaveCodesToolsOut_ForProse_AndOfferNotesEditorsSwitch', async () => {
   const code = editing({ 'D:/dev/shop/limits.ts': 'export const perSecond = 10;\n' });
   const prose = editing({ 'D:/dev/shop/plan.md': '- one\n' }, { writes: (same) => same, tools: 'prose' });
   await code.files.open({ path: 'D:/dev/shop/limits.ts', line: undefined, endLine: undefined });
@@ -144,7 +190,7 @@ test('fileEditor_Should_LeaveCodesToolsOut_ForProse', async () => {
 
   assert.deepEqual(
     { code: tools(code), prose: tools(prose) },
-    { code: ['Save (Ctrl+S)', 'Undo', 'Redo', 'Find and replace (Ctrl+F)', 'Go to definition', 'Find uses'], prose: ['Save (Ctrl+S)', 'Undo', 'Redo'] },
+    { code: ['Save (Ctrl+S)', 'Undo', 'Redo', 'Find and replace (Ctrl+F)', 'Go to definition', 'Find uses'], prose: ['Save (Ctrl+S)', 'Undo', 'Redo', 'Edit notes as blocks, as Notion does (Milkdown)'] },
   );
 });
 

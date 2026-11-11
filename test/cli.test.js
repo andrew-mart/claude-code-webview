@@ -11,17 +11,17 @@ test('isTemporaryInstall_Should_RecognizeNpxCacheOnEverySystem', () => {
 });
 
 test('parseCommand_Should_ServeAndOpenBrowserByDefault', () => {
-  assert.deepEqual(parseCommand([]), { ok: true, command: { action: 'serve', port: 7788, open: true, startMenu: false, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', codexCommand: 'codex', restartEnv: [], editor: undefined, vscode: undefined } });
+  assert.deepEqual(parseCommand([]), { ok: true, command: { action: 'serve', port: 7788, open: true, startMenu: false, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', codexCommand: 'codex', agyCommand: 'agy', restartEnv: [], editor: undefined, vscode: undefined } });
 });
 
 test('parseCommand_Should_ReadActionPortAndBrowserFlag', () => {
   assert.deepEqual(parseCommand(['--background', '--port', '7800', '--no-open']), {
     ok: true,
-    command: { action: 'background', port: 7800, open: false, startMenu: false, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', codexCommand: 'codex', restartEnv: [], editor: undefined, vscode: undefined },
+    command: { action: 'background', port: 7800, open: false, startMenu: false, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', codexCommand: 'codex', agyCommand: 'agy', restartEnv: [], editor: undefined, vscode: undefined },
   });
   assert.deepEqual(parseCommand(['--install-shortcut', '--start-menu']), {
     ok: true,
-    command: { action: 'install-shortcut', port: 7788, open: true, startMenu: true, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', codexCommand: 'codex', restartEnv: [], editor: undefined, vscode: undefined },
+    command: { action: 'install-shortcut', port: 7788, open: true, startMenu: true, palette: 'clay', publicAddresses: [], herdr: 'on', claudeCommand: 'claude', codexCommand: 'codex', agyCommand: 'agy', restartEnv: [], editor: undefined, vscode: undefined },
   });
   assert.deepEqual(
     [parseCommand(['-v']), parseCommand(['--help'])].map((parsed) => parsed.ok && parsed.command.action),
@@ -133,6 +133,19 @@ test('parseCommand_Should_ReadVariablesSessionsRestartWith_AndRejectThoseAShellW
       ],
       refused: [false, false, false, false, false],
     },
+  );
+});
+
+// Antigravity CLI as well: "agy", or the command the viewer is given — with options of one's own; a command of nothing
+// is no command
+test('parseCommand_Should_ReadCommandThatStartsAgy', () => {
+  const plain = parseCommand([]);
+  const given = parseCommand(['--agy-command', 'agy --dangerously-skip-permissions']);
+  const empty = parseCommand(['--agy-command', ' ']);
+
+  assert.deepEqual(
+    [plain.ok && plain.command.agyCommand, given.ok && given.command.agyCommand, empty],
+    ['agy', 'agy --dangerously-skip-permissions', { ok: false, error: 'Invalid --agy-command value " ": expected the command that starts Antigravity CLI in a terminal, such as agy.' }],
   );
 });
 

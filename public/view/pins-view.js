@@ -1,8 +1,8 @@
 // @ts-check
 // The files pinned beside the session, in the outline under its notes: those pinned to the session first, then its
-// project folder's, each once, by the name given it — else its file's — marked by where it is pinned; a click opens one
-// in the side panel — where 📌 over a file pins it — ✎ names it in the list, its file's name left as it is, and × unpins
-// it from everywhere it is pinned. + over the list pins a file by its path, typed or pasted in, to the project or to the
+// desk's, each once, by the name given it — else its file's — marked by where it is pinned; a click opens one in the
+// side panel — where 📌 over a file pins it — ✎ names it in the list, its file's name left as it is, and × unpins it
+// from everywhere it is pinned. + over the list pins a file by its path, typed or pasted in, to the desk or to the
 // session — what is on the disk offered under it as it is typed, folder by folder; with no file there it says why.
 import { pinKey, pinLabel } from '../model/pins.js';
 import { h } from './dom.js';
@@ -21,13 +21,14 @@ import { pinRefusals } from './pins-store.js';
 const maxOffers = 30;
 
 /**
- * @param {{ open: (path: string) => void, unpin: (path: string) => void, pinPath: (scope: PinScope, path: string) => Promise<PinOutcome>, rename: (path: string, name: string) => void, pathsOnDisk: (typed: string) => Promise<readonly import('../model/pins.js').PathOffer[]>, iconOf: (name: string) => HTMLElement }} actions
+ * @param {{ open: (path: string) => void, unpin: (path: string) => void, pinPath: (scope: PinScope, path: string) => Promise<PinOutcome>, rename: (path: string, name: string) => void, pathsOnDisk: (typed: string) => Promise<readonly import('../model/pins.js').PathOffer[]>, iconOf: (name: string) => HTMLElement, startPath: () => string | undefined }} actions
  *   — open: a file shown in the side panel; unpin: a file unpinned from everywhere it is pinned; pinPath: a file pinned
  *   by its path, how that went; rename: a pinned file named in the list, a blank name giving back the file's; iconOf: a
- *   file's icon
+ *   file's icon; startPath: where the path to pin starts — the session's project folder, ending with its separator; none
+ *   while the session's folder is not known
  * @returns {{ element: HTMLElement, show: (pins: SessionPins) => void }} — show: the pins as they stand now
  */
-export function createPinsView({ open, unpin, pinPath, rename, pathsOnDisk, iconOf }) {
+export function createPinsView({ open, unpin, pinPath, rename, pathsOnDisk, iconOf, startPath }) {
   const count = h('span', { className: 'outline-count' });
   const adding = h('button', { className: 'icon-button pins-add', title: 'Pin a file by its path', attrs: { type: 'button', 'aria-label': 'Pin a file by its path' } }, [icon('plus')]);
   const asking = h('div', { className: 'pins-asking', attrs: { hidden: '' } });
@@ -39,7 +40,7 @@ export function createPinsView({ open, unpin, pinPath, rename, pathsOnDisk, icon
   /** A row being named: the pins coming again wait. */
   let naming = false;
 
-  /** The path asked for, and where to pin it: To the project, To this session. */
+  /** The path asked for, and where to pin it: To the desk, To this session. */
   const askPath = () => {
     const field = h('input', { className: 'pins-path', attrs: { type: 'text', placeholder: 'The path of a file: D:\\…, /home/…, ~/…', 'aria-label': 'The path of a file to pin', autocomplete: 'off', spellcheck: 'false' } });
     const told = h('div', { className: 'pins-told' });
@@ -99,9 +100,17 @@ export function createPinsView({ open, unpin, pinPath, rename, pathsOnDisk, icon
       }
     });
     leaving.addEventListener('click', close);
+    // the path starts at the session's project folder, what is in it offered at once
+    const start = startPath();
+    if (start !== undefined) {
+      field.value = start;
+      lookOnDisk();
+    }
     asking.hidden = false;
-    asking.replaceChildren(h('div', { className: 'pins-path-row' }, [field, leaving]), offers, h('div', { className: 'pins-choice' }, [toward('folder', 'To the project', "Pin it beside every session in the session's project folder (Enter)"), toward('session', 'To this session', 'Pin it beside this session alone')]), told);
+    asking.replaceChildren(h('div', { className: 'pins-path-row' }, [field, leaving]), offers, h('div', { className: 'pins-choice' }, [toward('folder', 'To the desk', "Pin it on the session's desk: every session at the desk shows it (Enter)"), toward('session', 'To this session', 'Pin it beside this session alone')]), told);
     field.focus();
+    // typed on after the folder
+    field.setSelectionRange(field.value.length, field.value.length);
   };
   adding.addEventListener('click', () => (asking.hidden ? askPath() : undefined));
 
@@ -148,7 +157,7 @@ export function createPinsView({ open, unpin, pinPath, rename, pathsOnDisk, icon
    */
   const pinRow = (pin, scopes) => {
     const label = pinLabel(pin);
-    const where = scopes.map((scope) => (scope === 'session' ? 'session' : 'project')).join(' · ');
+    const where = scopes.map((scope) => (scope === 'session' ? 'session' : 'desk')).join(' · ');
     const opening = h('button', { className: 'pin-open', title: `${pin.path} — pinned to the ${where}`, attrs: { type: 'button' } }, [iconOf(pin.path.split(/[\\/]/).pop() ?? pin.path), h('span', { className: 'pin-name', text: label }), h('span', { className: 'pin-scope', text: where })]);
     const renaming = h('button', { className: 'icon-button pin-rename', title: 'Name it in the list — the file keeps its name', attrs: { type: 'button', 'aria-label': `Name ${label} in the list` } }, [icon('edit')]);
     const removing = h('button', { className: 'icon-button pin-remove', title: 'Unpin the file', attrs: { type: 'button', 'aria-label': `Unpin ${label}` } }, [icon('cross')]);

@@ -8,7 +8,8 @@ import { createHerdrSocket, socketAddress, socketRunner } from '../server/herdr-
 
 /**
  * A server that answers as herdr does: one JSON line in, one JSON line out, and the connection closed. Remembers the
- * requests and the most connections that were open at once.
+ * requests and the most connections waiting for their answer at once — from the connection to the answer sent: the old
+ * one's close may come after the next connection, when the asker went on as soon as its own side closed.
  * @param {import('node:test').TestContext} t
  * @param {(request: { id: string, method: string, params: Record<string, unknown> }) => Record<string, unknown>} answer —
  *   the reply line, without the id
@@ -22,7 +23,6 @@ async function fakeHerdr(t, answer) {
   const server = createServer((socket) => {
     open++;
     mostOpen = Math.max(mostOpen, open);
-    socket.on('close', () => open--);
     let text = '';
     socket.on('data', (chunk) => {
       text += chunk.toString('utf8');
@@ -30,7 +30,10 @@ async function fakeHerdr(t, answer) {
       const request = JSON.parse(text);
       requests.push({ method: request.method, params: request.params });
       // herdr takes a moment to answer
-      setTimeout(() => socket.end(`${JSON.stringify({ id: request.id, ...answer(request) })}\n`), 5);
+      setTimeout(() => {
+        open--;
+        socket.end(`${JSON.stringify({ id: request.id, ...answer(request) })}\n`);
+      }, 5);
     });
   });
   await new Promise((resolve) => server.listen(socketAddress(socketPath), () => resolve(undefined)));

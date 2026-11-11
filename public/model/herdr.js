@@ -1,7 +1,7 @@
 // @ts-check
 // What herdr shows, as the page gets it from /api/herdr (server/herdr-view.js): workspaces, their tabs, the panes in
 // them — and in a pane with Claude Code, its session.
-import { paneLamp } from './lamps.js';
+import { groupLamp, paneLamp } from './lamps.js';
 import { isRecord, text } from './narrow.js';
 
 /**
@@ -12,14 +12,20 @@ import { isRecord, text } from './narrow.js';
  *   size: its terminal's, in columns and rows; activity: when its agent changed state last, in herdr's count — the
  *   larger, the more recent; hidden: its user hid it from the sidebar's list while idle, its agent not changed state
  *   since; kept: kept lit to come back to (lamps.js: keptLit), the page's own mark — herdr has none
- * @typedef {{ id: string, number: number, label: string, status: AgentStatus, panes: readonly HerdrPane[] }} HerdrTab
- * @typedef {{ id: string, number: number, label: string, icon?: string | undefined, status: AgentStatus, activeTab: string | undefined, tabs: readonly HerdrTab[] }} HerdrWorkspace
- *   icon: the emoji it is marked with (server/workspace-icons.js)
- * @typedef {{ herdr: boolean, claudeGpt?: true, restartEnv?: readonly string[], workspaces: readonly HerdrWorkspace[] }} HerdrLayout — herdr: whether it answers;
- *   restartEnv: the variables a session restarted from the page starts with, each NAME=VALUE, none when there are none
+ * @typedef {{ id: string, number: number, label: string, status: AgentStatus, folder?: string, panes: readonly HerdrPane[] }} HerdrTab
+ *   folder: the one its first pane is in, as herdr tells it
+ * @typedef {{ id: string, number: number, label: string, icon?: string | undefined, status: AgentStatus, activeTab: string | undefined, hidden?: true, tabs: readonly HerdrTab[] }} HerdrWorkspace
+ *   icon: the emoji it is marked with (server/workspace-icons.js); hidden: its user hid it from the sidebar's list, to
+ *   keep it open out of the way (server/hidden-workspaces.js)
+ * @typedef {{ herdr: boolean, claudeGpt?: true, agy?: true, restartEnv?: readonly string[], workspaces: readonly HerdrWorkspace[] }} HerdrLayout — herdr: whether it answers;
+ *   agy: a new tab may start Antigravity CLI — it has run on the viewer's computer; restartEnv: the variables a session
+ *   restarted from the page starts with, each NAME=VALUE, none when there are none
  * @typedef {{ ok: true, target: string } | { ok: false, error: 'failed' }} NewTab — a tab opened from the page; target: its page address
  * @typedef {'lamps' | 'activity'} SessionOrder — the sessions with their lamp lit first, or by the latest change alone
- * @typedef {'shell' | 'claude' | 'claude-gpt' | 'codex'} TabStart — the shell, ordinary Claude Code, Claude Code through GPT, or Codex
+ * @typedef {'shell' | 'claude' | 'claude-gpt' | 'codex' | 'agy'} TabStart — the shell, ordinary Claude Code, Claude Code through GPT, Codex, or
+ *   Antigravity CLI
+ * @typedef {'as-it-ran' | 'claude' | 'claude-gpt'} RestartLauncher — what a Claude Code session restarts in: the launcher
+ *   it ran in, ordinary Claude Code, or Claude Code through GPT
  * @typedef {'refuse' | 'create'} MissingFolder — what a new workspace does of a folder that is not there: opens nothing,
  *   or makes it first
  * @typedef {{ ok: true, target: string } | { ok: false, error: 'empty' | 'no-folder' | 'not-created' | 'failed' }} NewWorkspace — a
@@ -141,7 +147,9 @@ export function openedAt(hash) {
 export function parseHerdrLayout(json) {
   if (!isRecord(json) || json.herdr !== true || !Array.isArray(json.workspaces)) return { herdr: false, workspaces: [] };
   const restartEnv = Array.isArray(json.restartEnv) ? json.restartEnv.filter((variable) => typeof variable === 'string') : [];
-  return { herdr: true, ...(json.claudeGpt === true ? { claudeGpt: /** @type {const} */ (true) } : {}), ...(restartEnv.length === 0 ? {} : { restartEnv }), workspaces: json.workspaces.filter(isRecord).flatMap(parseWorkspace) };
+  /** @type {{ agy?: true }} */
+  const agy = json.agy === true ? { agy: true } : {};
+  return { herdr: true, ...(json.claudeGpt === true ? { claudeGpt: /** @type {const} */ (true) } : {}), ...agy, ...(restartEnv.length === 0 ? {} : { restartEnv }), workspaces: json.workspaces.filter(isRecord).flatMap(parseWorkspace) };
 }
 
 const statuses = /** @type {const} */ (['idle', 'working', 'blocked', 'done', 'unknown']);
@@ -156,7 +164,7 @@ function parseWorkspace(raw) {
   const status = statuses.find((known) => known === raw.status);
   if (id === undefined || label === undefined || typeof raw.number !== 'number' || status === undefined || !Array.isArray(raw.tabs)) return [];
   const icon = text(raw.icon);
-  return [{ id, number: raw.number, label, ...(icon === undefined ? {} : { icon }), status, activeTab: text(raw.activeTab), tabs: raw.tabs.filter(isRecord).flatMap(parseTab) }];
+  return [{ id, number: raw.number, label, ...(icon === undefined ? {} : { icon }), status, activeTab: text(raw.activeTab), ...(raw.hidden === true ? { hidden: true } : {}), tabs: raw.tabs.filter(isRecord).flatMap(parseTab) }];
 }
 
 /**
@@ -168,7 +176,8 @@ function parseTab(raw) {
   const label = text(raw.label);
   const status = statuses.find((known) => known === raw.status);
   if (id === undefined || label === undefined || typeof raw.number !== 'number' || status === undefined || !Array.isArray(raw.panes)) return [];
-  return [{ id, number: raw.number, label, status, panes: raw.panes.filter(isRecord).flatMap(parsePane) }];
+  const folder = text(raw.folder);
+  return [{ id, number: raw.number, label, status, ...(folder === undefined ? {} : { folder }), panes: raw.panes.filter(isRecord).flatMap(parsePane) }];
 }
 
 /**
@@ -182,6 +191,22 @@ function parsePane(raw) {
   const size = isRecord(raw.size) && Number.isInteger(raw.size.cols) && Number.isInteger(raw.size.rows) ? { cols: Number(raw.size.cols), rows: Number(raw.size.rows) } : undefined;
   const activity = typeof raw.activity === 'number' ? raw.activity : undefined;
   return [{ id, agent: text(raw.agent), status, title: text(raw.title), session: text(raw.session), size, activity, ...(raw.hidden === true ? { hidden: /** @type {const} */ (true) } : {}) }];
+}
+
+/** The lamps that bring a hidden workspace back into the list: an answer not seen, a question, one kept to come back to. */
+/** @type {ReadonlySet<import('./lamps.js').Lamp>} */
+const waiting = new Set(['ready', 'blocked', 'kept']);
+
+/**
+ * The workspaces the sidebar lists, in herdr's order, and those its user hid, kept under its button: one hidden is
+ * listed in its place again while one of its agents waits for its user — at work, it stays hidden.
+ * @param {readonly HerdrWorkspace[]} workspaces
+ * @param {import('./lamps.js').SeenPanes} seen — the answers seen, the lamps out
+ * @returns {{ listed: HerdrWorkspace[], hidden: HerdrWorkspace[] }}
+ */
+export function workspacesShown(workspaces, seen) {
+  const shown = (/** @type {HerdrWorkspace} */ workspace) => workspace.hidden !== true || waiting.has(groupLamp(workspace.status, workspace.tabs.flatMap((tab) => tab.panes), seen));
+  return { listed: workspaces.filter(shown), hidden: workspaces.filter((workspace) => !shown(workspace)) };
 }
 
 /**
@@ -246,11 +271,14 @@ export function parseNewWorkspace(json) {
 
 /**
  * The agent of a session the list has no transcript of yet — Codex writes its thread's file only with the thread's
- * first message — the one herdr runs it in: Codex's in a Codex pane; in a Claude pane, or in none, Claude Code's.
+ * first message, Antigravity CLI its conversation's with its first step — the one herdr runs it in: Codex's in a Codex
+ * pane, agy's in an agy pane; in a Claude pane, or in none, Claude Code's.
  * @param {HerdrLayout} layout
  * @param {string} sessionId
- * @returns {'claude' | 'codex'}
+ * @returns {import('./composer.js').Agent}
  */
 export function agentOfSession(layout, sessionId) {
-  return panesOf(layout).some((pane) => pane.session === sessionId && pane.agent === 'codex') ? 'codex' : 'claude';
+  const pane = panesOf(layout).find((one) => one.session === sessionId && (one.agent === 'codex' || one.agent === 'agy'));
+  if (pane?.agent === 'codex') return 'codex';
+  return pane?.agent === 'agy' ? 'agy' : 'claude';
 }

@@ -3,6 +3,7 @@
 // "/btw …" asks aside, as in the terminal (/api/btw): the answer shows above the box and never joins the feed. A choice
 // Claude Code waits for — its AskUserQuestion dialog — shows above the box too, and is answered from there (/api/dialog).
 // A command typed — a slash first — has the session's commands and skills offered over the box (command-menu.js).
+import { pollWhileShown } from './polling.js';
 import { askerNames, btwMessage, composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, sideQuestionOf, stopMessage } from '../model/composer.js';
 import { parseDialogReply } from '../model/dialog.js';
 import { parseNewTab } from '../model/herdr.js';
@@ -15,9 +16,10 @@ import { h } from './dom.js';
 import { icon } from './icons.js';
 import { createLaterStore } from './later-store.js';
 import { createLaterList } from './later-view.js';
+import { browserLocks, browserStorage, createOutbox } from './outbox.js';
 
-/** How often to check whether the session is running and busy. */
-const liveRefreshMs = 4000;
+/** How often to check whether the session is running and busy — and at once whenever told something changed (pokeLive). */
+const liveRefreshMs = 15_000;
 /** A side question's answer whose request was lost is asked for again this long after, at most this many times: a viewer
  * restarting takes a few seconds, a network a while longer. */
 const askAgainMs = 3000;
@@ -30,7 +32,11 @@ const redrawMs = 400;
 const noticeMs = 4000;
 
 /** @type {import('../model/composer.js').ComposerView} */
-const serverSilent = { shown: true, enabled: false, canInterrupt: false, canReopen: false, placeholder: 'Sending is unavailable', hint: 'The viewer server did not report whether the session is running.' };
+/**
+ * The viewer out of reach — or answering as the page does not know: the box takes a prompt all the same, and one sent
+ * waits in the browser, to go once the viewer answers (outbox.js).
+ */
+const outOfReach = { shown: true, enabled: true, canInterrupt: false, canReopen: false, placeholder: 'The viewer is out of reach — what you send waits here and goes once it is back', hint: 'Prompts sent now wait in this browser and go to the session in the order sent, once the viewer answers.' };
 
 /**
  * @typedef {{ workspace: string, tab: string | undefined, runningNow: { id: string, title: string, agent: import('../model/composer.js').Agent } | undefined }} Ran — where
@@ -40,15 +46,16 @@ const serverSilent = { shown: true, enabled: false, canInterrupt: false, canReop
 
 /**
  * @param {string} sessionId
- * @param {{ agent: import('../model/composer.js').Agent, focusBox: 'when-ready' | 'no', placeOf: () => Ran | undefined, asides: import('./aside-store.js').AsideStore, onSent: (text: string) => void, onDialog: () => void }} options —
+ * @param {{ agent: import('../model/composer.js').Agent, focusBox: 'when-ready' | 'no', placeOf: () => Ran | undefined, asides: import('./aside-store.js').AsideStore, onSent: (text: string) => void, onDialog: () => void, onAtPrompt?: (at: boolean) => void }} options —
  *   agent: whose session; focusBox when-ready: the user opened the session, so the box takes the focus once the session can be written to; no:
  *   following the active session switched to it. placeOf: where the session ran in herdr, if known. asides:
  *   the side questions and answers of the page's sessions — one outlives the box it was asked in. onSent: a prompt the
  *   session's terminal took — the feed shows it until Claude Code writes it down. onDialog: the terminal shows a dialog —
- *   a slash command sent may have opened it, /mcp, and it is written down only once the dialog does something, if ever
- * @returns {{ element: HTMLElement, say: (message: string, tone: 'ok' | 'error') => void, fill: (text: string) => void, stop: () => boolean, sendQueue: () => void, dispose: () => void }} — stop: Claude stopped if it was working
+ *   a slash command sent may have opened it, /mcp, and it is written down only once the dialog does something, if ever;
+ *   onAtPrompt: whether the agent is at its prompt now — idle and asking nothing, or closed — told as its state comes
+ * @returns {{ element: HTMLElement, say: (message: string, tone: 'ok' | 'error') => void, fill: (text: string) => void, stop: () => boolean, sendQueue: () => void, pokeLive: () => void, dispose: () => void }} — stop: Claude stopped if it was working
  */
-export function createComposer(sessionId, { agent, focusBox, placeOf, asides, onSent, onDialog }) {
+export function createComposer(sessionId, { agent, focusBox, placeOf, asides, onSent, onDialog, onAtPrompt = () => undefined }) {
   /** @type {import('../model/composer.js').Keyboard} */
   const keyboard = matchMedia('(pointer: coarse)').matches ? 'touch' : 'physical';
   const draftKey = `viewer.draft.${sessionId}`;
@@ -70,6 +77,8 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   let ranShown = '';
   const status = h('div', { className: 'composer-status', attrs: { role: 'status' } });
   let enabled = false;
+  /** The viewer answers: a prompt goes now — else it waits in the browser, and images cannot go at all. */
+  let reachable = false;
   let sending = false;
   /** The session's side question is being answered: the box waits. */
   let asking = false;
@@ -124,20 +133,48 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   // what Codex queued to send next — Claude Code's queue shows in the feed
   const queuedList = h('ul', { className: 'composer-queued-items' });
   const queued = h('section', { className: 'composer-queued', attrs: { hidden: '', 'aria-label': 'Queued' } }, [h('div', { className: 'composer-queued-note', text: 'Codex sends these next, once its turn is over.' }), queuedList]);
+  /**
+   * The message Codex queued last, sent now into its turn under way: the session's queue sent with nothing in the box —
+   * Codex takes back the one it queued last (shift+←), and only that one.
+   */
+  const sendQueuedNow = () => {
+    if (!enabled || sending || asking || !reachable) return;
+    sending = true;
+    refreshButtons();
+    say('Sending to the terminal…', 'busy');
+    void post('/api/send', { text: '', images: [], id: newPromptId(), now: true }).then((json) => {
+      const outcome = parseOutcome(json);
+      sending = false;
+      say(outcome === undefined ? 'The viewer server did not answer.' : outcomeMessage(outcome), outcome?.ok === true ? 'ok' : 'error');
+      refreshButtons();
+      void refreshLive();
+    });
+  };
   /** @param {readonly string[]} items */
   const showQueued = (items) => {
     queued.hidden = items.length === 0;
-    queuedList.replaceChildren(...items.map((item) => h('li', { text: item })));
+    queuedList.replaceChildren(
+      ...items.map((item, at) => {
+        const words = h('span', { className: 'composer-queued-text', text: item });
+        if (at !== items.length - 1) return h('li', {}, [words]);
+        const now = h('button', { className: 'composer-queued-now', text: 'Send now', attrs: { type: 'button', title: 'Into Codex’s turn under way, not waiting for it to end' } });
+        now.addEventListener('click', sendQueuedNow);
+        return h('li', {}, [words, now]);
+      }),
+    );
+  };
+  /** Words back into the box to be edited, after what the box holds. @param {string} words */
+  const putIntoBox = (words) => {
+    input.value = input.value.trim() === '' ? words : `${input.value.trimEnd()}\n\n${words}`;
+    writeDraft(draftKey, input.value);
+    fit();
+    refreshButtons();
+    if (keyboard === 'physical') input.focus();
   };
   const laterList = createLaterList({
-    // into the box to be edited, after what the box holds
     intoBox: (prompt) => {
-      input.value = input.value.trim() === '' ? prompt.text : `${input.value.trimEnd()}\n\n${prompt.text}`;
-      writeDraft(draftKey, input.value);
       later.remove(prompt.id);
-      fit();
-      refreshButtons();
-      if (keyboard === 'physical') input.focus();
+      putIntoBox(prompt.text);
     },
     // sent as the box sends it, from the box — an empty one: words written meanwhile are neither sent with it nor lost.
     // Should the terminal not take it, it stays in the box
@@ -153,7 +190,61 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     remove: (prompt) => later.remove(prompt.id),
   });
   const later = createLaterStore(sessionId, (prompts) => laterList.show(prompts));
-  const element = h('div', { className: 'composer' }, [dialogCard.element, aside, queued, laterList.element, resume, form, h('div', { className: 'composer-footer' }, [hint, status]), attachments.input]);
+  // the prompts sent out of the viewer's reach — or whose reply did not come — waiting to go, over the box: each to send
+  // again once refused, or to take back into the box
+  const waitingList = h('ul', { className: 'composer-waiting-items' });
+  const waitingBox = h('section', { className: 'composer-waiting', attrs: { hidden: '', 'aria-label': 'Waiting to be sent' } }, [waitingList]);
+  /** The waiting rows as drawn: they are read again at each look, and drawn again only when they changed. */
+  let waitingShown = '';
+  /** @param {readonly import('./outbox.js').Waiting[]} waiting */
+  const showWaiting = (waiting) => {
+    const look = JSON.stringify(waiting);
+    if (look === waitingShown) return;
+    waitingShown = look;
+    waitingBox.hidden = waiting.length === 0;
+    waitingList.replaceChildren(
+      ...waiting.map((one) => {
+        const again = h('button', { className: 'composer-waiting-again', text: 'Send again', attrs: { type: 'button' } });
+        again.hidden = one.refused === undefined;
+        again.addEventListener('click', () => void outbox.sendAgain(one.id));
+        const back = h('button', { className: 'composer-waiting-back', text: 'Back to the box', title: 'Take it back into the box: it is not sent', attrs: { type: 'button' } });
+        back.addEventListener('click', () => {
+          const words = outbox.takeBack(one.id);
+          if (words !== undefined) putIntoBox(words);
+        });
+        const state = one.refused === undefined ? 'Waits for the viewer' : one.refused;
+        return h('li', { className: `composer-waiting-row${one.refused === undefined ? '' : ' refused'}` }, [h('span', { className: 'composer-waiting-text', text: one.text }), h('span', { className: 'composer-waiting-state', text: state }), again, back]);
+      }),
+    );
+  };
+  const outbox = createOutbox(sessionId, {
+    storage: browserStorage,
+    locks: browserLocks(),
+    // under the id it waited with: one that reached the viewer before, its reply lost, is typed once
+    send: async ({ id, text }) => {
+      const outcome = parseOutcome(await post('/api/send', { text, images: [], id }));
+      if (outcome?.ok === true) {
+        onSent(text);
+        say('The prompt that waited went to the terminal.', 'ok');
+      }
+      return outcome;
+    },
+    onChange: showWaiting,
+  });
+  showWaiting(outbox.waiting());
+  /**
+   * The box's prompt kept to go once the viewer answers — kept before the box lets it go — the box free again.
+   * @param {string} id @param {string} words @param {string} why
+   */
+  const waitToSend = (id, words, why) => {
+    outbox.add(id, words);
+    input.value = '';
+    writeDraft(draftKey, '');
+    fit();
+    say(why, 'busy');
+    refreshButtons();
+  };
+  const element = h('div', { className: 'composer' }, [dialogCard.element, aside, queued, laterList.element, waitingBox, resume, form, h('div', { className: 'composer-footer' }, [hint, status]), attachments.input]);
 
   const fit = () => {
     input.style.height = 'auto';
@@ -172,10 +263,11 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   };
   const refreshButtons = () => {
     send.disabled = !enabled || sending || asking || (input.value.trim() === '' && attachments.images().length === 0);
-    setAsideButton.disabled = !enabled || input.value.trim() === '';
-    laterList.allowSend(enabled && input.value.trim() === '' && attachments.images().length === 0);
+    // setting aside and images need the viewer: out of its reach the box only sends, to wait
+    setAsideButton.disabled = !enabled || !reachable || input.value.trim() === '';
+    laterList.allowSend(enabled && reachable && input.value.trim() === '' && attachments.images().length === 0);
     input.disabled = !enabled;
-    attachments.button.disabled = !enabled;
+    attachments.button.disabled = !enabled || !reachable;
   };
   const say = (/** @type {string} */ message, /** @type {'ok' | 'busy' | 'error'} */ tone) => {
     clearTimeout(noticeTimer);
@@ -186,7 +278,8 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   const refreshLive = async () => {
     const response = await fetch(`/api/live?session=${encodeURIComponent(sessionId)}`).catch(() => undefined);
     const live = response?.ok ? parseLiveState(await response.json().catch(() => undefined)) : undefined;
-    const view = live === undefined ? serverSilent : composerState(live, { id: sessionId, agent }, keyboard);
+    const view = live === undefined ? outOfReach : composerState(live, { id: sessionId, agent });
+    reachable = live !== undefined;
     element.hidden = !view.shown;
     enabled = view.enabled;
     input.placeholder = view.placeholder;
@@ -200,7 +293,13 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     dialogCard.show(dialog);
     if (dialog !== undefined) onDialog();
     showQueued(live?.state === 'live' ? live.queued : []);
+    // at its prompt: idle and asking nothing, or closed — a turn it was in is over
+    onAtPrompt(live?.state === 'offline' || (live?.state === 'live' && live.status === 'idle' && live.dialog === undefined));
     refreshButtons();
+    // what waits, as the browser keeps it now — another tab, or the page, may have sent some — goes, the viewer
+    // answering and the session taking prompts
+    showWaiting(outbox.waiting());
+    if (live?.state === 'live' && outbox.waiting().length > 0) void outbox.flush();
     if (focusPending) {
       focusPending = false;
       if (enabled && !isOtherField(document.activeElement, input)) {
@@ -228,8 +327,9 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   };
   /**
    * @param {'/api/send' | '/api/interrupt' | '/api/btw' | '/api/dialog' | '/api/history/reopen'} path
-   * @param {{ text?: string, images?: readonly import('./attachment-picker.js').AttachedImage[], now?: true, question?: string, resume?: true, steps?: readonly import('../model/dialog.js').DialogStep[] }} payload — now: past
-   *   Claude Code's queue; resume: a side question's answer asked for again, the question not asked anew
+   * @param {{ text?: string, images?: readonly import('./attachment-picker.js').AttachedImage[], now?: true, id?: string, question?: string, resume?: true, steps?: readonly import('../model/dialog.js').DialogStep[] }} payload — now: past
+   *   Claude Code's queue; id: a prompt's, typed once however often it is sent; resume: a side question's answer asked
+   *   for again, the question not asked anew
    * @param {string} [session] - whose: the box's session unless another
    * @returns {Promise<unknown>} — the reply's JSON; undefined if the server did not answer
    */
@@ -409,17 +509,28 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   const submitPrompt = (when) => {
     const now = when === 'now' && busy;
     if (now ? !enabled || sending || asking : send.disabled) return;
-    const question = sideQuestionOf(input.value);
+    const question = sideQuestionOf(input.value, agent);
     if (question !== undefined) return askAside(question);
+    const images = attachments.images();
+    if (!reachable) {
+      if (images.length > 0) return say('Images go only while the viewer answers — the text and the images stay in the box.', 'error');
+      return waitToSend(newPromptId(), input.value, 'The viewer is out of reach: the prompt waits here and goes once the viewer is back.');
+    }
     sending = true;
     refreshButtons();
-    const images = attachments.images();
     // at once: under a heavy load the terminal may take a while to take it
     say(images.length > 0 ? `Sending ${images.length === 1 ? 'the image' : `${images.length} images`} to the terminal…` : 'Sending to the terminal…', 'busy');
     const text = input.value;
-    void post('/api/send', { text, images, ...(now ? { now: true } : {}) }).then((json) => {
+    // the id it goes by: should its reply not come, it waits under it and, sent again, is typed once
+    const id = newPromptId();
+    void post('/api/send', { text, images, id, ...(now ? { now: true } : {}) }).then((json) => {
       const outcome = parseOutcome(json);
       sending = false;
+      if (outcome === undefined && images.length === 0) {
+        waitToSend(id, text, 'The viewer did not answer: the prompt waits here and goes once it answers again.');
+        void refreshLive();
+        return;
+      }
       if (outcome?.ok === true) {
         onSent(text);
         input.value = '';
@@ -544,7 +655,7 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     leaf = undefined;
     if (asked === undefined) aside.hidden = true;
     else showAside(asked);
-    if (asked?.answer !== undefined && sideQuestionOf(input.value) === asked.question) {
+    if (asked?.answer !== undefined && sideQuestionOf(input.value, agent) === asked.question) {
       input.value = '';
       fit();
     }
@@ -559,8 +670,11 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     askAgain(leftAsking, `/btw ${leftAsking}`, askAgainTimes);
   }
 
-  void refreshLive();
-  const timer = setInterval(() => void refreshLive(), liveRefreshMs);
+  // a while after each answer, and not while the page is out of sight (polling.js)
+  const live = pollWhileShown(window, { ask: refreshLive, everyMs: liveRefreshMs, first: 'now' });
+  // the browser online again: the viewer asked at once, so that what waits goes without waiting for the next look
+  const onOnline = () => void refreshLive();
+  window.addEventListener('online', onOnline);
   // An empty box already has the height of one line; measuring it would make the browser lay out the whole page.
   if (input.value !== '') requestAnimationFrame(fit);
   return {
@@ -568,6 +682,8 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     say,
     fill,
     stop,
+    /** The session wrote something, or herdr's tabs changed: what the terminal shows asked for at once — a dialog may be open. */
+    pokeLive: () => live.poke(),
     /** What waits in Claude Code's queue, sent now — ⏩ on a waiting message, as Ctrl+Enter in the terminal. */
     sendQueue: () => {
       say('Sending the queue now…', 'ok');
@@ -578,13 +694,19 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
       });
     },
     dispose() {
-      clearInterval(timer);
+      live.stop();
+      window.removeEventListener('online', onOnline);
       clearTimeout(noticeTimer);
       unwatchAsides();
       later.dispose();
       document.removeEventListener('paste', onPaste);
     },
   };
+}
+
+/** A prompt's id, the time and a random tail: crypto.randomUUID is only there on https and on the viewer's own computer. */
+function newPromptId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 /** @param {string} key */

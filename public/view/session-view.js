@@ -26,11 +26,12 @@ import { createToolRow } from './tool-view.js';
  *   the viewer, over the page's stream (feed-hub.js)
  * @typedef {{ anchor: (anchor: Anchor, content: HTMLElement) => HTMLElement, onPrompt: (prompt: Anchor) => void, loadEntry: import('./tool-view.js').LoadEntry, sendQueueNow: (() => void) | undefined, openFeed: OpenFeed }} FeedHooks — sendQueueNow:
  *   what waits in Claude Code's queue, sent now; none where nothing can be sent; openFeed: for a subagent's transcript
- * @typedef {{ element: HTMLElement, dispose: () => void, scrollToAnchor: (id: string) => boolean, promptElements: () => readonly HTMLElement[], place: () => ReadingPlace, hasEarlier: () => boolean, loadEarlier: () => Promise<void>, keepPlace: (change: () => void) => void, expectPrompt: (text: string) => void, forgetSentCommands: () => void, forgetSent: () => void, setLead: (lead: HTMLElement | undefined) => void, restore: (place: ReadingPlace) => void }} MountedSession
+ * @typedef {{ element: HTMLElement, dispose: () => void, scrollToAnchor: (id: string) => boolean, promptElements: () => readonly HTMLElement[], place: () => ReadingPlace, hasEarlier: () => boolean, loadEarlier: () => Promise<void>, keepPlace: (change: () => void) => void, expectPrompt: (text: string) => void, forgetSentCommands: () => void, agentAtPrompt: (at: boolean) => void, forgetSent: () => void, setLead: (lead: HTMLElement | undefined) => void, restore: (place: ReadingPlace) => void }} MountedSession
  * restore — the reader taken back to the place they were at — the session shown again, its feed gone on out of sight;
  * expectPrompt — a prompt sent from the page: shown, as sent, until Claude Code writes it down; forgetSentCommands —
- * the slash commands among them let go of, a dialog having opened in the terminal; forgetSent — those not
- * written down let go of: the session's tab went on with another session — /clear, /new, /resume — they never will be;
+ * the slash commands among them let go of, a dialog having opened in the terminal; agentAtPrompt — whether the agent
+ * is at its prompt: the calls still waiting shown cut short while it is, agy writing nothing when stopped;
+ * forgetSent — those not written down let go of: the session's tab went on with another session — /clear, /new, /resume — they never will be;
  * setLead — what goes over the feed, above all of it: the conversation the session's tab went on from; none, nothing;
  * hasEarlier — the session opened with its latest part, the rest is not loaded; loadEarlier loads it;
  * keepPlace — runs a change that resizes the feed (a font, wide tables) keeping the reader at the same message
@@ -50,11 +51,20 @@ const staleMs = 15 * 60_000;
 const stickPx = 8;
 /**
  * How many of the latest entries a session opens with — hours of work; the earlier ones load on request. A phone lays
- * out a few thousand entries for seconds, so it starts with fewer.
+ * out a few thousand entries for seconds, and a tablet is not much quicker, wide as it is: both start with fewer.
  */
 const initialTail = { wide: 2000, narrow: 800 };
-/** New entries are kept for reading offline at most this often. */
-const keepDelayMs = 15_000;
+/**
+ * How many of its latest entries a session not kept opens with first: shown at once, the rest of the tail asked for
+ * after them — over a slow way to the viewer the latest come in a moment, not after the whole tail.
+ */
+const quickTail = 50;
+/**
+ * New entries are kept for reading offline at most this often — and at once when the page is put away or the session
+ * closed. Each time the whole copy, hundreds of entries, is copied into the browser's store in the page's own thread: a
+ * tablet stood still for over a second at it, every fifteen seconds while an agent wrote.
+ */
+const keepDelayMs = 120_000;
 /** Out of reach, the viewer is tried again this often even without news that it answers. */
 const retryMs = 20_000;
 
@@ -87,9 +97,11 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   const keptThread = h('div', { className: 'thread kept', attrs: { hidden: '' } });
   const updatingText = h('span', { text: 'Updating…' });
   const updating = h('div', { className: 'updating', attrs: { role: 'status', hidden: '' } }, [h('span', { className: 'spark', text: '✻' }), updatingText]);
+  // over the latest entries shown while the rest of the tail comes: where the earlier ones will be
+  const loadingEarlier = h('div', { className: 'loading-earlier', attrs: { role: 'status', hidden: '' } }, [h('span', { className: 'spark', text: '✻' }), h('span', { text: 'Loading earlier messages…' })]);
   // the conversation the session's tab went on from, over all of it
   const lead = h('div', { className: 'session-lead', attrs: { hidden: '' } });
-  const element = h('div', { className: 'session' }, [lead, earlier, keptThread, updating, thread, loading, empty, working, waitingBox, jump]);
+  const element = h('div', { className: 'session' }, [lead, earlier, loadingEarlier, keptThread, updating, thread, loading, empty, working, waitingBox, jump]);
   const anchors = createAnchors(bookmarks, onRewind);
   /** @type {HTMLElement[]} */
   const prompts = [];
@@ -153,10 +165,14 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     listener.onStatus(ready ? (live ? 'working' : 'idle') : 'connecting');
   };
 
-  /** The feed starts over: the reader stays where they were once the history is in again, what they saw in view meanwhile. */
-  const startOver = () => {
+  /**
+   * The feed starts over: the reader stays where they were once the history is in again, what they saw in view meanwhile.
+   * @param {'updating' | 'earlier'} mark — what the view kept says: being brought up to date, under it; or the earlier
+   *   entries coming, over it
+   */
+  const startOver = (mark) => {
     resumeAt = currentPlace();
-    keepStale();
+    keepStale(mark);
     resetFeed();
     meta = {};
     ready = false;
@@ -168,19 +184,28 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     loading.hidden = !keptThread.hidden;
     loadingCount.textContent = '';
   };
-  /** What the reader saw stays in view, marked as being brought up to date, while the session comes anew in its place. */
-  const keepStale = () => {
+  /**
+   * What the reader saw stays in view while the session comes anew in its place: marked as being brought up to date, or
+   * — the rest of its tail coming — where the earlier entries will be.
+   * @param {'updating' | 'earlier'} mark
+   */
+  const keepStale = (mark) => {
     if (thread.hidden || thread.childElementCount === 0) return;
     keptThread.replaceChildren(...thread.childNodes);
     keptThread.hidden = false;
     thread.hidden = true;
+    if (mark === 'earlier') {
+      loadingEarlier.hidden = false;
+      return;
+    }
     keptThread.after(updating);
     updatingText.textContent = 'Updating…';
     updating.hidden = false;
   };
-  /** How many entries are not loaded, on the button that loads them. @param {number} count */
+  /** How many entries are not loaded, on the button that loads them — as many as it loads, of those. @param {number} count */
   const showEarlier = (count) => {
-    earlier.textContent = `Show ${count.toLocaleString('en-US')} earlier entries`;
+    const part = Math.min(count, wholeTail);
+    earlier.textContent = part < count ? `Show ${part.toLocaleString('en-US')} of ${count.toLocaleString('en-US')} earlier entries` : `Show ${count.toLocaleString('en-US')} earlier entries`;
     earlier.hidden = !(count > 0);
   };
   /**
@@ -192,9 +217,27 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   const connect = (tail) => {
     const next = openFeed({ session: sessionId, ...(agentId === undefined ? {} : { agent: agentId }), ...(tail === undefined ? {} : { tail }), from: () => copy.goOnFrom() });
     let opened = false;
+    // the session sent from its start with its latest entries alone, those before them counted
+    let cutShort = false;
+    /**
+     * The stream lost, or back and going on from the copy: the session shown is behind it until the viewer tells it is up
+     * to date again — said under its latest message, its status no longer the one it had: not "Working" over a feed that
+     * stopped moving, a phone's app brought back.
+     * @param {string} words
+     */
+    const fallBehind = (words) => {
+      if (!shown) return;
+      updatingText.textContent = words;
+      if (!ready) return;
+      ready = false;
+      thread.after(updating);
+      updating.hidden = false;
+      refreshStatus();
+    };
     next.on('open', (data) => {
       // a reconnect with no copy to go on from: the viewer sends the session from its start
-      if (opened && !(isRecord(data) && data.resumed === true)) startOver();
+      if (opened && !(isRecord(data) && data.resumed === true)) startOver('updating');
+      else if (opened) fallBehind('Updating…');
       opened = true;
       if (!keptThread.hidden) updatingText.textContent = 'Updating…';
     });
@@ -202,11 +245,13 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
       // The viewer is out of reach: the kept copy meanwhile. A stream refused outright (a proxy's error page) is not
       // retried by the browser — it is opened again when the viewer answers.
       if (!shown) void showKept('out of reach');
+      else fallBehind('Reconnecting…');
       if (next.closed()) waitForViewer();
     });
     next.on('earlier', (data) => {
       copy.take('earlier', data);
       showEarlier(copy.earlier());
+      cutShort = true;
     });
     next.on('session-status', (data) => {
       const status = parseSessionStatus(data);
@@ -246,12 +291,14 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
       const waiting = onReady;
       onReady = [];
       for (const resolve of waiting) resolve();
+      // the latest entries shown: the rest of the tail asked for — a copy gone on from is shown as it is
+      if (tail === quickTail && cutShort) widen();
     });
     next.on('reset', () => {
       copy.take('reset', null);
       // a copy shown that the viewer could not go on from: it stays in view while the session comes whole
       if (shown && !ready) {
-        keepStale();
+        keepStale('updating');
         shown = false;
         loading.hidden = !keptThread.hidden;
       }
@@ -270,7 +317,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   const readAnew = () => {
     console.warn(`The feed of session ${sessionId}${agentId === undefined ? '' : ` (subagent ${agentId})`} was out of step with the viewer: it is read anew`);
     source?.close();
-    startOver();
+    startOver('updating');
     source = connect(tail);
   };
   /** The history in — or the copy kept, gone on from — the feed is shown once, at the reader's place, in place of a copy kept. */
@@ -278,6 +325,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     keptThread.replaceChildren();
     keptThread.hidden = true;
     updating.hidden = true;
+    loadingEarlier.hidden = true;
     thread.hidden = false;
     loading.hidden = true;
     shown = true;
@@ -383,9 +431,18 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
       clearTimeout(retryTimer);
     };
   };
+  /** The tail a session is shown with: its latest entries come first (quickTail), then the rest of it. */
+  const wholeTail = matchMedia('(max-width: 820px), (pointer: coarse)').matches ? initialTail.narrow : initialTail.wide;
   /** How many of the latest entries the stream starts with; undefined once the whole session was asked for. */
   /** @type {number | undefined} */
-  let tail = matchMedia('(max-width: 820px)').matches ? initialTail.narrow : initialTail.wide;
+  let tail = quickTail;
+  /** The latest entries shown, the rest of the tail asked for: they stay in view, marked over them where it will come. */
+  const widen = () => {
+    source?.close();
+    startOver('earlier');
+    tail = wholeTail;
+    source = connect(tail);
+  };
   /** @type {import('./feed-hub.js').FeedSource | undefined} */
   let source;
   let disposed = false;
@@ -398,7 +455,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
       .catch(() => undefined)
       .then((saved) => {
         if (disposed) return;
-        if (saved !== undefined && saved.token !== undefined && kept.online()) showCopy({ entries: saved.entries, earlier: saved.earlier, token: saved.token }, tail);
+        if (saved !== undefined && saved.token !== undefined && kept.online()) showCopy({ entries: saved.entries, earlier: saved.earlier, token: saved.token }, wholeTail);
         else showKeptCopy(saved, kept.online() ? 'in reach' : 'out of reach');
         source = connect(tail);
       });
@@ -407,18 +464,25 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
    * The whole session, the reader staying at the message they were at.
    * @returns {Promise<void>} — once it is in
    */
+  // a part more at a time, as many as the session opened with: a long session whole would be thousands of entries — a
+  // phone's page thrown away for its size
   const loadEarlier = () => {
     source?.close();
-    startOver();
-    tail = undefined;
+    startOver('updating');
+    tail = tail === undefined ? undefined : tail + wholeTail;
     source = connect(tail);
     return new Promise((resolve) => onReady.push(resolve));
   };
   earlier.addEventListener('click', () => void loadEarlier());
-  // Scrolling up lets go of the bottom and shows the button back to it; reaching the bottom sticks to it again.
+  // Scrolling up lets go of the bottom and shows the button back to it; reaching the bottom sticks to it again. What
+  // shows under the feed brought to the bottom before the browser tells of it — a mark, the working line — moved no one
+  // up: it lets go of nothing.
+  let scrolledTo = scroller.scrollTop;
   const onScroll = () => {
+    const up = scroller.scrollTop < scrolledTo;
+    scrolledTo = scroller.scrollTop;
     if (!shown) return;
-    stuck = nearBottom();
+    stuck = nearBottom() || (stuck && !up);
     jump.hidden = stuck;
   };
   scroller.addEventListener('scroll', onScroll, { passive: true });
@@ -496,6 +560,9 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     },
     forgetSentCommands() {
       feed.forgetSentCommands();
+    },
+    agentAtPrompt(at) {
+      feed.callsCutShort(at);
     },
     setLead(shown) {
       lead.replaceChildren(...(shown === undefined ? [] : [shown]));
@@ -868,6 +935,10 @@ function createFeed({ thread, waitingBox }, sessionId, hooks) {
       const prompts = sent.filter((one) => !one.startsWith('/'));
       sent.splice(0, sent.length, ...prompts);
       showWaiting();
+    },
+    /** The calls still waiting shown cut short while the agent is at its prompt, as waiting again once it works. @param {boolean} on */
+    callsCutShort(on) {
+      for (const { row } of tools.values()) row.cutShort(on);
     },
   };
 }

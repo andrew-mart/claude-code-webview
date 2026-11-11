@@ -8,7 +8,6 @@
 // files are. In place of a file it shows a list — the changes of the session's branch, or its project's files and
 // their search — and a file opened from it has a way back to it. A text file is edited in the panel itself
 // (file-editor.js), CodeMirror loaded the first time it is.
-import { hasSource, kindOfPath, renderFile } from 'file-views';
 import { folderAddress } from '../model/folder-address.js';
 import { isRecord, text } from '../model/narrow.js';
 import { h } from './dom.js';
@@ -27,16 +26,24 @@ import { createPinButton } from './pin-button.js';
  * @typedef {Omit<import('./project-view.js').ProjectSource, 'openFile' | 'iconOf'>} ProjectSource
  * @typedef {ProjectSource & { links: (path: string) => Promise<import('../model/project.js').FileLinks | undefined> }} Project
  *   — a file's project: its folders, its search, a file's links in it
- * @typedef {{ open: (target: FileTarget) => void, showChanges: (source: Omit<import('./changes-view.js').ChangesSource, 'openFile'>) => void, showHistory: (history: ShownList) => void, showNote: (note: ShownList & { id: string, name: () => string, actions: HTMLElement }) => void, listChanged: (list: ShownList) => Promise<void>, showNotesHistory: (history: ShownList) => void, showProject: (source: ProjectSource) => void, showFolder: (path: string) => void, pinsChanged: () => void, findName: (intent: 'definition' | 'uses', name: string, path: string) => Promise<void>, close: () => void, isOpen: () => boolean, reopen: () => boolean, docs: () => readonly DocShown[], showDoc: (key: string) => void, forgetDoc: (key: string) => void, top: HTMLElement }} FilePanel
+ * @typedef {{ open: (target: FileTarget) => void, notesEditorChanged: () => void, showChanges: (source: Omit<import('./changes-view.js').ChangesSource, 'openFile'>) => void, showHistory: (history: ShownList) => void, showNote: (note: ShownList & { id: string, session: string, name: () => string, actions: HTMLElement }) => void, listChanged: (list: ShownList) => Promise<void>, showNotesHistory: (history: ShownList) => void, showProject: (source: ProjectSource) => void, showFolder: (path: string) => void, pinsChanged: () => void, findName: (intent: 'definition' | 'uses', name: string, path: string) => Promise<void>, close: () => void, isOpen: () => boolean, reopen: () => boolean, docs: () => readonly DocShown[], shownDoc: () => string | undefined, showDoc: (key: string) => void, forgetDoc: (key: string) => void, top: HTMLElement }} FilePanel
  *   — showChanges: the branch's changes in place of a file, read from the source; showHistory: the conversations of
  *   herdr's tabs (history-view.js); showProject: the project's files; pinsChanged: the pin over a file drawn again for
  *   the files pinned now; listChanged: a list drawn again, changed elsewhere — the panel's title too, if it is the one
  *   shown;
  *   findName: a name in a file looked for in its project — its one definition opened, or its definitions and uses shown;
  *   docs: the documents shown — files, notes — the latest first, kept once the panel is put away until closed for good
- *   by ×, docked under the feed on a phone; showDoc: one of them shown again; forgetDoc: one closed for good — the
+ *   by ×, docked under the feed; shownDoc: the one shown now, none while the panel shows none — a list, or nothing;
+ *   showDoc: one of them shown again; forgetDoc: one closed for good — the
  *   panel put away, if it shows it: a note removed is left at once; top: its
  *   grip and head — on a phone, what the sheet is pulled down by
+ * @typedef {{ key: string, kind: 'file', name: string, path: string, line?: number, endLine?: number } | { key: string, kind: 'note', name: string, id: string, session: string }} KeptDoc
+ *   — a document put away as this browser keeps it over a reload: a file by its path and line, a note by its id and the
+ *   session it was opened from — and the name its card shows
+ * @typedef {{ read: () => unknown, write: (docs: readonly KeptDoc[]) => void }} KeptDocs — where this browser keeps them
+ * @typedef {{ key: string, kind: 'file', target: FileTarget } | { key: string, kind: 'note', id: string, session: string, name: string, listing: Listing | undefined }} PanelDoc
+ *   — a document the panel holds; a note's listing is there once it is shown in this page: a note kept from before a
+ *   reload has its name alone, and is opened again by the page
  * @typedef {{ key: string, kind: 'file' | 'note', name: string }} DocShown — a document the panel holds: a file, by its
  *   path; a note, by its id
  * @typedef {{ places: import('./editor-opener.js').PlaceFinder, show: (path: string) => void }} FileManager — where the
@@ -53,7 +60,7 @@ import { createPinButton } from './pin-button.js';
  */
 
 /** The documents kept once shown, at most: the earliest go past them. */
-const keptDocs = 8;
+const mostDocsKept = 8;
 
 /**
  * @param {string} path
@@ -123,16 +130,18 @@ function remember(key, value) {
 }
 
 /**
- * @param {{ onDocs: () => void, markdownEditor: import('./file-editor.js').MakeEditor, panel: HTMLElement, layout: HTMLElement, editor: import('./editor-opener.js').EditorOpener, vscode: Promise<OpenInVsCode | undefined>, fileManager: FileManager, project: (path: string) => Project, folder: (root: string) => Project, iconOf: import('./file-icons.js').IconOf, pins: import('./pin-button.js').PinFiles }} parts —
+ * @param {{ onDocs: () => void, markdownEditor: import('./file-editor.js').MakeEditor, notesEngine: import('./file-editor.js').NotesEngine, keptDocs: KeptDocs, openKeptNote: (id: string, session: string) => void, panel: HTMLElement, layout: HTMLElement, editor: import('./editor-opener.js').EditorOpener, vscode: Promise<OpenInVsCode | undefined>, fileManager: FileManager, project: (path: string) => Project, folder: (root: string) => Project, iconOf: import('./file-icons.js').IconOf, pins: import('./pin-button.js').PinFiles }} parts —
  *   folder: a folder linked, as a project of its own; vscode: none when the viewer runs no VS Code; fileManager: the
  *   file shown in its folder, from a browser on the viewer's computer;
  *   editor: opens the file at its line in the editor of the viewer's computer, from a browser there; project: the
  *   project a file is in, its folders and its search; pins: the files pinned beside the open session (pin-button.js);
- *   markdownEditor: a markdown file edited as a note is, in the notes' editor (markdown-file-editor.js); onDocs: its
+ *   markdownEditor: a markdown file edited as a note is, in the notes' editor (markdown-file-editor.js); notesEngine: the
+ *   notes' editor switched over such a file — notesEditorChanged makes it anew; keptDocs: the documents put away, kept
+ *   over a reload; openKeptNote: a note kept, opened again by the page — it shows it in the panel; onDocs: its
  *   documents changed, or it was opened or put away — the dock under the feed drawn anew
  * @returns {FilePanel}
  */
-export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor, vscode, fileManager, project, folder, iconOf, pins }) {
+export function createFilePanel({ onDocs, markdownEditor, notesEngine, keptDocs, openKeptNote, panel, layout, editor, vscode, fileManager, project, folder, iconOf, pins }) {
   const name = h('div', { className: 'panel-name' });
   /** What the panel shows, at the head of its title: the file's icon, or the list's */
   const headIcon = h('span', { className: 'panel-icon' }, [icon('read')]);
@@ -191,7 +200,11 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
   copy.classList.add('panel-copy');
   // the file pinned beside the open session, in its outline
   const pin = createPinButton(pins);
-  const close = panelButton('cross', 'Close (Esc)');
+  // the document put away — Esc too — kept under the feed to open again; × closes it for good
+  const putAway = panelButton('minimize', 'Put away (Esc): kept under the feed, to open again');
+  putAway.classList.add('panel-put-away');
+  putAway.hidden = true;
+  const close = panelButton('cross', 'Close');
   // a file opened from a list — the branch's changes, the project's files — goes back to it
   const back = h('button', { className: 'panel-back', attrs: { type: 'button' } });
   back.hidden = true;
@@ -222,7 +235,7 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
   // their own there, under the file's name
   const top = h('div', { className: 'panel-top' }, [
     h('div', { className: 'panel-grip', attrs: { 'aria-hidden': 'true' } }),
-    h('header', { className: 'panel-head' }, [back, treeToggle, h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [headIcon, name, where]), path]), h('div', { className: 'panel-tools' }, [scripts, dim, view, editHere, linksButton, inEditor, inVsCode, inFolderSlot, listActions, reload, pin.element, copy]), close]),
+    h('header', { className: 'panel-head' }, [back, treeToggle, h('div', { className: 'panel-title' }, [h('div', { className: 'panel-name-row' }, [headIcon, name, where]), path]), h('div', { className: 'panel-tools' }, [scripts, dim, view, editHere, linksButton, inEditor, inVsCode, inFolderSlot, listActions, reload, pin.element, copy]), putAway, close]),
   ]);
   panel.replaceChildren(
     resizer,
@@ -267,24 +280,51 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
    * The documents the panel showed — files, notes — the latest first, kept once it is put away, until closed for good;
    * the one shown now, if it is one of them.
    */
-  /** @type {({ key: string, kind: 'file', target: FileTarget } | { key: string, kind: 'note', listing: Listing })[]} */
-  let docs = [];
+  /** @type {PanelDoc[]} */
+  let docs = keptBefore(keptDocs.read());
+  /** The documents kept by this browser as they are now. */
+  const keepDocsOver = () =>
+    keptDocs.write(
+      docs.map((doc) =>
+        doc.kind === 'file'
+          ? { key: doc.key, kind: 'file', name: fileNameOf(doc.target.path), path: doc.target.path, ...(doc.target.line === undefined ? {} : { line: doc.target.line }), ...(doc.target.endLine === undefined ? {} : { endLine: doc.target.endLine }) }
+          : { key: doc.key, kind: 'note', name: doc.listing?.name() ?? doc.name, id: doc.id, session: doc.session },
+      ),
+    );
   /** @type {string | undefined} */
   let docShown;
   /** @param {(typeof docs)[number]} doc */
   const keepDoc = (doc) => {
-    docs = [doc, ...docs.filter((one) => one.key !== doc.key)].slice(0, keptDocs);
+    docs = [doc, ...docs.filter((one) => one.key !== doc.key)].slice(0, mostDocsKept);
+    keepDocsOver();
     docShown = doc.key;
+    putAway.hidden = false;
   };
   /** The file drawn: let go of before the panel shows something else. */
   /** @type {import('file-views').FileView | undefined} */
   let shown;
+  /**
+   * file-views, which draws the files — 300 KB that runs a start of its own as it loads, and most pages never show a
+   * file here — asked for the first time one is shown; out of the viewer's reach, asked for again the next time.
+   * @type {Promise<typeof import('file-views')> | undefined}
+   */
+  let views;
+  const fileViews = () => {
+    views ??= import('file-views').catch((error) => {
+      views = undefined;
+      throw error;
+    });
+    return views;
+  };
+  /** What the panel's body was asked to show last: a file drawn once file-views has come is not if another was since. */
+  let asked = 0;
   /** The file's text edited in the panel, in place of the file drawn. */
   const editorHere = createFileEditor({
     fetchFile: (url, init) => fetch(url, init),
     // a markdown file as a note is edited, any other as code
     makeEditor: async (host, options) => (/\.(?:md|markdown)$/i.test(options.path) ? markdownEditor(host, options) : (await import('./code-editor.js')).createCodeEditor(host, options)),
     onName: (intent, name, path) => void api.findName(intent, name, path),
+    notesEngine,
   });
   /** The project's files shown last: shown again as they were left for a project of the same folder. */
   /** @type {{ root: string, view: ReturnType<typeof createProjectView> } | undefined} */
@@ -311,15 +351,19 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
     },
   };
 
-  /** The buttons over the panel, for what the file is and how it shows. */
-  const dress = (/** @type {import('file-views').FileKind} */ kind) => {
+  /**
+   * The buttons over the panel, for what the file is and how it shows.
+   * @param {import('file-views').FileKind} kind
+   * @param {boolean} sourced — whether the file has a source to show beside its drawing
+   */
+  const dress = (kind, sourced) => {
     editHere.hidden = !editable(kind);
     linksButton.hidden = !editable(kind);
     copy.hidden = !editable(kind);
     editHere.classList.toggle('on', editing);
     editHere.title = editing ? 'Show the file' : 'Edit the file here';
     reload.hidden = editing;
-    view.hidden = editing || !hasSource(kind);
+    view.hidden = editing || !sourced;
     showDocument.setAttribute('aria-pressed', String(mode === 'document'));
     showSource.setAttribute('aria-pressed', String(mode === 'source'));
     scripts.hidden = editing || kind !== 'html' || mode !== 'document';
@@ -331,20 +375,44 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
 
   const load = (/** @type {FileTarget} */ target) => {
     loads++;
+    asked++;
+    const now = asked;
     shown?.dispose();
+    shown = undefined;
     stopEditing();
-    dress(kindOfPath(target.path));
-    shown = renderFile(body, target, { view: mode, scripts: pageScripts }, host);
+    void fileViews().then(
+      ({ hasSource, kindOfPath, renderFile }) => {
+        if (now !== asked) return;
+        const kind = kindOfPath(target.path);
+        dress(kind, hasSource(kind));
+        // on a touch screen a page's frame grows as tall as the page and the panel scrolls it: an iPhone scrolls no
+        // frame in the sheet, the swipe going to the session behind it
+        const frames = window.matchMedia('(pointer: coarse)').matches ? 'grow' : 'scroll';
+        shown = renderFile(body, target, { view: mode, scripts: pageScripts, frames }, host);
+      },
+      () => {
+        if (now === asked) body.replaceChildren(h('div', { className: 'panel-message', text: 'The file cannot be shown: the viewer is out of reach.' }));
+      },
+    );
   };
   /** The file's text in the editor, at the line shown. */
   const startEditing = (/** @type {FileTarget} */ target) => {
+    asked++;
+    const now = asked;
     shown?.dispose();
     shown = undefined;
     editing = true;
     body.classList.add('editing');
-    dress(kindOfPath(target.path));
     body.replaceChildren(editorHere.element);
     void editorHere.open(target);
+    void fileViews().then(
+      ({ hasSource, kindOfPath }) => {
+        if (now !== asked) return;
+        const kind = kindOfPath(target.path);
+        dress(kind, hasSource(kind));
+      },
+      () => undefined, // the buttons stay as the file shown had them
+    );
   };
   /** Changes left unsaved stay with the editor, for the next time the file is edited. */
   const stopEditing = () => {
@@ -453,6 +521,7 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
   const showListing = (shownList) => {
     listing = shownList;
     docShown = undefined;
+    putAway.hidden = true;
     back.textContent = shownList.back;
     back.title = shownList.backTitle;
     showList();
@@ -511,13 +580,21 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
       pathText.textContent = target.path;
       pathText.title = target.path;
       where.textContent = lineLabel(target);
-      // a page linked at a line opens its source there; a markdown document is read drawn — the feed links it at a line
-      // mostly — its source, the line marked, a press away
-      mode = target.line !== undefined && kindOfPath(target.path) !== 'markdown' ? 'source' : 'document';
       pageScripts = 'off';
       panel.hidden = false;
       layout.classList.add('with-panel');
-      load(target);
+      // a page linked at a line opens its source there; a markdown document is read drawn — the feed links it at a line
+      // mostly — its source, the line marked, a press away
+      void fileViews().then(
+        ({ kindOfPath }) => {
+          if (current !== target) return;
+          mode = target.line !== undefined && kindOfPath(target.path) !== 'markdown' ? 'source' : 'document';
+          load(target);
+        },
+        () => {
+          if (current === target) load(target);
+        },
+      );
     },
     /** @param {Omit<import('./changes-view.js').ChangesSource, 'openFile'>} source */
     showChanges(source) {
@@ -529,11 +606,11 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
     showHistory(history) {
       showListing({ ...history, name: () => 'History', icon: 'history', back: '← History', backTitle: 'Back to the history', beside: false, actions: undefined });
     },
-    /** @param {ShownList & { id: string, name: () => string, actions: HTMLElement }} note — a note opened from its name among the notes (note-panel.js), by its id */
+    /** @param {ShownList & { id: string, session: string, name: () => string, actions: HTMLElement }} note — a note opened from its name among the notes (note-panel.js), by its id, and the session it was opened from */
     showNote(note) {
       const noteListing = { ...note, icon: 'note', back: '← Note', backTitle: 'Back to the note', beside: false };
       showListing(noteListing);
-      keepDoc({ key: `note:${note.id}`, kind: 'note', listing: noteListing });
+      keepDoc({ key: `note:${note.id}`, kind: 'note', id: note.id, session: note.session, name: note.name(), listing: noteListing });
       onDocs();
     },
     /** @param {ShownList} history — the changes of the session's notes (notes-history-view.js) */
@@ -598,6 +675,8 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
       onDocs();
     },
     isOpen: () => current !== undefined || showingList,
+    /** The notes' editor chosen anew — here or elsewhere: a markdown file being edited is made anew in it, its text kept. */
+    notesEditorChanged: () => void editorHere.remake(),
     /**
      * What the panel showed last shown again — a file, a note — after it was closed: a phone's second swipe from the
      * right edge.
@@ -609,13 +688,19 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
       api.showDoc(latest.key);
       return true;
     },
-    docs: () => docs.map((doc) => ({ key: doc.key, kind: doc.kind, name: doc.kind === 'file' ? fileNameOf(doc.target.path) : doc.listing.name() })),
+    docs: () => docs.map((doc) => ({ key: doc.key, kind: doc.kind, name: doc.kind === 'file' ? fileNameOf(doc.target.path) : (doc.listing?.name() ?? doc.name) })),
+    shownDoc: () => docShown,
     /** @param {string} key */
     showDoc(key) {
       const doc = docs.find((one) => one.key === key);
       if (doc === undefined) return;
       if (doc.kind === 'file') {
         api.open(doc.target);
+        return;
+      }
+      // kept from before a reload: the page opens it, in the session it was opened from, and shows it here
+      if (doc.listing === undefined) {
+        openKeptNote(doc.id, doc.session);
         return;
       }
       showListing(doc.listing);
@@ -627,6 +712,7 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
     forgetDoc(key) {
       if (key === docShown) api.close();
       docs = docs.filter((one) => one.key !== key);
+      keepDocsOver();
       onDocs();
     },
   };
@@ -684,7 +770,9 @@ export function createFilePanel({ onDocs, markdownEditor, panel, layout, editor,
   copyPath.addEventListener('click', () => {
     if (current !== undefined) void copyTicked(copyPath, current.path);
   });
-  // × closes the document shown for good: put away otherwise — Esc, a swipe down on a phone — it stays among the docs
+  putAway.addEventListener('click', () => api.close());
+  // × closes the document shown for good: put away otherwise — its button, Esc, a swipe down on a phone — it stays among
+  // the docs
   close.addEventListener('click', () => {
     const closing = docShown;
     api.close();
@@ -743,4 +831,32 @@ function lineLabel(target) {
  */
 function panelButton(iconName, title) {
   return h('button', { className: 'icon-button', title, attrs: { type: 'button' } }, [icon(iconName)]);
+}
+
+/**
+ * The documents put away as this browser kept them: what cannot be read is left out — a store of another shape, none.
+ * @param {unknown} kept
+ * @returns {PanelDoc[]}
+ */
+function keptBefore(kept) {
+  if (!Array.isArray(kept)) return [];
+  return kept.flatMap((doc) => {
+    const one = keptDoc(doc);
+    return one === undefined ? [] : [one];
+  });
+}
+
+/**
+ * @param {unknown} doc — one document kept
+ * @returns {PanelDoc | undefined}
+ */
+function keptDoc(doc) {
+  if (!isRecord(doc) || typeof doc.key !== 'string' || typeof doc.name !== 'string') return undefined;
+  if (doc.kind === 'file' && typeof doc.path === 'string') {
+    const line = typeof doc.line === 'number' ? doc.line : undefined;
+    const endLine = typeof doc.endLine === 'number' ? doc.endLine : undefined;
+    return { key: doc.key, kind: 'file', target: { path: doc.path, line, endLine } };
+  }
+  if (doc.kind === 'note' && typeof doc.id === 'string' && typeof doc.session === 'string') return { key: doc.key, kind: 'note', id: doc.id, session: doc.session, name: doc.name, listing: undefined };
+  return undefined;
 }

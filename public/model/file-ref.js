@@ -2,7 +2,10 @@
 // File references in answer text: "D:/dev/x/a.cs:42" → path and line.
 
 /**
- * @typedef {{ index: number, text: string, path: string, line: number | undefined, endLine: number | undefined }} FileRef
+ * @typedef {{ text: string, path: string, line: number | undefined, endLine: number | undefined }} LongerRef — the
+ *   whole path through a folder with spaces a reference may be, its text running on from the reference's
+ * @typedef {{ index: number, text: string, path: string, line: number | undefined, endLine: number | undefined, longer?: LongerRef }} FileRef
+ *   — longer: offered where the path is cut at a space a folder's name may go on past; the viewer tells whether it is
  */
 
 /**
@@ -20,10 +23,16 @@ const posixRoots = ['Users', 'home', 'tmp', 'var', 'opt', 'etc', 'usr', 'mnt', '
 const posixPath = String.raw`(?:~|/(?:${posixRoots.join('|')}))/${pathChar}*${pathEnd}`;
 
 /**
- * An absolute path (Windows — forward or back slashes, macOS/Linux — from the root or ~), optionally followed by
- * ":line", ":line-line" or ":line:column". A path does not start inside a word or a URL.
+ * A file:/// address in text — how a path with spaces is written for a terminal, %20 for each: it has no spaces, and
+ * ends before the punctuation after it.
  */
-const fileRefPattern = new RegExp(String.raw`(?<![\w/\\.:~])(${windowsPath}|${posixPath})(?::(\d+)(?:-(\d+)|:\d+)?)?`, 'g');
+const fileAddress = String.raw`file:///[^\s"'\`<>|*?()[\]{},;«»“”‘’„]*[^\s"'\`<>|*?()[\]{},;:.«»“”‘’„]`;
+
+/**
+ * A file:/// address, or an absolute path (Windows — forward or back slashes, macOS/Linux — from the root or ~),
+ * optionally followed by ":line", ":line-line" or ":line:column". A path does not start inside a word or a URL.
+ */
+const fileRefPattern = new RegExp(String.raw`(?<![\w/\\.:~])(?:(${fileAddress})|(${windowsPath}|${posixPath})(?::(\d+)(?:-(\d+)|:\d+)?)?)`, 'g');
 
 /**
  * The rest of a file name with spaces, after a path that ends in a word with no extension: a few more words, the last
@@ -31,6 +40,14 @@ const fileRefPattern = new RegExp(String.raw`(?<![\w/\\.:~])(${windowsPath}|${po
  */
 const nameWord = String.raw`[^\s"'\`<>|*?()[\]{},;:/\\«»“”‘’„]+`;
 const spacedName = new RegExp(String.raw`^((?: ${nameWord}){0,5}? ${nameWord}\.[A-Za-z0-9]{1,10})(?::(\d+)(?:-(\d+)|:\d+)?)?(?=$|[\s,;!?)\]»”’"'\`]|\.(?:\s|$))`);
+
+/**
+ * The rest of a path through a folder whose name has spaces, after a path that ends in a word with no extension: a few
+ * more words, the last going on through folders to a file's name, then the line. Words after a folder are as often
+ * prose — "D:/dev/app файл src/app.ts" — so it is only offered: the viewer tells whether the file is there.
+ */
+const pathWord = String.raw`[^\s"'\`<>|*?()[\]{},;:«»“”‘’„]+`;
+const throughFolders = new RegExp(String.raw`^((?: ${pathWord}){0,5}? ${pathWord}[\\/]${pathWord}\.[A-Za-z0-9]{1,10})(?::(\d+)(?:-(\d+)|:\d+)?)?(?=$|[\s,;!?)\]»”’"'\`]|\.(?:\s|$))`);
 
 /**
  * @param {string} source
@@ -41,9 +58,11 @@ export function findFileRefs(source) {
   /** @type {FileRef[]} */
   const refs = [];
   for (let match = pattern.exec(source); match !== null; match = pattern.exec(source)) {
-    const [text, found, line, endLine] = match;
+    const [text, address, found, line, endLine] = match;
+    const addressed = address === undefined ? undefined : fileRefFromHref(address);
+    if (addressed !== undefined) refs.push({ index: match.index, text, ...addressed });
     if (found === undefined) continue;
-    const ref = withSpacedName(source, { index: match.index, text, path: withoutPlace(found), line: lineNumber(line), endLine: lineNumber(endLine) });
+    const ref = throughSpacedFolders(source, withSpacedName(source, { index: match.index, text, path: withoutPlace(found), line: lineNumber(line), endLine: lineNumber(endLine) }));
     refs.push(ref);
     pattern.lastIndex = ref.index + ref.text.length;
   }
@@ -71,6 +90,19 @@ function withSpacedName(source, ref) {
   const [tail, name, line, endLine] = spacedName.exec(source.slice(ref.index + ref.text.length)) ?? [];
   if (tail === undefined || name === undefined) return ref;
   return { index: ref.index, text: ref.text + tail, path: ref.path + name, line: lineNumber(line), endLine: lineNumber(endLine) };
+}
+
+/**
+ * A path cut at a space where a folder's name goes on: the whole one offered, for the viewer to find the file there.
+ * @param {string} source
+ * @param {FileRef} ref
+ * @returns {FileRef}
+ */
+function throughSpacedFolders(source, ref) {
+  if (ref.line !== undefined || endsInFileName(ref.path)) return ref;
+  const [tail, rest, line, endLine] = throughFolders.exec(source.slice(ref.index + ref.text.length)) ?? [];
+  if (tail === undefined || rest === undefined) return ref;
+  return { ...ref, longer: { text: ref.text + tail, path: ref.path + rest, line: lineNumber(line), endLine: lineNumber(endLine) } };
 }
 
 /**

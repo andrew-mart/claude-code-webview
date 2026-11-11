@@ -14,9 +14,12 @@ import { icon } from './icons.js';
  * @typedef {{ element: HTMLDetailsElement, title: HTMLElement, detail: HTMLElement, state: HTMLElement, body: HTMLElement, task: Task, opened: boolean, output: Output | undefined }} TaskRow
  */
 
-/** The viewer is asked this often while something runs, and this often while nothing does. */
-const runningEveryMs = 3000;
-const idleEveryMs = 15_000;
+/**
+ * The viewer is asked this often while something runs, and this often while nothing does — and at once whenever the
+ * session writes something (poke): a task started or ended shows in its transcript.
+ */
+const runningEveryMs = 15_000;
+const idleEveryMs = 60_000;
 /** A command's output, open, is read on this often while it runs. */
 const outputEveryMs = 1500;
 /** How many running tasks the line names; the rest it counts. */
@@ -121,45 +124,73 @@ export function createTasksView({ sessionId, load, openSubagent }) {
     return row;
   };
 
+  // Asked for again every few seconds, a session's tasks — a long session's are a hundred and more — are written only
+  // where they changed: a row that shows as it did is neither moved nor written again, for a phone to do nothing.
   /** @param {readonly Task[]} tasks */
   const render = (tasks) => {
     const said = tasksSummary(tasks);
-    element.hidden = said === undefined;
-    summary.textContent = said ?? '';
+    if (element.hidden !== (said === undefined)) element.hidden = said === undefined;
+    writeText(summary, said ?? '');
     const running = tasks.filter((task) => task.state === 'running');
-    chips.replaceChildren(...running.slice(0, namedRunning).map((task) => h('span', { className: 'tasks-chip', text: task.title })));
+    const named = running.slice(0, namedRunning).map((task) => task.title);
+    if ([...chips.children].map((chip) => chip.textContent).join('\n') !== named.join('\n')) chips.replaceChildren(...named.map((title) => h('span', { className: 'tasks-chip', text: title })));
     const now = Date.now();
     const ordered = [...running.toReversed(), ...tasks.filter((task) => task.state !== 'running').toReversed()];
-    list.replaceChildren(
-      ...ordered.map((task) => {
-        const row = rowOf(task);
-        row.task = task;
-        row.element.dataset.state = task.state;
-        row.title.textContent = task.title;
-        row.detail.textContent = task.kind === 'agent' ? (task.detail ?? '') : '';
-        row.state.textContent = taskState(task, now);
-        return row.element;
-      }),
-    );
+    const rowElements = ordered.map((task) => {
+      const row = rowOf(task);
+      row.task = task;
+      if (row.element.dataset.state !== task.state) row.element.dataset.state = task.state;
+      writeText(row.title, task.title);
+      writeText(row.detail, task.kind === 'agent' ? (task.detail ?? '') : '');
+      writeText(row.state, taskState(task, now));
+      return row.element;
+    });
+    if (rowElements.length !== list.children.length || rowElements.some((row, at) => list.children[at] !== row)) list.replaceChildren(...rowElements);
   };
 
+  /** Asking for the list now; told the session wrote something meanwhile, asked again as the answer comes. */
+  let asking = false;
+  let pokedMeanwhile = false;
   const refresh = async () => {
+    if (asking) {
+      pokedMeanwhile = true;
+      return;
+    }
+    asking = true;
+    clearTimeout(timer);
     const reply = await load(`/api/tasks?session=${encodeURIComponent(sessionId)}`);
+    asking = false;
     if (disposed) return;
     const tasks = parseTasks(reply);
     if (reply !== undefined) render(tasks);
+    if (pokedMeanwhile) {
+      pokedMeanwhile = false;
+      void refresh();
+      return;
+    }
     timer = setTimeout(() => void refresh(), tasks.some((task) => task.state === 'running') ? runningEveryMs : idleEveryMs);
   };
   void refresh();
 
   return {
     element,
+    /** The session wrote something — a task started or ended shows in its transcript: the list asked for at once. */
+    poke: () => void refresh(),
     dispose() {
       disposed = true;
       clearTimeout(timer);
       for (const pending of outputTimers) clearTimeout(pending);
     },
   };
+}
+
+/**
+ * The element's text, written only when it says something else: the same text written again is a change all the same.
+ * @param {HTMLElement} element
+ * @param {string} text
+ */
+function writeText(element, text) {
+  if (element.textContent !== text) element.textContent = text;
 }
 
 /**

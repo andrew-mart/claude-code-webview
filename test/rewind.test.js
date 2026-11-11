@@ -229,6 +229,17 @@ test('driveRewind_Should_RefuseToRestoreCodeOfMessageWithoutCodeChangesAndCloseM
   assert.equal(claude.state.mode, 'input');
 });
 
+// A message without code changes has no code options in the menu: the code and the conversation asked for, the
+// conversation is restored — there is no code to restore
+test('driveRewind_Should_RestoreConversation_When_CodeAndConversationAskedOfMessageWithoutCodeChanges', async () => {
+  const claude = fakeClaude(sent);
+
+  const outcome = await driveRewind(claude.terminal, { stepsUp: 2, prompt: 'Reply with the single word OK', action: 'both', wait: noWait });
+
+  assert.deepEqual(outcome, { ok: true, restoredPrompt: true });
+  assert.deepEqual(claude.state.restored, { text: 'Reply with the single word OK', action: 'Restore conversation' });
+});
+
 test('driveRewind_Should_GiveUpAndCloseMenuWhenMessageIsNotInIt', async () => {
   const claude = fakeClaude(sent);
 

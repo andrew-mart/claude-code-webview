@@ -81,14 +81,15 @@ test('keepToggled_Should_MarkAtCountNow_TakeMarkOff_AndMarkAnewOverOneOutlived',
   );
 });
 
-// What one device saw counts on another: the viewer's answers seen come together with the page's own — a later count
-// of the same agent's taking the place of an earlier one — and a reply of another shape is nothing seen
-test('seenAnswers_Should_ComeTogetherFromViewerAndPage', () => {
+// What one device saw counts on another: the viewer's answers seen take the place of the page's own — the latest any
+// device saw, a lower count too: herdr started anew counts again from the start, the page's higher count from before
+// would keep the lamp lit for ever — the page's own the viewer has not got stay; a reply of another shape is nothing seen
+test('seenAnswers_Should_TakeViewersOverPagesOwn_AndKeepPagesTheViewerHasNot', () => {
   const fromViewer = parseSeen({ 'w1:p1': 5, 'w1:p2': 3, odd: 'x' });
   const page = new Map([['w1:p2', 7], ['w2:p1', 1]]);
 
   assert.deepEqual(
-    { merged: [...mergeSeen(fromViewer, page)].sort(), other: [...parseSeen([1, 2])] },
-    { merged: [['w1:p1', 5], ['w1:p2', 7], ['w2:p1', 1]], other: [] },
+    { merged: [...mergeSeen(page, fromViewer)].sort(), other: [...parseSeen([1, 2])] },
+    { merged: [['w1:p1', 5], ['w1:p2', 3], ['w2:p1', 1]], other: [] },
   );
 });

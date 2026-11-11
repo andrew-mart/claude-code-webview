@@ -60,8 +60,6 @@ function projectOf(lines = [], transfer = {}) {
         folders[folder] = [...there.filter((entry) => entry !== same), { name, kind: 'file' }];
         return { ok: true };
       },
-      download: async () => ({ ok: false, error: 'failed' }),
-      save: () => {},
       ...transfer,
     },
   });
@@ -91,9 +89,7 @@ function projectOf(lines = [], transfer = {}) {
     const bar = view.element.querySelector('.project-transfer progress');
     return { text: view.element.querySelector('.project-transfer')?.textContent, bar: bar === null ? undefined : [bar.getAttribute('value'), bar.getAttribute('max')] };
   };
-  /** The rows under the search of what downloads, and what was downloaded. */
-  const downloadsShown = () => [...view.element.querySelectorAll('.project-downloads .project-downloading')].map((one) => one.textContent);
-  return { view, opened, asked, uploads, settle, tree, row, pick, transferShown, downloadsShown };
+  return { view, opened, asked, uploads, settle, tree, row, pick, transferShown };
 }
 
 // Each file in the tree downloads from its row as it is, each folder as a zip, from the viewer's addresses for them;
@@ -185,52 +181,31 @@ test('projectView_Should_TellHowFarEachUploadGot_ItsBarFilling', async () => {
   );
 });
 
-// A file or a folder downloads in the panel, not by the browser: its row under the search tells how far it got — of the
-// file's length; a zip, made as it goes, by its bytes so far — then the file is saved under its own name. A download
-// takes the place of those ended; one the viewer did not give says why
-test('projectView_Should_DownloadInPanel_TellingHowFarItGot_ThenSaveUnderItsName', async () => {
-  /** @type {(string | null)[][]} */
-  const shown = [];
-  /** @type {[string, number][]} */
-  const saved = [];
-  const project = projectOf([], {
-    download: async (path, kind, progress) => {
-      if (kind === 'folder') {
-        progress(3_250_000, undefined);
-        shown.push(project.downloadsShown());
-        return { ok: false, error: 'too-large' };
-      }
-      progress(512, 2048);
-      shown.push(project.downloadsShown());
-      return { ok: true, file: new window.Blob([new Uint8Array(2048)]) };
-    },
-    save: (file, name) => saved.push([name, file.size]),
-  });
+// A file or a folder downloads by the browser, into its own downloads as any download does — its progress there, the
+// page not holding the file meanwhile, which a tablet's page could not keep for a big one: a press on a download link
+// is left to the browser
+test('projectView_Should_LeaveDownloadToBrowser', async () => {
+  const project = projectOf();
   await project.view.reload();
   project.row('src').click();
   await project.settle();
   /** @param {Element | null | undefined} link */
   const press = async (link) => {
-    const click = new window.MouseEvent('click', { bubbles: true, cancelable: true });
-    link?.dispatchEvent(click);
+    let leftToBrowser = false;
+    // the page's own navigation is jsdom's to fake: what the panel did with the press is seen, then it goes nowhere
+    window.document.addEventListener('click', (event) => {
+      leftToBrowser = !event.defaultPrevented;
+      event.preventDefault();
+    }, { once: true });
+    link?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
     await project.settle();
-    return click.defaultPrevented;
+    return leftToBrowser;
   };
 
-  const fileByBrowser = await press([...project.view.element.querySelectorAll('.project-tree a.project-download')].find((link) => link.getAttribute('download') === 'limits.ts'));
-  const fileEnded = project.downloadsShown();
-  const zipByBrowser = await press(project.view.element.querySelector('.project-search a.project-download'));
+  const file = await press([...project.view.element.querySelectorAll('.project-tree a.project-download')].find((link) => link.getAttribute('download') === 'limits.ts'));
+  const zip = await press(project.view.element.querySelector('.project-search a.project-download'));
 
-  assert.deepEqual(
-    { prevented: [fileByBrowser, zipByBrowser], shown, fileEnded, zipEnded: project.downloadsShown(), saved },
-    {
-      prevented: [true, true],
-      shown: [['Downloading limits.ts — 25% of 2 KB'], ['Downloading src.zip — 3.1 MB so far']],
-      fileEnded: ['Downloaded limits.ts — 2 KB'],
-      zipEnded: ['Not downloaded — src.zip: too big to zip'],
-      saved: [['limits.ts', 2048]],
-    },
-  );
+  assert.deepEqual([file, zip], [true, true]);
 });
 
 // The download beside the search gives what is chosen in the tree, as its title says: a folder clicked as a zip, the
@@ -542,7 +517,7 @@ function heldProject(folders) {
     openFile: () => undefined,
     iconOf,
     // nothing goes either way here
-    transfer: { address: (path) => `/download?${path}`, upload: async () => ({ ok: false, error: 'failed' }), download: async () => ({ ok: false, error: 'failed' }), save: () => {} },
+    transfer: { address: (path) => `/download?${path}`, upload: async () => ({ ok: false, error: 'failed' }) },
   });
   document.body.replaceChildren(view.element);
   const settle = () => new Promise((resolve) => setTimeout(resolve, 0));

@@ -50,6 +50,15 @@ function noteOpen() {
   const engine = { now: 'live' };
   /** How the viewer answers the note saved to a file, each time in turn. @type {import('../public/model/notes.js').FileCreated[]} */
   const fileReplies = [];
+  /** The desks around but the session's, and whether the viewer moves the note to the one picked. */
+  const desks = {
+    /** @type {import('../public/model/desks.js').DeskRef[]} */
+    others: [
+      { path: 'D:\\dev\\shop\\.desks\\Next task.json', name: 'Next task', folder: 'D:\\dev\\shop' },
+      { path: 'D:\\dev\\shop\\release\\.desks\\release.json', name: 'release', folder: 'D:\\dev\\shop\\release' },
+    ],
+    moves: true,
+  };
   const panel = createNotePanel({
     toFile: {
       path: () => 'D:\\dev\\shop\\Plan.md',
@@ -70,6 +79,14 @@ function noteOpen() {
     rename: (id, name) => void asked.push(['rename', id, name]),
     remove: (id) => void asked.push(['remove', id]),
     leave: () => void asked.push(['leave']),
+    // the desks around but the session's: the next task's, and the release's
+    toDesk: {
+      others: () => desks.others,
+      move: async (path) => {
+        asked.push(['to desk', path]);
+        return desks.moves;
+      },
+    },
     editorOf: ({ text, save }) => {
       editor.element.textContent = text;
       editor.save = save;
@@ -89,7 +106,7 @@ function noteOpen() {
     assert.ok(found instanceof window.HTMLInputElement);
     return found;
   };
-  return { panel, asked, kept, editor, element, field, fileReplies };
+  return { panel, asked, kept, editor, element, field, fileReplies, desks };
 }
 
 // The note opened shows in its editor, always there to be typed in — what is typed saved as its text — titled by its
@@ -146,7 +163,8 @@ test('notePanel_Should_ShowNoteAsItCameAgain_AndLeaveItOnceItIsGone', async () =
 });
 
 // The note's buttons are its own, for the side panel's head beside ↻ and ×: its editor's ↶ and ↷, the notes' editor
-// switched, its source — the fallback — pressed while it shows, and the bin; the body is its name and the note alone
+// switched, its source — the fallback — pressed while it shows, to a file, to another desk, and the bin; the body is its
+// name and the note alone
 test('notePanel_Should_GiveItsButtonsForPanelHead_UndoRedoEditorSourceAndBin', () => {
   const { panel, editor, element } = noteOpen();
   const buttons = () => [...panel.actions.querySelectorAll('button')].map((one) => [...one.classList].find((name) => name.startsWith('note-')));
@@ -157,7 +175,7 @@ test('notePanel_Should_GiveItsButtonsForPanelHead_UndoRedoEditorSourceAndBin', (
 
   assert.deepEqual(
     { shown, asSource, code: element('.note-source').innerHTML === icon('code').outerHTML, inBody: panel.element.querySelectorAll('button').length },
-    { shown: ['note-undo', 'note-redo', 'note-engine', 'note-source', 'note-to-file', 'note-panel-remove'], asSource: ['source', 'true'], code: true, inBody: 0 },
+    { shown: ['note-undo', 'note-redo', 'note-engine', 'note-source', 'note-to-file', 'note-to-desk', 'note-panel-remove'], asSource: ['source', 'true'], code: true, inBody: 0 },
   );
 });
 
@@ -218,4 +236,34 @@ test('notePanel_Should_RemoveNoteOnceConfirmed', () => {
   element('.note-confirm-remove').click();
 
   assert.deepEqual({ bin, asked }, { bin: true, asked: [['remove', 'n3']] });
+});
+
+// A note goes to another desk from its buttons: the desks around but the session's listed under its name, the one
+// picked taking it — gone from this desk, the panel leaves it then; a move refused is told, and with no other desk around
+// the list says how to make one
+test('notePanel_Should_MoveNoteToAnotherDesk_PickedAmongThoseAround', async () => {
+  const { asked, element, desks } = noteOpen();
+  const settled = () => new Promise((done) => setTimeout(done, 0));
+  const rows = () => [...window.document.querySelectorAll('.note-desk-row')].map((row) => row.querySelector('.note-desk-name')?.textContent);
+
+  element('.note-to-desk').click();
+  const listed = rows();
+  desks.moves = false;
+  [...window.document.querySelectorAll('.note-desk-row')][1]?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await settled();
+  const refused = element('.note-desk-told').textContent;
+  desks.others = [];
+  element('.note-to-desk').click();
+  element('.note-to-desk').click();
+  const none = { rows: rows(), told: element('.note-desk-told').textContent };
+
+  assert.deepEqual(
+    { listed, asked: asked.filter(([what]) => what === 'to desk'), refused, none },
+    {
+      listed: ['Next task', 'release'],
+      asked: [['to desk', 'D:\\dev\\shop\\release\\.desks\\release.json']],
+      refused: 'The note was not moved: that desk may be gone.',
+      none: { rows: [], told: 'No other desk around: make one over the notes first.' },
+    },
+  );
 });

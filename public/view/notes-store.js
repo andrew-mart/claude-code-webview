@@ -46,6 +46,8 @@ export function createNotesStore(sessionId, onChange) {
   window.addEventListener('focus', reload);
   reload();
   return {
+    /** The notes read anew: another desk taken up. */
+    reload,
     /**
      * A note written, shown the way asked from the start, under a name — a blank one none: its id, to open it by.
      * @param {string} text @param {import('../model/notes.js').NoteShown} shown @param {string} name

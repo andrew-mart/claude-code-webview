@@ -4,6 +4,7 @@
 // full values, and the rows the page adds there — what the session can be asked to do, such as restarting it.
 // The view buttons stand in a row on a wide screen and fold into a menu on a narrow one; those used rarely stand in the
 // menu, behind ⋯, even on a wide screen.
+import { pollWhileShown } from './polling.js';
 import { formatTokens } from '../model/format.js';
 import { contextGauge, modelName } from '../model/session-facts.js';
 import { h } from './dom.js';
@@ -30,8 +31,11 @@ const statusLooks = {
   working: { label: 'Working', glyph: () => h('span', { className: 'spark', text: '✻' }) },
 };
 
-/** The branch can change in the terminal at any moment; the header looks again this often. */
-const branchRefreshMs = 15_000;
+/**
+ * The branch can change in the terminal at any moment; the header looks again as the session writes something
+ * (pokeBranch) — a checkout of its own shows there — and this often anyway: one typed in another terminal does not.
+ */
+const branchRefreshMs = 60_000;
 
 /**
  * @param {{ sessionId: string, place: SessionPlace | undefined, currentBranch: () => Promise<string | undefined>, tables: SessionTables, leading: HTMLElement, navigation: readonly HTMLElement[], folds: readonly HTMLElement[], tools: readonly HTMLElement[], rare: readonly HTMLElement[], rareOpeners: readonly HTMLElement[], details: readonly HTMLElement[] }} parts
@@ -115,8 +119,8 @@ export function createSessionHeader({ sessionId, place, currentBranch, tables, l
     branch = next;
     render();
   };
-  void lookAtBranch();
-  const branchTimer = setInterval(() => void lookAtBranch(), branchRefreshMs);
+  // a while after each answer, and not while the page is out of sight (polling.js)
+  const branchPoll = pollWhileShown(window, { ask: lookAtBranch, everyMs: branchRefreshMs, first: 'now' });
   render();
 
   return {
@@ -139,8 +143,10 @@ export function createSessionHeader({ sessionId, place, currentBranch, tables, l
       where = next;
       render();
     },
+    /** The session wrote something — a checkout among it, maybe: the branch asked for at once. */
+    pokeBranch: () => branchPoll.poke(),
     dispose() {
-      clearInterval(branchTimer);
+      branchPoll.stop();
       document.removeEventListener('pointerdown', onPointer);
       document.removeEventListener('keydown', onKey);
       narrowScreen.removeEventListener('change', fold);

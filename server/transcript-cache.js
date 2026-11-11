@@ -2,9 +2,10 @@
 // Transcripts already read and slimmed for the page. A session opened again — on returning to it, by a second page,
 // after a reconnect — is not read and parsed from the start once more: only the lines appended since are. A long
 // session is tens of megabytes of JSON, a second or two of work every time otherwise. A Codex session's file is read as
-// Claude Code's records (codex.js), in turn, from where its reading stopped; a Codex session that went on in more files
-// is read as them in turn (joined.js).
+// Claude Code's records (codex.js), in turn, from where its reading stopped — an Antigravity CLI conversation's as well
+// (agy.js); a Codex session that went on in more files is read as them in turn (joined.js).
 import { linkOf } from './branch.js';
+import { createAgyReading } from './agy.js';
 import { createCodexReading } from './codex.js';
 import { openJoined } from './joined.js';
 import { liteEntry } from './lite.js';
@@ -22,10 +23,12 @@ const seenBytes = 64;
  *   conversation, for every record; at: where its line starts in the transcript
  * @typedef {{ scope: 'main' | 'subagent', imageUrl: (lineStart: number, n: number) => string }} Reading
  * @typedef {ReturnType<typeof createTaskTracker>} TaskTracker
- * @typedef {{ generation: number, offset: number, carry: Buffer, seen: Buffer, entries: CachedEntry[], calls: Map<string, import('./lite.js').Call>, tasks: TaskTracker, codex: ReturnType<typeof createCodexReading> | undefined, layout: string | undefined, queue: Promise<unknown> }} FileState — calls: tool calls read whose results have not come yet;
+ * @typedef {{ translate: (raw: unknown) => readonly unknown[] }} Translation — another agent's records read as Claude Code's, in
+ *   turn
+ * @typedef {{ generation: number, offset: number, carry: Buffer, seen: Buffer, entries: CachedEntry[], calls: Map<string, import('./lite.js').Call>, tasks: TaskTracker, translation: Translation | undefined, layout: string | undefined, queue: Promise<unknown> }} FileState — calls: tool calls read whose results have not come yet;
  *   tasks: the work the session started in the background, followed as its entries are read; seen: the last bytes
- *   read, up to offset — a file that no longer holds them there was rewritten; codex: the reading of a
- *   Codex session's file, none for Claude Code's; layout: the files the transcript was read from, each to where — none
+ *   read, up to offset — a file that no longer holds them there was rewritten; translation: the reading of a
+ *   Codex session's file, or an Antigravity CLI conversation's, as Claude Code's — none for Claude Code's; layout: the files the transcript was read from, each to where — none
  *   before the first reading
  * @typedef {(path: string) => Promise<readonly import('./joined.js').Part[]>} PartsOf
  */
@@ -52,7 +55,7 @@ export function createTranscriptCache({ maxFiles, agentOf = () => 'claude', part
    */
   const stateOf = (key, path) => {
     const known = files.get(key);
-    const state = known ?? { generation: ++generations, offset: 0, carry: Buffer.alloc(0), seen: Buffer.alloc(0), entries: [], calls: new Map(), tasks: createTaskTracker(), codex: codexReadingOf(path), layout: undefined, queue: Promise.resolve() };
+    const state = known ?? { generation: ++generations, offset: 0, carry: Buffer.alloc(0), seen: Buffer.alloc(0), entries: [], calls: new Map(), tasks: createTaskTracker(), translation: translationOf(path), layout: undefined, queue: Promise.resolve() };
     files.delete(key);
     files.set(key, state);
     for (const oldest of files.keys()) {
@@ -62,8 +65,15 @@ export function createTranscriptCache({ maxFiles, agentOf = () => 'claude', part
     return state;
   };
 
-  /** @param {string} path */
-  const codexReadingOf = (path) => (agentOf(path) === 'codex' ? createCodexReading() : undefined);
+  /**
+   * @param {string} path
+   * @returns {Translation | undefined}
+   */
+  const translationOf = (path) => {
+    const agent = agentOf(path);
+    if (agent === 'codex') return createCodexReading();
+    return agent === 'agy' ? createAgyReading() : undefined;
+  };
 
   return {
     /**
@@ -76,7 +86,7 @@ export function createTranscriptCache({ maxFiles, agentOf = () => 'claude', part
     read(path, reading) {
       const state = stateOf(`${reading.scope}:${path}`, path);
       // Two pages reading the same file at once take turns, so no line is read twice.
-      const update = state.queue.then(async () => catchUp(await partsOf(path), state, reading, () => ++generations, () => codexReadingOf(path)));
+      const update = state.queue.then(async () => catchUp(await partsOf(path), state, reading, () => ++generations, () => translationOf(path)));
       state.queue = update.catch(() => undefined);
       return update;
     },
@@ -103,7 +113,7 @@ export function createTranscriptCache({ maxFiles, agentOf = () => 'claude', part
  * @param {FileState} state
  * @param {Reading} reading
  * @param {() => number} renew — a generation no file had before
- * @param {() => FileState['codex']} reread — a Codex file's reading from its start, none for Claude Code's
+ * @param {() => FileState['translation']} reread — another agent's file's reading from its start, none for Claude Code's
  * @returns {Promise<{ entries: readonly CachedEntry[], generation: number, tasks: TaskTracker }>}
  */
 async function catchUp(parts, state, reading, renew, reread) {
@@ -121,7 +131,7 @@ async function catchUp(parts, state, reading, renew, reread) {
  * @param {FileState} state
  * @param {Reading} reading
  * @param {() => number} renew
- * @param {() => FileState['codex']} reread
+ * @param {() => FileState['translation']} reread
  * @returns {Promise<{ entries: readonly CachedEntry[], generation: number, tasks: TaskTracker }>}
  */
 async function readOn(joined, layout, state, reading, renew, reread) {
@@ -137,11 +147,11 @@ async function readOn(joined, layout, state, reading, renew, reread) {
     state.entries = [];
     state.calls = new Map();
     state.tasks = createTaskTracker();
-    state.codex = reread();
+    state.translation = reread();
   }
   state.layout = layout;
   if (size > state.offset) {
-    const read = await readEntries(joined, state.offset, size, state.carry, { ...reading, calls: state.calls, tasks: state.tasks, codex: state.codex });
+    const read = await readEntries(joined, state.offset, size, state.carry, { ...reading, calls: state.calls, tasks: state.tasks, translation: state.translation });
     state.offset = read.offset;
     state.carry = read.carry;
     state.seen = await endOf(joined, read.offset);
@@ -168,10 +178,10 @@ async function endOf(joined, offset) {
  * @param {number} from
  * @param {number} to
  * @param {Buffer} carry — the start of a line read before, still without its end
- * @param {Reading & { calls: Map<string, import('./lite.js').Call>, tasks: TaskTracker, codex: FileState['codex'] }} reading
+ * @param {Reading & { calls: Map<string, import('./lite.js').Call>, tasks: TaskTracker, translation: FileState['translation'] }} reading
  * @returns {Promise<{ offset: number, carry: Buffer, entries: CachedEntry[] }>}
  */
-async function readEntries(joined, from, to, carry, { scope, imageUrl, calls, tasks, codex }) {
+async function readEntries(joined, from, to, carry, { scope, imageUrl, calls, tasks, translation }) {
   let offset = from;
   let rest = carry;
   /** @type {CachedEntry[]} */
@@ -188,8 +198,9 @@ async function readEntries(joined, from, to, carry, { scope, imageUrl, calls, ta
     for (const line of split.lines) {
       const parsed = parseLine(line.text);
       const at = linesStart + line.start;
-      // a line of Codex is none or one of Claude Code's records, all found again from the line
-      for (const raw of codex === undefined ? [parsed] : codex.translate(parsed)) {
+      // a line of Codex is none or one of Claude Code's records, all found again from the line — of agy, the model's
+      // response and the turn's end after it
+      for (const raw of translation === undefined ? [parsed] : translation.translate(parsed)) {
         tasks.note(raw);
         const slim = slimEntry(raw, scope, (n) => imageUrl(at, n));
         entries.push({ slim: slim === undefined ? undefined : liteEntry(slim, { at, calls }), link: linkOf(raw), at });

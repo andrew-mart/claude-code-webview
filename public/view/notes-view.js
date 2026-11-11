@@ -1,5 +1,6 @@
 // @ts-check
-// The notes of the session's project folder, first in the outline, in their order, each shown its own way: in full — its
+// The notes of the session's desk (desk-view.js: named in their title, the desks around listed under it), first in the
+// outline, in their order, each shown its own way: in full — its
 // editor, always there to be typed in, what is typed saved as it goes (note-editor.js) — or set apart, listed by its
 // name, the name opening it elsewhere (the side panel); a button on each sets it the other way. "+" writes a new note,
 // set apart from the start — written in the side panel; the clock shows the history of the notes' changes. A note in
@@ -21,18 +22,19 @@ import { allowDragging } from './drag-order.js';
  */
 
 /**
- * @param {{ add: () => void, edit: (id: string, text: string) => void, remove: (id: string) => void, open: (id: string) => void, setShown: (id: string, shown: NoteShown) => void, showHistory: () => void, move: (id: string, before: string | undefined) => void, editorOf: EditorOf }} actions
+ * @param {{ add: () => void, edit: (id: string, text: string) => void, remove: (id: string) => void, open: (id: string) => void, setShown: (id: string, shown: NoteShown) => void, showHistory: () => void, move: (id: string, before: string | undefined) => void, editorOf: EditorOf, desk: { label: HTMLElement, panel: HTMLElement } }} actions
  *   — add: a new note, set apart, written elsewhere; a note's new text, a note removed; open: a note set apart shown in
  *   full elsewhere; setShown: a note set apart, or back inline; showHistory: the history of the notes' changes shown
- *   elsewhere; move: a note put before another — none, last
+ *   elsewhere; move: a note put before another — none, last; desk: the session's desk's name, for the title, and what
+ *   it lists, under it
  * @returns {{ element: HTMLElement, show: (notes: readonly Note[]) => void }} — show: the notes as they stand now
  */
-export function createNotesView({ add, edit, remove, open, setShown, showHistory, move, editorOf }) {
+export function createNotesView({ add, edit, remove, open, setShown, showHistory, move, editorOf, desk }) {
   const count = h('span', { className: 'outline-count' });
   const adding = h('button', { className: 'icon-button notes-add', title: 'Write a note — in the side panel; unfolded, it shows here in full', attrs: { type: 'button', 'aria-label': 'Write a note' } }, [icon('plus')]);
   const history = h('button', { className: 'icon-button notes-history', title: "The notes' changes — any of them undone", attrs: { type: 'button', 'aria-label': "The notes' changes" } }, [icon('history')]);
   const list = h('div', { className: 'notes-list' });
-  const element = h('section', { className: 'outline-section notes' }, [h('div', { className: 'outline-title' }, [h('span', { text: 'Notes' }), h('span', { className: 'notes-title-end' }, [count, history, adding])]), list]);
+  const element = h('section', { className: 'outline-section notes' }, [h('div', { className: 'outline-title' }, [h('span', { text: 'Notes' }), desk.label, h('span', { className: 'notes-title-end' }, [count, history, adding])]), desk.panel, list]);
   /** @type {readonly Note[]} */
   let notes = [];
   /** The notes in full drawn, by id: each its element and its editor, kept as the notes come again. */

@@ -53,7 +53,7 @@ function fakeHerdr({ picker, stuck, blank = 0, long } = {}) {
 }
 
 /**
- * @param {import('../server/herdr-view.js').CodexPlace} place — where the Codex session runs
+ * @param {import('../server/herdr-view.js').AgentPlace} place — where the Codex session runs
  * @param {ReturnType<typeof fakeHerdr>} herdr
  */
 const composerOf = (place, herdr) => createComposer({ readRecords: async () => [], herdr: herdr.run, codexPlace: async (id) => (id === thread ? place : { found: 'none' }) });
@@ -61,7 +61,7 @@ const composerOf = (place, herdr) => createComposer({ readRecords: async () => [
 // A Codex session runs in its herdr pane, at work or waiting for a prompt; Codex has it open outside herdr; or it is closed
 test('liveState_Should_FindCodexSessionInItsPane_OrTellItRunsElsewhere_OrIsClosed', async () => {
   const herdr = fakeHerdr();
-  /** @type {readonly import('../server/herdr-view.js').CodexPlace[]} */
+  /** @type {readonly import('../server/herdr-view.js').AgentPlace[]} */
   const places = [{ found: 'pane', pane: 'w4:p1', working: true }, { found: 'pane', pane: 'w4:p1', working: false }, { found: 'elsewhere' }, { found: 'none' }];
 
   assert.deepEqual(await Promise.all(places.map((place) => composerOf(place, herdr).liveState(thread))), [
@@ -235,6 +235,46 @@ test('send_Should_WaitForCodexsBox_WhileItDrawsItsScreenAnew', async () => {
   const sent = await composerOf({ found: 'pane', pane: 'w4:p1', working: false }, herdr).send(thread, 'Now the levels');
 
   assert.deepEqual({ sent, keys: herdr.changes }, { sent: { ok: true, pane: 'w4:p1' }, keys: ['send-text w4:p1 Now the levels', 'send-keys w4:p1 enter'] });
+});
+
+// Sent now with nothing in the box, the message Codex queued last goes into its turn under way, not waiting for the turn
+// to end: Codex takes it back into its box — shift+← — and Enter puts it in. Nothing queued, nothing is pressed
+test('sendNow_Should_PutCodexsLastQueuedMessageIntoItsTurn_WhenBoxIsEmpty', async () => {
+  /** @param {string[]} queue */
+  const queuedHerdr = (queue) => {
+    const state = { queue, box: '' };
+    /** @type {string[]} */
+    const changes = [];
+    /** @param {readonly string[]} args @returns {Promise<import('../server/composer.js').HerdrReply>} */
+    const run = async (args) => {
+      const [, command, pane] = args;
+      const keys = args.slice(3);
+      if (command === 'list') return { ok: true, json: { result: { panes: [{ agent: 'codex', pane_id: 'w4:p1' }] } }, text: '' };
+      const queued = state.queue.length === 0 ? [] : ['• Queued follow-up inputs', ...state.queue.map((input) => `  ↳ ${input}`), '    shift+← edit last queued message'];
+      if (command === 'read') return { ok: true, json: undefined, text: ['Working (7s • esc to interrupt)', ...queued, `› ${state.box === '' ? 'Ask Codex to do anything' : state.box}`, ...footer].join('\n') };
+      if (keys.includes('shift+left')) state.box = state.queue.pop() ?? state.box;
+      if (keys.includes('enter')) state.box = '';
+      changes.push(`${command} ${pane} ${keys.join(' ')}`);
+      return { ok: true, json: { result: { type: 'ok' } }, text: '' };
+    };
+    return { run, changes, state };
+  };
+  const one = queuedHerdr(['Then update the docs.', 'And the changelog.']);
+  const none = queuedHerdr([]);
+  const place = /** @type {const} */ ({ found: 'pane', pane: 'w4:p1', working: true });
+  const composerOver = (/** @type {ReturnType<typeof queuedHerdr>} */ herdr) => createComposer({ readRecords: async () => [], herdr: herdr.run, codexPlace: async () => place });
+
+  const outcomes = [await composerOver(one).sendNow(thread, ''), await composerOver(none).sendNow(thread, '')];
+
+  assert.deepEqual(
+    { outcomes, pressed: one.changes, left: one.state.queue, nothing: none.changes },
+    {
+      outcomes: [{ ok: true, pane: 'w4:p1' }, { ok: false, error: 'empty' }],
+      pressed: ['send-keys w4:p1 shift+left', 'send-keys w4:p1 enter'],
+      left: ['Then update the docs.'],
+      nothing: [],
+    },
+  );
 });
 
 // What Codex queued to send next — Tab while it works — comes with its live state, for the page to show

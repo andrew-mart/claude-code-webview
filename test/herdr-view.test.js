@@ -3,21 +3,23 @@ import assert from 'node:assert/strict';
 import { stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tempDir } from '../test-support/temp-dir.js';
+import { agyStartedId } from '../server/agy-live.js';
 import { createHerdrView } from '../server/herdr-view.js';
 import { createHiddenPanes } from '../server/hidden-panes.js';
+import { createHiddenWorkspaces } from '../server/hidden-workspaces.js';
 
 const running = '7d4e1b20-2222-4333-8444-955566667777';
 
 /**
  * @typedef {{ workspace_id: string, label: string, number?: number, agent_status?: string, active_tab_id?: string }} FakeWorkspace
  * @typedef {{ tab_id: string, workspace_id: string, number: number, label: string, agent_status: string }} FakeTab
- * @typedef {{ pane_id: string, workspace_id: string, cwd: string, tab_id?: string, terminal_id?: string, agent?: string, agent_status?: string, terminal_title_stripped?: string, state_change_seq?: number, pid?: number, argv?: readonly string[] }} FakePane
+ * @typedef {{ pane_id: string, workspace_id: string, cwd: string, tab_id?: string, terminal_id?: string, agent?: string, agent_status?: string, terminal_title_stripped?: string, state_change_seq?: number, pid?: number, shell_pid?: number, argv?: readonly string[] }} FakePane
  * @typedef {{ tab_id: string, workspace_id: string, panes: { pane_id: string, rect: { x: number, y: number, width: number, height: number } }[] }} FakeLayout
  */
 
 /**
  * A fake herdr: workspaces (numbered in order unless told), tabs and panes; a pane's pid — and the command line, if
- * given — is what process-info tells about it. missing — herdr is not installed at all; fail — installed, but no server answers.
+ * given — is what process-info tells about it, with its shell's pid if given: the same pid, the shell at its prompt. missing — herdr is not installed at all; fail — installed, but no server answers.
  * @param {{ workspaces?: readonly FakeWorkspace[], tabs?: readonly FakeTab[], panes?: readonly FakePane[], layouts?: readonly FakeLayout[], missing?: boolean, fail?: boolean }} [layout]
  */
 function fakeHerdr({ workspaces = [], tabs = [], panes = [], layouts = [], missing = false, fail = false } = {}) {
@@ -27,13 +29,13 @@ function fakeHerdr({ workspaces = [], tabs = [], panes = [], layouts = [], missi
     if (fail) return { ok: false, error: 'no herdr server is running', missing: false };
     const [subject, command, , pane] = args;
     if (subject === 'api' && command === 'snapshot') {
-      const shown = { workspaces: workspaces.map((workspace, at) => ({ number: at + 1, ...workspace })), tabs, panes: panes.map(({ pid, state_change_seq, argv, ...pane }) => pane), agents: panes.filter((pane) => pane.agent !== undefined).map(({ pid, argv, ...agent }) => agent), layouts };
+      const shown = { workspaces: workspaces.map((workspace, at) => ({ number: at + 1, ...workspace })), tabs, panes: panes.map(({ pid, shell_pid, state_change_seq, argv, ...pane }) => pane), agents: panes.filter((pane) => pane.agent !== undefined).map(({ pid, shell_pid, argv, ...agent }) => agent), layouts };
       return { ok: true, json: { result: { type: 'session_snapshot', snapshot: shown } }, text: '' };
     }
     if (subject === 'pane' && command === 'process-info') {
       const known = panes.find((one) => one.pane_id === pane);
       const told = known?.pid === undefined ? [] : [{ pid: known.pid, ...(known.argv === undefined ? {} : { argv: known.argv }) }];
-      return { ok: true, json: { result: { process_info: { foreground_processes: told } } }, text: '' };
+      return { ok: true, json: { result: { process_info: { foreground_processes: told, ...(known?.shell_pid === undefined ? {} : { shell_pid: known.shell_pid }) } } }, text: '' };
     }
     return { ok: false, error: `the fake herdr does not know ${args.join(' ')}`, missing: false };
   };
@@ -52,16 +54,18 @@ const runningRecord = { pid: 101, sessionId: running, kind: 'interactive', statu
 const noIcons = { iconsOf: async () => new Map(), setIcon: async () => undefined };
 /** No pane hidden from the page: hiding's own tests hide some. */
 const noHidden = { hide: async () => undefined, showAll: async () => undefined, hiddenAmong: async () => new Set() };
+/** No workspace hidden from the page: hiding's own test hides some. */
+const noHiddenWorkspaces = { hide: async () => undefined, show: async () => undefined, hiddenAmong: async () => new Set() };
 
 /**
  * @param {import('node:test').TestContext} t
- * @param {{ herdr: ReturnType<typeof fakeHerdr>, records: readonly unknown[], dir?: string, codex?: readonly import('../server/codex-live.js').LiveThread[] }} setup
+ * @param {{ herdr: ReturnType<typeof fakeHerdr>, records: readonly unknown[], dir?: string, codex?: readonly import('../server/codex-live.js').LiveThread[], agy?: readonly import('../server/agy-live.js').AgyRun[], agyCommand?: string }} setup
  *   — dir: where the remembered workspaces are kept, to share it between two viewer runs; codex: the threads Codex has
- *   open
+ *   open; agy: agy's processes alive; agyCommand: what starts agy — none, no agy
  */
-async function workspacesOf(t, { herdr, records, dir, codex = [] }) {
+async function workspacesOf(t, { herdr, records, dir, codex = [], agy = [], agyCommand }) {
   const folder = dir ?? tempDir('ccw-workspaces-');
-  return createHerdrView({ herdr, readRecords: async () => records, codexThreads: async () => codex, icons: noIcons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+  return createHerdrView({ herdr, readRecords: async () => records, codexThreads: async () => codex, agyRuns: async () => agy, icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex', agyCommand });
 }
 
 test('workspaces_Should_PutRunningSessionIntoWorkspaceOfItsPane', async (t) => {
@@ -132,7 +136,7 @@ test('workspaces_Should_AskHerdrAtMostOncePerRefreshPeriod', async (t) => {
     return herdr(args);
   };
   const folder = tempDir('ccw-workspaces-');
-  const workspaces = createHerdrView({ herdr: counting, readRecords: async () => [runningRecord], codexThreads: async () => [], icons: noIcons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+  const workspaces = createHerdrView({ herdr: counting, readRecords: async () => [runningRecord], codexThreads: async () => [], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
 
   await Promise.all([workspaces.workspacesOf([]), workspaces.workspacesOf([])]);
   await workspaces.workspacesOf([{ id: running, cwd: undefined }]);
@@ -141,7 +145,8 @@ test('workspaces_Should_AskHerdrAtMostOncePerRefreshPeriod', async (t) => {
 });
 
 // The sidebar and the session header show herdr as it is: workspaces in herdr's order, the tabs as herdr lists them — a
-// tab moved keeps the number it was opened with — the panes in each tab, and which session runs in a pane with Claude Code
+// tab moved keeps the number it was opened with — each tab's folder, its first pane's, the panes in each tab, and which
+// session runs in a pane with Claude Code
 test('herdrView_Should_LayOutWorkspacesTabsAndPanes_WithSessionOfClaudePane', async (t) => {
   const herdr = fakeHerdr({
     workspaces: [
@@ -175,8 +180,8 @@ test('herdrView_Should_LayOutWorkspacesTabsAndPanes_WithSessionOfClaudePane', as
         status: 'working',
         activeTab: 'w2:t3',
         tabs: [
-          { id: 'w2:t3', number: 3, label: 'search', status: 'working', panes: [{ id: 'w2:p3', agent: 'claude', status: 'working', title: 'Search', session: undefined, size: undefined, activity: 80 }] },
-          { id: 'w2:t1', number: 1, label: 'hotels', status: 'done', panes: [{ id: 'w2:p1', agent: 'claude', status: 'done', title: 'Resume', session: running, size: { cols: 154, rows: 44 }, activity: 50 }] },
+          { id: 'w2:t3', number: 3, label: 'search', status: 'working', folder: 'D:/trip_plans', panes: [{ id: 'w2:p3', agent: 'claude', status: 'working', title: 'Search', session: undefined, size: undefined, activity: 80 }] },
+          { id: 'w2:t1', number: 1, label: 'hotels', status: 'done', folder: 'D:/trip_plans', panes: [{ id: 'w2:p1', agent: 'claude', status: 'done', title: 'Resume', session: running, size: { cols: 154, rows: 44 }, activity: 50 }] },
         ],
       },
       {
@@ -185,7 +190,7 @@ test('herdrView_Should_LayOutWorkspacesTabsAndPanes_WithSessionOfClaudePane', as
         label: 'notebook',
         status: 'idle',
         activeTab: 'w3:t1',
-        tabs: [{ id: 'w3:t1', number: 1, label: '1', status: 'unknown', panes: [{ id: 'w3:p1', agent: undefined, status: 'unknown', title: 'nvim', session: undefined, size: { cols: 100, rows: 30 }, activity: undefined }] }],
+        tabs: [{ id: 'w3:t1', number: 1, label: '1', status: 'unknown', folder: 'D:/notebook', panes: [{ id: 'w3:p1', agent: undefined, status: 'unknown', title: 'nvim', session: undefined, size: { cols: 100, rows: 30 }, activity: undefined }] }],
       },
     ],
   });
@@ -205,7 +210,7 @@ test('herdrView_Should_LookForPaneOfProcessOnce_WhenItRunsOutsideHerdr', async (
   };
   const outside = { pid: 777, sessionId: '0b1c2d3e-4444-4555-8666-977788899900', kind: 'interactive', status: 'idle', updatedAt: 2 };
   const folder = tempDir('ccw-workspaces-');
-  const view = createHerdrView({ herdr: counting, codexThreads: async () => [], readRecords: async () => [runningRecord, outside], icons: noIcons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+  const view = createHerdrView({ herdr: counting, codexThreads: async () => [], readRecords: async () => [runningRecord, outside], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
 
   await view.workspacesOf([]);
   await view.workspacesOf([]);
@@ -222,7 +227,7 @@ test('herdrView_Should_TellSessionPaneForkedFrom', async () => {
   const fork = { pane_id: 'w2:p2', workspace_id: 'w2', cwd: 'D:\\trip_plans', agent: 'claude', pid: 102, argv: ['claude.exe', '--resume', running, '--fork-session'] };
   const herdr = fakeHerdr({ ...tripPlans, panes: [...tripPlans.panes, fork] });
   const forkRecord = { pid: 102, sessionId: forked, kind: 'interactive', status: 'idle', updatedAt: 2 };
-  const view = createHerdrView({ herdr, codexThreads: async () => [], readRecords: async () => [runningRecord, forkRecord], icons: noIcons, hidden: noHidden, file: join(tempDir('ccw-workspaces-'), 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+  const view = createHerdrView({ herdr, codexThreads: async () => [], readRecords: async () => [runningRecord, forkRecord], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(tempDir('ccw-workspaces-'), 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
 
   await view.workspacesOf([]);
 
@@ -243,7 +248,7 @@ test('herdrView_Should_GiveEachWorkspaceItsIcon_InTheLayoutAndBySessionsOfIt', a
     setIcon: async () => undefined,
   };
   const folder = tempDir('ccw-workspaces-');
-  const view = createHerdrView({ herdr: fakeHerdr(tripPlans), readRecords: async () => [runningRecord], codexThreads: async () => [], icons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+  const view = createHerdrView({ herdr: fakeHerdr(tripPlans), readRecords: async () => [runningRecord], codexThreads: async () => [], icons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
 
   const layout = await view.layout();
   const listed = await view.workspacesOf([{ id: running, cwd: 'D:\\elsewhere' }]);
@@ -295,7 +300,7 @@ test('herdrView_Should_TellIconsTheFolderMostOfAWorkspacesPanesAreIn', async (t)
     ],
   });
   const folder = tempDir('ccw-workspaces-');
-  const view = createHerdrView({ herdr, readRecords: async () => [], codexThreads: async () => [], icons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+  const view = createHerdrView({ herdr, readRecords: async () => [], codexThreads: async () => [], icons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
 
   await view.layout();
 
@@ -309,7 +314,7 @@ test('setWorkspaceIcon_Should_KeepIconForWorkspacesFolder', async (t) => {
   const kept = [];
   const icons = { iconsOf: async () => new Map(), setIcon: async (/** @type {string} */ folder, /** @type {string | undefined} */ icon) => void kept.push(`${folder}: ${icon}`) };
   const folder = tempDir('ccw-workspaces-');
-  const view = createHerdrView({ herdr: fakeHerdr(tripPlans), readRecords: async () => [], codexThreads: async () => [], icons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+  const view = createHerdrView({ herdr: fakeHerdr(tripPlans), readRecords: async () => [], codexThreads: async () => [], icons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
 
   const outcomes = [await view.setWorkspaceIcon('w2', 'lucide:wallet@green'), await view.setWorkspaceIcon('w2', undefined), await view.setWorkspaceIcon('w9', 'lucide:wallet')];
 
@@ -418,7 +423,7 @@ function tabsHerdr({
  */
 async function tabsView(herdr, claudeCommand = 'claude') {
   const folder = tempDir('ccw-workspaces-');
-  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand, codexCommand: 'codex-yolo' });
+  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand, codexCommand: 'codex-yolo' });
 }
 
 // A session restarted where it runs: its Claude Code ended, then started again in its tab resuming it, the variables
@@ -435,14 +440,14 @@ test('restart_Should_EndClaudeInItsTab_AndResumeSessionThere_WithVariablesSet', 
   ];
   /** @param {'powershell' | 'posix'} shell @param {boolean} ends */
   const viewer = (shell, ends) =>
-    createHerdrView({ herdr: herdr.run, readRecords: async () => [runningRecord], codexThreads: async () => [], icons: noIcons, hidden: noHidden, file: join(tempDir('ccw-restart-'), 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'my-claude', codexCommand: 'codex', restart: { env, shell, endProcess: async (pid) => (ended.push(pid), ends) } });
+    createHerdrView({ herdr: herdr.run, readRecords: async () => [runningRecord], codexThreads: async () => [], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(tempDir('ccw-restart-'), 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'my-claude', codexCommand: 'codex', restart: { env, shell, endProcess: async (pid) => (ended.push(pid), ends) } });
 
   const told = (await viewer('posix', true).layout()).restartEnv;
   const outcomes = [
-    await viewer('powershell', true).restart(running, 'given'),
-    await viewer('posix', true).restart(running, 'given'),
-    await viewer('posix', true).restart('9a1c2a10-1111-4222-8333-000000000099', 'given'),
-    await viewer('posix', false).restart(running, 'given'),
+    await viewer('powershell', true).restart(running, 'given', 'as-it-ran'),
+    await viewer('posix', true).restart(running, 'given', 'as-it-ran'),
+    await viewer('posix', true).restart('9a1c2a10-1111-4222-8333-000000000099', 'given', 'as-it-ran'),
+    await viewer('posix', false).restart(running, 'given', 'as-it-ran'),
   ];
 
   assert.deepEqual(
@@ -462,7 +467,7 @@ test('restart_Should_EndClaudeInItsTab_AndResumeSessionThere_WithVariablesSet', 
 test('createTab_Should_StartClaudeGptSeparatelyFromOrdinaryClaude', async () => {
   const herdr = tabsHerdr();
   const folder = tempDir('ccw-gpt-');
-  const view = createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-normal', claudeGptCommand: 'claude-via-gpt', codexCommand: 'codex' });
+  const view = createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-normal', claudeGptCommand: 'claude-via-gpt', codexCommand: 'codex' });
 
   const outcomes = [await view.createTab('w2:t1', 'claude-gpt', undefined), await view.createTab('w2:t1', 'claude', undefined)];
 
@@ -472,10 +477,25 @@ test('createTab_Should_StartClaudeGptSeparatelyFromOrdinaryClaude', async () => 
   });
 });
 
+// Antigravity CLI starts in a new tab by its command, and an agy conversation goes on — reopened from the page in a tab
+// of its folder — by its id, as agy --conversation <id> does
+test('createTab_Should_StartAgy_AndReopenItsConversationByItsId', async () => {
+  const herdr = tabsHerdr();
+  const conversation = '9342f993-b892-4839-845d-ce2d261b092e';
+  const view = createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(tempDir('ccw-agy-'), 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex', agyCommand: 'agy-yolo' });
+
+  const outcomes = [await view.createTab('w2:t1', 'agy', undefined), await view.reopen(conversation, 'D:/shop', 'agy')];
+
+  assert.deepEqual({ outcomes, commands: herdr.changes.filter((change) => change.startsWith('pane send-text')) }, {
+    outcomes: [{ ok: true, target: '#/pane/w2:p3' }, { ok: true, target: `#/${conversation}` }],
+    commands: ['pane send-text w2:p3 agy-yolo', `pane send-text w5:p1 agy-yolo --conversation ${conversation}`],
+  });
+});
+
 test('reopen_Should_KeepGptLauncherAndModel_ForSessionStartedOutsideViewer', async () => {
   const herdr = tabsHerdr();
   const folder = tempDir('ccw-gpt-');
-  const view = createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-normal', claudeGptCommand: 'claude-via-gpt', claudeModelOf: async () => 'gpt-6.1-sol', codexCommand: 'codex' });
+  const view = createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-normal', claudeGptCommand: 'claude-via-gpt', claudeModelOf: async () => ({ model: 'gpt-6.1-sol', at: Date.parse('2026-10-31T10:00:00Z') }), codexCommand: 'codex' });
 
   const outcome = await view.reopen(running, 'D:/shop', 'claude');
 
@@ -492,7 +512,7 @@ test('reopen_Should_KeepGptLauncherAfterRestart_WhenSessionHasNotAnsweredYet', a
   const records = [];
   const herdr = tabsHerdr({ panes });
   const folder = tempDir('ccw-gpt-');
-  const startViewer = () => createHerdrView({ herdr: herdr.run, readRecords: async () => records, codexThreads: async () => [], icons: noIcons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-normal', claudeGptCommand: 'claude-via-gpt', codexCommand: 'codex' });
+  const startViewer = () => createHerdrView({ herdr: herdr.run, readRecords: async () => records, codexThreads: async () => [], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-normal', claudeGptCommand: 'claude-via-gpt', codexCommand: 'codex' });
   const view = startViewer();
   await view.createTab('w2:t1', 'claude-gpt', undefined);
   panes.push({ pane_id: 'w2:p3', workspace_id: 'w2', tab_id: 'w2:t3', cwd: 'D:/shop', agent: 'claude', pid: 101 });
@@ -685,7 +705,7 @@ async function viewWithHistory(herdr, closed) {
   const folder = tempDir('ccw-workspaces-');
   const kept = Object.fromEntries(Object.entries(closed).map(([session, place]) => [session, { earlierTabs: [], open: false, firstSeen: 1, lastSeen: 2, ...place }]));
   await writeFile(join(folder, 'workspaces.json'), JSON.stringify(kept));
-  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-god', codexCommand: 'codex-yolo' });
+  return createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-god', codexCommand: 'codex-yolo' });
 }
 
 // A closed session opens where it was: a new tab of its workspace, named as before, in its folder, Claude Code resuming
@@ -757,6 +777,7 @@ test('duplicateTab_Should_OpenTabInItsFolder_ForkingItsSession', async () => {
     codexThreads: async () => [{ id: thread, cwd: 'D:/web', name: 'Limits', activeAt: 1 }],
     icons: noIcons,
     hidden: noHidden,
+    hiddenWorkspaces: noHiddenWorkspaces,
     file: join(folder, 'workspaces.json'),
     refreshMs: 60_000,
     trust: { looks: 3, stepMs: 1 },
@@ -797,7 +818,7 @@ test('duplicateTab_Should_OpenNothing_When_SessionIdIsNoId', async () => {
     panes: [{ pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:/shop', agent: 'claude', pid: 101 }],
   });
   const folder = tempDir('ccw-workspaces-');
-  const view = createHerdrView({ herdr: herdr.run, readRecords: async () => [{ ...runningRecord, sessionId: `${running} & exit` }], codexThreads: async () => [], icons: noIcons, hidden: noHidden, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-god', codexCommand: 'codex-yolo' });
+  const view = createHerdrView({ herdr: herdr.run, readRecords: async () => [{ ...runningRecord, sessionId: `${running} & exit` }], codexThreads: async () => [], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-god', codexCommand: 'codex-yolo' });
 
   assert.deepEqual({ outcome: await view.duplicateTab('w2:t1'), changes: herdr.changes }, { outcome: { ok: false, error: 'failed' }, changes: [] });
 });
@@ -895,6 +916,52 @@ test('herdrView_Should_ShowCodexPaneAsItsThread_AndTellWhereCodexSessionRuns', a
   );
 });
 
+// An agy pane shows the conversation agy streams there — its run in the pane's folder — remembered in its workspace;
+// before its first message, its run by the run's own id, which no tab's history keeps: agy makes the conversation the
+// tab goes on with. agy tells where it runs a conversation: in that pane, elsewhere — a program's run — or nowhere. A
+// Codex session is not looked for in agy's panes. With a command that starts agy, the page is told a new tab may start it
+test('herdrView_Should_ShowAgyPaneAsItsConversation_AndTellWhereAgyRunsIt', async (t) => {
+  const filter = 'c2da1db1-1271-4baa-aac2-0f4026b2453a';
+  const printed = '9342f993-b892-4839-845d-ce2d261b092e';
+  const herdr = fakeHerdr({
+    workspaces: [{ workspace_id: 'w5', label: 'shop', active_tab_id: 'w5:t1' }],
+    tabs: [
+      { tab_id: 'w5:t1', workspace_id: 'w5', number: 1, label: 'filters', agent_status: 'working' },
+      { tab_id: 'w5:t2', workspace_id: 'w5', number: 2, label: 'maps', agent_status: 'idle' },
+    ],
+    panes: [
+      { pane_id: 'w5:p1', workspace_id: 'w5', tab_id: 'w5:t1', cwd: 'D:/dev/shop', agent: 'agy', agent_status: 'working', terminal_title_stripped: 'agy', state_change_seq: 4 },
+      { pane_id: 'w5:p2', workspace_id: 'w5', tab_id: 'w5:t2', cwd: 'D:/dev/maps', agent: 'agy', agent_status: 'idle', terminal_title_stripped: 'agy', state_change_seq: 2 },
+    ],
+  });
+  /** @type {import('../server/agy-live.js').AgyRun} */
+  const fresh = { serverPid: 103, folder: 'D:\\dev\\maps', conversation: undefined, print: false, ended: false, startedAt: 3000 };
+  const agy = [
+    { serverPid: 101, folder: 'D:\\dev\\shop', conversation: filter, print: false, ended: false, startedAt: 1000 },
+    { serverPid: 102, folder: 'D:\\dev\\notes', conversation: printed, print: true, ended: false, startedAt: 2000 },
+    fresh,
+  ];
+  const view = await workspacesOf(t, { herdr, records: [], agy, agyCommand: 'agy' });
+
+  const layout = await view.layout();
+  assert.deepEqual(
+    {
+      agy: layout.agy,
+      sessions: layout.workspaces[0]?.tabs.map((tab) => tab.panes[0]?.session),
+      workspaces: await view.workspacesOf([{ id: filter, cwd: 'D:/dev/shop' }]),
+      kept: Object.keys(await view.history()),
+      places: [await view.agyPlace(filter), await view.agyPlace(agyStartedId(fresh)), await view.agyPlace(printed), await view.agyPlace('0569c158-6d1a-409e-9a15-6e92eaf4c4a1'), await view.codexPlace(filter)],
+    },
+    {
+      agy: true,
+      sessions: [filter, agyStartedId(fresh)],
+      workspaces: { herdr: true, sessions: { [filter]: 'shop' }, icons: {} },
+      kept: [filter],
+      places: [{ found: 'pane', pane: 'w5:p1', working: true }, { found: 'pane', pane: 'w5:p2', working: false }, { found: 'elsewhere' }, { found: 'none' }, { found: 'none' }],
+    },
+  );
+});
+
 /**
  * herdr with trip_plans, its one pane's agent done at this count of its changes; a view of it keeping its hidden panes
  * in the folder.
@@ -903,8 +970,54 @@ test('herdrView_Should_ShowCodexPaneAsItsThread_AndTellWhereCodexSessionRuns', a
  */
 function hidingView(folder, pane) {
   const herdr = fakeHerdr({ workspaces: tripPlans.workspaces, tabs: [{ tab_id: 'w2:t1', workspace_id: 'w2', number: 1, label: 'search', agent_status: 'done' }], panes: [pane] });
-  return createHerdrView({ herdr, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: createHiddenPanes(join(folder, 'hidden-panes.json')), file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+  return createHerdrView({ herdr, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: createHiddenPanes(join(folder, 'hidden-panes.json')), hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
 }
+
+/**
+ * herdr with web and web-review — both their tabs in D:\web — and notes, in D:\notes; a view of it keeping its hidden
+ * workspaces in the folder.
+ * @param {string} folder
+ */
+function workspacesView(folder) {
+  const herdr = fakeHerdr({
+    workspaces: [
+      { workspace_id: 'w2', label: 'web' },
+      { workspace_id: 'w3', label: 'notes' },
+      { workspace_id: 'w4', label: 'web-review' },
+    ],
+    tabs: [
+      { tab_id: 'w2:t1', workspace_id: 'w2', number: 1, label: 'checkout', agent_status: 'idle' },
+      { tab_id: 'w3:t1', workspace_id: 'w3', number: 1, label: '1', agent_status: 'idle' },
+      { tab_id: 'w4:t1', workspace_id: 'w4', number: 1, label: 'review', agent_status: 'idle' },
+    ],
+    panes: [
+      { pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:\\web' },
+      { pane_id: 'w3:p1', workspace_id: 'w3', tab_id: 'w3:t1', cwd: 'D:\\notes' },
+      { pane_id: 'w4:p1', workspace_id: 'w4', tab_id: 'w4:t1', cwd: 'D:\\web' },
+    ],
+  });
+  return createHerdrView({ herdr, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: noHidden, hiddenWorkspaces: createHiddenWorkspaces(join(folder, 'hidden-workspaces.json')), file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+}
+
+/** @param {import('../public/model/herdr.js').HerdrLayout} layout */
+const hiddenWorkspaces = (layout) => layout.workspaces.filter((workspace) => workspace.hidden === true).map((workspace) => workspace.label);
+
+// A workspace hidden from the page's list is hidden alone — another open in its folder stays listed — and stays hidden,
+// for the viewer started again too: it is kept by its id, which herdr keeps over its restarts — until it is shown again;
+// a workspace herdr does not have is not hidden
+test('hideWorkspace_Should_HideThatWorkspaceAlone_UntilShownAgain', async () => {
+  const folder = tempDir('ccw-hidden-workspaces-');
+  const view = workspacesView(folder);
+
+  const outcomes = [await view.hideWorkspace('w2'), await view.hideWorkspace('w9')];
+  const hidden = hiddenWorkspaces(await view.layout());
+  const again = workspacesView(folder);
+  const afterRestart = hiddenWorkspaces(await again.layout());
+  const showing = await again.showWorkspace('w2');
+  const shown = hiddenWorkspaces(await again.layout());
+
+  assert.deepEqual({ outcomes, hidden, afterRestart, showing, shown }, { outcomes: [{ ok: true }, { ok: false, error: 'failed' }], hidden: ['web'], afterRestart: ['web'], showing: { ok: true }, shown: [] });
+});
 
 /** @param {import('../public/model/herdr.js').HerdrLayout} layout */
 const hiddenPanes = (layout) => layout.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes.filter((pane) => pane.hidden === true).map((pane) => pane.id)));
@@ -961,9 +1074,118 @@ test('hidePane_Should_ShowPaneAgainOnceItsAgentWorks_When_HerdrTellsNoCount', as
 test('restart_Should_ResumeSessionWithNoVariables_When_RestartedPlainly', async () => {
   const herdr = tabsHerdr({ panes: [{ pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:/shop', agent: 'claude', pid: 101 }] });
   const env = [{ name: 'CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP', value: '1' }];
-  const view = createHerdrView({ herdr: herdr.run, readRecords: async () => [runningRecord], codexThreads: async () => [], icons: noIcons, hidden: noHidden, file: join(tempDir('ccw-restart-'), 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'my-claude', codexCommand: 'codex', restart: { env, shell: 'powershell', endProcess: async () => true } });
+  const view = createHerdrView({ herdr: herdr.run, readRecords: async () => [runningRecord], codexThreads: async () => [], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(tempDir('ccw-restart-'), 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'my-claude', codexCommand: 'codex', restart: { env, shell: 'powershell', endProcess: async () => true } });
 
-  const outcome = await view.restart(running, 'none');
+  const outcome = await view.restart(running, 'none', 'as-it-ran');
 
   assert.deepEqual({ outcome, typed: herdr.changes.filter((change) => change.startsWith('pane send-text')) }, { outcome: { ok: true }, typed: [`pane send-text w2:p1 my-claude --resume ${running}`] });
+});
+
+// A session restarted in the other launcher than it ran in — through GPT from ordinary Claude Code, in ordinary Claude
+// Code from GPT, asked for no GPT model there — runs in it from then on: the history tells so at once, while its last
+// answer is still the other one's; a restart as it ran starts it there; the history goes on telling so once the session
+// has answered there
+test('restart_Should_ResumeSessionInLauncherAsked_AndKeepItThere_BeforeAndAfterItAnswers', async () => {
+  /** @type {readonly (readonly [string, 'claude' | 'claude-gpt', string])[]} — the model it answered with, the launcher asked, the model it answers with there */
+  const switches = [
+    ['gpt-6-sol', 'claude', 'claude-opus-5-5'],
+    ['claude-opus-5-5', 'claude-gpt', 'gpt-6-sol'],
+  ];
+  const seen = [];
+  for (const [before, launcher, after] of switches) {
+    const herdr = tabsHerdr({ panes: [{ pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:/shop', agent: 'claude', pid: 101 }] });
+    let answer = { model: before, at: Date.now() - 60_000 };
+    const view = createHerdrView({ herdr: herdr.run, readRecords: async () => [runningRecord], codexThreads: async () => [], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(tempDir('ccw-restart-'), 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-normal', claudeGptCommand: 'claude-via-gpt', claudeModelOf: async () => answer, codexCommand: 'codex', restart: { env: [], shell: 'posix', endProcess: async () => true } });
+    const throughGpt = async () => (await view.history())[running]?.claudeGpt === true;
+
+    const ranThroughGpt = await throughGpt();
+    await view.restart(running, 'none', launcher);
+    const atOnce = await throughGpt();
+    await view.restart(running, 'none', 'as-it-ran');
+    answer = { model: after, at: Date.now() + 60_000 };
+    seen.push({ ranThroughGpt, atOnce, typed: herdr.changes.filter((change) => change.startsWith('pane send-text')), answered: await throughGpt() });
+  }
+
+  assert.deepEqual(seen, [
+    { ranThroughGpt: true, atOnce: false, typed: [`pane send-text w2:p1 claude-normal --resume ${running}`, `pane send-text w2:p1 claude-normal --resume ${running}`], answered: false },
+    { ranThroughGpt: false, atOnce: true, typed: [`pane send-text w2:p1 claude-via-gpt --resume ${running}`, `pane send-text w2:p1 claude-via-gpt --resume ${running}`], answered: true },
+  ]);
+});
+
+// A tab with nothing running in it — its shell at its prompt, as herdr brings tabs back after a restart of the computer
+// — goes on with the conversation that ran last in it: Claude Code resumes it there — through GPT when it ran so —
+// or Codex; a tab the history does not know goes on with its folder's latest Claude Code conversation, as
+// claude --continue would. Nothing is typed into a tab where something runs, nor is a conversation Claude Code runs now
+// — in another tab, in another terminal — started twice
+test('continueTab_Should_ResumeTabsLatestConversationInItsShell_NeverOverWhatRuns', async () => {
+  const id = (/** @type {string} */ n) => `a1b2c3d4-1111-4222-8333-9444555566${n}`;
+  const [checkout, mail, limits, deploy, editor, notesLatest, notesEarlier, shop] = [id('01'), id('02'), id('03'), id('04'), id('05'), id('06'), id('07'), id('08')];
+  const names = ['checkout', 'mail', 'limits', 'notes', 'deploy', 'editor'];
+  const herdr = tabsHerdr({
+    opened: names.map((label, at) => ({ tab_id: `w2:t${at + 1}`, workspace_id: 'w2', number: at + 1, label, agent_status: 'unknown' })),
+    panes: names.map((label, at) => ({ pane_id: `w2:p${at + 1}`, workspace_id: 'w2', tab_id: `w2:t${at + 1}`, cwd: 'D:/web', pid: 300 + at, shell_pid: label === 'editor' ? 400 : 300 + at })),
+  });
+  const folder = tempDir('ccw-continue-');
+  const ran = (/** @type {string} */ tab, /** @type {Partial<import('../public/model/history.js').Place>} */ more = {}) => ({ workspace: 'web', tab, folder: 'D:/web', earlierTabs: [], firstSeen: 1, lastSeen: 2, open: false, ...more });
+  await writeFile(join(folder, 'workspaces.json'), JSON.stringify({ [checkout]: ran('checkout'), [mail]: ran('mail', { claudeGpt: true }), [limits]: ran('limits'), [deploy]: ran('deploy'), [editor]: ran('editor') }));
+  // the deploy tab's conversation runs now in a terminal of its own
+  const records = [{ pid: 900, sessionId: deploy, kind: 'interactive', status: 'idle', updatedAt: 1 }];
+  const view = createHerdrView({ herdr: herdr.run, readRecords: async () => records, codexThreads: async () => [], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude-god', claudeGptCommand: 'claude-gpt-god', codexCommand: 'codex-yolo' });
+  /** @param {string} id @param {Partial<import('../server/sessions.js').SessionInfo>} [more] */
+  const listed = (id, more = {}) => ({ id, agent: /** @type {import('../server/sessions.js').Agent} */ ('claude'), cwd: 'D:\\web', kind: /** @type {import('../server/sessions.js').SessionKind} */ ('interactive'), modifiedAt: 1, ...more });
+  const sessions = [listed(limits, { agent: 'codex', modifiedAt: 20 }), listed(notesEarlier, { modifiedAt: 5 }), listed(notesLatest, { modifiedAt: 9 }), listed(shop, { cwd: 'D:\\shop', modifiedAt: 30 })];
+
+  /** @type {import('../public/model/herdr.js').TabChange[]} */
+  const outcomes = [];
+  for (let at = 1; at <= names.length; at++) outcomes.push(await view.continueTab(`w2:t${at}`, sessions));
+
+  assert.deepEqual({ outcomes, typed: herdr.changes.filter((change) => change.startsWith('pane send-text')) }, {
+    outcomes: [{ ok: true }, { ok: true }, { ok: true }, { ok: true }, { ok: false, error: 'failed' }, { ok: false, error: 'failed' }],
+    typed: [`pane send-text w2:p1 claude-god --resume ${checkout}`, `pane send-text w2:p2 claude-gpt-god --resume ${mail}`, `pane send-text w2:p3 codex-yolo resume ${limits}`, `pane send-text w2:p4 claude-god --resume ${notesLatest}`],
+  });
+});
+
+// A tab whose last conversation was agy's goes on with it in agy; one agy holds open now — a program's run writing it,
+// another terminal — is not started twice
+test('continueTab_Should_ResumeAgysConversationInAgy_UnlessAgyHoldsItNow', async () => {
+  const [filters, search] = ['c2da1db1-1271-4baa-aac2-0f4026b2453a', '9342f993-b892-4839-845d-ce2d261b092e'];
+  const names = ['filters', 'search'];
+  const herdr = tabsHerdr({
+    opened: names.map((label, at) => ({ tab_id: `w2:t${at + 1}`, workspace_id: 'w2', number: at + 1, label, agent_status: 'unknown' })),
+    panes: names.map((label, at) => ({ pane_id: `w2:p${at + 1}`, workspace_id: 'w2', tab_id: `w2:t${at + 1}`, cwd: 'D:/shop', pid: 300 + at, shell_pid: 300 + at })),
+  });
+  const folder = tempDir('ccw-continue-agy-');
+  const ran = (/** @type {string} */ tab) => ({ workspace: 'web', tab, folder: 'D:/shop', earlierTabs: [], firstSeen: 1, lastSeen: 2, open: false });
+  await writeFile(join(folder, 'workspaces.json'), JSON.stringify({ [filters]: ran('filters'), [search]: ran('search') }));
+  const view = createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], agyRuns: async () => [{ serverPid: 51520, folder: 'D:\\shop', conversation: search, print: true, ended: false, startedAt: 1000 }], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex', agyCommand: 'agy' });
+  const listed = (/** @type {string} */ id) => ({ id, agent: /** @type {import('../server/sessions.js').Agent} */ ('agy'), cwd: 'D:\\shop', kind: /** @type {import('../server/sessions.js').SessionKind} */ ('interactive'), modifiedAt: 1 });
+
+  const outcomes = [await view.continueTab('w2:t1', [listed(filters), listed(search)]), await view.continueTab('w2:t2', [listed(filters), listed(search)])];
+
+  assert.deepEqual({ outcomes, typed: herdr.changes.filter((change) => change.startsWith('pane send-text')) }, { outcomes: [{ ok: true }, { ok: false, error: 'failed' }], typed: [`pane send-text w2:p1 agy --conversation ${filters}`] });
+});
+
+// Exit in a session's details: what runs over its tab's shell — Claude Code, or Codex — ends, its turn and background
+// commands with it, the tab left at its shell's prompt, nothing typed there; a session in no herdr tab, or a pane whose
+// shell herdr does not tell — what to end and what to leave unknown — is not touched
+test('exit_Should_EndWhatRunsOverTabsShell_ForClaudeAndCodex_LeavingTheShell', async () => {
+  const thread = '01a13a06-5376-7481-9aa7-ec19297d2f7c';
+  const unknownShell = '9a1c2a10-1111-4222-8333-000000000301';
+  const herdr = fakeHerdr({
+    workspaces: [{ workspace_id: 'w2', label: 'web' }],
+    tabs: ['shop', 'maps', 'notes'].map((label, at) => ({ tab_id: `w2:t${at + 1}`, workspace_id: 'w2', number: at + 1, label, agent_status: 'idle' })),
+    panes: [
+      { pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:/shop', agent: 'claude', pid: 101, shell_pid: 100 },
+      { pane_id: 'w2:p2', workspace_id: 'w2', tab_id: 'w2:t2', cwd: 'D:/maps', agent: 'codex', terminal_title_stripped: 'Draw the old map | maps', pid: 201, shell_pid: 200 },
+      { pane_id: 'w2:p3', workspace_id: 'w2', tab_id: 'w2:t3', cwd: 'D:/notes', agent: 'claude', pid: 301 },
+    ],
+  });
+  /** @type {number[]} */
+  const ended = [];
+  const records = [runningRecord, { pid: 301, sessionId: unknownShell, kind: 'interactive', status: 'idle', updatedAt: 1 }];
+  const view = createHerdrView({ herdr, readRecords: async () => records, codexThreads: async () => [{ id: thread, cwd: 'D:/maps', name: 'Draw the old map', activeAt: 2 }], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(tempDir('ccw-exit-'), 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex', restart: { env: [], shell: 'posix', endProcess: async (pid) => (ended.push(pid), true) } });
+
+  const outcomes = [await view.exit(running), await view.exit(thread), await view.exit(unknownShell), await view.exit('9a1c2a10-1111-4222-8333-000000000999')];
+
+  assert.deepEqual({ outcomes, ended }, { outcomes: [{ ok: true }, { ok: true }, { ok: false, error: 'failed' }, { ok: false, error: 'failed' }], ended: [101, 201] });
 });

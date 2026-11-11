@@ -56,3 +56,29 @@ export function groupedSessions(listed, workspaces) {
   groups.delete(undefined);
   return [...groups, ...(rest === undefined ? [] : [/** @type {const} */ ([undefined, rest])])].map(([workspace, sessions]) => ({ workspace, sessions }));
 }
+
+/**
+ * The rows the sidebar draws: the first so many sessions in the list's order — on a phone, not a thousand: its rows were
+ * most of the page's elements — under their workspaces' heads when grouped, a head counting its whole group, drawn or
+ * not; and how many sessions are left undrawn, for the button that draws more.
+ * @template T
+ * @param {readonly { workspace: string | undefined, sessions: readonly T[] }[]} groups — the list in its groups; not
+ *   grouped, one of no workspace
+ * @param {{ limit: number, heads: 'shown' | 'none' }} options — limit: how many sessions to draw at most
+ * @returns {{ rows: ({ kind: 'head', workspace: string | undefined, count: number } | { kind: 'session', session: T })[], left: number }}
+ */
+export function rowsToDraw(groups, { limit, heads }) {
+  /** @type {({ kind: 'head', workspace: string | undefined, count: number } | { kind: 'session', session: T })[]} */
+  const rows = [];
+  let drawn = 0;
+  let all = 0;
+  for (const { workspace, sessions } of groups) {
+    all += sessions.length;
+    const taken = sessions.slice(0, Math.max(0, limit - drawn));
+    if (taken.length === 0) continue;
+    if (heads === 'shown') rows.push({ kind: 'head', workspace, count: sessions.length });
+    for (const session of taken) rows.push({ kind: 'session', session });
+    drawn += taken.length;
+  }
+  return { rows, left: all - drawn };
+}

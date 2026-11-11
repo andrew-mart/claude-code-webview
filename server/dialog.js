@@ -3,8 +3,8 @@
 // question, numbered answers with a line under each — or the review of the answers before they are sent. The dialog
 // takes the prompt box's place, between a rule above it and its footer ("Enter to select · … · Esc to cancel") — or, in
 // the review, the bottom of the screen; a rule inside it sets apart its last answers ("Chat about this"). Some are
-// drawn their own way: the /model picker; /mcp's lists with no digits — its servers, a server's tools — and a tool's
-// page, with nothing to choose.
+// drawn their own way: the /model picker; lists with no digits — /mcp's servers, a server's tools, /cd's question
+// whether to move to a folder the session has not worked in — and /mcp's page of a tool, with nothing to choose.
 import { inputBox } from './claude-screen.js';
 
 const rule = /^\s*[─▔]{4,}\s*$/;
@@ -14,8 +14,8 @@ const escBack = /Esc to (?:go )?back/;
 /** Where a preview's frame starts on an answer's line, after a gap. */
 const previewFrame = /(?<=\s{3})[┌│└]/;
 const optionLine = /^\s*(❯)?\s*(\d+)\.\s+(?:\[([ ✔])\]\s+)?(.*\S)\s*$/;
-/** A list with no digits — /mcp's — goes along with the arrows. */
-const listFooter = /↑\/↓ to navigate/;
+/** A list with no digits — /mcp's, /cd's yes or no — goes along with the arrows; its footer tells them, or Enter alone. */
+const listFooter = /↑\/↓ to navigate|Enter to confirm/;
 /** The row under the cursor, up to where its text starts; and that text. */
 const cursorRow = /^(\s*❯\s+)(\S.*)$/;
 /** A row's text opening with a mark — ✔ ✘ … ⚠, a server's state — before its name. */
@@ -83,8 +83,8 @@ function modelDialog(screen) {
 }
 
 /**
- * A list with no digits, gone along with the arrows under the cursor ❯ — /mcp's servers, a server's tools: what it is
- * above the rows, each row its name and, after a gap, what it has. Where the cursor's row opens with a mark — a server's
+ * A list with no digits, gone along with the arrows under the cursor ❯ — /mcp's servers, a server's tools, /cd's yes or
+ * no: what it is above the rows, each row its name and, after a gap, what it has. Where the cursor's row opens with a mark — a server's
  * state — the rows without one are headings, not choices; what is under the rows is help. A numbered list is not one.
  * @param {string} screen
  * @returns {import('../public/model/dialog.js').Dialog | undefined}

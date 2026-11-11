@@ -9,6 +9,11 @@ Object.assign(globalThis, { window, document: window.document, NodeFilter: windo
 window.matchMedia = () => /** @type {MediaQueryList} */ (/** @type {unknown} */ ({ matches: false }));
 const { createFilePanel } = await import('../public/view/file-panel.js');
 const { icon } = await import('../public/view/icons.js');
+// file-views, which the panel asks for the first time it shows a file, loaded here once: in the tests as in the page, a
+// file shown is drawn a moment after it is opened
+await import('file-views');
+/** Lets the panel draw the file opened: file-views comes to it a moment after. */
+const drawn = () => new Promise((done) => setTimeout(done, 0));
 
 /** @typedef {import('../public/view/editor-opener.js').EditorOpener} EditorOpener */
 
@@ -18,7 +23,20 @@ const noEditor = { reach: async () => 'none', check: async () => 'none', open: a
 /** @typedef {import('../public/model/project.js').Match} Match */
 
 /** A project whose files neither download nor upload. @type {import('../public/view/project-view.js').Transfer} */
-const noTransfer = { address: () => '', upload: async () => ({ ok: false, error: 'failed' }), download: async () => ({ ok: false, error: 'failed' }), save: () => {} };
+const noTransfer = { address: () => '', upload: async () => ({ ok: false, error: 'failed' }) };
+
+/** Where the documents put away are kept, as a browser keeps them: what was written last is read. */
+function keptInMemory() {
+  /** @type {unknown} */
+  let value;
+  return {
+    read: () => value,
+    /** @param {unknown} next */
+    write: (next) => {
+      value = JSON.parse(JSON.stringify(next));
+    },
+  };
+}
 
 /**
  * The panel as app.js creates it, in a page of its own; a file's project is D:/dev/shop, its search finding these lines.
@@ -28,8 +46,10 @@ const noTransfer = { address: () => '', upload: async () => ({ ok: false, error:
  *   VS Code
  * @param {import('../public/view/file-panel.js').FileManager} [fileManager] - the browser elsewhere by default
  * @param {() => void} [onDocs] - its documents changed, or it was opened or put away
+ * @param {{ kept: import('../public/view/file-panel.js').KeptDocs, openKeptNote: (id: string, session: string) => void }} [keeping]
+ *   - where the documents put away are kept — by default a store of this panel's own — and how a note kept is opened
  */
-function filePanel(editor = noEditor, lines = [], vscode = Promise.resolve(undefined), fileManager = { places: { known: async () => 'none', find: async () => 'none' }, show: () => undefined }, onDocs = () => undefined) {
+function filePanel(editor = noEditor, lines = [], vscode = Promise.resolve(undefined), fileManager = { places: { known: async () => 'none', find: async () => 'none' }, show: () => undefined }, onDocs = () => undefined, keeping = { kept: keptInMemory(), openKeptNote: () => undefined }) {
   const layout = window.document.createElement('main');
   const panel = window.document.createElement('aside');
   panel.hidden = true;
@@ -41,6 +61,9 @@ function filePanel(editor = noEditor, lines = [], vscode = Promise.resolve(undef
     markdownEditor: async () => {
       throw new Error('no markdown file is edited in these tests');
     },
+    notesEngine: { title: () => 'Edit notes as blocks, as Notion does (Milkdown)', switch: () => undefined },
+    keptDocs: keeping.kept,
+    openKeptNote: keeping.openKeptNote,
     panel,
     layout,
     editor,
@@ -82,15 +105,16 @@ function filePanel(editor = noEditor, lines = [], vscode = Promise.resolve(undef
 }
 
 /** @param {string} path */
-function openedAt(path) {
+async function openedAt(path) {
   const { panel, open } = filePanel();
   open(path);
+  await drawn();
   return panel;
 }
 
 // A picture linked from the feed is shown as the picture, not refused as a file that is not text
-test('filePanel_Should_ShowPicture_When_LinkedFileIsImage', () => {
-  const panel = openedAt('D:/dev/x/docs/mobile.png');
+test('filePanel_Should_ShowPicture_When_LinkedFileIsImage', async () => {
+  const panel = await openedAt('D:/dev/x/docs/mobile.png');
 
   const image = panel.querySelector('.panel-body img');
   assert.ok(image instanceof window.HTMLImageElement);
@@ -99,8 +123,8 @@ test('filePanel_Should_ShowPicture_When_LinkedFileIsImage', () => {
 });
 
 // A picture that does not load — gone, too large, not a picture inside — leaves a word instead of a broken image
-test('filePanel_Should_SayPictureIsNotShown_When_ItDoesNotLoad', () => {
-  const panel = openedAt('D:/dev/x/docs/gone.png');
+test('filePanel_Should_SayPictureIsNotShown_When_ItDoesNotLoad', async () => {
+  const panel = await openedAt('D:/dev/x/docs/gone.png');
   const image = panel.querySelector('.panel-body img');
   assert.ok(image);
 
@@ -113,12 +137,14 @@ test('filePanel_Should_SayPictureIsNotShown_When_ItDoesNotLoad', () => {
 });
 
 // A picture that fails only after another file was opened leaves that file in the panel
-test('filePanel_Should_KeepFileOpenedLater_When_EarlierPictureFails', () => {
+test('filePanel_Should_KeepFileOpenedLater_When_EarlierPictureFails', async () => {
   const { panel, open, shownPicture } = filePanel();
   open('D:/dev/x/docs/gone.png');
+  await drawn();
   const earlier = panel.querySelector('.panel-body img');
   assert.ok(earlier);
   open('D:/dev/x/docs/screenshot.png');
+  await drawn();
 
   earlier.dispatchEvent(new window.Event('error'));
 
@@ -364,6 +390,27 @@ test('filePanel_Should_DrawPageInSandboxedFrame_And_RunScriptsOnlyWhenAsked', as
 });
 
 
+// On a touch screen a page's frame grows as tall as the page and the panel scrolls it, as it scrolls a markdown
+// document: an iPhone scrolls no frame in the sheet, the swipe going to the session behind it. With a mouse the frame
+// scrolls the page itself
+test('filePanel_Should_LetPagesFrameGrow_OnTouchScreen_PanelScrollingIt', async (t) => {
+  serveTexts({ 'D:/dev/x/site/page.html': '<p>hi</p>\n' });
+  const grows = async (/** @type {boolean} */ touch) => {
+    const asked = window.matchMedia;
+    window.matchMedia = (query) => /** @type {MediaQueryList} */ (/** @type {unknown} */ ({ matches: touch && query === '(pointer: coarse)' }));
+    t.after(() => {
+      window.matchMedia = asked;
+    });
+    const { panel, open } = filePanel();
+    open('D:/dev/x/site/page.html');
+    await settled();
+    window.matchMedia = asked;
+    return panel.querySelector('.panel-body > .fv-document')?.classList.contains('fv-grows');
+  };
+
+  assert.deepEqual({ mouse: await grows(false), touch: await grows(true) }, { mouse: false, touch: true });
+});
+
 // The branch's changes come into the panel in place of a file; a changed file opened from them shows in the panel, and
 // the panel goes back to the changes as they were
 test('filePanel_Should_ShowBranchChanges_And_GoBackToThemFromFileOpenedThere', async () => {
@@ -402,7 +449,7 @@ test('filePanel_Should_ShowNoteOpenedFromItsName_UnderItsNameAsItIsNow', async (
   const shown = window.document.createElement('div');
   shown.className = 'note-panel';
   const named = { now: 'Plan for the week' };
-  const note = { id: 'n2', element: shown, actions: window.document.createElement('span'), name: () => named.now, reload: async () => undefined, summary: () => 'Written 27 Oct 2026, 09:05' };
+  const note = { id: 'n2', session: 'a1c2a10b-1111-4222-8333-000000000001', element: shown, actions: window.document.createElement('span'), name: () => named.now, reload: async () => undefined, summary: () => 'Written 27 Oct 2026, 09:05' };
   const title = () => [panel.querySelector('.panel-name')?.textContent, panel.querySelector('.panel-path')?.textContent];
 
   files.showNote(note);
@@ -434,7 +481,7 @@ test('filePanel_Should_ShowNotesButtonsInItsHeadBeforeReload_AndNoneForAFile', a
   /** The head's buttons shown, of the note's ✎ and ↻, in their order. */
   const shown = () => [...(head?.querySelectorAll('.note-panel-edit, .panel-reload') ?? [])].filter((one) => one.closest('[hidden]') === null).map((one) => (one.classList.contains('panel-reload') ? '↻' : '✎'));
 
-  files.showNote({ id: 'n1', element: window.document.createElement('div'), actions, name: () => 'Plan', reload: async () => undefined, summary: () => undefined });
+  files.showNote({ id: 'n1', session: 'a1c2a10b-1111-4222-8333-000000000001', element: window.document.createElement('div'), actions, name: () => 'Plan', reload: async () => undefined, summary: () => undefined });
   await new Promise((done) => setTimeout(done, 0));
   const note = shown();
   files.open({ path: 'D:/dev/shop/src/limits.ts', line: undefined, endLine: undefined });
@@ -443,11 +490,13 @@ test('filePanel_Should_ShowNotesButtonsInItsHeadBeforeReload_AndNoneForAFile', a
 });
 
 // A text file — code, a document's source, a table — is edited in the panel; a picture, a PDF, a Word document is not
-test('filePanel_Should_OfferEditingOfTextFilesOnly', () => {
-  const offered = ['D:/dev/x/src/limits.ts', 'D:/dev/x/README.md', 'D:/dev/x/orders.csv', 'D:/dev/x/docs/mobile.png', 'D:/dev/x/docs/spec.pdf', 'D:/dev/x/docs/spec.docx'].map((path) => {
-    const button = openedAt(path).querySelector('.panel-edit');
-    return button instanceof window.HTMLButtonElement && !button.hidden;
-  });
+test('filePanel_Should_OfferEditingOfTextFilesOnly', async () => {
+  const offered = await Promise.all(
+    ['D:/dev/x/src/limits.ts', 'D:/dev/x/README.md', 'D:/dev/x/orders.csv', 'D:/dev/x/docs/mobile.png', 'D:/dev/x/docs/spec.pdf', 'D:/dev/x/docs/spec.docx'].map(async (path) => {
+      const button = (await openedAt(path)).querySelector('.panel-edit');
+      return button instanceof window.HTMLButtonElement && !button.hidden;
+    }),
+  );
 
   assert.deepEqual(offered, [true, true, true, false, false, false]);
 });
@@ -505,6 +554,7 @@ test('filePanel_Should_GoToNamesOneDefinition_And_ShowItsUsesInProject', async (
 test('filePanel_Should_ShowFilesLinks_And_OpenImportedFile', async () => {
   const { panel, open } = filePanel();
   open('D:/dev/shop/src/limits.ts');
+  await drawn();
   const button = panel.querySelector('.panel-links');
   assert.ok(button instanceof window.HTMLButtonElement && !button.hidden);
 
@@ -636,7 +686,7 @@ test('filePanel_Should_KeepDocumentsShown_LatestFirst_UntilClosedForGood', async
   const told = [];
   const { panel, files } = filePanel(undefined, [], undefined, undefined, () => void told.push('docs'));
   const shown = window.document.createElement('div');
-  const note = { id: 'n3', element: shown, actions: window.document.createElement('span'), name: () => 'Plan for the week', reload: async () => undefined, summary: () => 'Written 27 Oct 2026, 09:05' };
+  const note = { id: 'n3', session: 'a1c2a10b-1111-4222-8333-000000000001', element: shown, actions: window.document.createElement('span'), name: () => 'Plan for the week', reload: async () => undefined, summary: () => 'Written 27 Oct 2026, 09:05' };
   const docs = () => files.docs().map((doc) => `${doc.kind} ${doc.name}`);
 
   files.open({ path: 'D:/dev/shop/src/limits.ts', line: 42, endLine: undefined });
@@ -644,7 +694,7 @@ test('filePanel_Should_KeepDocumentsShown_LatestFirst_UntilClosedForGood', async
   files.open({ path: 'D:/dev/shop/README.md', line: undefined, endLine: undefined });
   files.open({ path: 'D:/dev/shop/src/limits.ts', line: 7, endLine: undefined });
   const opened = docs();
-  panel.querySelector('button[title="Close (Esc)"]')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  panel.querySelector('.panel-close')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   const closed = { docs: docs(), hidden: panel.hidden };
   files.forgetDoc(files.docs()[0]?.key ?? '');
   const forgotten = docs();
@@ -663,13 +713,40 @@ test('filePanel_Should_KeepDocumentsShown_LatestFirst_UntilClosedForGood', async
   );
 });
 
+// The documents put away outlive the page: a panel made anew — the page reloaded — holds the same ones, the latest
+// first, as this browser kept them; a file opens again where it was, a note is opened again by the page, in the session
+// it was opened from; one closed for good is kept no longer
+test('filePanel_Should_KeepDocumentsPutAway_OverReload_FileOpenedAgain_NoteByThePage', async () => {
+  const kept = keptInMemory();
+  const before = filePanel(undefined, [], undefined, undefined, undefined, { kept, openKeptNote: () => undefined });
+  before.files.open({ path: 'D:/dev/shop/src/limits.ts', line: 42, endLine: undefined });
+  before.files.showNote({ id: 'n3', session: 'a1c2a10b-1111-4222-8333-000000000001', element: window.document.createElement('div'), actions: window.document.createElement('span'), name: () => 'Plan for the week', reload: async () => undefined, summary: () => undefined });
+  before.files.close();
+  /** @type {string[][]} */
+  const notesOpened = [];
+
+  const after = filePanel(undefined, [], undefined, undefined, undefined, { kept, openKeptNote: (id, session) => void notesOpened.push([id, session]) });
+  /** @param {ReturnType<typeof filePanel>} one */
+  const docs = (one) => one.files.docs().map((doc) => `${doc.kind} ${doc.name}`);
+  const restored = docs(after);
+  after.files.showDoc(after.files.docs().find((doc) => doc.kind === 'note')?.key ?? '');
+  after.files.showDoc(after.files.docs().find((doc) => doc.kind === 'file')?.key ?? '');
+  const fileShown = after.panel.querySelector('.panel-path')?.textContent;
+  after.files.forgetDoc(after.files.docs().find((doc) => doc.kind === 'note')?.key ?? '');
+
+  assert.deepEqual(
+    { restored, notesOpened, fileShown, keptAfterClosing: docs(filePanel(undefined, [], undefined, undefined, undefined, { kept, openKeptNote: () => undefined })) },
+    { restored: ['note Plan for the week', 'file limits.ts'], notesOpened: [['n3', 'a1c2a10b-1111-4222-8333-000000000001']], fileShown: 'D:/dev/shop/src/limits.ts', keptAfterClosing: ['file limits.ts'] },
+  );
+});
+
 test('filePanel_Should_ReopenWhatItShowedLast', async () => {
   const fresh = filePanel();
   const nothing = fresh.files.reopen();
   const { panel, files } = filePanel();
   const shown = window.document.createElement('div');
   shown.className = 'note-panel';
-  const note = { id: 'n3', element: shown, actions: window.document.createElement('span'), name: () => 'Plan for the week', reload: async () => undefined, summary: () => 'Written 27 Oct 2026, 09:05' };
+  const note = { id: 'n3', session: 'a1c2a10b-1111-4222-8333-000000000001', element: shown, actions: window.document.createElement('span'), name: () => 'Plan for the week', reload: async () => undefined, summary: () => 'Written 27 Oct 2026, 09:05' };
 
   files.open({ path: 'D:/dev/shop/src/limits.ts', line: 42, endLine: undefined });
   files.close();
@@ -684,7 +761,7 @@ test('filePanel_Should_ReopenWhatItShowedLast', async () => {
 // A PDF or a Word document shows dimmed for the dark theme — a PDF's pages inverted, a Word document's paper dark
 // (style.css) — and in its own colours on a press, which this browser keeps for the documents of that kind opened after,
 // each kind its own; other files have no such button
-test('filePanel_Should_ShowDocumentInItsOwnColoursOnPress_KeptForDocumentsOfItsKind', (t) => {
+test('filePanel_Should_ShowDocumentInItsOwnColoursOnPress_KeptForDocumentsOfItsKind', async (t) => {
   Reflect.set(globalThis, 'localStorage', window.localStorage);
   t.after(() => {
     window.localStorage.clear();
@@ -694,6 +771,7 @@ test('filePanel_Should_ShowDocumentInItsOwnColoursOnPress_KeptForDocumentsOfItsK
   const ownColours = (panel) => panel.querySelector('.panel-body')?.classList.contains('own-colours');
   const { panel, open } = filePanel();
   open('D:/dev/x/docs/spec.pdf');
+  await drawn();
   const before = ownColours(panel);
   const button = panel.querySelector('.panel-dim');
   assert.ok(button instanceof window.HTMLButtonElement);
@@ -701,13 +779,16 @@ test('filePanel_Should_ShowDocumentInItsOwnColoursOnPress_KeptForDocumentsOfItsK
   button.click();
   const after = ownColours(panel);
   open('D:/dev/x/docs/terms.docx');
+  await drawn();
 
-  const offered = ['D:/dev/x/docs/plan.pdf', 'D:/dev/x/docs/terms.docx', 'D:/dev/x/src/limits.ts', 'D:/dev/x/docs/mobile.png'].map((path) => {
-    const shown = openedAt(path).querySelector('.panel-dim');
-    return shown instanceof window.HTMLButtonElement && !shown.hidden;
-  });
+  const offered = await Promise.all(
+    ['D:/dev/x/docs/plan.pdf', 'D:/dev/x/docs/terms.docx', 'D:/dev/x/src/limits.ts', 'D:/dev/x/docs/mobile.png'].map(async (path) => {
+      const shown = (await openedAt(path)).querySelector('.panel-dim');
+      return shown instanceof window.HTMLButtonElement && !shown.hidden;
+    }),
+  );
   assert.deepEqual(
-    { before, after, word: ownColours(panel), laterPdf: ownColours(openedAt('D:/dev/x/docs/plan.pdf')), offered },
+    { before, after, word: ownColours(panel), laterPdf: ownColours(await openedAt('D:/dev/x/docs/plan.pdf')), offered },
     { before: false, after: true, word: false, laterPdf: true, offered: [true, true, false, false] },
   );
 });
@@ -735,10 +816,12 @@ test('filePanel_Should_CopyFilesTextFromHead_AndItsPathFromBesideIt', async (t) 
   press('.panel-path-copy');
   await settled();
 
-  const offered = ['D:/dev/x/docs/spec.pdf', 'D:/dev/x/docs/mobile.png'].map((path) => {
-    const button = openedAt(path).querySelector('.panel-copy');
-    return button instanceof window.HTMLButtonElement && !button.hidden;
-  });
+  const offered = await Promise.all(
+    ['D:/dev/x/docs/spec.pdf', 'D:/dev/x/docs/mobile.png'].map(async (path) => {
+      const button = (await openedAt(path)).querySelector('.panel-copy');
+      return button instanceof window.HTMLButtonElement && !button.hidden;
+    }),
+  );
   assert.deepEqual({ copied, offered }, { copied: ['export const perSecond = 10;\n', 'D:/dev/x/src/limits.ts'], offered: [false, false] });
 });
 
@@ -747,7 +830,7 @@ test('filePanel_Should_CopyFilesTextFromHead_AndItsPathFromBesideIt', async (t) 
 test('filePanel_Should_PutPanelAway_When_DocumentItShowsIsClosedForGood', () => {
   const { panel, files } = filePanel();
   /** @param {string} id */
-  const note = (id) => ({ id, element: window.document.createElement('div'), actions: window.document.createElement('span'), name: () => `Note ${id}`, reload: async () => undefined, summary: () => undefined });
+  const note = (id) => ({ id, session: 'a1c2a10b-1111-4222-8333-000000000001', element: window.document.createElement('div'), actions: window.document.createElement('span'), name: () => `Note ${id}`, reload: async () => undefined, summary: () => undefined });
   files.showNote(note('n1'));
   files.showNote(note('n2'));
 
@@ -756,4 +839,37 @@ test('filePanel_Should_PutPanelAway_When_DocumentItShowsIsClosedForGood', () => 
   files.forgetDoc('note:n2');
 
   assert.deepEqual({ another, shown: { hidden: panel.hidden, docs: files.docs().map((doc) => doc.key) } }, { another: { hidden: false, docs: ['note:n2'] }, shown: { hidden: true, docs: [] } });
+});
+
+// A document is put away by the button beside × — Esc too — kept to open again from the dock: none is shown then; a list
+// in the panel — History — is not a document to put away; × closes the document for good
+test('filePanel_Should_PutDocumentAwayByItsButton_KeptToOpenAgain_CrossClosingItForGood', () => {
+  const { panel, files } = filePanel();
+  const putAway = () => {
+    const button = panel.querySelector('.panel-put-away');
+    assert.ok(button instanceof window.HTMLButtonElement);
+    return button;
+  };
+  const docs = () => files.docs().map((doc) => doc.key);
+  files.open({ path: 'D:/dev/shop/src/limits.ts', line: undefined, endLine: undefined });
+  const open = { offered: !putAway().hidden, shown: files.shownDoc() };
+
+  putAway().click();
+  const away = { hidden: panel.hidden, docs: docs(), shown: files.shownDoc() };
+  files.showHistory({ element: window.document.createElement('div'), reload: async () => undefined, summary: () => undefined });
+  const list = { offered: !putAway().hidden, shown: files.shownDoc() };
+  files.showDoc('file:D:/dev/shop/src/limits.ts');
+  const again = files.shownDoc();
+  panel.querySelector('.panel-close')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+
+  assert.deepEqual(
+    { open, away, list, again, closed: { hidden: panel.hidden, docs: docs() } },
+    {
+      open: { offered: true, shown: 'file:D:/dev/shop/src/limits.ts' },
+      away: { hidden: true, docs: ['file:D:/dev/shop/src/limits.ts'], shown: undefined },
+      list: { offered: false, shown: undefined },
+      again: 'file:D:/dev/shop/src/limits.ts',
+      closed: { hidden: true, docs: [] },
+    },
+  );
 });

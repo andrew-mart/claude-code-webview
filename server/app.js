@@ -16,12 +16,13 @@ import { constants as zlibConstants, createGzip, gzip } from 'node:zlib';
 import { withAttachedImages } from '../public/model/attachments.js';
 import { parseBookmarkChange } from '../public/model/bookmarks.js';
 import { parseLaterChange } from '../public/model/later.js';
-import { notesFolderOf, parseNoteChange } from '../public/model/notes.js';
+import { parseNoteChange } from '../public/model/notes.js';
 import { parsePinChange } from '../public/model/pins.js';
 import { iconValue, parseIcon } from '../public/model/icon-choice.js';
 import { isRecord, text } from '../public/model/narrow.js';
-import { takenBackPrompt } from './branch.js';
+import { latestPrompt, standingRewind, takenBackPrompt } from './branch.js';
 import { branchChanges, branchFileDiff } from './branch-changes.js';
+import { agyRecordAt, createAgyReading } from './agy.js';
 import { createCodexReading } from './codex.js';
 import { readCodexUsage } from './codex-usage.js';
 import { openJoined } from './joined.js';
@@ -30,10 +31,11 @@ import { vscodeFileAddress } from '../public/model/vscode.js';
 import { assetFile, folderFileAt, sandboxPolicy } from 'file-views/server';
 import { editorImports, editorModuleFile, editorModuleFiles, editorModulesPrefix } from './editor-modules.js';
 import { createFileIcons, fileIconAnswer, fileIconsManifest, fileIconsPrefix } from './file-icons.js';
-import { createTextFile, fileAt, readImageFile, readTextFile, saveTextFile } from './files.js';
+import { createTextFile, fileAt, readImageFile, readTextFile, saveTextFile, wholePath } from './files.js';
 import { fileLinks } from './links.js';
-import { listFolder, searchProject, searchTimeoutMs } from './project.js';
-import { attachment, fileToDownload, folderToZip, uploadFile, writeZip } from './transfer.js';
+import { folderAt, listFolder, searchProject, searchTimeoutMs } from './project.js';
+import { createSentPrompts } from './sent-prompts.js';
+import { askedBytes, attachment, fileToDownload, folderToZip, uploadFile, writeZip } from './transfer.js';
 import { readBranch, workTreeOf } from './git.js';
 import { readImage } from './images.js';
 import { rewindTarget } from './rewind.js';
@@ -42,6 +44,9 @@ import { slimEntry } from './slim.js';
 import { createFeedPages } from './feeds.js';
 import { openingPart, streamTranscript } from './stream.js';
 import { readLineAt } from './tail.js';
+import { feedVersion } from './feed-version.js';
+import { createChanges } from './changes.js';
+import { moduleGraph } from './module-graph.js';
 import { createTranscriptCache } from './transcript-cache.js';
 import { readTaskOutput, seenTasks } from './tasks.js';
 import { parseImages } from './uploads.js';
@@ -68,6 +73,19 @@ const vendor = new Map([
   ['/vendor/lucide/sprite.svg', fileURLToPath(import.meta.resolve('lucide-static/sprite.svg'))],
   ['/vendor/lucide/tags.json', fileURLToPath(import.meta.resolve('lucide-static/tags.json'))],
 ]);
+
+/** Lucide's icons one by one: the page asks for those it draws (public/view/lucide.js), not for the whole sprite. */
+const lucideIconAddress = /^\/vendor\/lucide\/icons\/([a-z0-9-]+)\.svg$/;
+const lucideIcons = join(dirname(fileURLToPath(import.meta.resolve('lucide-static/sprite.svg'))), 'icons');
+
+/**
+ * @param {string} pathname
+ * @returns {string | undefined}
+ */
+function lucideIconFile(pathname) {
+  const name = lucideIconAddress.exec(pathname)?.[1];
+  return name === undefined ? undefined : join(lucideIcons, `${name}.svg`);
+}
 
 /** The file panel's views (file-views): the bundle, its styles, and what they load as they go — pdf.js, mermaid. */
 const fileViewsPrefix = '/vendor/file-views/';
@@ -100,6 +118,9 @@ const contentTypes = {
   '.wasm': 'application/wasm',
 };
 
+/** How many prompts sent under an id are kept, to type each once. */
+const sentPromptsKept = 500;
+
 const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const agentIdPattern = /^[0-9a-z]{1,64}$/i;
 /** herdr's pane ids: w2:p1, w3D:pK */
@@ -112,30 +133,66 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  * @typedef {(sessionId: string) => Promise<import('../public/model/session-status.js').SessionStatus | undefined>} ReadSessionStatus
  * @typedef {(sessionId: string) => Promise<boolean>} IsRunning
  * @typedef {(path: string, line: number) => Promise<import('./editor.js').EditorOutcome>} OpenEditor
- * @typedef {(session: { agent: 'claude' | 'codex', cwd: string | undefined }) => Promise<readonly import('./commands.js').SlashCommand[]>} SessionCommands —
+ * @typedef {(session: { agent: import('./sessions.js').Agent, cwd: string | undefined }) => Promise<readonly import('./commands.js').SlashCommand[]>} SessionCommands —
  *   what a session's "/" offers, by its agent, in its folder
  * @typedef {(target: import('./file-manager.js').FileManagerTarget) => Promise<boolean>} OpenFileManager — a folder
  *   opened in the computer's file manager, or a file shown in its folder; whether it started
  * @typedef {ReturnType<typeof import('./seen.js').createSeenFile>} Seen
  * @typedef {ReturnType<typeof import('./kept.js').createKeptFile>} Kept
+ * @typedef {ReturnType<typeof import('./diagnostics.js').createDiagnosticsLog>} Diagnostics
+ * @typedef {{ read: () => Promise<import('./system-usage.js').SystemUsage> }} SystemUsage
+ * @typedef {{ read: (by: import('./processes.js').Resource) => Promise<import('./processes.js').ProcessUse[]> }} Processes
  */
 
 /**
- * @param {{ index: SessionIndex, host: string, port: number, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, notes: import('./notes.js').Notes, pins: import('./pins.js').Pins, seen: Seen, kept: Kept,uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, chatgptUsage?: ReadUsage, sessionStatus?: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode?: import('./vscode.js').VsCode | undefined, codexInUse: () => Promise<boolean> }} options
+ * @param {{ index: SessionIndex, host: string, port: number, pollMs: number, changesEveryMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, desks: import('./desks.js').Desks, pins: import('./pins.js').Pins, seen: Seen, kept: Kept, diagnostics: Diagnostics, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, system: SystemUsage, processes: Processes, chatgptUsage?: ReadUsage, sessionStatus?: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode?: import('./vscode.js').VsCode | undefined, codexInUse: () => Promise<boolean> }} options
  *   about — package name and version for /api/health; palette — the page's colours (public/model/palettes.js);
  *   publicAddresses — where else the page is opened at, answered as the local address is; herdrView — what herdr
  *   shows (herdr-view.js); terminals — herdr panes' terminals (terminal.js); usage — the account's usage (usage.js);
- *   isRunning — whether Claude Code has a session open, or Codex a thread — its file written only with its first
- *   message; editor — opens a file at a line in the editor of this computer, if the viewer was given one; seen — the
+ *   system — how busy the viewer's computer is (system-usage.js);
+ *   isRunning — whether Claude Code has a session open, Codex a thread, agy a conversation — Claude Code's file
+ *   written only with its first message; editor — opens a file at a line in the editor of this computer, if the viewer was given one; seen — the
  *   answers seen, for every device (seen.js); codexInUse — whether Codex has a
  *   thread open (codex-live.js)
  * @returns {Promise<{ port: number, close: () => void }>}
  */
-export async function startServer({ index, host, port, pollMs, composer, bookmarks, later, notes, pins, seen, kept, uploads, about, palette, publicAddresses, herdrView, terminals, usage, chatgptUsage = async () => undefined, sessionStatus = async () => undefined, isRunning, editor, fileManager, commands, vscode, codexInUse }) {
+export async function startServer({ index, host, port, pollMs, changesEveryMs, composer, bookmarks, later, desks, pins, seen, kept, diagnostics, uploads, about, palette, publicAddresses, herdrView, terminals, usage, system, processes, chatgptUsage = async () => undefined, sessionStatus = async () => undefined, isRunning, editor, fileManager, commands, vscode, codexInUse }) {
   const instance = randomUUID();
   const build = await pageBuild();
-  /** Sessions this page rewound: session id → the prompt rewound to; its branch is hidden before the next prompt shows the fork. */
-  /** @type {Map<string, string>} */
+  const pageModules = await modulesAtStart();
+  const feeds = createFeedPages();
+  // What every page asked about every few seconds is looked at here, once for all of them, while one is open: each is
+  // told what changed (changes.js), and asks for it then.
+  const changes = createChanges({
+    topics: {
+      herdr: () => herdrView.layout(),
+      seen: () => seen.all(),
+      kept: () => kept.all(),
+      workspaces: async () => herdrView.workspacesOf(await index.list()),
+      history: () => herdrView.history(),
+      sessions: () => index.list(),
+    },
+    tell: (topics) => feeds.tellAll('changed', { topics }),
+  });
+  let closed = false;
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let looking;
+  const lookAgain = () => {
+    if (closed) return;
+    looking = setTimeout(() => {
+      void (feeds.anyOpen() ? changes.look() : Promise.resolve())
+        .catch((error) => console.error('Looking for what changed failed', error))
+        .finally(lookAgain);
+    }, changesEveryMs);
+  };
+  lookAgain();
+  // what a feed's entries are: a page's copy of a feed is gone on from while they are as they were (feed-version.js)
+  const feedEntries = await feedVersion([fileURLToPath(new URL('./transcript-cache.js', import.meta.url)), fileURLToPath(new URL('./stream.js', import.meta.url))]);
+  /**
+   * Sessions this page rewound, or stopped before Claude started on their prompt: session id → the prompt taken back;
+   * its branch is hidden until the next prompt shows the fork (branch.js: standingRewind).
+   * @type {Map<string, import('./branch.js').RewindMark>}
+   */
   const rewinds = new Map();
   const transcripts = createTranscriptCache({ maxFiles: cachedTranscripts, agentOf: index.agentOf, partsOf: index.partsOf });
   /** @type {Set<string>} */
@@ -143,8 +200,10 @@ export async function startServer({ index, host, port, pollMs, composer, bookmar
   /** @type {Set<string>} */
   const allowedOrigins = new Set();
   const fileIcons = createFileIcons();
+  /** The prompts sent under an id, so that one sent again — its reply lost on the way — is typed once. */
+  const sentPrompts = createSentPrompts(sentPromptsKept);
   /** @type {Deps} */
-  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, later, notes, pins, seen, kept, codexInUse, uploads, about, build, rewinds, transcripts, feeds: createFeedPages(), palette, herdrView, terminals, usage, chatgptUsage, sessionStatus, isRunning, editor, fileManager, commands, vscode, instance, fileIcons };
+  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, later, desks, pins, seen, kept, diagnostics, codexInUse, uploads, about, build, pageModules, feedEntries, rewinds, transcripts, feeds, palette, herdrView, terminals, usage, system, processes, chatgptUsage, sessionStatus, isRunning, editor, fileManager, commands, vscode, instance, fileIcons, sentPrompts };
   const server = http.createServer((request, response) => {
     handle(deps, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
@@ -170,6 +229,8 @@ export async function startServer({ index, host, port, pollMs, composer, bookmar
   return {
     port: address.port,
     close: () => {
+      closed = true;
+      clearTimeout(looking);
       server.closeAllConnections();
       server.close();
     },
@@ -178,10 +239,10 @@ export async function startServer({ index, host, port, pollMs, composer, bookmar
 
 /**
  * @typedef {ReturnType<typeof createSessionIndex>} SessionIndex — Claude Code's sessions and Codex's (sessions.js)
- * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, notes: import('./notes.js').Notes, pins: import('./pins.js').Pins, uploads: Uploads, about: About, build: string, rewinds: Map<string, string>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, chatgptUsage: ReadUsage, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, kept: Kept,codexInUse: () => Promise<boolean> }} Deps
+ * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, desks: import('./desks.js').Desks, pins: import('./pins.js').Pins, uploads: Uploads, about: About, build: string, pageModules: readonly string[], feedEntries: string, rewinds: Map<string, import('./branch.js').RewindMark>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, system: SystemUsage, processes: Processes, chatgptUsage: ReadUsage, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, kept: Kept, diagnostics: Diagnostics, codexInUse: () => Promise<boolean>, sentPrompts: import('./sent-prompts.js').SentPrompts }} Deps
  *   instance: this run of the viewer, told apart from any other — see /api/machine; vscode: VS Code's web server
  *   behind /vscode/, none when the viewer runs none
- * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'forkedFrom' | 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'focusTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'createWorkspace' | 'history' | 'reopen' | 'restart'>} HerdrView
+ * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'forkedFrom' | 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'focusTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hideWorkspace' | 'showWorkspace' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'continueTab' | 'createWorkspace' | 'history' | 'reopen' | 'restart' | 'exit'>} HerdrView
  * @typedef {Pick<ReturnType<typeof import('./terminal.js').createTerminals>, 'stream' | 'type'>} Terminals
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
  * @typedef {{ origin: string, host: string }} PublicAddress — where the page is opened from outside, behind a tunnel:
@@ -272,6 +333,18 @@ async function handle(deps, request, response) {
       return withSession(url, response, async (id) => sendTaskOutput(deps, url, id, response));
     case '/api/usage':
       return sendJson(response, (await deps.usage()) ?? {});
+    // how busy the viewer's computer is, for the page's corner — its card left out when it has none
+    case '/api/system':
+      return sendJson(response, await deps.system.read());
+    // a meter of the page's pressed: the computer's processes, the busiest with its resource first
+    case '/api/system/processes': {
+      const by = url.searchParams.get('by');
+      if (by !== 'cpu' && by !== 'memory' && by !== 'gpu') {
+        response.writeHead(400).end('Bad resource');
+        return;
+      }
+      return sendJson(response, { by, processes: await deps.processes.read(by) });
+    }
     // Codex's, as its transcripts tell it, while it is in use: with nothing of Codex's open, the page shows Claude's alone
     case '/api/usage/codex': {
       const readings = await Promise.all([deps.chatgptUsage(), (await deps.codexInUse()) ? readCodexUsage(deps.index) : undefined]);
@@ -289,27 +362,24 @@ async function handle(deps, request, response) {
     // the prompts set aside for later in the session's box
     case '/api/later':
       return withSession(url, response, async (id) => sendJson(response, await deps.later.list(id)));
-    // a project folder's notes, asked for from one of its sessions
+    // the notes of the session's desk (desks.js)
     case '/api/notes':
-      return withSession(url, response, async (id) => {
-        const folder = await notesFolder(deps, id);
-        return sendJson(response, folder === undefined ? [] : await deps.notes.list(folder));
-      });
-    // the files pinned beside a session: its project folder's and its own
+      return withSession(url, response, async (id) => sendJson(response, await deps.desks.notes(id)));
+    // the files pinned beside a session: its desk's and its own
     case '/api/pins':
-      return withSession(url, response, async (id) => sendJson(response, await deps.pins.of({ folder: await notesFolder(deps, id), session: id })));
-    // the changes of the folder's notes, the latest first
+      return withSession(url, response, async (id) => sendJson(response, await sessionPins(deps, id)));
+    // the changes of the desk's notes, the latest first
     case '/api/notes/history':
-      return withSession(url, response, async (id) => {
-        const folder = await notesFolder(deps, id);
-        return sendJson(response, folder === undefined ? [] : await deps.notes.history(folder));
-      });
+      return withSession(url, response, async (id) => sendJson(response, await deps.desks.history(id)));
+    // the session's desk, and the desks it can take up
+    case '/api/desk':
+      return withSession(url, response, async (id) => sendJson(response, await deskOf(deps, id)));
     case '/api/stream':
       return withSession(url, response, async (id) => stream(deps, url, id, request, response));
     case '/api/feeds':
       return feedsStream(deps, url, request, response);
     case '/api/file/download':
-      return sendDownload(url, response);
+      return sendDownload(url, request, response);
     case '/api/folder/download':
       return sendFolderZip(url, response);
     case '/api/file':
@@ -563,6 +633,8 @@ async function handleWrite(deps, url, request, response) {
   if (url.pathname === '/api/file/save') return saveFile(body, response);
   if (url.pathname === '/api/file/create') return createFile(body, response);
   if (url.pathname === '/api/seen') return markSeen(deps, body, response);
+  if (url.pathname === '/api/diagnostics') return recordDiagnostics(deps, request, body, response);
+  if (url.pathname === '/api/paths/existing') return sendExisting(body, response);
   if (url.pathname === '/api/kept') return markKept(deps, body, response);
   if (url.pathname === '/api/pane/input') return typeIntoPane(deps, body, response);
   if (url.pathname === '/api/tab/rename') return renameTab(deps, body, response);
@@ -571,10 +643,13 @@ async function handleWrite(deps, url, request, response) {
   if (url.pathname === '/api/tab/move') return moveTab(deps, body, response);
   if (url.pathname === '/api/tab/new') return newTab(deps, body, response);
   if (url.pathname === '/api/tab/duplicate') return duplicateTab(deps, body, response);
+  if (url.pathname === '/api/tab/continue') return continueTab(deps, body, response);
   if (url.pathname === '/api/workspace/new') return newWorkspace(deps, body, response);
   if (url.pathname === '/api/workspace/rename') return renameWorkspace(deps, body, response);
   if (url.pathname === '/api/workspace/icon') return setWorkspaceIcon(deps, body, response);
   if (url.pathname === '/api/workspace/close') return closeWorkspace(deps, body, response);
+  if (url.pathname === '/api/workspace/hide') return hideWorkspace(deps, body, 'hide', response);
+  if (url.pathname === '/api/workspace/show') return hideWorkspace(deps, body, 'show', response);
   if (url.pathname === '/api/herdr/hide') return hidePane(deps, body, response);
   if (url.pathname === '/api/feeds/watch') return watchFeed(deps, body, response);
   if (url.pathname === '/api/feeds/unwatch') return unwatchFeed(deps, body, response);
@@ -594,13 +669,19 @@ async function handleWrite(deps, url, request, response) {
         response.writeHead(400).end(attached.error);
         return;
       }
-      // Claude Code and Codex open attached images by path; the files stay only if the terminal took the prompt.
-      const paths = await deps.uploads.save(attached.images);
-      const prompt = withAttachedImages(isRecord(body) && typeof body.text === 'string' ? body.text : '', paths);
-      // now: what waits in Claude Code's queue goes at once, the prompt with it — Ctrl+Enter on the page
-      const outcome = isRecord(body) && body.now === true ? await deps.composer.sendNow(sessionId, prompt) : await deps.composer.send(sessionId, prompt);
-      if (!outcome.ok) await deps.uploads.remove(paths);
-      return sendJson(response, outcome);
+      /** @returns {Promise<import('../public/model/composer.js').SendOutcome>} */
+      const sending = async () => {
+        // Claude Code and Codex open attached images by path; the files stay only if the terminal took the prompt.
+        const paths = await deps.uploads.save(attached.images);
+        const prompt = withAttachedImages(isRecord(body) && typeof body.text === 'string' ? body.text : '', paths);
+        // now: what waits in Claude Code's queue goes at once, the prompt with it — Ctrl+Enter on the page
+        const outcome = isRecord(body) && body.now === true ? await deps.composer.sendNow(sessionId, prompt) : await deps.composer.send(sessionId, prompt);
+        if (!outcome.ok) await deps.uploads.remove(paths);
+        return outcome;
+      };
+      // a prompt sent again under the id it went by — its reply lost while the page was out of reach — is typed once
+      const id = isRecord(body) ? text(body.id) : undefined;
+      return sendJson(response, id === undefined ? await sending() : await deps.sentPrompts.once(sessionId, id, sending));
     }
     case '/api/interrupt':
       return stop(deps, sessionId, response);
@@ -631,12 +712,26 @@ async function handleWrite(deps, url, request, response) {
       // a file pinned is a file there: a path typed by hand may name none
       const found = change.action === 'add' ? await fileAt(change.pin.path, homedir()) : undefined;
       if (found?.ok === false) return sendJson(response, { ok: false, error: found.error }, found.error === 'not-found' ? 404 : 400);
-      return sendJson(response, await deps.pins.change({ folder: await notesFolder(deps, sessionId), session: sessionId }, scope, change));
+      if (scope === 'session') {
+        await deps.pins.change({ folder: undefined, session: sessionId }, 'session', change);
+        return sendJson(response, await sessionPins(deps, sessionId));
+      }
+      if ((await deps.desks.changePins(sessionId, change)) === undefined) {
+        response.writeHead(404).end('No folder known for the session to keep its desk in');
+        return;
+      }
+      return sendJson(response, await sessionPins(deps, sessionId));
     }
     // its Claude Code ended and started again in its herdr tab, resuming it — with the variables the viewer was given, or,
-    // asked so, plainly; a page that tells neither, from before plain restarts, asks for the variables
-    case '/api/session/restart':
-      return sendJson(response, await deps.herdrView.restart(sessionId, isRecord(body) && body.variables === 'none' ? 'none' : 'given'));
+    // asked so, plainly; a page that tells neither, from before plain restarts, asks for the variables. In the launcher it
+    // ran in, unless the page asks for ordinary Claude Code or Claude Code through GPT
+    // the session's agent quit to its tab's shell
+    case '/api/session/exit':
+      return sendJson(response, await deps.herdrView.exit(sessionId));
+    case '/api/session/restart': {
+      const launcher = isRecord(body) && (body.launcher === 'claude' || body.launcher === 'claude-gpt') ? body.launcher : 'as-it-ran';
+      return sendJson(response, await deps.herdrView.restart(sessionId, isRecord(body) && body.variables === 'none' ? 'none' : 'given', launcher));
+    }
     case '/api/btw':
       // resume: asked again, the page's request for it lost — its answer, not the question asked anew
       return askAside(deps, sessionId, isRecord(body) && typeof body.question === 'string' ? body.question : '', isRecord(body) && body.resume === true ? 'resume' : 'ask', response);
@@ -662,13 +757,27 @@ async function handleWrite(deps, url, request, response) {
         response.writeHead(400).end('Bad change of the notes');
         return;
       }
-      const folder = await notesFolder(deps, sessionId);
-      if (folder === undefined) {
-        response.writeHead(404).end('No folder known for the session');
+      const notes = await deps.desks.changeNotes(sessionId, change);
+      if (notes === undefined) {
+        response.writeHead(404).end('No folder known for the session to keep its desk in');
         return;
       }
-      return sendJson(response, await deps.notes.change(folder, change));
+      return sendJson(response, notes);
     }
+    // a note of the session's desk put on another desk: the notes left
+    case '/api/notes/move': {
+      const id = isRecord(body) ? text(body.id) : undefined;
+      const to = isRecord(body) ? text(body.to) : undefined;
+      const left = id === undefined || to === undefined ? undefined : await deps.desks.moveNote(sessionId, id, to);
+      if (left === undefined) {
+        response.writeHead(404).end('No such note on the session\'s desk, or no such desk to put it on');
+        return;
+      }
+      return sendJson(response, left);
+    }
+    // the session's desk: another taken up, one made anew, or this one put in another folder
+    case '/api/desk':
+      return changeDesk(deps, sessionId, body, response);
     default:
       response.writeHead(404).end('Not found');
   }
@@ -773,6 +882,22 @@ async function closeWorkspace(deps, body, response) {
 }
 
 /**
+ * A herdr workspace hidden from the page's sidebar, kept open out of the way, or shown there again.
+ * @param {Deps} deps
+ * @param {unknown} body — { workspace }
+ * @param {'hide' | 'show'} change
+ * @param {http.ServerResponse} response
+ */
+async function hideWorkspace(deps, body, change, response) {
+  const workspace = workspaceOf(body);
+  if (workspace === undefined) {
+    response.writeHead(400).end('Bad workspace');
+    return;
+  }
+  return sendJson(response, await (change === 'hide' ? deps.herdrView.hideWorkspace(workspace) : deps.herdrView.showWorkspace(workspace)));
+}
+
+/**
  * A herdr tab closed from the page's tab bar.
  * @param {Deps} deps
  * @param {unknown} body — { tab }
@@ -851,6 +976,22 @@ async function duplicateTab(deps, body, response) {
 }
 
 /**
+ * A herdr tab with nothing running in it, asked from the page's tab bar to go on with its conversation — as after a
+ * restart of the computer — or with its folder's latest, found among the sessions listed.
+ * @param {Deps} deps
+ * @param {unknown} body — { tab }
+ * @param {http.ServerResponse} response
+ */
+async function continueTab(deps, body, response) {
+  const tab = tabOf(body);
+  if (tab === undefined) {
+    response.writeHead(400).end('Bad tab');
+    return;
+  }
+  return sendJson(response, await deps.herdrView.continueTab(tab, await deps.index.list()));
+}
+
+/**
  * A herdr workspace opened from the page: { label, folder, start } — start: a shell, or Claude Code.
  * @param {Deps} deps
  * @param {unknown} body
@@ -917,15 +1058,17 @@ async function rewind(deps, sessionId, body, response) {
     response.writeHead(400).end('Bad rewind request');
     return;
   }
-  const target = rewindTarget(await transcriptRecords(deps, sessionId), body.prompt);
+  const records = await transcriptRecords(deps, sessionId);
+  const target = rewindTarget(records, body.prompt);
   // A message sent while Claude was working joined that turn: the menu does not list it.
   if (target === undefined) return sendJson(response, { ok: false, error: 'not-listed' }, 404);
   const reply = await deps.composer.rewind(sessionId, { ...target, action });
-  // Claude Code's transcript keeps the branch rewound from, hidden here; Codex goes on in a file of its own, which is
-  // read in its place — and numbers what follows from where it was rewound
+  // Claude Code's transcript keeps the branch rewound from, hidden here until the next prompt; Codex goes on in a file of
+  // its own, which is read in its place — and numbers what follows from where it was rewound
   const path = await deps.index.find(sessionId);
   const claude = path !== undefined && deps.index.agentOf(path) === 'claude';
-  if (reply.ok && claude && (action === 'both' || action === 'conversation')) deps.rewinds.set(sessionId, body.prompt);
+  const lastPrompt = latestPrompt(records);
+  if (reply.ok && claude && (action === 'both' || action === 'conversation') && lastPrompt !== undefined) deps.rewinds.set(sessionId, { prompt: body.prompt, lastPrompt });
   return sendJson(response, reply.ok ? { ok: true, ...(reply.restoredPrompt ? { prompt: target.prompt } : {}) } : reply);
 }
 
@@ -939,7 +1082,8 @@ async function rewind(deps, sessionId, body, response) {
 async function stop(deps, sessionId, response) {
   const reply = await deps.composer.interrupt(sessionId);
   const stopped = reply.ok && reply.prompt !== undefined ? takenBackPrompt(await transcriptRecords(deps, sessionId), reply.prompt) : undefined;
-  if (stopped !== undefined) deps.rewinds.set(sessionId, stopped);
+  // the prompt taken back is the latest there is
+  if (stopped !== undefined) deps.rewinds.set(sessionId, { prompt: stopped, lastPrompt: stopped });
   return sendJson(response, reply);
 }
 
@@ -968,10 +1112,11 @@ async function transcriptRecords(deps, sessionId) {
   } finally {
     await joined.close();
   }
-  // a Codex session's, as Claude Code's records
-  if (deps.index.agentOf(path) !== 'codex') return raw;
-  const codex = createCodexReading();
-  return raw.flatMap((record) => codex.translate(record));
+  // a Codex session's, or an Antigravity CLI conversation's, as Claude Code's records
+  const agent = deps.index.agentOf(path);
+  if (agent === 'claude') return raw;
+  const reading = agent === 'codex' ? createCodexReading() : createAgyReading();
+  return raw.flatMap((record) => reading.translate(record));
 }
 
 /**
@@ -1051,14 +1196,55 @@ function isChangeStatus(value) {
 }
 
 /**
- * The project folder whose notes a session shows: none for a session the viewer does not list, or Codex's with no folder.
+ * The files pinned beside a session: its desk's, and its own.
  * @param {Deps} deps
  * @param {string} sessionId
- * @returns {Promise<string | undefined>}
+ * @returns {Promise<import('../public/model/pins.js').SessionPins>}
  */
-async function notesFolder(deps, sessionId) {
-  const session = (await deps.index.list()).find((one) => one.id === sessionId);
-  return session === undefined ? undefined : notesFolderOf(session);
+async function sessionPins(deps, sessionId) {
+  const own = await deps.pins.of({ folder: undefined, session: sessionId });
+  return { folder: await deps.desks.pins(sessionId), session: own.session };
+}
+
+/**
+ * The session's desk — null for none yet — and the desks it can take up.
+ * @param {Deps} deps
+ * @param {string} sessionId
+ */
+async function deskOf(deps, sessionId) {
+  return { current: (await deps.desks.current(sessionId)) ?? null, offered: await deps.desks.offered(sessionId) };
+}
+
+/**
+ * Another desk taken up by the session — choose, its file's path — one made anew in the folder the session started in —
+ * create, its name — or the session's desk put in another folder — move, the folder, which is there: the session's desk
+ * and those it can take up after it, or why not.
+ * @param {Deps} deps
+ * @param {string} sessionId
+ * @param {unknown} body
+ * @param {http.ServerResponse} response
+ */
+async function changeDesk(deps, sessionId, body, response) {
+  const action = isRecord(body) ? body.action : undefined;
+  /** @param {string} name */
+  const field = (name) => (isRecord(body) ? text(body[name])?.trim() : undefined);
+  const path = field('path');
+  const name = field('name');
+  const folder = field('folder');
+  if (action === 'choose' && path !== undefined && path !== '') {
+    if ((await deps.desks.choose(sessionId, path)) === undefined) return sendJson(response, { ok: false, error: 'no-desk' }, 404);
+  } else if (action === 'create' && name !== undefined && name !== '') {
+    if ((await deps.desks.create(sessionId, name)) === undefined) return sendJson(response, { ok: false, error: 'no-folder' }, 404);
+  } else if (action === 'move' && folder !== undefined && folder !== '') {
+    const there = await folderAt(folder, homedir());
+    if (!there.ok) return sendJson(response, { ok: false, error: there.error }, 404);
+    const moved = await deps.desks.move(sessionId, there.path);
+    if (!moved.ok) return sendJson(response, moved, moved.error === 'exists' ? 409 : 404);
+  } else {
+    response.writeHead(400).end('Bad change of the desk');
+    return;
+  }
+  return sendJson(response, { ok: true, ...(await deskOf(deps, sessionId)) });
 }
 
 /**
@@ -1180,12 +1366,12 @@ function feedOf(deps, { id, agentId, tail, from }) {
     running: agentId === null ? () => deps.isRunning(id) : async () => false,
     sessionStatus: agentId === null ? () => deps.sessionStatus(id) : async () => undefined,
     scope: agentId === null ? /** @type {const} */ ('main') : /** @type {const} */ ('subagent'),
-    rewoundAt: () => (agentId === null ? deps.rewinds.get(id) : undefined),
+    rewoundAt: (/** @type {readonly import('./branch.js').Link[]} */ links) => (agentId === null ? standingRewind(links, deps.rewinds.get(id)) : undefined),
     imageUrl: (/** @type {number} */ lineStart, /** @type {number} */ n) => imageLink(id, agentId, lineStart, n),
     pollMs: deps.pollMs,
     transcripts: deps.transcripts,
     tail,
-    version: deps.build,
+    version: deps.feedEntries,
     from,
   };
 }
@@ -1261,7 +1447,9 @@ function eventStream(request, response) {
   const write = (/** @type {string} */ text) => {
     if (!out.writableEnded) out.write(text);
   };
-  const ping = setInterval(() => write(': ping\n\n'), 15_000);
+  // alive, with nothing else to say: an event the page hears — a comment it would not — to tell a stream gone from a
+  // quiet one when it comes back into sight (public/view/feed-hub.js)
+  const ping = setInterval(() => write('event: ping\ndata: null\n\n'), 15_000);
   request.on('close', () => {
     controller.abort();
     clearInterval(ping);
@@ -1354,8 +1542,10 @@ async function sendEntry(deps, url, id, response) {
   const parts = path === undefined ? undefined : agentId === null ? await deps.index.partsOf(path) : [{ path, end: undefined }];
   const line = parts === undefined ? undefined : await readLineAt(parts, lineStart);
   const parsed = line === undefined ? undefined : parseLine(line);
-  // a Codex session's line read alone is the record it was read as in turn
-  const raw = path !== undefined && parsed !== undefined && deps.index.agentOf(path) === 'codex' ? createCodexReading().translate(parsed)[0] : parsed;
+  // a Codex session's line read alone is the record it was read as in turn; an agy conversation's, read from the start —
+  // a tool's output there names no call
+  const agent = path === undefined ? undefined : deps.index.agentOf(path);
+  const raw = path !== undefined && agent === 'agy' ? agyRecordAt(await readFile(path), lineStart) : parsed !== undefined && agent === 'codex' ? createCodexReading().translate(parsed)[0] : parsed;
   const entry = raw === undefined ? undefined : slimEntry(raw, agentId === null ? 'main' : 'subagent', (n) => imageLink(id, agentId, lineStart, n));
   if (entry === undefined) {
     response.writeHead(404).end('Not found');
@@ -1379,7 +1569,7 @@ async function sendSnapshot(deps, url, id, response) {
     return;
   }
   const read = await deps.transcripts.read(path, { scope: 'main', imageUrl: (lineStart, n) => imageLink(id, null, lineStart, n) });
-  return sendJson(response, openingPart(read.entries, deps.rewinds.get(id), tailOf(url)));
+  return sendJson(response, openingPart(read.entries, standingRewind(read.entries.map(({ link }) => link), deps.rewinds.get(id)), tailOf(url)));
 }
 
 /**
@@ -1424,7 +1614,8 @@ async function sendTasks(deps, id, response) {
   const path = await deps.index.find(id);
   if (path === undefined) return sendJson(response, []);
   const read = await deps.transcripts.read(path, { scope: 'main', imageUrl: (lineStart, n) => imageLink(id, null, lineStart, n) });
-  return sendJson(response, await seenTasks(read.tasks.list(), await deps.isRunning(id), (agentId) => deps.index.findSubagent(id, agentId)));
+  // asked every few seconds while one runs, a long session's hundred and more: the same list again is a 304
+  return sendRevalidated(response, await seenTasks(read.tasks.list(), await deps.isRunning(id), (agentId) => deps.index.findSubagent(id, agentId)));
 }
 
 /**
@@ -1473,19 +1664,32 @@ async function sendFile(url, response) {
 }
 
 /**
- * A file from any absolute path, as the panel's text is, saved on the device that asked under its own name.
+ * A file from any absolute path, as the panel's text is, saved on the device that asked under its own name. A download
+ * cut midway — a tablet's connection gone — is taken up by the browser from where it stopped (transfer.js: askedBytes):
+ * the file says it can be sent in parts, and what it is now, by its ETag and its date.
  * @param {URL} url — ?path=<the file>
+ * @param {http.IncomingMessage} request
  * @param {http.ServerResponse} response
  */
-async function sendDownload(url, response) {
+async function sendDownload(url, request, response) {
   const found = await fileToDownload(url.searchParams.get('path') ?? '', homedir());
   if (!found.ok) {
     response.writeHead(downloadRefusalStatus[found.error]).end(`Cannot download: ${found.error}`);
     return;
   }
-  response.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': String(found.size), 'Content-Disposition': attachment(found.name), 'Cache-Control': 'no-store' });
-  // the device gone midway: nothing to tell it
-  await pipeline(createReadStream(found.path), response).catch(() => response.destroy());
+  const etag = `"${found.size.toString(16)}-${Math.trunc(found.modifiedAt).toString(16)}"`;
+  const lastModified = new Date(found.modifiedAt).toUTCString();
+  const asked = askedBytes({ range: request.headers.range, ifRange: text(request.headers['if-range']) }, { size: found.size, etag, lastModified });
+  const headers = { 'Content-Type': 'application/octet-stream', 'Content-Disposition': attachment(found.name), 'Cache-Control': 'no-store', 'Accept-Ranges': 'bytes', ETag: etag, 'Last-Modified': lastModified };
+  if (asked.kind === 'past-end') {
+    response.writeHead(416, { 'Content-Range': `bytes */${found.size}` }).end();
+    return;
+  }
+  if (asked.kind === 'part') response.writeHead(206, { ...headers, 'Content-Length': String(asked.end - asked.start + 1), 'Content-Range': `bytes ${asked.start}-${asked.end}/${found.size}` });
+  else response.writeHead(200, { ...headers, 'Content-Length': String(found.size) });
+  const bytes = asked.kind === 'part' ? { start: asked.start, end: asked.end } : {};
+  // the device gone midway: nothing to tell it — it asks for the rest when it can
+  await pipeline(createReadStream(found.path, bytes), response).catch(() => response.destroy());
 }
 
 /**
@@ -1595,6 +1799,42 @@ const folderRefusalStatus = { 'not-absolute': 400, 'not-found': 404, 'not-a-fold
 /** @type {Readonly<Record<import('./project.js').FolderRefusal | 'bad-pattern' | 'no-git', number>>} */
 const searchRefusalStatus = { ...folderRefusalStatus, 'bad-pattern': 400, 'no-git': 501 };
 
+/** The paths a page asks about at once, at most. */
+const maxPathsAsked = 50;
+
+/**
+ * Which of the paths a page found are files here: a path through a folder with spaces is linked whole only if it is
+ * (public/view/file-links.js). Each told as asked.
+ * @param {unknown} body — { paths: string[] }
+ * @param {http.ServerResponse} response
+ */
+async function sendExisting(body, response) {
+  const asked = isRecord(body) && Array.isArray(body.paths) ? body.paths : undefined;
+  const paths = asked?.flatMap((path) => (typeof path === 'string' ? [path] : []));
+  if (asked === undefined || paths === undefined || paths.length !== asked.length || paths.length > maxPathsAsked) {
+    response.writeHead(400).end('Bad paths');
+    return;
+  }
+  const found = await Promise.all(paths.map(async (path) => ((await fileAt(path, homedir())).ok ? [path] : [])));
+  return sendJson(response, { existing: found.flat() });
+}
+
+/**
+ * A page's diagnostics — its frames, its keys' waits, its requests — written down with the browser that told them.
+ * @param {Deps} deps
+ * @param {http.IncomingMessage} request
+ * @param {unknown} body — the report: any object
+ * @param {http.ServerResponse} response
+ */
+async function recordDiagnostics(deps, request, body, response) {
+  if (!isRecord(body)) {
+    response.writeHead(400).end('Bad diagnostics');
+    return;
+  }
+  await deps.diagnostics.record(body, { at: Date.now(), agent: text(request.headers['user-agent']) ?? 'unknown' });
+  return sendJson(response, { ok: true });
+}
+
 /**
  * An answer seen in a page, kept for every device.
  * @param {Deps} deps
@@ -1635,7 +1875,7 @@ async function markKept(deps, body, response) {
  * @returns {import('../public/model/herdr.js').TabStart | undefined}
  */
 function tabStartOf(value) {
-  return value === 'shell' || value === 'claude' || value === 'claude-gpt' || value === 'codex' ? value : undefined;
+  return value === 'shell' || value === 'claude' || value === 'claude-gpt' || value === 'codex' || value === 'agy' ? value : undefined;
 }
 
 /** A file's text as JSON: an escaped character takes up to six bytes. */
@@ -1703,7 +1943,8 @@ async function sendFileImage(url, response) {
  */
 async function sendFolderFile(url, response) {
   const [token = '', ...steps] = url.pathname.slice(folderPrefix.length).split('/');
-  const folder = Buffer.from(token, 'base64url').toString('utf8');
+  // a folder named from the home folder — ~/docs, as an answer links a document there — made whole
+  const folder = wholePath(Buffer.from(token, 'base64url').toString('utf8'), homedir());
   /** @type {string} */
   let relative;
   try {
@@ -1806,17 +2047,19 @@ const buildPath = /^\/b\/[0-9a-f]{1,64}(\/.+)$/;
 /**
  * The page links its files under the current build path, so after an update they have new URLs and no cache —
  * the browser's or a proxy's — can serve the old ones; under such a URL a file never changes and may be kept.
- * @param {Pick<Deps, 'build' | 'palette' | 'fileIcons'>} deps — palette: the page's colours and tab icon
+ * @param {Pick<Deps, 'build' | 'palette' | 'fileIcons' | 'pageModules'>} deps — palette: the page's colours and tab icon;
+ *   pageModules: the modules the page loads at its start (modulesAtStart)
  * @param {string} pathname
  * @param {http.ServerResponse} response
  */
-async function servePage({ build, palette, fileIcons }, pathname, response) {
+async function servePage({ build, palette, fileIcons, pageModules }, pathname, response) {
   if (pathname === '/' || pathname === '/index.html') {
     const assets = `/b/${build}`;
     // CodeMirror's modules, for the file panel's editor: the import map names each
     const editor = Object.entries(editorImports(assets)).map(([name, address]) => `,
         ${JSON.stringify(name)}: ${JSON.stringify(address)}`).join('');
-    const html = (await readFile(join(publicDir, 'index.html'), 'utf8')).replaceAll('{{editorImports}}', editor).replaceAll('{{assets}}', assets).replaceAll('{{palette}}', palette);
+    const preloads = pageModules.map((address) => `<link rel="modulepreload" href="${assets}${address}">`).join('\n  ');
+    const html = (await readFile(join(publicDir, 'index.html'), 'utf8')).replaceAll('{{editorImports}}', editor).replaceAll('{{modulePreloads}}', preloads).replaceAll('{{assets}}', assets).replaceAll('{{palette}}', palette);
     return sendBody(response, 200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }, Buffer.from(html));
   }
   const built = buildPath.exec(pathname)?.[1];
@@ -1865,20 +2108,67 @@ async function pageBuild() {
  * @param {string} cacheControl
  */
 async function serveFile(pathname, response, cacheControl) {
-  const file = vendor.get(pathname) ?? fileViewsFile(pathname) ?? editorFile(pathname) ?? publicFile(pathname === '/' ? '/index.html' : pathname);
+  const file = pageFile(pathname === '/' ? '/index.html' : pathname);
   const info = file === undefined ? undefined : await stat(file).catch(() => undefined);
   if (file === undefined || info === undefined || !info.isFile()) {
     response.writeHead(404).end('Not found');
     return;
   }
-  // Without the build path the browser asks every time (no-cache) but downloads the file again only when it has changed.
-  const etag = `W/"${info.size}-${Math.trunc(info.mtimeMs)}"`;
+  // Without the build path the browser asks every time (no-cache) but downloads the file again only when it has changed;
+  // under a new build path the page's service worker asks whether the file it kept from the build before has. The tag
+  // is of what the file holds, not of when it was written: an update of the viewer writes every file anew.
+  const body = await readFile(file);
+  const etag = `W/"${createHash('sha256').update(body).digest('base64url').slice(0, 27)}"`;
   if (isUnchanged(response.req.headers['if-none-match'], etag)) {
     response.writeHead(304, { ETag: etag, 'Cache-Control': cacheControl }).end();
     return;
   }
   const headers = { 'Content-Type': contentTypes[extname(file)] ?? 'application/octet-stream', 'Cache-Control': cacheControl, ETag: etag };
-  await sendBody(response, 200, headers, await readFile(file));
+  await sendBody(response, 200, headers, body);
+}
+
+/**
+ * The file a page's address names, under the build path: a package's the page loads, or one of public/.
+ * @param {string} pathname
+ * @returns {string | undefined}
+ */
+function pageFile(pathname) {
+  return vendor.get(pathname) ?? lucideIconFile(pathname) ?? fileViewsFile(pathname) ?? editorFile(pathname) ?? publicFile(pathname);
+}
+
+/**
+ * The modules the page loads at its start, besides app.js: those it imports outright, and theirs, over and over — by a
+ * relative path, or by a name the page's import map gives. The page names them for the browser to ask for at once, not
+ * a step at a time as each one's imports come to light: seven steps deep, a round trip each over a slow link, and after
+ * an update of the viewer each file asked about again so (sw.js).
+ * @returns {Promise<string[]>} — their addresses under the build path: /view/session-view.js
+ */
+async function modulesAtStart() {
+  const template = await readFile(join(publicDir, 'index.html'), 'utf8');
+  const named = importMapOf(template);
+  const graph = await moduleGraph(['/app.js'], {
+    read: (address) => {
+      const file = pageFile(address);
+      if (file === undefined) throw new Error(`The page imports ${address}, which is no file of the page's`);
+      return readFile(file, 'utf8');
+    },
+    follow: (specifier, importer) => (specifier.startsWith('.') ? new URL(specifier, `http://page${importer}`).pathname : named.get(specifier)),
+  });
+  return [...graph.keys()].filter((address) => address !== '/app.js');
+}
+
+/**
+ * The names the page's import map gives modules — those of index.html, the build path left out — by name.
+ * @param {string} template — index.html as it is in public/
+ * @returns {Map<string, string>}
+ */
+function importMapOf(template) {
+  const map = /<script type="importmap">([\s\S]*?)<\/script>/.exec(template)?.[1];
+  if (map === undefined) throw new Error('index.html has no import map');
+  /** @type {unknown} */
+  const parsed = JSON.parse(map.replaceAll('{{editorImports}}', '').replaceAll('{{assets}}', ''));
+  if (!isRecord(parsed) || !isRecord(parsed.imports)) throw new Error("index.html's import map names no imports");
+  return new Map(Object.entries(parsed.imports).flatMap(([name, address]) => (typeof address === 'string' ? [[name, address]] : [])));
 }
 
 /**

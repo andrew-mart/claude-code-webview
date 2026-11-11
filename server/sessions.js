@@ -6,6 +6,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { interpretEntry } from '../public/model/entry.js';
+import { createAgyReading } from './agy.js';
 import { createCodexReading } from './codex.js';
 import { openJoined } from './joined.js';
 import { isRecord, text } from '../public/model/narrow.js';
@@ -18,12 +19,12 @@ import { readLineAt } from './tail.js';
  * service records to an old session (a summary on restart, a bridge note)
  * @typedef {{ title: string | undefined, cwd: string | undefined, startedIn: string | undefined, branch: string | undefined, kind: SessionKind, lastActivity: number | undefined }} SessionSummary
  * activeAt — the last prompt or answer; the file's time while that is not known yet
- * @typedef {'claude' | 'codex'} Agent — whose session it is: Claude Code's, or Codex's
+ * @typedef {'claude' | 'codex' | 'agy'} Agent — whose session it is: Claude Code's, Codex's, or Antigravity CLI's
  * @typedef {{ id: string, project: string, agent: Agent, title: string | undefined, cwd: string | undefined, startedIn: string | undefined, branch: string | undefined, kind: SessionKind, modifiedAt: number, size: number, activeAt: number }} SessionInfo
  * @typedef {{ agentId: string, toolUseId: string | undefined, agentType: string | undefined, description: string | undefined }} SubagentInfo
  * @typedef {{ path: string, project: string, agent: Agent, id: string, modifiedAt: number, size: number }} SessionFile
- * @typedef {{ id: string, cwd: string, startedAt: number }} StartedSession — a session Claude Code has open: its folder,
- *   and when it started
+ * @typedef {{ id: string, cwd: string, startedAt: number, agent: 'claude' | 'agy' }} StartedSession — a session open with
+ *   no transcript yet: its folder, when it started, and whose — Claude Code's, or agy's before its first message
  */
 
 const sessionFileName = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
@@ -41,12 +42,13 @@ const unknownSummary = { title: undefined, cwd: undefined, startedIn: undefined,
  * There can be thousands of sessions, so a single list request computes summaries within a time budget
  * (the first batch always), the remaining sessions go out untitled and are filled in on later requests.
  * @param {string} root — ~/.claude/projects
- * @param {{ summaryBudgetMs: number, missRetryMs: number, codexRoot?: string | undefined, started?: (() => Promise<readonly StartedSession[]>) | undefined }} options
+ * @param {{ summaryBudgetMs: number, missRetryMs: number, codexRoot?: string | undefined, agy?: { list: () => Promise<readonly import('./agy-conversations.js').AgyConversation[]> } | undefined, started?: (() => Promise<readonly StartedSession[]>) | undefined }} options
  *   — missRetryMs: how long an id found in no file is not looked for again — the pages ask about it often, and each look
- *   goes over all the files; codexRoot: ~/.codex/sessions, none: no Codex sessions; started: the sessions Claude Code
- *   has open — one with no transcript yet, before its first message, is listed by its folder — none: only transcripts
+ *   goes over all the files; codexRoot: ~/.codex/sessions, none: no Codex sessions; agy: Antigravity CLI's
+ *   conversations (agy-conversations.js), none: none of agy's; started: the sessions Claude Code has open — one with no
+ *   transcript yet, before its first message, is listed by its folder — none: only transcripts
  */
-export function createSessionIndex(root, { summaryBudgetMs, missRetryMs, codexRoot, started }) {
+export function createSessionIndex(root, { summaryBudgetMs, missRetryMs, codexRoot, agy, started }) {
   /** summarizedAt — when the summary was made: a page that asked before learns it with the next changes */
   /** @type {Map<string, { size: number, modifiedAt: number, summary: SessionSummary, summarizedAt: number }>} */
   const summaries = new Map();
@@ -63,6 +65,9 @@ export function createSessionIndex(root, { summaryBudgetMs, missRetryMs, codexRo
   /** Where the file before a Codex session's next one leaves off: the next one's first line tells, and never changes. */
   /** @type {Map<string, number | undefined>} */
   const goesOnFrom = new Map();
+  /** What agy says of each of its conversations, by its transcript: its title, folder and who runs it. */
+  /** @type {Map<string, import('./agy-conversations.js').AgyFacts>} */
+  const agyFacts = new Map();
   /** When each session open with no transcript was first listed: a page that asked before learns of it with the next changes. */
   /** @type {ReadonlyMap<string, number>} */
   let startedListedAt = new Map();
@@ -74,11 +79,13 @@ export function createSessionIndex(root, { summaryBudgetMs, missRetryMs, codexRo
    */
   async function allFiles() {
     const codex = codexRoot === undefined ? [] : codexSessions(await codexFiles(codexRoot));
+    const agyConversations = agy === undefined ? [] : await agy.list();
+    for (const conversation of agyConversations) agyFacts.set(conversation.path, conversation.facts);
     for (const session of codex) {
       codexPaths.add(session.file.path);
       if (session.paths.length > 1) codexParts.set(session.file.path, session.paths);
     }
-    return newestById([...(await sessionFiles(root)), ...codex.map((session) => session.file)].sort((a, b) => b.modifiedAt - a.modifiedAt));
+    return newestById([...(await sessionFiles(root)), ...codex.map((session) => session.file), ...agyConversations.map(agyFile)].sort((a, b) => b.modifiedAt - a.modifiedAt));
   }
 
   /** @returns {Promise<readonly SessionInfo[]>} */
@@ -142,7 +149,7 @@ export function createSessionIndex(root, { summaryBudgetMs, missRetryMs, codexRo
    */
   async function summarize(file, version) {
     const lines = await edgeLines(await partsOf(file.path));
-    const summary = summarizeSession(file.agent === 'codex' ? codexLines(lines) : lines);
+    const summary = file.agent === 'agy' ? agySummary(summarizeSession(agyLines(lines)), agyFacts.get(file.path)) : summarizeSession(file.agent === 'codex' ? codexLines(lines) : lines);
     summaries.set(file.path, { size: file.size, modifiedAt: file.modifiedAt, summary, summarizedAt: version });
   }
 
@@ -197,7 +204,8 @@ export function createSessionIndex(root, { summaryBudgetMs, missRetryMs, codexRo
    * @returns {Agent}
    */
   function agentOf(path) {
-    return codexPaths.has(path) ? 'codex' : 'claude';
+    if (codexPaths.has(path)) return 'codex';
+    return agyFacts.has(path) ? 'agy' : 'claude';
   }
 
   /**
@@ -258,6 +266,37 @@ export function createSessionIndex(root, { summaryBudgetMs, missRetryMs, codexRo
 function codexLines(lines) {
   const reading = createCodexReading();
   return lines.flatMap((line) => reading.translate(parse(line)).map((record) => JSON.stringify(record)));
+}
+
+/**
+ * agy's steps as Claude Code's records, for a summary.
+ * @param {readonly string[]} lines
+ * @returns {string[]}
+ */
+function agyLines(lines) {
+  const reading = createAgyReading();
+  return lines.flatMap((line) => reading.translate(parse(line)).map((record) => JSON.stringify(record)));
+}
+
+/**
+ * An agy conversation's summary as agy tells it — its records name no folder and no way it was started: the title agy
+ * gave it, the first line of its request when it gave none; its folder; who runs it.
+ * @param {SessionSummary} read — of its records
+ * @param {import('./agy-conversations.js').AgyFacts | undefined} facts — agy's, none: the records alone tell
+ * @returns {SessionSummary}
+ */
+function agySummary(read, facts) {
+  if (facts === undefined) return read;
+  return { ...read, title: facts.title === undefined ? read.title : facts.title, cwd: facts.cwd, startedIn: facts.cwd, kind: facts.kind };
+}
+
+/**
+ * An agy conversation's transcript as a session's file.
+ * @param {import('./agy-conversations.js').AgyConversation} conversation
+ * @returns {SessionFile}
+ */
+function agyFile({ id, path, modifiedAt, size }) {
+  return { path, project: 'agy', agent: 'agy', id, modifiedAt, size };
 }
 
 /**
@@ -395,13 +434,13 @@ function omitPath({ path, ...rest }) {
 }
 
 /**
- * A session Claude Code has open with no transcript yet: untitled, in its folder — under the project folder its
- * transcript will be written in — active since it started.
+ * A session open with no transcript yet: untitled, in its folder — Claude Code's under the project folder its
+ * transcript will be written in, agy's under agy's — active since it started.
  * @param {StartedSession} session
  * @returns {SessionInfo}
  */
-function startedInfo({ id, cwd, startedAt }) {
-  return { id, project: cwd.replace(/[^a-zA-Z0-9]/g, '-'), agent: 'claude', title: undefined, cwd, startedIn: cwd, branch: undefined, kind: 'interactive', modifiedAt: startedAt, size: 0, activeAt: startedAt };
+function startedInfo({ id, cwd, startedAt, agent }) {
+  return { id, project: agent === 'agy' ? 'agy' : cwd.replace(/[^a-zA-Z0-9]/g, '-'), agent, title: undefined, cwd, startedIn: cwd, branch: undefined, kind: 'interactive', modifiedAt: startedAt, size: 0, activeAt: startedAt };
 }
 
 /**
