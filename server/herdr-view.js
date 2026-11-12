@@ -82,6 +82,12 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
    * @type {Map<string, Launch>}
    */
   const launches = new Map();
+  /**
+   * When the page started Codex in a pane, ms, by pane id: before its first message Codex's thread names no folder,
+   * and the pane runs the first one made after it started (codex-live.js).
+   * @type {Map<string, number>}
+   */
+  const codexStarts = new Map();
   /** Where every session seen running was — read from the file once, then kept here and written back. */
   /** @type {Promise<{ history: import('../public/model/history.js').History, writtenAt: number }> | undefined} */
   let kept;
@@ -172,7 +178,9 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
     if (snapshot === undefined) return undefined;
     const claude = await runningSessions(snapshot.panes);
     // Codex's threads are looked at only while a pane runs Codex; agy's runs, while one runs agy
-    const codex = snapshot.panes.some((pane) => pane.agent === 'codex') ? codexPanes(snapshot.panes, await codexThreads()) : new Map();
+    // a pane gone forgets when Codex was started in it
+    for (const pane of codexStarts.keys()) if (!snapshot.panes.some((one) => one.paneId === pane)) codexStarts.delete(pane);
+    const codex = snapshot.panes.some((pane) => pane.agent === 'codex') ? codexPanes(snapshot.panes, await codexThreads(), codexStarts) : new Map();
     const agy = snapshot.panes.some((pane) => pane.agent === 'agy') ? agyPanes(snapshot.panes, await agyRuns()) : { conversations: new Map(), started: new Map() };
     const sessions = new Map([...claude, ...codex, ...agy.conversations]);
     // an agy run before its first message shows by its own id, which no tab goes on with: agy makes the conversation
@@ -223,8 +231,10 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
     }
     const goingOn = agent === 'codex' ? codexGoingOn(goOn) : agent === 'agy' ? agyGoingOn(goOn) : claudeGoingOn(goOn);
     const command = [startCommand, ...goingOn, ...(gpt && gptModel !== undefined ? ['--model', gptModel] : [])];
+    const startedAt = Date.now();
     const started = succeeded(await herdr(['pane', 'send-text', pane, `${ahead}${command.join(' ')}`])) && succeeded(await herdr(['pane', 'send-keys', pane, 'enter']));
     if (started && gpt) gptPanes.add(pane);
+    if (started && agent === 'codex') codexStarts.set(pane, startedAt);
     if (started && claude && goOn?.as === 'resume') launches.set(goOn.session, { launcher: gpt ? 'claude-gpt' : 'claude', at: Date.now() });
     if (started && claude) void acceptTrust(herdr, pane, trust).catch(() => undefined); // herdr gone meanwhile: nothing to answer
     return started;

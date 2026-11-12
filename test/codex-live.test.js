@@ -13,6 +13,34 @@ import { codexPanes, createCodexThreads } from '../server/codex-live.js';
  */
 const codexPane = (paneId, cwd, title) => ({ paneId, workspaceId: paneId.split(':')[0] ?? '', tabId: undefined, terminal: undefined, cwd, agent: 'codex', status: 'working', title, size: undefined, activity: 1 });
 
+// Codex the page started in a pane runs the first thread not written yet made after it started — a thread's id tells
+// when it was made (a UUID of version 7) — however many others not written yet Codex holds open elsewhere: Codex left
+// open with nothing sent in another terminal, a side conversation. One made before the start is none of it; one taken by
+// another pane started from the page later is that pane's
+test('codexPanes_Should_GivePaneCodexWasStartedInFromThePage_TheFirstThreadMadeAfterItsStart', () => {
+  const unwritten = (/** @type {string} */ id) => ({ id, cwd: undefined, name: undefined, activeAt: undefined });
+  // made 2026-11-11 12:00:00, 2026-11-11 18:00:00, 2026-11-12 05:47:13 and 05:52:00 (UTC)
+  const yesterday = unwritten('01a1ca7a-ae00-70aa-8bbb-000000000000');
+  const evening = unwritten('01a1cbc4-4500-71aa-8bbb-111111111111');
+  const fresh = unwritten('01a1ce4b-bee8-72aa-8bbb-222222222222');
+  const later = unwritten('01a1ce50-2000-73aa-8bbb-333333333333');
+  const threads = [yesterday, evening, later, fresh];
+  const started = (/** @type {string} */ at) => Date.parse(at);
+
+  assert.deepEqual(
+    {
+      one: [...codexPanes([codexPane('w6:p1', 'D:\\agent')], threads, new Map([['w6:p1', started('2026-11-12T05:47:10Z')]]))],
+      two: [...codexPanes([codexPane('w6:p1', 'D:\\agent'), codexPane('w7:p1', 'D:\\agent')], threads, new Map([['w6:p1', started('2026-11-12T05:47:10Z')], ['w7:p1', started('2026-11-12T05:51:58Z')]]))].sort(),
+      notStartedHere: [...codexPanes([codexPane('w6:p1', 'D:\\agent')], threads, new Map())],
+    },
+    {
+      one: [['w6:p1', fresh.id]],
+      two: [['w6:p1', fresh.id], ['w7:p1', later.id]],
+      notStartedHere: [],
+    },
+  );
+});
+
 // Codex opened in a tab writes its session's file only with the thread's first message: before it the thread is open —
 // its folder unknown — and the one Codex pane left with no thread runs it, when there is only one of each; with more,
 // they cannot be told apart and are left alone
@@ -23,9 +51,9 @@ test('codexPanes_Should_GiveThePaneLeftTheOneThreadNotWrittenYet', () => {
 
   assert.deepEqual(
     {
-      one: [...codexPanes(panes, [shop, fresh])],
-      twoThreads: [...codexPanes(panes, [shop, fresh, { ...fresh, id: 'fresh-too' }])],
-      twoPanes: [...codexPanes([...panes, codexPane('w3:p1', 'D:\\dev\\docs')], [shop, fresh])],
+      one: [...codexPanes(panes, [shop, fresh], new Map())],
+      twoThreads: [...codexPanes(panes, [shop, fresh, { ...fresh, id: 'fresh-too' }], new Map())],
+      twoPanes: [...codexPanes([...panes, codexPane('w3:p1', 'D:\\dev\\docs')], [shop, fresh], new Map())],
     },
     {
       one: [
@@ -45,7 +73,7 @@ test('codexPanes_Should_GiveCodexPaneTheThreadOpenInItsFolder', () => {
     { id: 'thread-blog', cwd: 'D:\\dev\\blog', name: undefined, activeAt: 3 },
   ];
 
-  assert.deepEqual([...codexPanes([codexPane('w1:p1', 'd:/dev/shop/')], threads)], [['w1:p1', 'thread-shop']]);
+  assert.deepEqual([...codexPanes([codexPane('w1:p1', 'd:/dev/shop/')], threads, new Map())], [['w1:p1', 'thread-shop']]);
 });
 
 // Several Codex panes in one folder: each runs the thread its title names — Codex titles its terminal by the thread's
@@ -66,7 +94,7 @@ test('codexPanes_Should_TellThreadsOfOneFolderByPaneTitles_AndLeaveTheOnesItCann
     codexPane('w2:p2', 'D:\\dev\\blog', 'blog'),
   ];
 
-  assert.deepEqual([...codexPanes(panes, threads)].sort(), [['w1:p1', 'login'], ['w1:p2', 'fresh'], ['w1:p3', 'rate']]);
+  assert.deepEqual([...codexPanes(panes, threads, new Map())].sort(), [['w1:p1', 'login'], ['w1:p2', 'fresh'], ['w1:p3', 'rate']]);
 });
 
 // A pane whose title names no thread is given the one left in its folder only when that one has no name: a named thread
@@ -74,7 +102,7 @@ test('codexPanes_Should_TellThreadsOfOneFolderByPaneTitles_AndLeaveTheOnesItCann
 test('codexPanes_Should_LeavePaneAlone_When_TheThreadLeftInItsFolderHasANameItsTitleDoesNotShow', () => {
   const threads = [{ id: 'elsewhere', cwd: 'D:\\dev\\shop', name: 'Fix the login', activeAt: 1 }];
 
-  assert.deepEqual([...codexPanes([codexPane('w1:p1', 'D:\\dev\\shop', 'shop')], threads)], []);
+  assert.deepEqual([...codexPanes([codexPane('w1:p1', 'D:\\dev\\shop', 'shop')], threads, new Map())], []);
 });
 
 // The threads Codex holds open — a lock it holds on each — that a person runs, with their folders and the names Codex

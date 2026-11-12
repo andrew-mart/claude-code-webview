@@ -14,16 +14,32 @@ import { folderKey } from './folders.js';
  *   first message
  */
 
+/** How much earlier than its start a thread of Codex started from the page may be made: the clocks are the same. */
+const startSlackMs = 2000;
+
+/**
+ * When a thread was made, as its id tells: Codex's are UUIDs of version 7, the time in ms their first 48 bits; none for
+ * an id of another kind.
+ * @param {string} id
+ * @returns {number | undefined}
+ */
+function madeAt(id) {
+  const hex = id.replaceAll('-', '');
+  return /^[0-9a-f]{12}7/i.test(hex) ? Number.parseInt(hex.slice(0, 12), 16) : undefined;
+}
+
 /**
  * The threads the Codex panes run: in a pane's folder, the thread its title names; then, of a folder's panes and
- * threads left, one pane runs the one thread with no name; last, the one pane left with none runs the one thread not
- * written yet — Codex opened, nothing sent in it — its folder unknown. Panes that cannot be told apart are left out — a
- * terminal, not a feed.
+ * threads left, one pane runs the one thread with no name; then a pane Codex was started in from the page runs the
+ * first thread not written yet — Codex opened, nothing sent in it, its folder unknown — made after it started, the
+ * panes taken in the order they were started; last, the one pane left with none runs the one thread not written yet.
+ * Panes that cannot be told apart are left out — a terminal, not a feed.
  * @param {readonly import('./herdr.js').Pane[]} panes
  * @param {readonly LiveThread[]} threads
+ * @param {ReadonlyMap<string, number>} started — when the page started Codex in a pane, ms, by pane id
  * @returns {Map<string, string>} — thread ids by pane id
  */
-export function codexPanes(panes, threads) {
+export function codexPanes(panes, threads, started) {
   /** @type {Map<string, string>} */
   const found = new Map();
   const taken = new Set();
@@ -49,6 +65,22 @@ export function codexPanes(panes, threads) {
     const [last] = unnamed;
     const [thread] = free;
     if (unnamed.length === 1 && free.length === 1 && last !== undefined && thread !== undefined) found.set(last.pane.paneId, thread.id);
+  }
+  // Codex started from the page: the first thread not written yet made after its start, the earliest started first
+  const startedHere = panes.flatMap((pane) => {
+    const at = started.get(pane.paneId);
+    return pane.agent === 'codex' && !found.has(pane.paneId) && at !== undefined ? [{ pane, at }] : [];
+  });
+  for (const { pane, at } of startedHere.sort((a, b) => a.at - b.at)) {
+    const [first] = threads
+      .flatMap((thread) => {
+        const made = madeAt(thread.id);
+        return thread.cwd === undefined && !taken.has(thread.id) && made !== undefined && made >= at - startSlackMs ? [{ thread, made }] : [];
+      })
+      .sort((a, b) => a.made - b.made);
+    if (first === undefined) continue;
+    found.set(pane.paneId, first.thread.id);
+    taken.add(first.thread.id);
   }
   const panesLeft = panes.filter((pane) => pane.agent === 'codex' && !found.has(pane.paneId));
   const unwritten = threads.filter((thread) => thread.cwd === undefined && !taken.has(thread.id));

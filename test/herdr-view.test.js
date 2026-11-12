@@ -754,6 +754,31 @@ test('createTab_And_reopen_Should_StartCodexWithItsCommand_AndResumeCodexSession
   );
 });
 
+// Codex started in a new tab from the page shows its thread at once — its feed, before the first message — however many
+// threads not written yet Codex holds open elsewhere: the first one made after it started
+test('createTab_Should_ShowCodexStartedThere_ByTheFirstThreadMadeAfterItStarted', async () => {
+  /** A thread Codex opened, nothing sent in it yet, made at this time: its id a UUID of version 7. @param {number} at @param {string} tail */
+  const unwritten = (at, tail) => {
+    const hex = at.toString(16).padStart(12, '0');
+    return { id: `${hex.slice(0, 8)}-${hex.slice(8, 12)}-7aaa-8bbb-${tail}`, cwd: undefined, name: undefined, activeAt: undefined };
+  };
+  const older = unwritten(Date.now() - 86_400_000, '000000000001');
+  const other = unwritten(Date.now() - 3_600_000, '000000000002');
+  const herdr = tabsHerdr({ panes: [{ pane_id: 'w2:p1', workspace_id: 'w2', tab_id: 'w2:t1', cwd: 'D:/shop' }, { pane_id: 'w2:p3', workspace_id: 'w2', tab_id: 'w2:t3', cwd: 'D:/shop', agent: 'codex' }] });
+  /** @type {import('../server/codex-live.js').LiveThread[]} */
+  const threads = [older, other];
+  const view = createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => threads, icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(tempDir('ccw-codex-start-'), 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex' });
+  const sessionOf = async () => (await view.layout()).workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes)).find((pane) => pane.id === 'w2:p3')?.session;
+
+  const before = await sessionOf();
+  await view.createTab('w2:t1', 'codex', undefined);
+  const fresh = unwritten(Date.now() + 500, '000000000003');
+  threads.push(fresh);
+  const after = await sessionOf();
+
+  assert.deepEqual({ before, after }, { before: undefined, after: fresh.id });
+});
+
 // A tab duplicated from the page: a new tab in its workspace and folder, named "<its name>::<the first number not
 // taken>" — a copy of a copy counted on from the same name — the session in it forked: Claude Code resumes it as a new
 // session, Codex forks its thread; a tab with no session gets a shell in its folder; the page goes to the new tab
