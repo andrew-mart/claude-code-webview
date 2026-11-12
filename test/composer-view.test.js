@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, sideQuestionOf } from '../public/model/composer.js';
+import { composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, sideQuestionOf, withPoint } from '../public/model/composer.js';
 
 const sessionId = '3f2c9a50-1111-4222-8333-944455556666';
 /** @type {{ id: string, agent: 'claude' }} */
@@ -84,6 +84,17 @@ test('promptForBox_Should_PutPromptBeforeDraftAndItsSavedImagesBackAsAttachments
 
   assert.deepEqual(promptForBox(prompt, ''), { text: 'Why does it fail?', images: ['/api/upload/a1b2-c3.png'] });
   assert.deepEqual(promptForBox('Now test it', 'and the edge cases'), { text: 'Now test it\n\nand the edge cases', images: [] });
+});
+
+// A point of an answer pressed goes into the box with a blank line under it, for the answer to be written there; with
+// something written already — another point answered — it goes after it, a blank line between
+test('withPoint_Should_PutThePointAfterWhatIsWritten_WithRoomForTheAnswerUnderIt', () => {
+  const point = '👉 Was the trip on 06.11 one or two?';
+
+  assert.deepEqual([withPoint('', point), withPoint('👉 Keep the old sort?\n\nYes, keep it\n', point)], [
+    '👉 Was the trip on 06.11 one or two?\n\n',
+    '👉 Keep the old sort?\n\nYes, keep it\n\n👉 Was the trip on 06.11 one or two?\n\n',
+  ]);
 });
 
 test('promptForBox_Should_LeaveImageListAsTextWhenViewerDidNotSaveEveryImage', () => {

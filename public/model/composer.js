@@ -255,6 +255,18 @@ export function promptForBox(prompt, draft) {
 }
 
 /**
+ * The box with a point of an answer added — a 👉 pressed (point-replies.js): after what is written, a blank line
+ * between, and a blank line under it for the answer to be written there.
+ * @param {string} draft — the box
+ * @param {string} point — what the 👉 points at
+ * @returns {string}
+ */
+export function withPoint(draft, point) {
+  const written = draft.trimEnd();
+  return `${written === '' ? '' : `${written}\n\n`}${point}\n\n`;
+}
+
+/**
  * The side question in the box: what follows "/btw" at its start, as the terminal takes it; empty for a bare "/btw".
  * agy has no side question the viewer drives: its box holds a prompt.
  * @param {string} text — the box

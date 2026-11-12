@@ -2903,6 +2903,33 @@ input.herdr-row-name.failed {
   margin: 0 0 0.6em;
 }
 
+/* A 👉 starting a line of an answer — something for the reader to answer — is a button: pressed, what it points at goes
+   into the prompt box (view/point-replies.js). It stays the emoji in its line, lifted a little and ringed on hover. */
+.point-reply {
+  display: inline;
+  margin: 0;
+  padding: 0 0.1em;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  line-height: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.point-reply:hover,
+.point-reply:focus-visible {
+  outline: none;
+  background: color-mix(in oklch, var(--accent) 16%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 45%, transparent);
+}
+
+.point-reply:active {
+  background: color-mix(in oklch, var(--accent) 28%, transparent);
+}
+
 .md.answer :is(h1, h2, h3, h4) {
   margin: 1.1em 0 0.3em;
   font-family: var(--font-notion);

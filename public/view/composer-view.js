@@ -4,7 +4,7 @@
 // Claude Code waits for — its AskUserQuestion dialog — shows above the box too, and is answered from there (/api/dialog).
 // A command typed — a slash first — has the session's commands and skills offered over the box (command-menu.js).
 import { pollWhileShown } from './polling.js';
-import { askerNames, btwMessage, composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, sideQuestionOf, stopMessage } from '../model/composer.js';
+import { askerNames, btwMessage, composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, sideQuestionOf, stopMessage, withPoint } from '../model/composer.js';
 import { parseDialogReply } from '../model/dialog.js';
 import { parseNewTab } from '../model/herdr.js';
 import { answerBlocks } from '../model/side-answer.js';
@@ -53,7 +53,7 @@ const outOfReach = { shown: true, enabled: true, canInterrupt: false, canReopen:
  *   session's terminal took — the feed shows it until Claude Code writes it down. onDialog: the terminal shows a dialog —
  *   a slash command sent may have opened it, /mcp, and it is written down only once the dialog does something, if ever;
  *   onAtPrompt: whether the agent is at its prompt now — idle and asking nothing, or closed — told as its state comes
- * @returns {{ element: HTMLElement, say: (message: string, tone: 'ok' | 'error') => void, fill: (text: string) => void, stop: () => boolean, sendQueue: () => void, pokeLive: () => void, dispose: () => void }} — stop: Claude stopped if it was working
+ * @returns {{ element: HTMLElement, say: (message: string, tone: 'ok' | 'error') => void, fill: (text: string) => void, answerPoint: (point: string) => void, stop: () => boolean, sendQueue: () => void, pokeLive: () => void, dispose: () => void }} — stop: Claude stopped if it was working
  */
 export function createComposer(sessionId, { agent, focusBox, placeOf, asides, onSent, onDialog, onAtPrompt = () => undefined }) {
   /** @type {import('../model/composer.js').Keyboard} */
@@ -682,6 +682,20 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     say,
     fill,
     stop,
+    /**
+     * A point of an answer the reader pressed (point-replies.js), after what the box holds, for the answer to be
+     * written under it: the box focused there.
+     * @param {string} point
+     */
+    answerPoint(point) {
+      input.value = withPoint(input.value, point);
+      writeDraft(draftKey, input.value);
+      fit();
+      refreshButtons();
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+      input.scrollTop = input.scrollHeight;
+    },
     /** The session wrote something, or herdr's tabs changed: what the terminal shows asked for at once — a dialog may be open. */
     pokeLive: () => live.poke(),
     /** What waits in Claude Code's queue, sent now — ⏩ on a waiting message, as Ctrl+Enter in the terminal. */

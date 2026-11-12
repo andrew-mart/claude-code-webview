@@ -3,8 +3,8 @@
 // headings, emphasis, code, links, lists, quotes, code blocks with their language and tables come back with their marks;
 // the page's own parts — copy buttons, labels, line numbers — are left out.
 
-/** The page's own parts inside an answer, not the answer's. */
-const notTheAnswer = 'button, svg, .code-bar, .gutter, .icon, .bookmark-flag, .table-tools, [aria-hidden="true"]';
+/** The page's own parts inside an answer, not the answer's: a 👉 made a button is the answer's (point-replies.js). */
+const notTheAnswer = 'button:not(.point-reply), svg, .code-bar, .gutter, .icon, .bookmark-flag, .table-tools, [aria-hidden="true"]';
 
 /**
  * @param {Node} root — an answer, or a part of the feed the reader selected (a Range's contents)

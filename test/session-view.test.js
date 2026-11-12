@@ -319,6 +319,21 @@ test('mountSession_Should_OfferAnswersBookmarkUnderItToo_BothFlagsShowingIt', as
   assert.deepEqual({ before, after }, { before: ['corner false', 'under false'], after: ['corner true', 'under true'] });
 });
 
+// The points of an answer — a 👉 starting a line — are buttons that give what they point at, for the reader to answer
+// it; a prompt's are not: the reader wrote them
+test('mountSession_Should_MakeAnAnswersPointsButtons_NotAPromptsOwn', async (t) => {
+  const { view, source } = await mounted(t, undefined);
+  source.emit('open');
+  source.emit('entries', [prompt('u1', '👉 Keep the old sort?\n\nYes'), answer('a1', 'Kept.\n\n👉 Was the trip one or two?')]);
+  source.emit('ready');
+  await settled();
+
+  assert.deepEqual(
+    [...view.element.querySelectorAll('button.point-reply')].map((point) => point.closest('.msg.user, .md.answer')?.className),
+    ['md answer'],
+  );
+});
+
 // A prompt sent from the page shows in the feed at once, as sent — the terminal took it — until Claude Code writes it
 // down: then it is the prompt itself, once
 test('mountSession_Should_ShowPromptSentFromPage_UntilClaudeWritesItDown', async (t) => {
