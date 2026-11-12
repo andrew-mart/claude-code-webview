@@ -65,6 +65,32 @@ export async function settleWithin(terminal, wait, ready, tries) {
   return undefined;
 }
 
+/**
+ * The screen once it is ready, waited for while it keeps changing: the part of it watched changing from one look to the
+ * next — a box taking a long text a few characters at a time — the wait goes on; it ends once that part has stood still
+ * for so many looks, or after so many looks in all. Undefined if the screen was not ready by then.
+ * @param {Terminal} terminal
+ * @param {(ms: number) => Promise<void>} wait
+ * @param {(screen: string) => boolean} ready
+ * @param {(screen: string) => string | undefined} watched — the part of the screen whose changes keep the wait going
+ * @param {{ still: number, most: number }} looks — still: the looks it may stand still; most: the looks in all
+ * @returns {Promise<string | undefined>}
+ */
+export async function settleWhileChanging(terminal, wait, ready, watched, { still, most }) {
+  /** @type {string | undefined} */
+  let seen;
+  let stillFor = 0;
+  for (let attempt = 0; attempt < most && stillFor < still; attempt++) {
+    const screen = await terminal.read();
+    if (screen !== undefined && ready(screen)) return screen;
+    const part = screen === undefined ? undefined : watched(screen);
+    stillFor = attempt > 0 && part === seen ? stillFor + 1 : 0;
+    seen = part;
+    await wait(stepMs);
+  }
+  return undefined;
+}
+
 /** A terminal's escape sequence: a style or a cursor move (CSI), a link or a title (OSC). */
 const escape = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
 /** Dim text — SGR 2 — up to the next escape: where its style is reset, or the line ends. */

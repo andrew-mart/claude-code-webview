@@ -10,7 +10,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { agyDialog, agyInputBox } from './agy-screen.js';
 import { driveBtw, readBtw, withPanelClosed } from './btw.js';
-import { inputBox, plainScreen, settleOn, settleWithin, squash } from './claude-screen.js';
+import { inputBox, plainScreen, settleOn, settleWhileChanging, settleWithin, squash } from './claude-screen.js';
 import { driveCodexBtw } from './codex-btw.js';
 import { driveCodexRewind } from './codex-rewind.js';
 import { codexDialog, codexInputBox, codexQueued, showsSideConversation, showsSubagent } from './codex-screen.js';
@@ -48,6 +48,12 @@ const keptPrompts = 5;
 /** How many Enters a prompt is sent with at most, and the looks at the box after each for it to let the prompt go. */
 const enterTries = 3;
 const enterLooks = 8;
+/**
+ * The looks at the box for a prompt typed to show there: while the box keeps changing the prompt is still coming — agy
+ * takes a long one a few characters at a time, tens of seconds on Windows — and the wait goes on, at most some minutes;
+ * the box standing still this many looks, the prompt went elsewhere.
+ */
+const typedLooks = { still: 20, most: 1200 };
 
 /**
  * @param {{ readRecords: () => Promise<readonly unknown[]>, herdr: RunHerdr, codexPlace: (sessionId: string) => Promise<import('./herdr-view.js').AgentPlace>, agyPlace?: (sessionId: string) => Promise<import('./herdr-view.js').AgentPlace> }} deps
@@ -192,8 +198,9 @@ export function createComposer({ readRecords, herdr, codexPlace, agyPlace = asyn
   /**
    * The text typed into the session's prompt box, and a wait until the box shows it. A long text comes into Claude Code
    * — and Codex — as a paste, and a key that comes while it is still being pasted joins it — Enter as a line break, and
-   * nothing is sent. At most a few seconds: then the next key goes anyway — unless the text was to land in a box in
-   * view and never showed there: it went to something over the box, and the prompt is not typed.
+   * nothing is sent; agy takes it a few characters at a time. The wait goes on while the box keeps changing; once it
+   * has stood still a few seconds the next key goes anyway — unless the text was to land in a box in view and never
+   * showed there: it went to something over the box, and the prompt is not typed.
    * @param {Place} place
    * @param {string} input
    * @param {'required' | 'hoped'} landing — required: the box was in view before the text was typed
@@ -202,7 +209,13 @@ export function createComposer({ readRecords, herdr, codexPlace, agyPlace = asyn
   async function typeIn(place, input, landing) {
     const typed = await press(place, [['send-text', input]]);
     if (!typed.ok) return typed;
-    const landed = await settleOn(terminalOf(place.pane), (ms) => delay(ms), (screen) => showsTyped(boxOf(place.agent, screen), input));
+    const landed = await settleWhileChanging(
+      terminalOf(place.pane),
+      (ms) => delay(ms),
+      (screen) => showsTyped(boxOf(place.agent, screen), input),
+      (screen) => boxOf(place.agent, screen),
+      typedLooks,
+    );
     return landed === undefined && landing === 'required' ? { ok: false, error: 'not-typed' } : typed;
   }
 

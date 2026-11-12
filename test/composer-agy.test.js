@@ -12,10 +12,13 @@ const permission = [...banner, rule, 'Run command?', '  npm test', '', '> Allow 
 /**
  * A fake herdr whose pane shows agy's screen: its box empty until text is typed, then with the text, until Enter takes
  * it — or a permission dialog in its place. Records the calls that change something.
- * @param {{ asking?: true }} [options] - asking: agy asks to run a command
+ * @param {{ asking?: true, takes?: number }} [options] - asking: agy asks to run a command; takes: the characters typed
+ *   that agy's box takes between two looks at the screen — all at once if not told
  */
-function fakeHerdr({ asking } = {}) {
+function fakeHerdr({ asking, takes = Number.POSITIVE_INFINITY } = {}) {
   let box = '';
+  // typed, not in the box yet
+  let coming = '';
   /** @type {string[]} */
   const changes = [];
   /** @param {readonly string[]} args @returns {Promise<import('../server/composer.js').HerdrReply>} */
@@ -23,8 +26,12 @@ function fakeHerdr({ asking } = {}) {
     const [, command, pane, argument] = args;
     const keys = args.slice(3);
     if (command === 'list') return { ok: true, json: { result: { panes: [{ agent: 'agy', pane_id: 'w2:p1' }] } }, text: '' };
-    if (command === 'read') return { ok: true, json: undefined, text: asking === true ? permission : agyScreen(box) };
-    if (command === 'send-text' && argument !== undefined) box += argument;
+    if (command === 'read') {
+      box += coming.slice(0, takes);
+      coming = coming.slice(takes);
+      return { ok: true, json: undefined, text: asking === true ? permission : agyScreen(box) };
+    }
+    if (command === 'send-text' && argument !== undefined) coming += argument;
     if (command === 'send-keys' && keys.includes('enter')) box = '';
     changes.push(`${command} ${pane} ${keys.join(' ')}`);
     return { ok: true, json: { result: { type: 'ok' } }, text: '' };
@@ -91,6 +98,17 @@ test('send_sendNow_And_interrupt_Should_TypePromptIntoAgyWithEnter_AndStopItWith
       busy: ['send-text w2:p1 Then cover it with a test', 'send-keys w2:p1 enter', 'send-text w2:p1 Keep the old sort', 'send-keys w2:p1 enter', 'send-keys w2:p1 esc'],
     },
   );
+});
+
+// agy takes a long prompt a few characters at a time, drawing its box anew for each — on Windows a long prompt takes
+// tens of seconds: while its box keeps growing the prompt is still coming, and Enter follows once its end is there
+test('send_Should_WaitWhileAgyTakesALongPromptSlowly_ThenPressEnter', async () => {
+  const slow = fakeHerdr({ takes: 4 });
+  const prompt = 'Add the price filter to the catalogue page, the cheapest first, and keep the old sort for the admin list';
+
+  const outcome = await composerOf({ found: 'pane', pane: 'w2:p1', working: false }, slow).send(conversation, prompt);
+
+  assert.deepEqual({ outcome, typed: slow.changes }, { outcome: { ok: true, pane: 'w2:p1' }, typed: [`send-text w2:p1 ${prompt}`, 'send-keys w2:p1 enter'] });
 });
 
 // While agy asks something — a permission, a question — a prompt is not typed: its keys would answer it. agy has no
