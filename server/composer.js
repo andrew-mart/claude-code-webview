@@ -207,7 +207,7 @@ export function createComposer({ readRecords, herdr, codexPlace, agyPlace = asyn
    * @returns {Promise<SendOutcome>}
    */
   async function typeIn(place, input, landing) {
-    const typed = await press(place, [['send-text', input]]);
+    const typed = await press(place, [[textCommand(place.agent), input]]);
     if (!typed.ok) return typed;
     const landed = await settleWhileChanging(
       terminalOf(place.pane),
@@ -600,6 +600,25 @@ export function createComposer({ readRecords, herdr, codexPlace, agyPlace = asyn
  */
 function showsTyped(box, text) {
   return box === undefined || /\[Pasted (text|Content)/.test(box) || squash(box).includes(squash(text).slice(-24));
+}
+
+/**
+ * How a prompt's text goes into the agent's terminal: typed — Claude Code and Codex take a long one as a paste anyway —
+ * or, for agy, pasted: agy takes typed text a few characters at a time, drawing its box anew for each (herdr pastes it
+ * as the terminal would, if agy asked for pastes so; herdr-socket.js).
+ * @param {PaneAgent} agent
+ * @returns {'send-text' | 'paste-text'}
+ */
+function textCommand(agent) {
+  switch (agent) {
+    case 'claude':
+    case 'codex':
+      return 'send-text';
+    case 'agy':
+      return 'paste-text';
+    default:
+      throw new Error(`No such agent in a pane: ${JSON.stringify(agent)}`);
+  }
 }
 
 /**

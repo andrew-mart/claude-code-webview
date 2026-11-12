@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { claudePaneIds, foregroundPids, forkedFrom, paneIoOf, parseSavedHerdr, resolveHerdr, toTerminalInput } from '../server/herdr.js';
+import { claudePaneIds, foregroundPids, forkedFrom, paneIoOf, parseSavedHerdr, pasteAsTyped, resolveHerdr, toTerminalInput } from '../server/herdr.js';
 
 test('resolveHerdr_Should_PreferPaneEnvironmentThenSavedSettingsThenPath', () => {
   const pane = { HERDR_BIN_PATH: 'C:\\tools\\herdr\\herdr.exe', HERDR_SOCKET_PATH: 'C:\\Users\\dev\\.config\\herdr\\sessions\\main\\herdr.sock' };
@@ -102,4 +102,23 @@ test('forkedFrom_Should_ReadSessionProcessForkedFrom', () => {
     ],
     ['f791c874-a87b-4d29-bc69-06f248ac2bce', undefined, undefined, undefined],
   );
+});
+
+// herdr's program has no paste — only its socket has: without the socket, a text to paste goes in typed; every other
+// command goes to the program as it is
+test('pasteAsTyped_Should_TypeTextToPaste_AndLeaveOtherCommandsAsTheyAre', async () => {
+  /** @type {string[][]} */
+  const started = [];
+  const run = pasteAsTyped(async (args) => {
+    started.push([...args]);
+    return { ok: true, json: undefined, text: '' };
+  });
+
+  await run(['pane', 'paste-text', 'w2:p1', 'Go on']);
+  await run(['pane', 'send-keys', 'w2:p1', 'enter']);
+
+  assert.deepEqual(started, [
+    ['pane', 'send-text', 'w2:p1', 'Go on'],
+    ['pane', 'send-keys', 'w2:p1', 'enter'],
+  ]);
 });

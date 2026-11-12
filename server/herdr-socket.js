@@ -27,7 +27,7 @@ export function socketAddress(socketPath) {
  */
 
 /** What a terminal on the page and its prompts wait for: asked before the requests queued for the sidebar. */
-const urgentMethods = new Set(['pane.read', 'pane.send_text', 'pane.send_keys']);
+const urgentMethods = new Set(['pane.read', 'pane.send_text', 'pane.send_input', 'pane.send_keys']);
 
 /**
  * @typedef {{ method: string, params: Record<string, unknown>, resolve: (reply: SocketReply) => void }} Job
@@ -152,6 +152,10 @@ function socketCall(args) {
       return pane === '--pane' && more.length === 1 ? { method: 'pane.process_info', params: { pane_id: more[0] } } : undefined;
     case 'send-text':
       return pane !== undefined && more.length === 1 ? { method: 'pane.send_text', params: { pane_id: pane, text: more[0] } } : undefined;
+    // the viewer's own: herdr pastes the text as the terminal would — marked as a paste, if the program in the pane asked
+    // for pastes so; its program has no such command (pasteAsTyped, herdr.js)
+    case 'paste-text':
+      return pane !== undefined && more.length === 1 ? { method: 'pane.send_input', params: { pane_id: pane, text: more[0] } } : undefined;
     case 'send-keys':
       return pane !== undefined && more.length > 0 ? { method: 'pane.send_keys', params: { pane_id: pane, keys: more } } : undefined;
     case 'read': {

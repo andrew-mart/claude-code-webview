@@ -31,7 +31,7 @@ function fakeHerdr({ asking, takes = Number.POSITIVE_INFINITY } = {}) {
       coming = coming.slice(takes);
       return { ok: true, json: undefined, text: asking === true ? permission : agyScreen(box) };
     }
-    if (command === 'send-text' && argument !== undefined) coming += argument;
+    if ((command === 'send-text' || command === 'paste-text') && argument !== undefined) coming += argument;
     if (command === 'send-keys' && keys.includes('enter')) box = '';
     changes.push(`${command} ${pane} ${keys.join(' ')}`);
     return { ok: true, json: { result: { type: 'ok' } }, text: '' };
@@ -78,7 +78,8 @@ test('liveState_Should_FindAgyConversationInItsPane_WithWhatAgyAsks_OrTellItRuns
 });
 
 // A prompt goes into agy's box and in with Enter, whether agy works or not — agy queues one that comes while it works;
-// sent now, the same; a stop is Esc, as in its terminal
+// sent now, the same; a stop is Esc, as in its terminal. The prompt goes in as a paste: typed, agy takes it a few
+// characters at a time
 test('send_sendNow_And_interrupt_Should_TypePromptIntoAgyWithEnter_AndStopItWithEsc', async () => {
   const idle = fakeHerdr();
   const busy = fakeHerdr();
@@ -94,21 +95,22 @@ test('send_sendNow_And_interrupt_Should_TypePromptIntoAgyWithEnter_AndStopItWith
     { outcomes, idle: idle.changes, busy: busy.changes },
     {
       outcomes: [{ ok: true, pane: 'w2:p1' }, { ok: true, pane: 'w2:p1' }, { ok: true, pane: 'w2:p1' }, { ok: true, pane: 'w2:p1', prompt: undefined }],
-      idle: ['send-text w2:p1 Add the price filter', 'send-keys w2:p1 enter'],
-      busy: ['send-text w2:p1 Then cover it with a test', 'send-keys w2:p1 enter', 'send-text w2:p1 Keep the old sort', 'send-keys w2:p1 enter', 'send-keys w2:p1 esc'],
+      idle: ['paste-text w2:p1 Add the price filter', 'send-keys w2:p1 enter'],
+      busy: ['paste-text w2:p1 Then cover it with a test', 'send-keys w2:p1 enter', 'paste-text w2:p1 Keep the old sort', 'send-keys w2:p1 enter', 'send-keys w2:p1 esc'],
     },
   );
 });
 
-// agy takes a long prompt a few characters at a time, drawing its box anew for each — on Windows a long prompt takes
-// tens of seconds: while its box keeps growing the prompt is still coming, and Enter follows once its end is there
+// agy takes a long prompt a few characters at a time, drawing its box anew for each, when it comes typed — herdr's
+// program has no paste — on Windows tens of seconds: while its box keeps growing the prompt is still coming, and Enter
+// follows once its end is there
 test('send_Should_WaitWhileAgyTakesALongPromptSlowly_ThenPressEnter', async () => {
   const slow = fakeHerdr({ takes: 4 });
   const prompt = 'Add the price filter to the catalogue page, the cheapest first, and keep the old sort for the admin list';
 
   const outcome = await composerOf({ found: 'pane', pane: 'w2:p1', working: false }, slow).send(conversation, prompt);
 
-  assert.deepEqual({ outcome, typed: slow.changes }, { outcome: { ok: true, pane: 'w2:p1' }, typed: [`send-text w2:p1 ${prompt}`, 'send-keys w2:p1 enter'] });
+  assert.deepEqual({ outcome, typed: slow.changes }, { outcome: { ok: true, pane: 'w2:p1' }, typed: [`paste-text w2:p1 ${prompt}`, 'send-keys w2:p1 enter'] });
 });
 
 // While agy asks something — a permission, a question — a prompt is not typed: its keys would answer it. agy has no

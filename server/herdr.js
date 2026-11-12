@@ -97,6 +97,19 @@ export function resolveHerdr(env, saved) {
 }
 
 /**
+ * herdr's program for the viewer's commands when herdr's socket is not known: the program has no paste — only the
+ * socket has (herdr-socket.js) — so a text to paste goes in typed; every other command as it is.
+ * @param {import('./composer.js').RunHerdr} program
+ * @returns {import('./composer.js').RunHerdr}
+ */
+export function pasteAsTyped(program) {
+  return (args) => {
+    const [subject, command, ...rest] = args;
+    return program(subject === 'pane' && command === 'paste-text' ? ['pane', 'send-text', ...rest] : args);
+  };
+}
+
+/**
  * Prompt text for Claude Code's input box: "\r" would act as Enter and submit the prompt mid-text,
  * so every line break becomes "\n"; trailing blank lines are dropped.
  * @param {string} text

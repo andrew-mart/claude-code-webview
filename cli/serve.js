@@ -19,7 +19,7 @@ import { createKeptFile } from '../server/kept.js';
 import { createUploads } from '../server/uploads.js';
 import { createComposer } from '../server/composer.js';
 import { latestRecords, readSessionRecords, startedSessions } from '../server/registry.js';
-import { createHerdrRunner, herdrTurnedOff, paneIoOf, readSavedHerdr, resolveHerdr, saveHerdr } from '../server/herdr.js';
+import { createHerdrRunner, herdrTurnedOff, paneIoOf, pasteAsTyped, readSavedHerdr, resolveHerdr, saveHerdr } from '../server/herdr.js';
 import { createHerdrSocket, socketRunner } from '../server/herdr-socket.js';
 import { createHerdrView } from '../server/herdr-view.js';
 import { createCodexThreads, lockHeld } from '../server/codex-live.js';
@@ -208,7 +208,8 @@ async function herdrToUse(use) {
   const herdrFile = join(stateDir, 'herdr.json');
   const herdr = resolveHerdr(process.env, await readSavedHerdr(herdrFile));
   if (herdr.source === 'env' && herdr.socketPath !== undefined) await saveHerdr(herdrFile, { binPath: herdr.bin, socketPath: herdr.socketPath });
-  const program = createHerdrRunner(herdr);
+  // the program pastes nothing: without the socket a text to paste goes in typed
+  const program = pasteAsTyped(createHerdrRunner(herdr));
   const note = `herdr: ${herdr.bin} — ${herdrSources[herdr.source]}. Without herdr the viewer only reads sessions.`;
   if (herdr.socketPath === undefined) return { run: program, via: 'program', note };
   return { run: socketRunner(createHerdrSocket(herdr.socketPath), program), via: 'socket', note: `${note} Talks to it through its socket.` };
