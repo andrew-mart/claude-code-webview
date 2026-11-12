@@ -59,13 +59,14 @@ const noHiddenWorkspaces = { hide: async () => undefined, show: async () => unde
 
 /**
  * @param {import('node:test').TestContext} t
- * @param {{ herdr: ReturnType<typeof fakeHerdr>, records: readonly unknown[], dir?: string, codex?: readonly import('../server/codex-live.js').LiveThread[], agy?: readonly import('../server/agy-live.js').AgyRun[], agyCommand?: string }} setup
+ * @param {{ herdr: ReturnType<typeof fakeHerdr>, records: readonly unknown[], dir?: string, codex?: readonly import('../server/codex-live.js').LiveThread[], agy?: readonly import('../server/agy-live.js').AgyRun[], agyCommand?: string, listed?: readonly { id: string, title: string | undefined }[] }} setup
  *   — dir: where the remembered workspaces are kept, to share it between two viewer runs; codex: the threads Codex has
- *   open; agy: agy's processes alive; agyCommand: what starts agy — none, no agy
+ *   open; agy: agy's processes alive; agyCommand: what starts agy — none, no agy; listed: the sessions listed, with
+ *   their titles
  */
-async function workspacesOf(t, { herdr, records, dir, codex = [], agy = [], agyCommand }) {
+async function workspacesOf(t, { herdr, records, dir, codex = [], agy = [], agyCommand, listed = [] }) {
   const folder = dir ?? tempDir('ccw-workspaces-');
-  return createHerdrView({ herdr, readRecords: async () => records, codexThreads: async () => codex, agyRuns: async () => agy, icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex', agyCommand });
+  return createHerdrView({ herdr, readRecords: async () => records, codexThreads: async () => codex, agyRuns: async () => agy, listed: async () => listed, icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex', agyCommand });
 }
 
 test('workspaces_Should_PutRunningSessionIntoWorkspaceOfItsPane', async (t) => {
@@ -1013,6 +1014,39 @@ test('herdrView_Should_TellAgyPanesOfOneFolderApart_ByTheirProcesses', async (t)
   assert.deepEqual(
     { sessions: layout.workspaces[0]?.tabs.map((tab) => tab.panes[0]?.session), places: [await view.agyPlace(filter), await view.agyPlace(sort)] },
     { sessions: [filter, sort], places: [{ found: 'pane', pane: 'w5:p1', working: false }, { found: 'pane', pane: 'w5:p2', working: true }] },
+  );
+});
+
+// agy titles no terminal: what its pane's title holds is its shell's — a program's path. An agy pane is titled by the
+// conversation it runs, as the sessions list names it; before its first message, or one the list does not name yet, it
+// has no title — its tab's name shows. Claude Code's and Codex's panes keep the titles they give their terminals
+test('herdrView_Should_TitleAgyPanesByTheirConversations_NotByTheirShells', async (t) => {
+  const filter = 'c2da1db1-1271-4baa-aac2-0f4026b2453a';
+  const herdr = fakeHerdr({
+    workspaces: [{ workspace_id: 'w5', label: 'shop', active_tab_id: 'w5:t1' }],
+    tabs: [
+      { tab_id: 'w5:t1', workspace_id: 'w5', number: 1, label: 'filters', agent_status: 'idle' },
+      { tab_id: 'w5:t2', workspace_id: 'w5', number: 2, label: 'maps', agent_status: 'idle' },
+      { tab_id: 'w5:t3', workspace_id: 'w5', number: 3, label: 'trips', agent_status: 'idle' },
+    ],
+    panes: [
+      { pane_id: 'w5:p1', workspace_id: 'w5', tab_id: 'w5:t1', cwd: 'D:/dev/shop', agent: 'agy', agent_status: 'idle', terminal_title_stripped: 'C:\\WINDOWS\\system32\\cmd.exe', state_change_seq: 2 },
+      { pane_id: 'w5:p2', workspace_id: 'w5', tab_id: 'w5:t2', cwd: 'D:/dev/maps', agent: 'agy', agent_status: 'idle', terminal_title_stripped: 'C:\\WINDOWS\\system32\\cmd.exe', state_change_seq: 2 },
+      { pane_id: 'w2:p1', workspace_id: 'w5', tab_id: 'w5:t3', cwd: 'D:\\trip_plans', agent: 'claude', agent_status: 'idle', terminal_title_stripped: 'Plan the trip', pid: 101, state_change_seq: 2 },
+    ],
+  });
+  /** @type {import('../server/agy-live.js').AgyRun[]} */
+  const agy = [
+    { serverPid: 104, folder: 'D:\\dev\\shop', conversation: filter, print: false, ended: false, startedAt: 4000 },
+    { serverPid: 105, folder: 'D:\\dev\\maps', conversation: undefined, print: false, ended: false, startedAt: 5000 },
+  ];
+  const listed = [{ id: filter, title: 'Add the price filter' }, { id: running, title: 'Plan the trip to Tbilisi' }];
+  const view = await workspacesOf(t, { herdr, records: [runningRecord], agy, agyCommand: 'agy', listed });
+
+  const layout = await view.layout();
+  assert.deepEqual(
+    layout.workspaces[0]?.tabs.map((tab) => tab.panes[0]?.title),
+    ['Add the price filter', undefined, 'Plan the trip'],
   );
 });
 

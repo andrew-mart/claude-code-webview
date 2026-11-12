@@ -46,16 +46,17 @@ import { observed } from './session-history.js';
 const noRestarting = { env: [], shell: 'posix', endProcess: async () => false };
 
 /**
- * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, codexThreads: () => Promise<readonly import('./codex-live.js').LiveThread[]>, icons: { iconsOf: (workspaces: readonly import('./workspace-icons.js').IconedWorkspace[]) => Promise<ReadonlyMap<string, string>>, setIcon: (folder: string, icon: string | undefined) => Promise<void> }, hidden: ReturnType<typeof import('./hidden-panes.js').createHiddenPanes>, hiddenWorkspaces: ReturnType<typeof import('./hidden-workspaces.js').createHiddenWorkspaces>, file: string, refreshMs: number, claudeCommand: string, claudeGptCommand?: string | undefined, claudeModelOf?: ((session: string) => Promise<import('./claude-model.js').LastAnswer | undefined>) | undefined, codexCommand: string, agyCommand?: string | undefined, agyRuns?: () => Promise<readonly import('./agy-live.js').AgyRun[]>, trust: { looks: number, stepMs: number }, restart?: Restarting }} deps
+ * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, codexThreads: () => Promise<readonly import('./codex-live.js').LiveThread[]>, icons: { iconsOf: (workspaces: readonly import('./workspace-icons.js').IconedWorkspace[]) => Promise<ReadonlyMap<string, string>>, setIcon: (folder: string, icon: string | undefined) => Promise<void> }, hidden: ReturnType<typeof import('./hidden-panes.js').createHiddenPanes>, hiddenWorkspaces: ReturnType<typeof import('./hidden-workspaces.js').createHiddenWorkspaces>, file: string, refreshMs: number, claudeCommand: string, claudeGptCommand?: string | undefined, claudeModelOf?: ((session: string) => Promise<import('./claude-model.js').LastAnswer | undefined>) | undefined, codexCommand: string, agyCommand?: string | undefined, agyRuns?: () => Promise<readonly import('./agy-live.js').AgyRun[]>, listed?: () => Promise<readonly { id: string, title: string | undefined }[]>, trust: { looks: number, stepMs: number }, restart?: Restarting }} deps
  *   readRecords — contents of ~/.claude/sessions/*.json; codexThreads — the threads Codex has open now; agyRuns — agy's
- *   processes alive now (agy-live.js), none told — no agy; icons — each
+ *   processes alive now (agy-live.js), none told — no agy; listed — the sessions listed, with their titles: an agy
+ *   pane is titled by its conversation's; icons — each
  *   workspace's (workspace-icons.js); hidden — the panes hidden from the page's list (hidden-panes.js);
  *   hiddenWorkspaces — the workspaces hidden from it, by their ids (hidden-workspaces.js); file — where the
  *   workspaces of sessions seen running are kept; refreshMs — herdr is asked at most this often; claudeCommand,
  *   codexCommand, agyCommand — what starts Claude Code, Codex and Antigravity CLI in a new tab — none, no agy;
  *   restart — how a session is restarted where it runs
  */
-export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidden, hiddenWorkspaces, file, refreshMs, claudeCommand, claudeGptCommand, claudeModelOf = async () => undefined, codexCommand, agyCommand, agyRuns = async () => [], trust, restart = noRestarting }) {
+export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidden, hiddenWorkspaces, file, refreshMs, claudeCommand, claudeGptCommand, claudeModelOf = async () => undefined, codexCommand, agyCommand, agyRuns = async () => [], listed = async () => [], trust, restart = noRestarting }) {
   /**
    * A process's pane does not change while it runs: process-info is asked once for each Claude process — by its key
    * (registry.js): the number goes to another process once it is gone.
@@ -646,7 +647,9 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
       const view = await currentView();
       /** @type {{ agy?: true }} */
       const agy = agyCommand === undefined ? {} : { agy: true };
-      return view === undefined ? { herdr: false, workspaces: [] } : { herdr: true, ...(claudeGptCommand === undefined ? {} : { claudeGpt: /** @type {const} */ (true) }), ...agy, ...(restart.env.length === 0 ? {} : { restartEnv: restart.env.map(({ name, value }) => `${name}=${value}`) }), workspaces: layoutOf(view.snapshot, view.sessionByPane, view.icons, view.hidden, view.hiddenWorkspaces) };
+      if (view === undefined) return { herdr: false, workspaces: [] };
+      const titles = new Map((await listed()).flatMap(({ id, title }) => (title === undefined ? [] : [/** @type {const} */ ([id, title])])));
+      return { herdr: true, ...(claudeGptCommand === undefined ? {} : { claudeGpt: /** @type {const} */ (true) }), ...agy, ...(restart.env.length === 0 ? {} : { restartEnv: restart.env.map(({ name, value }) => `${name}=${value}`) }), workspaces: layoutOf(view.snapshot, { sessionByPane: view.sessionByPane, icons: view.icons, hidden: view.hidden, hiddenWorkspaces: view.hiddenWorkspaces, titles }) };
     },
   };
 }
@@ -672,13 +675,12 @@ function throughGptNow(answer, launch) {
  * herdr's workspaces and tabs in its own order — the workspaces by their numbers, the tabs as herdr lists them: a tab
  * keeps the number it was opened with when it is moved — with the panes in each tab.
  * @param {import('./herdr.js').HerdrSnapshot} snapshot
- * @param {ReadonlyMap<string, string>} sessionByPane
- * @param {ReadonlyMap<string, string>} icons — by workspace id
- * @param {ReadonlySet<string>} hidden — the panes hidden from the page's list
- * @param {ReadonlySet<string>} hiddenWorkspaces — the workspaces hidden from it, by id
+ * @param {{ sessionByPane: ReadonlyMap<string, string>, icons: ReadonlyMap<string, string>, hidden: ReadonlySet<string>, hiddenWorkspaces: ReadonlySet<string>, titles: ReadonlyMap<string, string> }} shown
+ *   icons — by workspace id; hidden — the panes hidden from the page's list; hiddenWorkspaces — the workspaces hidden
+ *   from it, by id; titles — the sessions' titles, by their ids
  * @returns {import('../public/model/herdr.js').HerdrWorkspace[]}
  */
-function layoutOf(snapshot, sessionByPane, icons, hidden, hiddenWorkspaces) {
+function layoutOf(snapshot, { sessionByPane, icons, hidden, hiddenWorkspaces, titles }) {
   const byNumber = (/** @type {{ number: number }} */ a, /** @type {{ number: number }} */ b) => a.number - b.number;
   return [...snapshot.workspaces].sort(byNumber).map((workspace) => ({
     id: workspace.id,
@@ -699,10 +701,24 @@ function layoutOf(snapshot, sessionByPane, icons, hidden, hiddenWorkspaces) {
           label: tab.label,
           status: tab.status,
           ...(folder === undefined ? {} : { folder }),
-          panes: panes.map((pane) => ({ id: pane.paneId, agent: pane.agent, status: pane.status, title: pane.title, session: sessionByPane.get(pane.paneId), size: pane.size, activity: pane.activity, ...(hidden.has(pane.paneId) ? { hidden: true } : {}) })),
+          panes: panes.map((pane) => ({ id: pane.paneId, agent: pane.agent, status: pane.status, title: paneTitle(pane, sessionByPane.get(pane.paneId), titles), session: sessionByPane.get(pane.paneId), size: pane.size, activity: pane.activity, ...(hidden.has(pane.paneId) ? { hidden: true } : {}) })),
         };
       }),
   }));
+}
+
+/**
+ * A pane's title on the page: the one its terminal has — Claude Code and Codex title theirs by the conversation — but an
+ * agy pane's, the title of the conversation it runs: agy titles no terminal, and what its pane's title holds is its
+ * shell's, a program's path; none before its first message, or while the list names none — its tab's name shows then.
+ * @param {Pane} pane
+ * @param {string | undefined} session — the one it runs
+ * @param {ReadonlyMap<string, string>} titles — the sessions' titles, by their ids
+ * @returns {string | undefined}
+ */
+function paneTitle(pane, session, titles) {
+  if (pane.agent !== 'agy') return pane.title;
+  return session === undefined ? undefined : titles.get(session);
 }
 
 /**
