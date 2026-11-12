@@ -121,7 +121,7 @@ test('agyPanes_Should_FindEachPanesConversationByItsFolder_OrItsRunBeforeTheFirs
     fresh,
   ];
 
-  const found = agyPanes(panes, runs);
+  const found = agyPanes(panes, runs, new Map());
 
   assert.deepEqual(
     { conversations: [...found.conversations], started: [...found.started] },
@@ -131,6 +131,48 @@ test('agyPanes_Should_FindEachPanesConversationByItsFolder_OrItsRunBeforeTheFirs
         ['w2:p2', other],
       ],
       started: [['w2:p6', agyStartedId(fresh)]],
+    },
+  );
+});
+
+// agy panes of one folder told apart by the agy process each runs — herdr tells a pane's processes, agy's log its run's:
+// each pane its run's conversation, or the run itself before its first message; a pane herdr told nothing of runs the
+// one run left in its folder when it is the one pane left there, and is left out while more are
+test('agyPanes_Should_TellAgyPanesOfOneFolderApart_ByTheProcessEachRuns', () => {
+  const panes = [paneOf('w2:p3', 'agy', 'D:\\dev\\maps'), paneOf('w2:p4', 'agy', 'D:\\dev\\maps'), paneOf('w3:p1', 'agy', 'D:\\dev\\docs'), paneOf('w3:p2', 'agy', 'D:\\dev\\docs'), paneOf('w3:p3', 'agy', 'D:\\dev\\docs'), paneOf('w4:p1', 'agy', 'D:\\dev\\blog'), paneOf('w4:p2', 'agy', 'D:\\dev\\blog')];
+  /** @type {import('../server/agy-live.js').AgyRun} */
+  const fresh = { serverPid: 5, folder: 'D:\\dev\\maps', conversation: undefined, print: false, ended: false, startedAt: 5000 };
+  /** @param {number} serverPid @param {string} folder @param {string} conversation @returns {import('../server/agy-live.js').AgyRun} */
+  const runOf = (serverPid, folder, conversation) => ({ serverPid, folder, conversation, print: false, ended: false, startedAt: serverPid * 1000 });
+  const runs = [
+    runOf(4, 'D:\\dev\\maps', first),
+    fresh,
+    runOf(7, 'D:\\dev\\docs', other),
+    runOf(8, 'D:\\dev\\docs', '063a54cf-fffa-497a-9d93-f02f6fbdbb2a'),
+    runOf(9, 'D:\\dev\\docs', '09d2663b-ce2e-4904-81ee-623767ea9579'),
+    runOf(10, 'D:\\dev\\blog', '0569c158-6d1a-409e-9a15-6e92eaf4c4a1'),
+    runOf(11, 'D:\\dev\\blog', '1f8e2b7c-3a41-4c55-9d0e-2b6f7a8c9d10'),
+  ];
+  // the processes herdr told in each pane: the shell's, and agy's
+  const told = new Map([
+    ['w2:p3', [40, 4]],
+    ['w2:p4', [5]],
+    ['w3:p1', [7]],
+    ['w3:p2', [8]],
+  ]);
+
+  const found = agyPanes(panes, runs, told);
+
+  assert.deepEqual(
+    { conversations: [...found.conversations].sort(), started: [...found.started] },
+    {
+      conversations: [
+        ['w2:p3', first],
+        ['w3:p1', other],
+        ['w3:p2', '063a54cf-fffa-497a-9d93-f02f6fbdbb2a'],
+        ['w3:p3', '09d2663b-ce2e-4904-81ee-623767ea9579'],
+      ],
+      started: [['w2:p4', agyStartedId(fresh)]],
     },
   );
 });

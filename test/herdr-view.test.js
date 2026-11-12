@@ -987,6 +987,35 @@ test('herdrView_Should_ShowAgyPaneAsItsConversation_AndTellWhereAgyRunsIt', asyn
   );
 });
 
+// Two agy panes in one folder: each shows the conversation of the agy run whose process herdr tells in it — the run's
+// process as agy's log tells it — and the composer types into the pane of each
+test('herdrView_Should_TellAgyPanesOfOneFolderApart_ByTheirProcesses', async (t) => {
+  const filter = 'c2da1db1-1271-4baa-aac2-0f4026b2453a';
+  const sort = '9342f993-b892-4839-845d-ce2d261b092e';
+  const herdr = fakeHerdr({
+    workspaces: [{ workspace_id: 'w5', label: 'shop', active_tab_id: 'w5:t1' }],
+    tabs: [
+      { tab_id: 'w5:t1', workspace_id: 'w5', number: 1, label: 'filters', agent_status: 'idle' },
+      { tab_id: 'w5:t2', workspace_id: 'w5', number: 2, label: 'sort', agent_status: 'working' },
+    ],
+    panes: [
+      { pane_id: 'w5:p1', workspace_id: 'w5', tab_id: 'w5:t1', cwd: 'D:/dev/shop', agent: 'agy', agent_status: 'idle', pid: 104, state_change_seq: 2 },
+      { pane_id: 'w5:p2', workspace_id: 'w5', tab_id: 'w5:t2', cwd: 'D:/dev/shop', agent: 'agy', agent_status: 'working', pid: 101, state_change_seq: 4 },
+    ],
+  });
+  const agy = [
+    { serverPid: 101, folder: 'D:\\dev\\shop', conversation: sort, print: false, ended: false, startedAt: 1000 },
+    { serverPid: 104, folder: 'D:\\dev\\shop', conversation: filter, print: false, ended: false, startedAt: 4000 },
+  ];
+  const view = await workspacesOf(t, { herdr, records: [], agy, agyCommand: 'agy' });
+
+  const layout = await view.layout();
+  assert.deepEqual(
+    { sessions: layout.workspaces[0]?.tabs.map((tab) => tab.panes[0]?.session), places: [await view.agyPlace(filter), await view.agyPlace(sort)] },
+    { sessions: [filter, sort], places: [{ found: 'pane', pane: 'w5:p1', working: false }, { found: 'pane', pane: 'w5:p2', working: true }] },
+  );
+});
+
 /**
  * herdr with trip_plans, its one pane's agent done at this count of its changes; a view of it keeping its hidden panes
  * in the folder.

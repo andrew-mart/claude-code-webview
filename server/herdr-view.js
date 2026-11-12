@@ -171,6 +171,41 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
     return told;
   };
 
+  /**
+   * The processes herdr told in each agy pane, by pane id: asked once for a pane while they hold an agy run's process —
+   * a pane's process does not change while it runs — and asked again once they hold none: agy not logged its run yet,
+   * quit there, or started anew.
+   * @type {Map<string, readonly number[]>}
+   */
+  const agyProcessesTold = new Map();
+
+  /**
+   * The processes in the agy panes, for agy's runs to be told apart by them (agy-live.js agyPanes).
+   * @param {readonly Pane[]} panes
+   * @param {readonly import('./agy-live.js').AgyRun[]} runs
+   * @returns {Promise<ReadonlyMap<string, readonly number[]>>}
+   */
+  const agyProcessesIn = async (panes, runs) => {
+    const agyOnes = panes.filter((pane) => pane.agent === 'agy');
+    for (const pane of agyProcessesTold.keys()) if (!agyOnes.some((one) => one.paneId === pane)) agyProcessesTold.delete(pane);
+    for (const pane of agyOnes) {
+      const known = agyProcessesTold.get(pane.paneId);
+      if (known !== undefined && runs.some((run) => known.includes(run.serverPid))) continue;
+      const info = await herdr(['pane', 'process-info', '--pane', pane.paneId]);
+      if (succeeded(info)) agyProcessesTold.set(pane.paneId, foregroundPids(info.json));
+    }
+    return agyProcessesTold;
+  };
+
+  /**
+   * What the agy panes run, told apart by their processes.
+   * @param {readonly Pane[]} panes
+   */
+  const agyPanesNow = async (panes) => {
+    const runs = await agyRuns();
+    return agyPanes(panes, runs, await agyProcessesIn(panes, runs));
+  };
+
   /** @returns {Promise<HerdrView>} */
   const lookAtHerdr = async () => {
     const reply = await herdr(['api', 'snapshot']);
@@ -181,7 +216,7 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
     // a pane gone forgets when Codex was started in it
     for (const pane of codexStarts.keys()) if (!snapshot.panes.some((one) => one.paneId === pane)) codexStarts.delete(pane);
     const codex = snapshot.panes.some((pane) => pane.agent === 'codex') ? codexPanes(snapshot.panes, await codexThreads(), codexStarts) : new Map();
-    const agy = snapshot.panes.some((pane) => pane.agent === 'agy') ? agyPanes(snapshot.panes, await agyRuns()) : { conversations: new Map(), started: new Map() };
+    const agy = snapshot.panes.some((pane) => pane.agent === 'agy') ? await agyPanesNow(snapshot.panes) : { conversations: new Map(), started: new Map() };
     const sessions = new Map([...claude, ...codex, ...agy.conversations]);
     // an agy run before its first message shows by its own id, which no tab goes on with: agy makes the conversation
     await rememberRunning(snapshot, sessions);

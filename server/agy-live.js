@@ -230,30 +230,41 @@ export function agyPidsListed(csv) {
 }
 
 /**
- * What the agy panes run: in a pane's folder, the one agy run there in a terminal — a program's run is in none — its
- * conversation, or, before its first message, the run itself by its own id (agyStartedId). Panes of a folder with more
- * runs than one cannot be told apart and are left out — a terminal, not a feed.
+ * What the agy panes run: the agy run whose process herdr tells in the pane; then, in a pane's folder, the one agy run
+ * left there in a terminal — a program's run is in none — when the pane is the one agy pane left there. A pane runs
+ * its run's conversation or, before its first message, the run itself by its own id (agyStartedId). Panes of a folder
+ * with more runs left than one cannot be told apart and are left out — a terminal, not a feed.
  * @param {readonly import('./herdr.js').Pane[]} panes
  * @param {readonly AgyRun[]} runs
+ * @param {ReadonlyMap<string, readonly number[]>} told — the processes herdr told in each pane asked about, by pane id
  * @returns {{ conversations: Map<string, string>, started: Map<string, string> }} — by pane id: conversations' ids;
  *   the ids of runs before their first message
  */
-export function agyPanes(panes, runs) {
+export function agyPanes(panes, runs, told) {
+  const inTerminals = runs.filter((one) => !one.print && one.folder !== undefined);
+  const agyPanesThere = panes.filter((pane) => pane.agent === 'agy' && pane.cwd !== undefined);
+  /** @type {Map<string, AgyRun>} */
+  const runByPane = new Map();
+  for (const pane of agyPanesThere) {
+    const run = inTerminals.find((one) => told.get(pane.paneId)?.includes(one.serverPid) === true);
+    if (run !== undefined) runByPane.set(pane.paneId, run);
+  }
+  const taken = new Set(runByPane.values());
+  for (const pane of agyPanesThere) {
+    if (pane.cwd === undefined || runByPane.has(pane.paneId)) continue;
+    const folder = folderKey(pane.cwd);
+    const there = agyPanesThere.filter((one) => !runByPane.has(one.paneId) && one.cwd !== undefined && folderKey(one.cwd) === folder);
+    const running = inTerminals.filter((one) => !taken.has(one) && one.folder !== undefined && folderKey(one.folder) === folder);
+    const [run] = running;
+    if (there.length === 1 && running.length === 1 && run !== undefined) runByPane.set(pane.paneId, run);
+  }
   /** @type {Map<string, string>} */
   const conversations = new Map();
   /** @type {Map<string, string>} */
   const started = new Map();
-  const inTerminals = runs.filter((one) => !one.print && one.folder !== undefined);
-  const agyPanesThere = panes.filter((pane) => pane.agent === 'agy' && pane.cwd !== undefined);
-  for (const pane of agyPanesThere) {
-    if (pane.cwd === undefined) continue;
-    const folder = folderKey(pane.cwd);
-    const there = agyPanesThere.filter((one) => one.cwd !== undefined && folderKey(one.cwd) === folder);
-    const running = inTerminals.filter((one) => one.folder !== undefined && folderKey(one.folder) === folder);
-    const [run] = running;
-    if (there.length !== 1 || running.length !== 1 || run === undefined) continue;
-    if (run.conversation === undefined) started.set(pane.paneId, agyStartedId(run));
-    else conversations.set(pane.paneId, run.conversation);
+  for (const [pane, run] of runByPane) {
+    if (run.conversation === undefined) started.set(pane, agyStartedId(run));
+    else conversations.set(pane, run.conversation);
   }
   return { conversations, started };
 }
