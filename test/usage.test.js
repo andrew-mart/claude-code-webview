@@ -4,9 +4,53 @@ import { utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tempDir } from '../test-support/temp-dir.js';
 import { parseUsage, usageView } from '../public/model/usage.js';
-import { readUsage, readChatGptUsage, usageOf } from '../server/usage.js';
+import { readUsage, readChatGptUsage, readAgyUsage, usageOf } from '../server/usage.js';
 
 const now = Date.UTC(2026, 9, 12, 9, 32);
+
+/** What Antigravity CLI gives its status line, as much of it as is read: the model in use, and the quota left of each pool. */
+const agyStatus = (/** @type {string} */ model) => ({
+  model: { id: model, display_name: model },
+  quota: {
+    'gemini-5h': { remaining_fraction: 0.75, reset_time: '2026-10-12T11:10:00Z', reset_in_seconds: 5880 },
+    'gemini-weekly': { remaining_fraction: 0.4, reset_time: '2026-10-15T01:00:00Z', reset_in_seconds: 228_480 },
+    '3p-5h': { remaining_fraction: 0.9, reset_time: '2026-10-12T12:00:00Z', reset_in_seconds: 8880 },
+    '3p-weekly': { remaining_fraction: 0.2, reset_time: '2026-10-16T01:00:00Z', reset_in_seconds: 314_880 },
+  },
+});
+
+// Antigravity CLI keeps a pool of quota for Gemini's models and one for the others, each with a 5-hour window and a
+// week; it gives its status line what is left of each, and the status line may drop it into a file. The pool shown is
+// the one of the model in use, read when the file was written
+test('readAgyUsage_Should_ReadThePoolOfTheModelInUse_FromWhatAgyGaveItsStatusLine', async () => {
+  const file = join(tempDir('agy-usage-'), 'agy-statusline.json');
+  const read = async (/** @type {string} */ model) => {
+    await writeFile(file, JSON.stringify(agyStatus(model)));
+    await utimes(file, new Date(now - 60_000), new Date(now - 60_000));
+    return readAgyUsage(file, now);
+  };
+
+  assert.deepEqual([await read('Gemini 4 Argon (High)'), await read('Claude Opus 5.5 (Thinking)')], [
+    { fiveHour: { percent: 25, resetsAt: Date.UTC(2026, 9, 12, 11, 10) }, sevenDay: { percent: 60, resetsAt: Date.UTC(2026, 9, 15, 1, 0) }, readAt: now - 60_000 },
+    { fiveHour: { percent: 10, resetsAt: Date.UTC(2026, 9, 12, 12, 0) }, sevenDay: { percent: 80, resetsAt: Date.UTC(2026, 9, 16, 1, 0) }, readAt: now - 60_000 },
+  ]);
+});
+
+// agy left alone a while: its reading stands while a window of it has not reset — the page tells the one that has —
+// and says nothing once both have; no file — the status line drops none — is no usage
+test('readAgyUsage_Should_KeepReadingWhileAWindowOfItHasNotReset', async () => {
+  const folder = tempDir('agy-usage-');
+  const file = join(folder, 'agy-statusline.json');
+  await writeFile(file, JSON.stringify(agyStatus('Gemini 4 Argon (High)')));
+  await utimes(file, new Date(now - 60_000), new Date(now - 60_000));
+  const afterFiveHours = await readAgyUsage(file, Date.UTC(2026, 9, 12, 14, 0));
+
+  assert.deepEqual([afterFiveHours?.sevenDay, await readAgyUsage(file, Date.UTC(2026, 9, 15, 2, 0)), await readAgyUsage(join(folder, 'none.json'), now)], [
+    { percent: 60, resetsAt: Date.UTC(2026, 9, 15, 1, 0) },
+    undefined,
+    undefined,
+  ]);
+});
 
 test('chatGptUsage_Should_ReadSuccessfulSnapshotWithoutCredentials_AndHideExpiredOrFailedReadings', async () => {
   const file = join(tempDir('gpt-usage-'), 'quota.json');

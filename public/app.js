@@ -133,6 +133,7 @@ const main = byId('main', HTMLElement);
 const emptyState = byId('empty-state', HTMLElement);
 const usageBadge = byId('usage', HTMLElement);
 const codexUsageBadge = byId('usage-codex', HTMLElement);
+const agyUsageBadge = byId('usage-agy', HTMLElement);
 /** How busy the viewer's computer is, in the corner of the tabs' row (view/system-meters.js). */
 const systemMeters = createSystemMeters({ readProcesses });
 const updateNotice = createUpdateNotice();
@@ -1775,8 +1776,8 @@ async function keepPageForOffline() {
 
 /**
  * The account's usage beside the viewer's name: the 5-hour window and the week, when each resets on hover — Claude's,
- * and Codex's under it while Codex is in use, each row marked with its agent's mark then. Hidden until read; kept as it
- * is while the viewer is out of reach.
+ * Codex's under it while Codex is in use, and Antigravity CLI's while its status line drops it, each row marked with its
+ * agent's mark then. Hidden until read; kept as it is while the viewer is out of reach.
  */
 /** How busy the viewer's computer is, shown in the tabs' corner; nothing while the viewer does not tell. */
 async function refreshSystem() {
@@ -1803,13 +1804,16 @@ async function readSystem() {
 }
 
 async function refreshUsage() {
-  const [claude, codex] = await Promise.all([readUsageAt('/api/usage'), readUsageAt('/api/usage/codex')]);
-  if (claude !== 'unreachable') showUsage(usageBadge, claude, codex !== 'unreachable' && codex !== undefined ? 'claude' : undefined);
+  const [claude, codex, agy] = await Promise.all([readUsageAt('/api/usage'), readUsageAt('/api/usage/codex'), readUsageAt('/api/usage/agy')]);
+  // Claude's row is marked as its own once another shows beside it
+  const others = [codex, agy].some((usage) => usage !== 'unreachable' && usage !== undefined);
+  if (claude !== 'unreachable') showUsage(usageBadge, claude, others ? 'claude' : undefined);
   if (codex !== 'unreachable') showUsage(codexUsageBadge, codex, 'codex');
+  if (agy !== 'unreachable') showUsage(agyUsageBadge, agy, 'agy');
 }
 
 /** Each agent's name, in the title of its row of usage. */
-const usageAgents = /** @type {const} */ ({ claude: 'Claude', codex: 'ChatGPT / Codex' });
+const usageAgents = /** @type {const} */ ({ claude: 'Claude', codex: 'ChatGPT / Codex', agy: 'Antigravity CLI' });
 
 /**
  * @param {string} path
@@ -1825,7 +1829,7 @@ async function readUsageAt(path) {
  * A row of meters: a window its agent does not have — Codex's plans may count the week alone — is left out.
  * @param {HTMLElement} badge
  * @param {import('./model/usage.js').Usage | undefined} usage
- * @param {keyof typeof usageAgents | undefined} agent — whose, when two rows show
+ * @param {keyof typeof usageAgents | undefined} agent — whose, when more than one row shows
  */
 function showUsage(badge, usage, agent) {
   badge.hidden = usage === undefined;

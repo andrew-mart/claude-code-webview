@@ -257,7 +257,7 @@ button {
   font-weight: 600;
 }
 
-/* with both agents' usage shown each row leads with its agent's mark — Claude's ✻ in the brand's place */
+/* with more than one agent's usage shown each row leads with its agent's mark — Claude's ✻ in the brand's place */
 .brand:has(.usage-agent) .spark {
   display: none;
 }
@@ -324,7 +324,7 @@ button {
   cursor: default;
 }
 
-/* whose usage a row is, when Claude's and Codex's both show: their marks, Claude's in its own orange */
+/* whose usage a row is, when more than one agent's shows: their marks, Claude's in its own orange */
 .usage-agent {
   display: flex;
   flex: none;
@@ -348,7 +348,7 @@ button {
   flex: none;
 }
 
-/* a window the agent does not count keeps its place: the windows of the two rows stand one above the other */
+/* a window the agent does not count keeps its place: the windows of the rows stand one above the other */
 .usage-meter.usage-absent {
   visibility: hidden;
 }

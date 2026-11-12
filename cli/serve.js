@@ -30,7 +30,7 @@ import { agyProcessesAmong, agyStartedSessions, createAgyCheck, createAgyProcess
 import { createWorkspaceIcons } from '../server/workspace-icons.js';
 import { createSessionIndex } from '../server/sessions.js';
 import { createTerminals } from '../server/terminal.js';
-import { readUsage, readChatGptUsage } from '../server/usage.js';
+import { readUsage, readChatGptUsage, readAgyUsage } from '../server/usage.js';
 import { createLocalSystemUsage } from '../server/system-usage.js';
 import { createLocalProcesses } from '../server/processes.js';
 import { createClaudeModels } from '../server/claude-model.js';
@@ -45,7 +45,8 @@ import { endProcess } from '../server/end-process.js';
  * The viewer's settings and log folder: the remembered herdr (herdr.json), bookmarks of all sessions (bookmarks.json),
  * the herdr workspaces of sessions seen running (workspaces.json), the herdr panes hidden from the page's list until
  * their agents change state (hidden-panes.json), images attached to prompts (uploads/), the background
- * server log (server.log), the account's usage a statusline drops in (rate-limits.json, see the README).
+ * server log (server.log), the account's usage a statusline drops in (rate-limits.json, see the README), what
+ * Antigravity CLI gave its status line last, which that drops in (agy-statusline.json, likewise).
  */
 export const stateDir = join(homedir(), '.claude-code-webview');
 
@@ -90,6 +91,8 @@ export async function serve({ port, about, palette, publicAddresses, herdr, clau
   const claude = claudeDir(process.env);
   const readRecords = () => readSessionRecords(join(claude, 'sessions'));
   const usageFiles = { claudeState: claudeStateFile(process.env), rateLimits: join(stateDir, 'rate-limits.json') };
+  // agy's usage: what it gave its status line last, if that drops it here
+  const agyStatusLine = join(stateDir, 'agy-statusline.json');
   // Codex's sessions beside Claude Code's: none while it has never run here
   const codexHome = process.env.CODEX_HOME ?? join(homedir(), '.codex');
   // Antigravity CLI's conversations as well: none while it has never run here
@@ -141,7 +144,7 @@ export async function serve({ port, about, palette, publicAddresses, herdr, clau
             if (process.platform === 'win32' && desktopProgram !== undefined) bringForward(basename(desktopProgram).replace(/\.exe$/i, ''));
           },
         });
-  const server = await startServer({ index, host: '127.0.0.1', port, pollMs: 400, changesEveryMs: 2000, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), later: createLaterFile(join(stateDir, 'later.json')), desks, pins: createPinsFile(join(stateDir, 'pins.json')), seen: createSeenFile(join(stateDir, 'seen.json'), { limit: 500 }), kept: createKeptFile(join(stateDir, 'kept.json'), { limit: 200 }), diagnostics: createDiagnosticsLog(join(stateDir, 'diagnostics.jsonl'), { maxBytes: 5_000_000 }), uploads: createUploads(join(stateDir, 'uploads')), about, palette, publicAddresses, herdrView, terminals, usage: () => readUsage(usageFiles), system: createLocalSystemUsage(), processes: createLocalProcesses(), chatgptUsage: () => readChatGptUsage(chatgptUsageFile, Date.now()), sessionStatus: (id) => readSessionStatus(join(stateDir, 'session-status'), id), isRunning: async (id) => latestRecords(await readRecords()).has(id) || (await codexThreads.holds(id)) || (await agyProcesses.holds(id)), editor: editor !== undefined ? (path, line) => openInEditor(editor, path, line) : systemEditor, fileManager: openInFileManager, commands: ({ agent, cwd }) => (agent === 'codex' ? codexCommands({ home: codexHome }) : agent === 'agy' ? Promise.resolve([]) : claudeCommands({ config: claude, cwd })), vscode: vscodeServer, codexInUse: async () => (await codexThreads.open()).length > 0 });
+  const server = await startServer({ index, host: '127.0.0.1', port, pollMs: 400, changesEveryMs: 2000, composer, bookmarks: createBookmarkFile(join(stateDir, 'bookmarks.json')), later: createLaterFile(join(stateDir, 'later.json')), desks, pins: createPinsFile(join(stateDir, 'pins.json')), seen: createSeenFile(join(stateDir, 'seen.json'), { limit: 500 }), kept: createKeptFile(join(stateDir, 'kept.json'), { limit: 200 }), diagnostics: createDiagnosticsLog(join(stateDir, 'diagnostics.jsonl'), { maxBytes: 5_000_000 }), uploads: createUploads(join(stateDir, 'uploads')), about, palette, publicAddresses, herdrView, terminals, usage: () => readUsage(usageFiles), system: createLocalSystemUsage(), processes: createLocalProcesses(), chatgptUsage: () => readChatGptUsage(chatgptUsageFile, Date.now()), agyUsage: () => readAgyUsage(agyStatusLine, Date.now()), sessionStatus: (id) => readSessionStatus(join(stateDir, 'session-status'), id), isRunning: async (id) => latestRecords(await readRecords()).has(id) || (await codexThreads.holds(id)) || (await agyProcesses.holds(id)), editor: editor !== undefined ? (path, line) => openInEditor(editor, path, line) : systemEditor, fileManager: openInFileManager, commands: ({ agent, cwd }) => (agent === 'codex' ? codexCommands({ home: codexHome }) : agent === 'agy' ? Promise.resolve([]) : claudeCommands({ config: claude, cwd })), vscode: vscodeServer, codexInUse: async () => (await codexThreads.open()).length > 0 });
   const url = `http://127.0.0.1:${server.port}/`;
   console.log(`Claude Code Webview ${about.version}: ${url}`);
   for (const publicAddress of publicAddresses) console.log(`Also answers at ${publicAddress.origin}/ — keep it behind a login such as Cloudflare Access`);

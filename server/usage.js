@@ -18,6 +18,37 @@ export async function readChatGptUsage(file, now) {
   return fiveHour === undefined && sevenDay === undefined ? undefined : { fiveHour, sevenDay, readAt: raw.at };
 }
 
+/**
+ * Antigravity CLI's usage, from what it gave its status line last — if the status line drops that into a file: the
+ * quota left of the pool of the model in use — Gemini's models count against a pool of their own, the others against
+ * another — its 5-hour window and its week; read when the file was written.
+ * @param {string} file
+ * @param {number} now
+ * @returns {Promise<Usage | undefined>}
+ */
+export async function readAgyUsage(file, now) {
+  const saved = await readJson(file);
+  const status = saved?.json;
+  if (saved === undefined || !isRecord(status) || !isRecord(status.quota) || !isRecord(status.model) || typeof status.model.id !== 'string') return undefined;
+  const pool = /^gemini/i.test(status.model.id) ? 'gemini' : '3p';
+  const fiveHour = leftWindow(status.quota[`${pool}-5h`]);
+  const sevenDay = leftWindow(status.quota[`${pool}-weekly`]);
+  // agy left alone: once each of its windows has reset, the reading says nothing
+  const standing = [fiveHour, sevenDay].some((window) => window !== undefined && window.resetsAt > now);
+  return standing ? { fiveHour, sevenDay, readAt: saved.writtenAt } : undefined;
+}
+
+/**
+ * @param {unknown} json — a pool's window: { remaining_fraction: 0–1, reset_time: ISO time }; a window turned off, or
+ *   one counted in credits (remaining_amount), has no share used
+ * @returns {{ percent: number, resetsAt: number } | undefined}
+ */
+function leftWindow(json) {
+  if (!isRecord(json) || json.disabled === true || typeof json.remaining_fraction !== 'number' || json.remaining_fraction < 0 || json.remaining_fraction > 1 || typeof json.reset_time !== 'string') return undefined;
+  const resetsAt = Date.parse(json.reset_time);
+  return Number.isFinite(resetsAt) ? { percent: 100 - json.remaining_fraction * 100, resetsAt } : undefined;
+}
+
 /** @param {unknown} json @param {number} now @returns {UsageWindow | undefined} */
 function liveWindow(json, now) {
   if (!isRecord(json) || typeof json.used_percentage !== 'number' || !Number.isFinite(json.used_percentage) || json.used_percentage < 0 || json.used_percentage > 100 || typeof json.resets_at !== 'number' || !Number.isFinite(json.resets_at) || json.resets_at * 1000 <= now) return undefined;

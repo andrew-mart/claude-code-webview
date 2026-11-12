@@ -44,6 +44,15 @@ test('usage_Should_ShowChatGptAccount_WhenNoCodexThreadIsOpen', async (t) => {
 
   assert.deepEqual(await (await fetch(`${base}/api/usage/codex`)).json(), { sevenDay: { percent: 63, resetsAt: 2_000_000 }, readAt: 900 });
 });
+
+// Antigravity CLI's usage, as its status line dropped it: a row of its own on the page; none read — nothing to show
+test('usage_Should_ShowAgyUsage_AsItsStatusLineDroppedIt', async (t) => {
+  const usage = { fiveHour: { percent: 25, resetsAt: 1_500_000 }, sevenDay: { percent: 60, resetsAt: 2_000_000 }, readAt: 900 };
+  const { base } = await withServer(t, { agyUsage: usage });
+  const { base: noneRead } = await withServer(t);
+
+  assert.deepEqual([await (await fetch(`${base}/api/usage/agy`)).json(), await (await fetch(`${noneRead}/api/usage/agy`)).json()], [usage, {}]);
+});
 /** @param {string} uuid @param {string} text */
 const promptLine = (uuid, text) =>
   `${JSON.stringify({ type: 'user', uuid, timestamp: at, cwd: 'D:\\dev\\x', promptSource: 'typed', message: { role: 'user', content: text } })}\n`;
@@ -132,13 +141,13 @@ const webWorkspace = {
 
 /**
  * @param {import('node:test').TestContext} t
- * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[], sessionRunning?: boolean, editor?: 'set' | 'none', vscode?: import('../server/vscode.js').VsCode | undefined, codexRoot?: string | undefined, codexInUse?: boolean, chatgptUsage?: import('../public/model/usage.js').Usage | undefined, sessionStatus?: import('../public/model/session-status.js').SessionStatus | undefined, statusRead?: Promise<unknown> }} [options] - takenBack: see
+ * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[], sessionRunning?: boolean, editor?: 'set' | 'none', vscode?: import('../server/vscode.js').VsCode | undefined, codexRoot?: string | undefined, codexInUse?: boolean, chatgptUsage?: import('../public/model/usage.js').Usage | undefined, agyUsage?: import('../public/model/usage.js').Usage | undefined, sessionStatus?: import('../public/model/session-status.js').SessionStatus | undefined, statusRead?: Promise<unknown> }} [options] - takenBack: see
  *   fakeComposer; palette, publicAddresses: what the viewer is started with; sessionRunning: whether Claude Code has the
  *   session open; editor: whether the viewer opens files in an editor — the files it is asked to open are recorded;
  *   vscode: VS Code's web server behind /vscode/; codexRoot: Codex's sessions folder; codexInUse: whether Codex has a
  *   thread open; statusRead: the session's status is read once it settles — a slow read
  */
-async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true, editor = 'set', vscode = undefined, codexRoot = undefined, codexInUse = false, chatgptUsage = undefined, sessionStatus = undefined, statusRead = Promise.resolve() } = {}) {
+async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true, editor = 'set', vscode = undefined, codexRoot = undefined, codexInUse = false, chatgptUsage = undefined, agyUsage = undefined, sessionStatus = undefined, statusRead = Promise.resolve() } = {}) {
   const root = tempDir('csv-');
   // the folders the sessions started in, for their desks: the session and one beside it in x, another in y
   const work = tempDir('server-desks-');
@@ -264,7 +273,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // the file manager opens what is asked
   /** @type {import('../server/file-manager.js').FileManagerTarget[]} */
   const shownInFileManager = [];
-  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, changesEveryMs: 40, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), later: createLaterFile(join(root, 'later.json')), desks, pins: createPinsFile(join(root, 'pins.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), kept: createKeptFile(join(root, 'kept.json'), { limit: 100 }), diagnostics: createDiagnosticsLog(join(root, 'diagnostics.jsonl'), { maxBytes: 1_000_000 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, system: { read: async () => ({ cpu: 31, memory: { used: 24_000, total: 32_000 }, gpu: undefined }) }, processes: { read: async (by) => [{ pid: 4120, name: `node by ${by}`, cpu: 12, memory: 104_857_600, gpu: by === 'gpu' ? 3 : undefined }] }, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, sessionStatus: async (id) => {
+  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, changesEveryMs: 40, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), later: createLaterFile(join(root, 'later.json')), desks, pins: createPinsFile(join(root, 'pins.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), kept: createKeptFile(join(root, 'kept.json'), { limit: 100 }), diagnostics: createDiagnosticsLog(join(root, 'diagnostics.jsonl'), { maxBytes: 1_000_000 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, system: { read: async () => ({ cpu: 31, memory: { used: 24_000, total: 32_000 }, gpu: undefined }) }, processes: { read: async (by) => [{ pid: 4120, name: `node by ${by}`, cpu: 12, memory: 104_857_600, gpu: by === 'gpu' ? 3 : undefined }] }, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, agyUsage: async () => agyUsage, sessionStatus: async (id) => {
       await statusRead;
       return id === sessionId ? sessionStatus : undefined;
     } });

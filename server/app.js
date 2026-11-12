@@ -145,18 +145,18 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  */
 
 /**
- * @param {{ index: SessionIndex, host: string, port: number, pollMs: number, changesEveryMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, desks: import('./desks.js').Desks, pins: import('./pins.js').Pins, seen: Seen, kept: Kept, diagnostics: Diagnostics, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, system: SystemUsage, processes: Processes, chatgptUsage?: ReadUsage, sessionStatus?: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode?: import('./vscode.js').VsCode | undefined, codexInUse: () => Promise<boolean> }} options
+ * @param {{ index: SessionIndex, host: string, port: number, pollMs: number, changesEveryMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, desks: import('./desks.js').Desks, pins: import('./pins.js').Pins, seen: Seen, kept: Kept, diagnostics: Diagnostics, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, system: SystemUsage, processes: Processes, chatgptUsage?: ReadUsage, agyUsage?: ReadUsage, sessionStatus?: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode?: import('./vscode.js').VsCode | undefined, codexInUse: () => Promise<boolean> }} options
  *   about — package name and version for /api/health; palette — the page's colours (public/model/palettes.js);
  *   publicAddresses — where else the page is opened at, answered as the local address is; herdrView — what herdr
  *   shows (herdr-view.js); terminals — herdr panes' terminals (terminal.js); usage — the account's usage (usage.js);
- *   system — how busy the viewer's computer is (system-usage.js);
+ *   agyUsage — Antigravity CLI's, as its status line dropped it (usage.js); system — how busy the viewer's computer is (system-usage.js);
  *   isRunning — whether Claude Code has a session open, Codex a thread, agy a conversation — Claude Code's file
  *   written only with its first message; editor — opens a file at a line in the editor of this computer, if the viewer was given one; seen — the
  *   answers seen, for every device (seen.js); codexInUse — whether Codex has a
  *   thread open (codex-live.js)
  * @returns {Promise<{ port: number, close: () => void }>}
  */
-export async function startServer({ index, host, port, pollMs, changesEveryMs, composer, bookmarks, later, desks, pins, seen, kept, diagnostics, uploads, about, palette, publicAddresses, herdrView, terminals, usage, system, processes, chatgptUsage = async () => undefined, sessionStatus = async () => undefined, isRunning, editor, fileManager, commands, vscode, codexInUse }) {
+export async function startServer({ index, host, port, pollMs, changesEveryMs, composer, bookmarks, later, desks, pins, seen, kept, diagnostics, uploads, about, palette, publicAddresses, herdrView, terminals, usage, system, processes, chatgptUsage = async () => undefined, agyUsage = async () => undefined, sessionStatus = async () => undefined, isRunning, editor, fileManager, commands, vscode, codexInUse }) {
   const instance = randomUUID();
   const build = await pageBuild();
   const pageModules = await modulesAtStart();
@@ -203,7 +203,7 @@ export async function startServer({ index, host, port, pollMs, changesEveryMs, c
   /** The prompts sent under an id, so that one sent again — its reply lost on the way — is typed once. */
   const sentPrompts = createSentPrompts(sentPromptsKept);
   /** @type {Deps} */
-  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, later, desks, pins, seen, kept, diagnostics, codexInUse, uploads, about, build, pageModules, feedEntries, rewinds, transcripts, feeds, palette, herdrView, terminals, usage, system, processes, chatgptUsage, sessionStatus, isRunning, editor, fileManager, commands, vscode, instance, fileIcons, sentPrompts };
+  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, later, desks, pins, seen, kept, diagnostics, codexInUse, uploads, about, build, pageModules, feedEntries, rewinds, transcripts, feeds, palette, herdrView, terminals, usage, system, processes, chatgptUsage, agyUsage, sessionStatus, isRunning, editor, fileManager, commands, vscode, instance, fileIcons, sentPrompts };
   const server = http.createServer((request, response) => {
     handle(deps, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
@@ -239,7 +239,7 @@ export async function startServer({ index, host, port, pollMs, changesEveryMs, c
 
 /**
  * @typedef {ReturnType<typeof createSessionIndex>} SessionIndex — Claude Code's sessions and Codex's (sessions.js)
- * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, desks: import('./desks.js').Desks, pins: import('./pins.js').Pins, uploads: Uploads, about: About, build: string, pageModules: readonly string[], feedEntries: string, rewinds: Map<string, import('./branch.js').RewindMark>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, system: SystemUsage, processes: Processes, chatgptUsage: ReadUsage, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, kept: Kept, diagnostics: Diagnostics, codexInUse: () => Promise<boolean>, sentPrompts: import('./sent-prompts.js').SentPrompts }} Deps
+ * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, desks: import('./desks.js').Desks, pins: import('./pins.js').Pins, uploads: Uploads, about: About, build: string, pageModules: readonly string[], feedEntries: string, rewinds: Map<string, import('./branch.js').RewindMark>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, system: SystemUsage, processes: Processes, chatgptUsage: ReadUsage, agyUsage: ReadUsage, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, kept: Kept, diagnostics: Diagnostics, codexInUse: () => Promise<boolean>, sentPrompts: import('./sent-prompts.js').SentPrompts }} Deps
  *   instance: this run of the viewer, told apart from any other — see /api/machine; vscode: VS Code's web server
  *   behind /vscode/, none when the viewer runs none
  * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'forkedFrom' | 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'focusTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hideWorkspace' | 'showWorkspace' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'continueTab' | 'createWorkspace' | 'history' | 'reopen' | 'restart' | 'exit'>} HerdrView
@@ -351,6 +351,9 @@ async function handle(deps, request, response) {
       const latest = readings.filter((reading) => reading !== undefined).toSorted((one, other) => other.readAt - one.readAt)[0];
       return sendJson(response, latest ?? {});
     }
+    // Antigravity CLI's, as its status line dropped it last
+    case '/api/usage/agy':
+      return sendJson(response, (await deps.agyUsage()) ?? {});
     case '/api/history':
       return sendRevalidated(response, await deps.herdrView.history());
     case '/api/pane/stream':
