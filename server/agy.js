@@ -27,21 +27,37 @@ const interruptedCall = 'Interrupted: agy was stopped before this ran';
 
 /**
  * A reading of one agy conversation, step by step in the file's order: the calls of the model's last response wait for
- * their outputs, the turn's start for its end.
+ * their outputs, the turn's start for its end. Rewound, agy writes the step it went back to anew, under its number, and
+ * goes on from there: a step numbered as one read before it starts a branch — as Claude Code's rewind does — from the
+ * last record of the step before it; the records of a branch after a rewind are named apart (-r1, -r2…), and the calls
+ * left waiting in the branch left behind are not answered in it.
  * @returns {{ translate: (raw: unknown) => AgyRecord[] }}
  */
 export function createAgyReading() {
-  /** @type {{ parent: string | null, calls: string[], turnStart: number | undefined }} */
-  const state = { parent: null, calls: [], turnStart: undefined };
+  /** @type {{ parent: string | null, calls: string[], turnStart: number | undefined, last: number | undefined, rewinds: number }} */
+  const state = { parent: null, calls: [], turnStart: undefined, last: undefined, rewinds: 0 };
+  /** The last record each step made, by the step's number, in the branch read now. @type {Map<number, string>} */
+  const ends = new Map();
   return {
     translate(raw) {
       if (!isRecord(raw) || typeof raw.step_index !== 'number') return [];
+      const index = raw.step_index;
+      if (state.last !== undefined && index <= state.last) {
+        for (const step of [...ends.keys()]) if (step >= index) ends.delete(step);
+        state.parent = [...ends.values()].at(-1) ?? null;
+        state.calls = [];
+        state.rewinds += 1;
+      }
+      state.last = index;
       const timestamp = text(raw.created_at);
-      return madeOf(raw, raw.step_index, timestamp, state).map((made) => {
+      const records = madeOf(raw, state.rewinds === 0 ? `agy-${index}` : `agy-${index}-r${state.rewinds}`, timestamp, state).map((made) => {
         const record = { ...made, parentUuid: state.parent, timestamp };
         state.parent = made.uuid;
         return record;
       });
+      const end = records.at(-1);
+      if (end !== undefined) ends.set(index, end.uuid);
+      return records;
     },
   };
 }
@@ -49,13 +65,12 @@ export function createAgyReading() {
 /**
  * What a step of agy is as Claude Code's records.
  * @param {Record<string, unknown>} raw
- * @param {number} index — the step's
+ * @param {string} uuid — the step's record's, its others' made of it
  * @param {string | undefined} timestamp — when it was written
  * @param {{ calls: string[], turnStart: number | undefined }} state — the calls waiting for their outputs, when the turn began
  * @returns {Made[]}
  */
-function madeOf(raw, index, timestamp, state) {
-  const uuid = `agy-${index}`;
+function madeOf(raw, uuid, timestamp, state) {
   switch (raw.type) {
     case 'USER_INPUT': {
       const said = text(raw.content) ?? '';

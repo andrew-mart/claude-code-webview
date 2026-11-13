@@ -153,6 +153,34 @@ test('agyReading_Should_TellCallsLeftWaitingWhenNextPromptCame_AsInterrupted', (
   );
 });
 
+// Rewound, agy writes the step it went back to anew, under the same number, and goes on from there: the conversation
+// goes on from the step before it, as Claude Code's rewound does — a branch of its own, its records named apart from
+// those left behind; the calls left waiting there are not cut short in it
+test('agyReading_Should_TellARewoundStepAsABranchFromTheStepBeforeIt', () => {
+  const records = read([
+    step(0, 'USER_INPUT', { content: '<USER_REQUEST>Write the notes</USER_REQUEST>' }),
+    step(1, 'PLANNER_RESPONSE', { content: 'Which notes?' }),
+    step(2, 'USER_INPUT', { content: '<USER_REQUEST>The shop ones</USER_REQUEST>' }),
+    step(3, 'PLANNER_RESPONSE', { tool_calls: [{ name: 'write_file', args: { Path: 'D:\\shop\\notes.md', Content: '# Notes\n' } }] }),
+    step(2, 'USER_INPUT', { content: '<USER_REQUEST>The shop ones, in Russian</USER_REQUEST>' }),
+    step(3, 'PLANNER_RESPONSE', { content: 'Done.' }),
+  ]);
+
+  assert.deepEqual(
+    records.map((record) => [record.uuid, record.parentUuid]),
+    [
+      ['agy-0', null],
+      ['agy-1', 'agy-0'],
+      ['agy-1-end', 'agy-1'],
+      ['agy-2', 'agy-1-end'],
+      ['agy-3', 'agy-2'],
+      ['agy-2-r1', 'agy-1-end'],
+      ['agy-3-r1', 'agy-2-r1'],
+      ['agy-3-r1-end', 'agy-3-r1'],
+    ],
+  );
+});
+
 // A line of the transcript read alone — the page asks for an entry in full — is the record it was read as in turn: a
 // tool's output answers the call made before it, in a line of its own
 test('agyRecordAt_Should_ReadLineAsItWasReadInTurn', () => {
