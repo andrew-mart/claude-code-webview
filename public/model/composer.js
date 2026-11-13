@@ -112,7 +112,7 @@ export function outcomeMessage(outcome) {
     case 'no-herdr':
       return 'Could not reach herdr. The text stays in the box.';
     case 'asking':
-      return 'Codex is asking something in its terminal — answer it there first. The text stays in the box.';
+      return 'The agent shows something over its prompt box in its terminal — a question, a menu — answer or close it there first. The text stays in the box.';
     case 'subagent':
       return 'Codex’s terminal shows a sub-agent, which takes no input — switch it back to the main thread. The text stays in the box.';
     case 'side':

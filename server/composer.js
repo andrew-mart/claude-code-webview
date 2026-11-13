@@ -210,7 +210,7 @@ export function createComposer({ readRecords, herdr, codexPlace, agyPlace = asyn
     const typed = await press(place, [[textCommand(place.agent), input]]);
     if (!typed.ok) return typed;
     const landed = await settleWhileChanging(
-      terminalOf(place.pane),
+      terminalOf(place),
       (ms) => delay(ms),
       (screen) => showsTyped(boxOf(place.agent, screen), input),
       (screen) => boxOf(place.agent, screen),
@@ -226,7 +226,7 @@ export function createComposer({ readRecords, herdr, codexPlace, agyPlace = asyn
    * @returns {Promise<'required' | 'hoped'>} — the side panel left open over the box closed first
    */
   async function claudeLanding(place) {
-    const screen = await withPanelClosed(terminalOf(place.pane), (ms) => delay(ms));
+    const screen = await withPanelClosed(terminalOf(place), (ms) => delay(ms));
     return screen !== undefined && inputBox(screen) !== undefined ? 'required' : 'hoped';
   }
 
@@ -241,7 +241,7 @@ export function createComposer({ readRecords, herdr, codexPlace, agyPlace = asyn
    * @returns {Promise<SendOutcome>}
    */
   async function sendToCodex(place, input, key) {
-    const terminal = terminalOf(place.pane);
+    const terminal = terminalOf(place);
     // a screen Codex is drawing anew shows no box for a moment
     const screen = (await settleOn(terminal, (ms) => delay(ms), (now) => codexInputBox(now) !== undefined)) ?? (await terminal.read());
     if (screen === undefined || codexInputBox(screen) === undefined) return { ok: false, error: 'asking' };
@@ -265,7 +265,7 @@ export function createComposer({ readRecords, herdr, codexPlace, agyPlace = asyn
    * @returns {Promise<SendOutcome>}
    */
   async function sendQueuedToCodexNow(place) {
-    const terminal = terminalOf(place.pane);
+    const terminal = terminalOf(place);
     const screen = await terminal.read();
     const last = screen === undefined ? undefined : codexQueued(screen).at(-1);
     if (last === undefined) return { ok: false, error: 'empty' };
@@ -327,10 +327,15 @@ export function createComposer({ readRecords, herdr, codexPlace, agyPlace = asyn
    * @returns {Promise<SendOutcome>}
    */
   async function sendToAgy(place, input) {
-    const terminal = terminalOf(place.pane);
+    const terminal = terminalOf(place);
     // a screen agy is drawing anew shows no box for a moment
     const screen = await settleOn(terminal, (ms) => delay(ms), (now) => agyInputBox(now) !== undefined);
-    if (screen === undefined) return { ok: false, error: 'asking' };
+    if (screen === undefined) {
+      // what stood in the box's place, for the server's log: a dialog of agy's, or a screen the viewer reads amiss
+      const seen = await terminal.read();
+      console.warn(`agy's box not found in pane ${place.pane}; its screen ends with:\n${(seen ?? '').split('\n').slice(-12).join('\n')}`);
+      return { ok: false, error: 'asking' };
+    }
     const typed = await typeIn(place, input, 'required');
     return typed.ok ? enterUntilTaken(place, input) : typed;
   }
@@ -344,7 +349,7 @@ export function createComposer({ readRecords, herdr, codexPlace, agyPlace = asyn
    * @returns {Promise<SendOutcome>}
    */
   async function enterUntilTaken(place, input) {
-    const terminal = terminalOf(place.pane);
+    const terminal = terminalOf(place);
     for (let tries = 0; tries < enterTries; tries++) {
       const sent = await press(place, [['send-keys', 'enter']]);
       if (!sent.ok) return sent;
@@ -395,13 +400,16 @@ export function createComposer({ readRecords, herdr, codexPlace, agyPlace = asyn
   /**
    * The session's terminal: what its screen shows, keys and text typed into it. The screen is read with its styles: a
    * reply Claude Code suggests in its empty prompt box is drawn as typed text is, only dim.
-   * @param {string} pane
+   * @param {{ pane: string, agent: PaneAgent }} place — its pane, and whose terminal it is
    * @returns {import('./claude-screen.js').Terminal}
    */
-  function terminalOf(pane) {
+  function terminalOf({ pane, agent }) {
+    // agy's screen read as its last lines, as herdr reads them to tell agents apart: with its pane scrolled up in herdr
+    // what is in view leaves its box out. Claude Code's and Codex's as in view, in colour: their placeholders are dim.
+    const reading = agent === 'agy' ? ['--source', 'detection', '--format', 'text'] : ['--source', 'visible', '--format', 'ansi'];
     return {
       read: async () => {
-        const reply = await herdr(['pane', 'read', pane, '--source', 'visible', '--format', 'ansi']);
+        const reply = await herdr(['pane', 'read', pane, ...reading]);
         return reply.ok ? plainScreen(reply.text) : undefined;
       },
       keys: async (...keys) => succeeded(await herdr(['pane', 'send-keys', pane, ...keys])),
@@ -422,7 +430,7 @@ export function createComposer({ readRecords, herdr, codexPlace, agyPlace = asyn
           return { state: where.kind };
         case 'live': {
           const { place } = where;
-          const screen = await terminalOf(place.pane).read();
+          const screen = await terminalOf(place).read();
           // Codex's terminal showing a sub-agent's thread, or a side conversation, is not where a prompt goes: the page
           // waits for the main thread
           const status = place.agent !== 'codex' || screen === undefined ? place.status : showsSubagent(screen) ? 'subagent' : showsSideConversation(screen) ? 'side' : place.status;
@@ -489,7 +497,7 @@ export function createComposer({ readRecords, herdr, codexPlace, agyPlace = asyn
         if (where.kind !== 'live') return { ok: false, error: where.kind };
         // agy has no side question the viewer drives
         if (where.place.agent === 'agy') return { ok: false, error: 'not-asked' };
-        const terminal = terminalOf(where.place.pane);
+        const terminal = terminalOf(where.place);
         // Codex answers it in a side conversation of its own (codex-btw.js)
         const recent = () => recentOf(where.place.pane);
         return where.place.agent === 'codex' ? driveCodexBtw(terminal, { question, wait: (ms) => delay(ms), recent }) : driveBtw(terminal, { question, wait: (ms) => delay(ms) });
@@ -516,7 +524,7 @@ export function createComposer({ readRecords, herdr, codexPlace, agyPlace = asyn
         const where = await locate(sessionId);
         if (where.kind !== 'live') return { ok: false, error: where.kind };
         if (where.place.agent !== 'claude') return { ok: false, error: 'panel-closed' };
-        return readBtw(terminalOf(where.place.pane), { question, wait: (ms) => delay(ms) });
+        return readBtw(terminalOf(where.place), { question, wait: (ms) => delay(ms) });
       });
     },
     /**
@@ -530,7 +538,7 @@ export function createComposer({ readRecords, herdr, codexPlace, agyPlace = asyn
       return inTurn(sessionId, async () => {
         const where = await locate(sessionId);
         if (where.kind !== 'live') return { ok: false, error: where.kind };
-        const terminal = terminalOf(where.place.pane);
+        const terminal = terminalOf(where.place);
         const screen = await terminal.read();
         if (screen === undefined || dialogOf(where.place.agent, screen) === undefined) return { ok: false, error: 'no-dialog' };
         for (const step of steps) {
@@ -557,7 +565,7 @@ export function createComposer({ readRecords, herdr, codexPlace, agyPlace = asyn
           const stopped = await press(place, [['send-keys', 'esc']]);
           return stopped.ok ? { ok: true, pane: place.pane, prompt: undefined } : stopped;
         }
-        const outcome = await driveStop(terminalOf(place.pane), { sent: sentPrompts.get(sessionId) ?? [], wait: (ms) => delay(ms) });
+        const outcome = await driveStop(terminalOf(place), { sent: sentPrompts.get(sessionId) ?? [], wait: (ms) => delay(ms) });
         if (outcome.ok) return { ok: true, pane: place.pane, prompt: outcome.prompt };
         if (outcome.error === 'box-not-cleared') return { ok: false, error: 'box-not-cleared' };
         place.forget();
@@ -579,11 +587,11 @@ export function createComposer({ readRecords, herdr, codexPlace, agyPlace = asyn
         const { place } = where;
         if (place.agent === 'claude') {
           if (place.status === 'busy') return { ok: false, error: 'busy' };
-          return driveRewind(terminalOf(place.pane), { ...request, wait: (ms) => delay(ms) });
+          return driveRewind(terminalOf(place), { ...request, wait: (ms) => delay(ms) });
         }
         if (place.agent === 'agy' || request.action !== 'conversation') return { ok: false, error: 'option-not-found' };
         if (place.status === 'busy') return { ok: false, error: 'busy' };
-        const terminal = terminalOf(place.pane);
+        const terminal = terminalOf(place);
         const screen = await terminal.read();
         if (screen !== undefined && showsSubagent(screen)) return { ok: false, error: 'subagent' };
         return driveCodexRewind({ ...terminal, styled: () => styledScreenOf(place.pane) }, { stepsUp: request.stepsUp, prompt: request.prompt, wait: (ms) => delay(ms) });

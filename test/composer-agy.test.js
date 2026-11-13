@@ -12,10 +12,11 @@ const permission = [...banner, rule, 'Run command?', '  npm test', '', '> Allow 
 /**
  * A fake herdr whose pane shows agy's screen: its box empty until text is typed, then with the text, until Enter takes
  * it — or a permission dialog in its place. Records the calls that change something.
- * @param {{ asking?: true, takes?: number }} [options] - asking: agy asks to run a command; takes: the characters typed
- *   that agy's box takes between two looks at the screen — all at once if not told
+ * @param {{ asking?: true, takes?: number, scrolled?: true }} [options] - asking: agy asks to run a command; takes: the
+ *   characters typed that agy's box takes between two looks at the screen — all at once if not told; scrolled: the pane
+ *   scrolled up in herdr, what is in view its earlier lines, its box under them — the screen's last lines are as ever
  */
-function fakeHerdr({ asking, takes = Number.POSITIVE_INFINITY } = {}) {
+function fakeHerdr({ asking, takes = Number.POSITIVE_INFINITY, scrolled } = {}) {
   let box = '';
   // typed, not in the box yet
   let coming = '';
@@ -29,7 +30,8 @@ function fakeHerdr({ asking, takes = Number.POSITIVE_INFINITY } = {}) {
     if (command === 'read') {
       box += coming.slice(0, takes);
       coming = coming.slice(takes);
-      return { ok: true, json: undefined, text: asking === true ? permission : agyScreen(box) };
+      const inView = scrolled === true && args.includes('visible');
+      return { ok: true, json: undefined, text: asking === true ? permission : inView ? banner.join('\n') : agyScreen(box) };
     }
     if ((command === 'send-text' || command === 'paste-text') && argument !== undefined) coming += argument;
     if (command === 'send-keys' && keys.includes('enter')) box = '';
@@ -111,6 +113,16 @@ test('send_Should_WaitWhileAgyTakesALongPromptSlowly_ThenPressEnter', async () =
   const outcome = await composerOf({ found: 'pane', pane: 'w2:p1', working: false }, slow).send(conversation, prompt);
 
   assert.deepEqual({ outcome, typed: slow.changes }, { outcome: { ok: true, pane: 'w2:p1' }, typed: [`paste-text w2:p1 ${prompt}`, 'send-keys w2:p1 enter'] });
+});
+
+// agy's pane scrolled up in herdr — someone read its earlier lines there — shows its box out of view: a prompt still
+// goes in, the screen's last lines read as they are
+test('send_Should_TypePromptIntoAgy_ThoughItsPaneIsScrolledUp', async () => {
+  const scrolled = fakeHerdr({ scrolled: true });
+
+  const outcome = await composerOf({ found: 'pane', pane: 'w2:p1', working: false }, scrolled).send(conversation, 'Add the price filter');
+
+  assert.deepEqual({ outcome, typed: scrolled.changes }, { outcome: { ok: true, pane: 'w2:p1' }, typed: ['paste-text w2:p1 Add the price filter', 'send-keys w2:p1 enter'] });
 });
 
 // While agy asks something — a permission, a question — a prompt is not typed: its keys would answer it. agy has no
