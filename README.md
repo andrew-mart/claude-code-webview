@@ -6,7 +6,9 @@ A web interface for working with **[Claude Code](https://code.claude.com)**, **C
 
 Instead of juggling separate terminal windows, you get a single browser app with your workspaces and tabs on the left, live agent conversations in the middle, and documents, diffs, notes, and bookmarks on the right. It feels like a native desktop app on a large monitor, adapts cleanly to a phone screen, and works remotely when placed behind Cloudflare.
 
-![Claude Code Webview](docs/screenshot.png)
+![Claude Code Webview — light theme](docs/screenshot.png)
+
+![Claude Code Webview — dark theme](docs/screenshot-dark.png)
 
 ---
 
@@ -17,7 +19,7 @@ Instead of juggling separate terminal windows, you get a single browser app with
 Run and follow all your coding sessions side by side:
 
 - **Three coding agents** — supports **Claude Code**, **Codex**, and **Antigravity CLI (`agy`)**. Each session shows your prompts, rendered Markdown replies, thinking durations, and expandable tool calls (`Bash`, `Read`, `Edit`, `Write`, subagents) with diffs and command output. Long runs of tool calls fold into a single summary line (`4 commands, 1 read, 6 edits`) by default and can be expanded anytime.
-- **Drive sessions from the browser** — type prompts directly into running sessions, paste or attach screenshots, use `/` command autocomplete, ask side questions without polluting the transcript (`/btw`), rewind code and conversation turns (`/rewind`), switch models (`/model`), and inspect `/mcp` servers.
+- **Drive sessions from the browser** — type prompts directly into running sessions, click any `👉` question in an answer to quote it into the input box, paste or attach screenshots, use `/` command autocomplete, ask side questions without polluting the transcript (`/btw`), rewind code and conversation turns (`/rewind`), switch models (`/model`), and inspect `/mcp` servers.
 - **Interactive terminal prompts above the input box** — when an agent waits for a choice or confirmation in the terminal (`AskUserQuestion`, folder trust, command permission), the options appear as buttons right above the input box. Click the card header to fold it into a single line while reading the conversation.
 - **Switch between Claude Code and `ccproxy` (`Claude GPT`)** — pass `--claude-gpt-command` to keep standard Claude Code and a GPT-gateway launcher available together. Start new tabs in either mode, or restart a running session from one into the other without losing conversation history.
 - **Live shell terminals** — any `herdr` tab running a shell, `nvim`, a test runner, or `htop` opens as a live `xterm.js` terminal right in the browser.
@@ -36,7 +38,7 @@ When you run sessions inside [herdr](https://herdr.dev), the viewer mirrors your
 - **Status lamps and reminders** — colored lamps show whether an agent is working, waiting for your input, or finished with an unread reply. Opening a finished session clears its lamp across all devices; press the clock button or **`Ctrl+Q`** to keep a blue lamp lit until you come back to that task.
 - **Hide idle workspaces without closing them** — click the crossed-out eye on an idle workspace or tab to declutter the sidebar while keeping its processes running. As soon as an agent inside finishes a turn or asks a question, the workspace automatically reappears.
 - **Session history and restoring closed tabs** — the history button above a session lists earlier conversations from the same tab alongside **closed `herdr` tabs**. Open any past conversation to read it, or click **Restore** to reopen a closed tab in its workspace. After a system reboot, **Continue** resumes the last conversation of an idle tab in one click.
-- **Rate limits and system load at a glance** — the sidebar header shows 5-hour and weekly usage bars for both **Claude** and **ChatGPT / Codex** (green while under pace, red when running ahead of the clock). The top-right corner shows live **CPU**, **RAM**, and **GPU** usage — click any meter to inspect the busiest processes.
+- **Rate limits and system load at a glance** — the sidebar header shows three rows of 5-hour and weekly usage bars — for **Claude**, **Codex / ChatGPT**, and **Antigravity CLI (`agy`)** (green while under pace, red when running ahead of the clock). The top-right corner shows live **CPU**, **RAM**, and **GPU** usage — click any meter to inspect the busiest processes.
 
 ![A herdr shell terminal in the dark theme](docs/terminal.png)
 
@@ -143,7 +145,8 @@ On iPhone, add the page to the Home Screen (Safari: Share → Add to Home Screen
   input=$(cat); echo "$input" | jq -c '.rate_limits // empty' > ~/.claude-code-webview/rate-limits.json
   ```
 - **ChatGPT / Codex** — Codex usage is read automatically; if you also use a GPT gateway, pass `--chatgpt-usage-file <path>` pointing to a JSON snapshot (`{ "at": <ms>, "status": 200, "limits": { "five_hour": { "used_percentage": 28, "resets_at": <sec> }, "seven_day": { ... } } }`).
-- **Gateway model and context telemetry** — a gateway statusline can write live session metadata to `~/.claude-code-webview/session-status/<session-uuid>.json` (`{ "at": <ms>, "model": "<id>", "contextTokens": 64000, "contextWindow": 1000000, "effort": "high" }`).
+- **Antigravity CLI (`agy`)** — `agy` passes its state and remaining pool quotas (`gemini-*` and `3p-*`, `5h` and `weekly`) to its `statusLine` command on stdin. Have your `statusLine` command write `{ "model": ..., "quota": ... }` to `~/.claude-code-webview/agy-statusline.json` to display the third usage row in the sidebar header.
+- **Session model and context telemetry** — a gateway or `agy` statusline can also write live session metadata to `~/.claude-code-webview/session-status/<session-uuid>.json` (`{ "at": <ms>, "model": "<id>", "contextTokens": 64000, "contextWindow": 1000000, "effort": "high" }`).
 
 ### Running Claude Code through a GPT gateway (`ccproxy`)
 
