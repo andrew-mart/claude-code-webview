@@ -160,8 +160,10 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   });
   keepAtBottom.observe(thread);
   keepAtBottom.observe(scroller);
+  // the agent at its prompt — agy, stopped, writes nothing of it: a turn with no end written is not at work
+  const agent = { atPrompt: false };
   const refreshStatus = () => {
-    const live = feed.isWorking() && Date.now() - feed.lastActivity() < staleMs;
+    const live = feed.isWorking() && !agent.atPrompt && Date.now() - feed.lastActivity() < staleMs;
     working.hidden = !(ready && live);
     listener.onStatus(ready ? (live ? 'working' : 'idle') : 'connecting');
   };
@@ -564,6 +566,8 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     },
     agentAtPrompt(at) {
       feed.callsCutShort(at);
+      agent.atPrompt = at;
+      refreshStatus();
     },
     setLead(shown) {
       lead.replaceChildren(...(shown === undefined ? [] : [shown]));

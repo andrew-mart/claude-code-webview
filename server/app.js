@@ -20,7 +20,7 @@ import { parseNoteChange } from '../public/model/notes.js';
 import { parsePinChange } from '../public/model/pins.js';
 import { iconValue, parseIcon } from '../public/model/icon-choice.js';
 import { isRecord, text } from '../public/model/narrow.js';
-import { latestPrompt, standingRewind, takenBackPrompt } from './branch.js';
+import { latestPrompt, standingRewind, takenBackPrompt, unansweredPrompt } from './branch.js';
 import { branchChanges, branchFileDiff } from './branch-changes.js';
 import { agyRecordAt, createAgyReading } from './agy.js';
 import { createCodexReading } from './codex.js';
@@ -1077,17 +1077,33 @@ async function rewind(deps, sessionId, body, response) {
 
 /**
  * Stop the current turn, as Esc in the terminal does. A prompt Claude had not started on goes back to the page's box;
- * if it reached the transcript anyway, the feed hides it at once, as the terminal does.
+ * if it reached the transcript anyway, the feed hides it at once, as the terminal does. agy puts nothing back into its
+ * box: the prompt it had done nothing for yet goes back to the page's box from its conversation — and stays in the feed,
+ * as agy's terminal shows it, marked interrupted.
  * @param {Deps} deps
  * @param {string} sessionId
  * @param {http.ServerResponse} response
  */
 async function stop(deps, sessionId, response) {
   const reply = await deps.composer.interrupt(sessionId);
-  const stopped = reply.ok && reply.prompt !== undefined ? takenBackPrompt(await transcriptRecords(deps, sessionId), reply.prompt) : undefined;
+  if (!reply.ok) return sendJson(response, reply);
+  if (reply.prompt === undefined) return sendJson(response, { ...reply, prompt: await agyPromptBack(deps, sessionId) });
+  const stopped = takenBackPrompt(await transcriptRecords(deps, sessionId), reply.prompt);
   // the prompt taken back is the latest there is
   if (stopped !== undefined) deps.rewinds.set(sessionId, { prompt: stopped, lastPrompt: stopped });
   return sendJson(response, reply);
+}
+
+/**
+ * The prompt agy had done nothing for yet when stopped, from its conversation; none for another agent's session.
+ * @param {Deps} deps
+ * @param {string} sessionId
+ * @returns {Promise<string | undefined>}
+ */
+async function agyPromptBack(deps, sessionId) {
+  const path = await deps.index.find(sessionId);
+  if (path === undefined || deps.index.agentOf(path) !== 'agy') return undefined;
+  return unansweredPrompt(await transcriptRecords(deps, sessionId))?.text;
 }
 
 /**

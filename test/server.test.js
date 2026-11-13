@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { gunzipSync } from 'node:zlib';
 import { tempDir } from '../test-support/temp-dir.js';
+import { agyHome } from '../test-support/agy-home.js';
+import { createAgyConversations } from '../server/agy-conversations.js';
 import { isRecord } from '../public/model/narrow.js';
 import { palettes } from '../public/model/palettes.js';
 import { startServer } from '../server/app.js';
@@ -141,13 +143,13 @@ const webWorkspace = {
 
 /**
  * @param {import('node:test').TestContext} t
- * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[], sessionRunning?: boolean, editor?: 'set' | 'none', vscode?: import('../server/vscode.js').VsCode | undefined, codexRoot?: string | undefined, codexInUse?: boolean, chatgptUsage?: import('../public/model/usage.js').Usage | undefined, agyUsage?: import('../public/model/usage.js').Usage | undefined, sessionStatus?: import('../public/model/session-status.js').SessionStatus | undefined, statusRead?: Promise<unknown> }} [options] - takenBack: see
+ * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[], sessionRunning?: boolean, editor?: 'set' | 'none', vscode?: import('../server/vscode.js').VsCode | undefined, codexRoot?: string | undefined, codexInUse?: boolean, chatgptUsage?: import('../public/model/usage.js').Usage | undefined, agyUsage?: import('../public/model/usage.js').Usage | undefined, agy?: string | undefined, sessionStatus?: import('../public/model/session-status.js').SessionStatus | undefined, statusRead?: Promise<unknown> }} [options] - takenBack: see
  *   fakeComposer; palette, publicAddresses: what the viewer is started with; sessionRunning: whether Claude Code has the
  *   session open; editor: whether the viewer opens files in an editor — the files it is asked to open are recorded;
  *   vscode: VS Code's web server behind /vscode/; codexRoot: Codex's sessions folder; codexInUse: whether Codex has a
  *   thread open; statusRead: the session's status is read once it settles — a slow read
  */
-async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true, editor = 'set', vscode = undefined, codexRoot = undefined, codexInUse = false, chatgptUsage = undefined, agyUsage = undefined, sessionStatus = undefined, statusRead = Promise.resolve() } = {}) {
+async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true, editor = 'set', vscode = undefined, codexRoot = undefined, codexInUse = false, chatgptUsage = undefined, agyUsage = undefined, agy = undefined, sessionStatus = undefined, statusRead = Promise.resolve() } = {}) {
   const root = tempDir('csv-');
   // the folders the sessions started in, for their desks: the session and one beside it in x, another in y
   const work = tempDir('server-desks-');
@@ -273,7 +275,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // the file manager opens what is asked
   /** @type {import('../server/file-manager.js').FileManagerTarget[]} */
   const shownInFileManager = [];
-  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot }), host: '127.0.0.1', port: 0, pollMs: 30, changesEveryMs: 40, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), later: createLaterFile(join(root, 'later.json')), desks, pins: createPinsFile(join(root, 'pins.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), kept: createKeptFile(join(root, 'kept.json'), { limit: 100 }), diagnostics: createDiagnosticsLog(join(root, 'diagnostics.jsonl'), { maxBytes: 1_000_000 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, system: { read: async () => ({ cpu: 31, memory: { used: 24_000, total: 32_000 }, gpu: undefined }) }, processes: { read: async (by) => [{ pid: 4120, name: `node by ${by}`, cpu: 12, memory: 104_857_600, gpu: by === 'gpu' ? 3 : undefined }] }, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, agyUsage: async () => agyUsage, sessionStatus: async (id) => {
+  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot, ...(agy === undefined ? {} : { agy: createAgyConversations(agy) }) }), host: '127.0.0.1', port: 0, pollMs: 30, changesEveryMs: 40, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), later: createLaterFile(join(root, 'later.json')), desks, pins: createPinsFile(join(root, 'pins.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), kept: createKeptFile(join(root, 'kept.json'), { limit: 100 }), diagnostics: createDiagnosticsLog(join(root, 'diagnostics.jsonl'), { maxBytes: 1_000_000 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, system: { read: async () => ({ cpu: 31, memory: { used: 24_000, total: 32_000 }, gpu: undefined }) }, processes: { read: async (by) => [{ pid: 4120, name: `node by ${by}`, cpu: 12, memory: 104_857_600, gpu: by === 'gpu' ? 3 : undefined }] }, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, agyUsage: async () => agyUsage, sessionStatus: async (id) => {
       await statusRead;
       return id === sessionId ? sessionStatus : undefined;
     } });
@@ -1598,6 +1600,29 @@ test('interrupt_Should_HideStoppedPromptClaudeGaveBackFromFeedAtOnce', { timeout
   // the terminal takes the prompt out of the conversation, so does the page
   assert.equal((await next()).event, 'reset');
   assert.deepEqual(uuids(await next()), ['u1', 'a1']);
+});
+
+// agy stopped puts nothing back into its box, as Claude Code does: the prompt it had done nothing for yet comes back to
+// the page's box from its conversation — staying in it, as agy's terminal shows it; one agy had started on does not
+test('interrupt_Should_GiveAgysPromptBack_When_AgyHadDoneNothingForItYet', { timeout: 5000 }, async (t) => {
+  const waiting = '9342f993-b892-4839-845d-ce2d261b092e';
+  const started = '2632fe17-eb57-4aa1-b031-4ea2fd962dda';
+  const home = await agyHome({
+    conversations: [
+      { id: waiting, request: 'Count the shop tests', summary: { title: 'Shop tests', folder: 'file:///D:/dev/shop' } },
+      { id: started, request: 'Sort the price list', summary: { title: 'Prices', folder: 'file:///D:/dev/shop' } },
+    ],
+    typedIn: [],
+  });
+  const thinking = { step_index: 1, source: 'MODEL', type: 'PLANNER_RESPONSE', status: 'DONE', created_at: '2026-11-10T06:35:01Z', thinking: 'The list is long' };
+  await appendFile(join(home, 'brain', started, '.system_generated', 'logs', 'transcript_full.jsonl'), `${JSON.stringify(thinking)}\n`);
+  const { port } = await withServer(t, { agy: home });
+  const stop = async (/** @type {string} */ session) => JSON.parse((await post(port, '/api/interrupt', pageHeaders(port), JSON.stringify({ session }))).body);
+
+  assert.deepEqual([await stop(waiting), await stop(started)], [
+    { ok: true, pane: 'w3D:p1', prompt: 'Count the shop tests' },
+    { ok: true, pane: 'w3D:p1' },
+  ]);
 });
 
 // What a session's "/" offers is asked for by its agent and the folder it started in — its project's skills and commands

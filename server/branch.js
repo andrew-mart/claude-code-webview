@@ -101,12 +101,23 @@ export function latestPrompt(records) {
  * @returns {string | undefined} — its uuid
  */
 export function takenBackPrompt(records, text) {
+  const unanswered = unansweredPrompt(records);
+  return unanswered !== undefined && sameWords(unanswered.text, text) ? unanswered.uuid : undefined;
+}
+
+/**
+ * The latest prompt, if nothing of the model's came after it: the agent stopped had done nothing for it yet.
+ * @param {readonly unknown[]} records — the transcript entries in file order
+ * @returns {{ uuid: string, text: string } | undefined}
+ */
+export function unansweredPrompt(records) {
   const at = records.findLastIndex((raw) => linkOf(raw).turn);
   const last = records[at];
   if (!isRecord(last)) return undefined;
   const answered = records.slice(at + 1).some((raw) => isRecord(raw) && raw.type === 'assistant');
-  const words = promptText(last);
-  return !answered && words !== undefined && sameWords(words, text) ? linkOf(last).uuid : undefined;
+  const text = promptText(last);
+  const { uuid } = linkOf(last);
+  return answered || text === undefined || uuid === undefined ? undefined : { uuid, text };
 }
 
 /**

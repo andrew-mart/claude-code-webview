@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { linkOf, rewoundEntries, takenBackPrompt } from '../server/branch.js';
+import { linkOf, rewoundEntries, takenBackPrompt, unansweredPrompt } from '../server/branch.js';
 
 /** @param {string} uuid @param {string | null} parentUuid @param {string} text */
 const prompt = (uuid, parentUuid, text) => ({ type: 'user', uuid, parentUuid, message: { role: 'user', content: text } });
@@ -45,4 +45,13 @@ test('takenBackPrompt_Should_FindStoppedPromptOnlyIfNothingAnsweredIt', () => {
   assert.equal(takenBackPrompt(stoppedLate, 'Now  test\nit'), 'p2');
   assert.equal(takenBackPrompt(stoppedLate, 'Build it'), undefined);
   assert.equal(takenBackPrompt(stoppedEarly, 'Now test it'), undefined);
+});
+
+// agy, stopped, puts nothing back into its box: the prompt it had done nothing for yet — the latest, nothing of the
+// model's after it — comes back from its conversation, with its words; one it had started on does not
+test('unansweredPrompt_Should_FindTheLatestPromptNothingAnswered', () => {
+  const stoppedAtOnce = [prompt('p1', null, 'Build it'), answer('a1', 'p1'), prompt('p2', 'a1', 'Now test it')];
+  const stoppedLater = [...stoppedAtOnce, answer('a2', 'p2')];
+
+  assert.deepEqual([unansweredPrompt(stoppedAtOnce), unansweredPrompt(stoppedLater), unansweredPrompt([])], [{ uuid: 'p2', text: 'Now test it' }, undefined, undefined]);
 });

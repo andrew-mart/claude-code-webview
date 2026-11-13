@@ -373,6 +373,26 @@ test('mountSession_Should_ShowCallLeftWaiting_CutShort_WhileAgentIsAtItsPrompt',
   assert.deepEqual({ working, atPrompt, again }, { working: ['pending'], atPrompt: ['stopped'], again: ['pending'] });
 });
 
+// A turn with no end while the agent is at its prompt — agy, stopped, writes nothing of it — is not at work: no
+// "Working…" under it; the agent at work again, it is
+test('mountSession_Should_SayNothingWorks_WhileAgentIsAtItsPrompt', async (t) => {
+  const { view, source } = await mounted(t, undefined);
+  source.emit('open');
+  // sent just now: a turn left alone long enough is taken for stopped anyway
+  source.emit('entries', [{ ...prompt('u1', 'Write the notes'), timestamp: new Date().toISOString() }]);
+  source.emit('ready');
+  await settled();
+  const working = () => !(view.element.querySelector('.working')?.hasAttribute('hidden') ?? true);
+
+  const before = working();
+  view.agentAtPrompt(true);
+  const atPrompt = working();
+  view.agentAtPrompt(false);
+  const again = working();
+
+  assert.deepEqual({ before, atPrompt, again }, { before: true, atPrompt: false, again: true });
+});
+
 // /clear, /new or /resume sent from the page: the tab goes on with another session, and what was sent and not written
 // down here never will be — it is let go of
 test('mountSession_Should_LetGoOfPromptsSentAndNotWrittenDown_When_TabWentOnWithAnotherSession', async (t) => {
