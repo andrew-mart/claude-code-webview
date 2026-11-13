@@ -139,6 +139,20 @@ export function foregroundPids(json) {
 }
 
 /**
+ * A pane's foreground processes with their programs (the `herdr pane process-info` reply): the name herdr gives each,
+ * else the program its command line starts.
+ * @param {unknown} json
+ * @returns {readonly { pid: number, program: string }[]}
+ */
+export function foregroundPrograms(json) {
+  return foregroundProcesses(json).flatMap((process) => {
+    const argv = Array.isArray(process.argv) ? process.argv : [];
+    const program = [process.name, process.argv0, argv[0]].find((one) => typeof one === 'string' && one !== '');
+    return typeof process.pid === 'number' && typeof program === 'string' ? [{ pid: process.pid, program }] : [];
+  });
+}
+
+/**
  * Whether a pane's shell is at its prompt: nothing it started — Claude Code, an editor — runs in the foreground.
  * @param {unknown} json — the `herdr pane process-info` reply
  * @returns {boolean}

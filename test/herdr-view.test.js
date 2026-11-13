@@ -59,14 +59,14 @@ const noHiddenWorkspaces = { hide: async () => undefined, show: async () => unde
 
 /**
  * @param {import('node:test').TestContext} t
- * @param {{ herdr: ReturnType<typeof fakeHerdr>, records: readonly unknown[], dir?: string, codex?: readonly import('../server/codex-live.js').LiveThread[], agy?: readonly import('../server/agy-live.js').AgyRun[], agyCommand?: string, listed?: readonly { id: string, title: string | undefined }[] }} setup
+ * @param {{ herdr: ReturnType<typeof fakeHerdr>, records: readonly unknown[], dir?: string, codex?: readonly import('../server/codex-live.js').LiveThread[], agy?: readonly import('../server/agy-live.js').AgyRun[], agyCommand?: string, listed?: readonly { id: string, title: string | undefined }[], agySeen?: (pids: readonly number[]) => void }} setup
  *   — dir: where the remembered workspaces are kept, to share it between two viewer runs; codex: the threads Codex has
  *   open; agy: agy's processes alive; agyCommand: what starts agy — none, no agy; listed: the sessions listed, with
  *   their titles
  */
-async function workspacesOf(t, { herdr, records, dir, codex = [], agy = [], agyCommand, listed = [] }) {
+async function workspacesOf(t, { herdr, records, dir, codex = [], agy = [], agyCommand, listed = [], agySeen = () => undefined }) {
   const folder = dir ?? tempDir('ccw-workspaces-');
-  return createHerdrView({ herdr, readRecords: async () => records, codexThreads: async () => codex, agyRuns: async () => agy, listed: async () => listed, icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex', agyCommand });
+  return createHerdrView({ herdr, readRecords: async () => records, codexThreads: async () => codex, agyRuns: async () => agy, listed: async () => listed, agySeen, icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(folder, 'workspaces.json'), refreshMs: 0, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex', agyCommand });
 }
 
 test('workspaces_Should_PutRunningSessionIntoWorkspaceOfItsPane', async (t) => {
@@ -1015,6 +1015,30 @@ test('herdrView_Should_TellAgyPanesOfOneFolderApart_ByTheirProcesses', async (t)
     { sessions: layout.workspaces[0]?.tabs.map((tab) => tab.panes[0]?.session), places: [await view.agyPlace(filter), await view.agyPlace(sort)] },
     { sessions: [filter, sort], places: [{ found: 'pane', pane: 'w5:p1', working: false }, { found: 'pane', pane: 'w5:p2', working: true }] },
   );
+});
+
+// The program herdr tells in an agy pane, when it is agy, vouches for its process: agy just started is agy's at once,
+// not once the system's slow list of processes says so; another program in the pane — the shell agy was typed in —
+// vouches for nothing
+test('herdrView_Should_VouchForTheAgyProcessHerdrTellsInAnAgyPane', async (t) => {
+  const herdr = fakeHerdr({
+    workspaces: [{ workspace_id: 'w5', label: 'shop', active_tab_id: 'w5:t1' }],
+    tabs: [
+      { tab_id: 'w5:t1', workspace_id: 'w5', number: 1, label: 'filters', agent_status: 'idle' },
+      { tab_id: 'w5:t2', workspace_id: 'w5', number: 2, label: 'maps', agent_status: 'idle' },
+    ],
+    panes: [
+      { pane_id: 'w5:p1', workspace_id: 'w5', tab_id: 'w5:t1', cwd: 'D:/dev/shop', agent: 'agy', agent_status: 'idle', pid: 104, argv: ['agy.exe', '--dangerously-skip-permissions'], state_change_seq: 2 },
+      { pane_id: 'w5:p2', workspace_id: 'w5', tab_id: 'w5:t2', cwd: 'D:/dev/maps', agent: 'agy', agent_status: 'idle', pid: 105, argv: ['pwsh.exe', '-NoLogo'], state_change_seq: 2 },
+    ],
+  });
+  /** @type {number[][]} */
+  const vouched = [];
+  const view = await workspacesOf(t, { herdr, records: [], agyCommand: 'agy', agySeen: (pids) => void vouched.push([...pids]) });
+
+  await view.layout();
+
+  assert.deepEqual(vouched.flat(), [104]);
 });
 
 // agy titles no terminal: what its pane's title holds is its shell's — a program's path. An agy pane is titled by the

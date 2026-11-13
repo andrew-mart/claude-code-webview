@@ -12,10 +12,10 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isRecord, text } from '../public/model/narrow.js';
-import { agyPanes } from './agy-live.js';
+import { agyPanes, isAgyProgram } from './agy-live.js';
 import { codexPanes } from './codex-live.js';
 import { folderKey } from './folders.js';
-import { foregroundPids, forkedFrom, overShell, shellAtPrompt, snapshotOf, succeeded } from './herdr.js';
+import { foregroundPids, foregroundPrograms, forkedFrom, overShell, shellAtPrompt, snapshotOf, succeeded } from './herdr.js';
 import { latestRecords, processKey } from './registry.js';
 import { acceptTrust } from './trust.js';
 import { parseHistory, tabToContinue } from '../public/model/history.js';
@@ -46,17 +46,18 @@ import { observed } from './session-history.js';
 const noRestarting = { env: [], shell: 'posix', endProcess: async () => false };
 
 /**
- * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, codexThreads: () => Promise<readonly import('./codex-live.js').LiveThread[]>, icons: { iconsOf: (workspaces: readonly import('./workspace-icons.js').IconedWorkspace[]) => Promise<ReadonlyMap<string, string>>, setIcon: (folder: string, icon: string | undefined) => Promise<void> }, hidden: ReturnType<typeof import('./hidden-panes.js').createHiddenPanes>, hiddenWorkspaces: ReturnType<typeof import('./hidden-workspaces.js').createHiddenWorkspaces>, file: string, refreshMs: number, claudeCommand: string, claudeGptCommand?: string | undefined, claudeModelOf?: ((session: string) => Promise<import('./claude-model.js').LastAnswer | undefined>) | undefined, codexCommand: string, agyCommand?: string | undefined, agyRuns?: () => Promise<readonly import('./agy-live.js').AgyRun[]>, listed?: () => Promise<readonly { id: string, title: string | undefined }[]>, trust: { looks: number, stepMs: number }, restart?: Restarting }} deps
+ * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, codexThreads: () => Promise<readonly import('./codex-live.js').LiveThread[]>, icons: { iconsOf: (workspaces: readonly import('./workspace-icons.js').IconedWorkspace[]) => Promise<ReadonlyMap<string, string>>, setIcon: (folder: string, icon: string | undefined) => Promise<void> }, hidden: ReturnType<typeof import('./hidden-panes.js').createHiddenPanes>, hiddenWorkspaces: ReturnType<typeof import('./hidden-workspaces.js').createHiddenWorkspaces>, file: string, refreshMs: number, claudeCommand: string, claudeGptCommand?: string | undefined, claudeModelOf?: ((session: string) => Promise<import('./claude-model.js').LastAnswer | undefined>) | undefined, codexCommand: string, agyCommand?: string | undefined, agyRuns?: () => Promise<readonly import('./agy-live.js').AgyRun[]>, listed?: () => Promise<readonly { id: string, title: string | undefined }[]>, agySeen?: (pids: readonly number[]) => void, trust: { looks: number, stepMs: number }, restart?: Restarting }} deps
  *   readRecords — contents of ~/.claude/sessions/*.json; codexThreads — the threads Codex has open now; agyRuns — agy's
  *   processes alive now (agy-live.js), none told — no agy; listed — the sessions listed, with their titles: an agy
- *   pane is titled by its conversation's; icons — each
+ *   pane is titled by its conversation's; agySeen — told the processes herdr names agy in agy panes: they are agy's,
+ *   though the system's list of processes has not said so yet (agy-live.js createAgyCheck); icons — each
  *   workspace's (workspace-icons.js); hidden — the panes hidden from the page's list (hidden-panes.js);
  *   hiddenWorkspaces — the workspaces hidden from it, by their ids (hidden-workspaces.js); file — where the
  *   workspaces of sessions seen running are kept; refreshMs — herdr is asked at most this often; claudeCommand,
  *   codexCommand, agyCommand — what starts Claude Code, Codex and Antigravity CLI in a new tab — none, no agy;
  *   restart — how a session is restarted where it runs
  */
-export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidden, hiddenWorkspaces, file, refreshMs, claudeCommand, claudeGptCommand, claudeModelOf = async () => undefined, codexCommand, agyCommand, agyRuns = async () => [], listed = async () => [], trust, restart = noRestarting }) {
+export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidden, hiddenWorkspaces, file, refreshMs, claudeCommand, claudeGptCommand, claudeModelOf = async () => undefined, codexCommand, agyCommand, agyRuns = async () => [], listed = async () => [], agySeen = () => undefined, trust, restart = noRestarting }) {
   /**
    * A process's pane does not change while it runs: process-info is asked once for each Claude process — by its key
    * (registry.js): the number goes to another process once it is gone.
@@ -193,7 +194,10 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
       const known = agyProcessesTold.get(pane.paneId);
       if (known !== undefined && runs.some((run) => known.includes(run.serverPid))) continue;
       const info = await herdr(['pane', 'process-info', '--pane', pane.paneId]);
-      if (succeeded(info)) agyProcessesTold.set(pane.paneId, foregroundPids(info.json));
+      if (!succeeded(info)) continue;
+      agyProcessesTold.set(pane.paneId, foregroundPids(info.json));
+      // herdr's word that agy runs there: the system's list of processes is slow to say so on Windows
+      agySeen(foregroundPrograms(info.json).flatMap(({ pid, program }) => (isAgyProgram(program) ? [pid] : [])));
     }
     return agyProcessesTold;
   };

@@ -203,7 +203,7 @@ test('agyCheck_Should_TellAgysFromSystemsLastAnswer_AskingItInTheBackground', as
     now: () => time.now,
   });
   const answered = () => new Promise((resolve) => setImmediate(resolve));
-  const told = () => [...check([11, 12, 13, 14])];
+  const told = () => [...check.agyOnes([11, 12, 13, 14])];
 
   const before = told();
   await answered();
@@ -217,4 +217,20 @@ test('agyCheck_Should_TellAgysFromSystemsLastAnswer_AskingItInTheBackground', as
   const again = told();
 
   assert.deepEqual({ told: [before, after, gone, meanwhile, again], asked }, { told: [[], [11, 12], [11], [11], [13]], asked: [[11, 12, 13], [11, 13]] });
+});
+
+// A pid herdr vouches for — the program it tells in an agy pane is agy — is agy's at once, the system's slow answer not
+// waited for: on a busy Windows it takes tens of seconds, and agy just started showed as a bare terminal meanwhile. One
+// gone is forgotten, vouched for or not
+test('agyCheck_Should_TakeAPidHerdrVouchesFor_AsAgysAtOnce', () => {
+  const living = new Set([21, 22]);
+  const check = createAgyCheck({ alive: (pid) => living.has(pid), agyAmong: () => new Promise(() => undefined), now: () => 0 });
+
+  const before = [...check.agyOnes([21, 22])];
+  check.vouch([21]);
+  const vouched = [...check.agyOnes([21, 22])];
+  living.delete(21);
+  const gone = [...check.agyOnes([21, 22])];
+
+  assert.deepEqual([before, vouched, gone], [[], [21], []]);
 });

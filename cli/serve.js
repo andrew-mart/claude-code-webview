@@ -99,13 +99,14 @@ export async function serve({ port, about, palette, publicAddresses, herdr, clau
   const agyHome = join(homedir(), '.gemini', 'antigravity-cli');
   // a new tab starts agy where it has run: its home is there
   const agyHere = await stat(agyHome).then((info) => info.isDirectory(), () => false);
-  const agyProcesses = createAgyProcesses({ home: agyHome, agyOnes: createAgyCheck({ alive: processAlive, agyAmong: agyProcessesAmong, now: Date.now }) });
+  const agyCheck = createAgyCheck({ alive: processAlive, agyAmong: agyProcessesAmong, now: Date.now });
+  const agyProcesses = createAgyProcesses({ home: agyHome, agyOnes: agyCheck.agyOnes });
   // the sessions open with no transcript yet: Claude Code's, and agy's runs before their first message
   const started = async () => [...startedSessions(await readRecords()), ...agyStartedSessions(await agyProcesses.open())];
   const index = createSessionIndex(join(claude, 'projects'), { summaryBudgetMs: 1500, missRetryMs: 2000, codexRoot: join(codexHome, 'sessions'), agy: createAgyConversations(agyHome), started });
   const codexThreads = createCodexThreads({ home: codexHome, summaryOf: index.summaryOf, held: lockHeld });
   const icons = createWorkspaceIcons({ file: join(stateDir, 'workspace-icons.json'), random: Math.random });
-  const herdrView = createHerdrView({ herdr: run, readRecords, codexThreads: codexThreads.open, icons, hidden: createHiddenPanes(join(stateDir, 'hidden-panes.json')), hiddenWorkspaces: createHiddenWorkspaces(join(stateDir, 'hidden-workspaces.json')), file: join(stateDir, 'workspaces.json'), refreshMs: herdrRefreshMs, trust: claudeTrustPace, claudeCommand, claudeGptCommand, claudeModelOf: createClaudeModels(index.find), codexCommand, agyCommand: agyHere ? agyCommand : undefined, agyRuns: agyProcesses.open, listed: () => index.list(), restart: { env: restartEnv, shell: process.platform === 'win32' ? 'powershell' : 'posix', endProcess: (pid) => endProcess(pid, claudeEndPace) } });
+  const herdrView = createHerdrView({ herdr: run, readRecords, codexThreads: codexThreads.open, icons, hidden: createHiddenPanes(join(stateDir, 'hidden-panes.json')), hiddenWorkspaces: createHiddenWorkspaces(join(stateDir, 'hidden-workspaces.json')), file: join(stateDir, 'workspaces.json'), refreshMs: herdrRefreshMs, trust: claudeTrustPace, claudeCommand, claudeGptCommand, claudeModelOf: createClaudeModels(index.find), codexCommand, agyCommand: agyHere ? agyCommand : undefined, agyRuns: agyProcesses.open, listed: () => index.list(), agySeen: agyCheck.vouch, restart: { env: restartEnv, shell: process.platform === 'win32' ? 'powershell' : 'posix', endProcess: (pid) => endProcess(pid, claudeEndPace) } });
   // the notes and files pinned for a piece of work, on desks in the folders worked in (desks.js): a session's is its herdr
   // workspace's, else the one of the folder it started in — Codex's, the folder it runs in
   const deskFiles = createDeskFiles();

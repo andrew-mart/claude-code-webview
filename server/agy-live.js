@@ -141,12 +141,13 @@ const toldForMs = 60_000;
 
 /**
  * Which of these pids are agy's processes now, told at once from what the system last said of each: asking it is slow on
- * Windows — seconds, tasklist — so it is asked in the background, and a pid it has not told of yet is none of agy's until
- * it does; a pid gone is forgotten — its number may be given to another program.
+ * Windows — seconds, tasklist, tens of them on a busy computer — so it is asked in the background, and a pid it has not
+ * told of yet is none of agy's until it does, or until someone vouches for it: herdr, telling agy's program in its pane;
+ * a pid gone is forgotten — its number may be given to another program.
  * @param {{ alive: (pid: number) => boolean, agyAmong: (pids: readonly number[]) => Promise<readonly number[]>, now: () => number }} deps
  *   — alive: whether a process of this pid runs (processAlive); agyAmong: which of these are agy's, asking the system
  *   (agyProcessesAmong)
- * @returns {(pids: readonly number[]) => ReadonlySet<number>}
+ * @returns {{ agyOnes: (pids: readonly number[]) => ReadonlySet<number>, vouch: (pids: readonly number[]) => void }}
  */
 export function createAgyCheck({ alive, agyAmong, now }) {
   /** @type {Map<number, { agy: boolean, at: number }>} */
@@ -168,15 +169,26 @@ export function createAgyCheck({ alive, agyAmong, now }) {
       });
   };
 
-  return (pids) => {
-    const living = pids.filter(alive);
-    for (const pid of told.keys()) if (!living.includes(pid)) told.delete(pid);
-    const stale = living.filter((pid) => {
-      const known = told.get(pid);
-      return known === undefined || now() - known.at >= toldForMs;
-    });
-    if (stale.length > 0 && system.asking === undefined) ask(stale);
-    return new Set(living.filter((pid) => told.get(pid)?.agy === true));
+  return {
+    /** @param {readonly number[]} pids */
+    agyOnes: (pids) => {
+      const living = pids.filter(alive);
+      for (const pid of told.keys()) if (!living.includes(pid)) told.delete(pid);
+      const stale = living.filter((pid) => {
+        const known = told.get(pid);
+        return known === undefined || now() - known.at >= toldForMs;
+      });
+      if (stale.length > 0 && system.asking === undefined) ask(stale);
+      return new Set(living.filter((pid) => told.get(pid)?.agy === true));
+    },
+    /**
+     * Pids someone else tells are agy's — herdr, of the program in an agy pane — taken so at once, as the system's own
+     * answer would be: asked again once that is old.
+     * @param {readonly number[]} pids
+     */
+    vouch: (pids) => {
+      for (const pid of pids) if (told.get(pid)?.agy !== true) told.set(pid, { agy: true, at: now() });
+    },
   };
 }
 
@@ -215,6 +227,15 @@ export async function agyProcessesAmong(pids) {
  * one apart, as the editors agy comes of do (language_server_windows_x64.exe).
  */
 const agyProgram = /(?:^|[\\/])(?:agy(?:\.exe)?|language_server[^\\/]*)$/i;
+
+/**
+ * Whether a program is one of agy's, by its path or name.
+ * @param {string} program
+ * @returns {boolean}
+ */
+export function isAgyProgram(program) {
+  return agyProgram.test(program);
+}
 
 /**
  * The pids of agy's processes in tasklist's CSV: a line a process — its program, its pid, ….
