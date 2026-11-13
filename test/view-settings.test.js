@@ -23,6 +23,8 @@ const labels = [
   ['lamps', 'lamps', 'Show robots at work and at rest'],
   ['notes', 'live', 'Edit notes as blocks, as Notion does (Milkdown)'],
   ['notes', 'blocks', 'Edit notes with a live preview, as Obsidian does (CodeMirror)'],
+  ['sound', 'on', 'Mute the chime when an agent finishes'],
+  ['sound', 'off', 'Chime when an agent finishes'],
 ];
 
 for (const [key, current, expected] of labels) {

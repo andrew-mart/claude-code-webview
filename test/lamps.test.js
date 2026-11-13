@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { groupLamp, keptLit, keepToggled, mergeSeen, paneLamp, parseSeen, seeOpened } from '../public/model/lamps.js';
+import { finishedAgents, groupLamp, keptLit, keepToggled, mergeSeen, paneLamp, parseSeen, seeOpened } from '../public/model/lamps.js';
 
 /**
  * @param {import('../public/model/herdr.js').AgentStatus} status
@@ -92,4 +92,37 @@ test('seenAnswers_Should_TakeViewersOverPagesOwn_AndKeepPagesTheViewerHasNot', (
     { merged: [...mergeSeen(page, fromViewer)].sort(), other: [...parseSeen([1, 2])] },
     { merged: [['w1:p1', 5], ['w1:p2', 3], ['w2:p1', 1]], other: [] },
   );
+});
+
+// An agent finished a turn between two looks at herdr — at work or asking before, done or at rest now; or done before
+// and done again, herdr having counted its changes since: the page chimes for it. One that was done and stays so, one
+// at work still or again, a terminal with no agent, and a pane not there before — the page just opened — did not
+test('finishedAgents_Should_TellAgentsThatFinishedATurnBetweenTwoLooks', () => {
+  /** @param {string} id @param {import('../public/model/herdr.js').AgentStatus} status @param {number} activity */
+  const paneAt = (id, status, activity) => ({ ...pane(status, activity), id });
+  /** @param {readonly import('../public/model/herdr.js').HerdrPane[]} panes */
+  const layoutWith = (panes) => ({ herdr: true, workspaces: [{ id: 'w1', number: 1, label: 'web', status: /** @type {const} */ ('idle'), activeTab: 'w1:t1', tabs: [{ id: 'w1:t1', number: 1, label: '1', status: /** @type {const} */ ('idle'), panes }] }] });
+  const before = layoutWith([
+    paneAt('w1:p1', 'working', 3),
+    paneAt('w1:p2', 'working', 3),
+    paneAt('w1:p3', 'done', 4),
+    paneAt('w1:p4', 'done', 4),
+    paneAt('w1:p5', 'blocked', 2),
+    paneAt('w1:p6', 'working', 3),
+    paneAt('w1:p7', 'done', 4),
+    { ...paneAt('w1:p8', 'working', 3), agent: undefined },
+  ]);
+  const after = layoutWith([
+    paneAt('w1:p1', 'done', 4),
+    paneAt('w1:p2', 'idle', 4),
+    paneAt('w1:p3', 'done', 6),
+    paneAt('w1:p4', 'done', 4),
+    paneAt('w1:p5', 'done', 3),
+    paneAt('w1:p6', 'working', 3),
+    paneAt('w1:p7', 'working', 5),
+    { ...paneAt('w1:p8', 'idle', 4), agent: undefined },
+    paneAt('w1:p9', 'done', 1),
+  ]);
+
+  assert.deepEqual(finishedAgents(before, after), ['w1:p1', 'w1:p2', 'w1:p3', 'w1:p5']);
 });

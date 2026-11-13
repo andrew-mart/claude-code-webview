@@ -22,6 +22,8 @@ export const choices = /** @type {const} */ ({
   closed: ['all', 'only'],
   notes: ['live', 'blocks'],
   diagnostics: ['off', 'on'],
+  // a chime when an agent finishes a turn (model/lamps.js finishedAgents), on this device
+  sound: ['on', 'off'],
   // the conversation's text, and the notes', in percent of the usual size: made smaller or larger a step at a time
   // (textSizeStep)
   size: textSizeChoices,
@@ -51,6 +53,7 @@ const resultNames = {
   closed: { all: 'List every session', only: 'List only the sessions closed in herdr' },
   notes: { live: 'Edit notes with a live preview, as Obsidian does (CodeMirror)', blocks: 'Edit notes as blocks, as Notion does (Milkdown)' },
   diagnostics: { off: 'Stop recording diagnostics', on: 'Record diagnostics for the viewer' },
+  sound: { off: 'Mute the chime when an agent finishes', on: 'Chime when an agent finishes' },
   size: {},
   noteSize: {},
 };

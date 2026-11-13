@@ -42,6 +42,27 @@ export function groupLamp(status, panes, seen) {
 }
 
 /**
+ * The agents that finished a turn between two looks at herdr, for the page to chime: at work or asking before, done or
+ * at rest now — at rest, when its pane was in view in herdr; or done before and done again, herdr having counted its
+ * changes of state since. A pane not there before — the page just opened — finished nothing the page saw.
+ * @param {import('./herdr.js').HerdrLayout} before
+ * @param {import('./herdr.js').HerdrLayout} after
+ * @returns {string[]} — their panes' ids
+ */
+export function finishedAgents(before, after) {
+  const panesOf = (/** @type {import('./herdr.js').HerdrLayout} */ layout) => layout.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes));
+  const was = new Map(panesOf(before).map((pane) => [pane.id, pane]));
+  return panesOf(after).flatMap((pane) => {
+    const earlier = was.get(pane.id);
+    if (earlier === undefined || pane.agent === undefined) return [];
+    const resting = pane.status === 'done' || pane.status === 'idle';
+    const atWork = earlier.status === 'working' || earlier.status === 'blocked';
+    const doneAgain = earlier.status === 'done' && pane.status === 'done' && earlier.activity !== pane.activity;
+    return resting && (atWork || doneAgain) ? [pane.id] : [];
+  });
+}
+
+/**
  * What is seen once the page shows what it opened: the opened session's or terminal's finished agent, beside what was
  * seen before — its count tells it from the agent's next answer.
  * @param {import('./herdr.js').HerdrLayout} layout

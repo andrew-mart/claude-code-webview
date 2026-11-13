@@ -26,7 +26,8 @@ import { parseUsage, usageView } from './model/usage.js';
 import { createHerdrSidebar, createTabBar } from './view/herdr-panel.js';
 import { createSystemMeters } from './view/system-meters.js';
 import { parseSystemProcesses, parseSystemUsage } from './model/system-usage.js';
-import { keepToggled, keptLit, keptNow, mergeSeen, parseSeen, seeOpened } from './model/lamps.js';
+import { finishedAgents, keepToggled, keptLit, keptNow, mergeSeen, parseSeen, seeOpened } from './model/lamps.js';
+import { createChime } from './view/chime.js';
 import { noteFilePath, parseFileCreated } from './model/notes.js';
 import { createSeenStore, tellSeen } from './view/seen-store.js';
 import { workingRobots } from './view/robot.js';
@@ -215,6 +216,13 @@ const keptDocsKey = 'viewer.docs';
 const diagnosticsEvent = 'viewer:diagnostics';
 // A view setting that resizes the feed keeps the reader at the message they were at.
 const settings = createSettings((change) => page.keepPlace(change));
+// a chime when an agent finishes a turn, while the page is open — muted behind ⋯, on this device (view/chime.js)
+const chime = createChime(document);
+// turned on, it chimes once: what it sounds like, as loud as it will be
+document.addEventListener('click', (event) => {
+  const button = event.target instanceof Element ? event.target.closest('[data-setting="sound"]') : null;
+  if (button !== null && settings.get('sound') === 'on') chime.play();
+});
 /** What keeps this device's page slow, measured here while turned on behind ⋯, sent to the viewer to write down. */
 const diagnostics = createDiagnostics({
   everyMs: 15_000,
@@ -371,6 +379,10 @@ const workspacesPoll = pollWhileShown(window, { ask: () => page.refreshWorkspace
 // herdr's layout comes with the answers seen and kept: told any of them changed, the three are asked for
 const herdrPoll = pollWhileShown(window, { ask: () => page.refreshHerdr(), everyMs: toldEveryMs, first: 'now' });
 feedHub.onChanged((topics) => {
+  // out of sight — a tab behind others — the page asks no more, but for the chime: herdr's agents are asked for as they
+  // change, while it is on
+  const herdrChanged = topics === 'all' || topics.includes('herdr');
+  if (herdrChanged && document.visibilityState === 'hidden' && settings.get('sound') === 'on') void page.refreshHerdr();
   if (topics === 'all' || topics.some((topic) => topic === 'workspaces' || topic === 'history')) workspacesPoll.poke();
   if (topics === 'all' || topics.some((topic) => topic === 'herdr' || topic === 'seen' || topic === 'kept')) herdrPoll.poke();
 });
@@ -1408,6 +1420,8 @@ function createPage() {
       herdrKnown = known;
       const before = herdrLayout;
       herdrLayout = parseHerdrLayout(reply);
+      // an agent finished a turn since the last look: a chime, unless it is muted on this device
+      if (settings.get('sound') === 'on' && finishedAgents(before, herdrLayout).length > 0) chime.play();
       // Claude Code started in the terminal shown — a tab opened with Claude, or claude typed there: its feed instead
       const started = currentPane === undefined ? undefined : paneSession(herdrLayout, currentPane.id, currentPane.sessionWhenOpened);
       if (started !== undefined) address.go(`#/${started}`);
@@ -1535,6 +1549,7 @@ const rareSettings = [
   ['lamps', 'agent'],
   ['notes', 'type'],
   ['theme', 'moon'],
+  ['sound', 'bell'],
   ['diagnostics', 'sliders'],
 ];
 const headerSettings = [...headerSettingGroups.flat(), ...rareSettings];
@@ -1641,6 +1656,7 @@ function settingKeyOf(value) {
     case 'lamps':
     case 'notes':
     case 'diagnostics':
+    case 'sound':
       return value;
     default:
       return undefined;
