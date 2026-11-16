@@ -2930,6 +2930,32 @@ input.herdr-row-name.failed {
   background: color-mix(in oklch, var(--accent) 28%, transparent);
 }
 
+/* a command an answer names: pressed, it goes into the prompt box */
+.command-mention {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  font: inherit;
+  line-height: inherit;
+  color: var(--accent);
+  text-decoration: underline dotted color-mix(in oklch, var(--accent) 60%, transparent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.command-mention > code {
+  cursor: pointer;
+}
+
+.command-mention:hover,
+.command-mention:focus-visible {
+  outline: none;
+  background: color-mix(in oklch, var(--accent) 16%, transparent);
+}
+
 .md.answer :is(h1, h2, h3, h4) {
   margin: 1.1em 0 0.3em;
   font-family: var(--font-notion);

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, sideQuestionOf, withPoint } from '../public/model/composer.js';
+import { composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, sideQuestionOf, withCommand, withPoint } from '../public/model/composer.js';
 
 const sessionId = '3f2c9a50-1111-4222-8333-944455556666';
 /** @type {{ id: string, agent: 'claude' }} */
@@ -95,6 +95,20 @@ test('withPoint_Should_PutThePointAfterWhatIsWritten_WithRoomForTheAnswerUnderIt
     '👉 Was the trip on 06.11 one or two?\n\n',
     '👉 Keep the old sort?\n\nYes, keep it\n\n👉 Was the trip on 06.11 one or two?\n\n',
   ]);
+});
+
+// A command an answer names, pressed, goes into the box where its cursor is — the whole box, for an empty one — a space
+// put between it and the words around it where there is none; the cursor after it
+test('withCommand_Should_PutTheCommandAtTheCursor_ApartFromTheWordsAroundIt', () => {
+  assert.deepEqual(
+    [withCommand('', '/clear', 0), withCommand('Fix the totals', '/clear', 0), withCommand('Fix the totals', '/clear', 14), withCommand('Fix  the totals', '/opsx:propose', 4)],
+    [
+      { text: '/clear', at: 6 },
+      { text: '/clear Fix the totals', at: 6 },
+      { text: 'Fix the totals /clear', at: 21 },
+      { text: 'Fix /opsx:propose the totals', at: 17 },
+    ],
+  );
 });
 
 test('promptForBox_Should_LeaveImageListAsTextWhenViewerDidNotSaveEveryImage', () => {

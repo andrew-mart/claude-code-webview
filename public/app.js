@@ -11,6 +11,7 @@ import { createBookmarkStore, moveLocalBookmarksToServer } from './view/bookmark
 import { createComposer } from './view/composer-view.js';
 import { createAsideStore } from './view/aside-store.js';
 import { listenForCopies } from './view/markdown-copy.js';
+import { commandOf } from './view/command-mentions.js';
 import { pointText } from './view/point-replies.js';
 import { revalidatedPolls } from './view/revalidated-polls.js';
 import { createDrawers } from './view/drawers.js';
@@ -307,6 +308,12 @@ document.addEventListener('click', (event) => {
   if (point === null) return;
   page.answerPoint(pointText(point));
 });
+// A command an answer names pressed: it goes into the prompt box, to be sent from there
+document.addEventListener('click', (event) => {
+  const mention = event.target instanceof Element ? event.target.closest('button.command-mention') : null;
+  const command = mention === null ? undefined : commandOf(mention);
+  if (command !== undefined) page.putCommand(command);
+});
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && drawers.isOpen()) drawers.close();
   else if (event.key === 'Escape' && filePanel.isOpen()) filePanel.close();
@@ -422,7 +429,7 @@ function createPage() {
    * agent: whose the session was taken for when it was opened; putAway: out of sight, kept as shown (warm); openNote: a
    * note on its desk shown in the side panel — false for one its desk does not hold
    */
-  /** @type {{ id: string, agent: SessionInfo['agent'], pins: ReturnType<typeof createPinsStore>, openNote: (noteId: string) => boolean, answerPoint: (point: string) => void, dispose: () => void, putAway: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, keepPlace: (change: () => void) => void, rewound: (reply: import('./model/rewind.js').RewindReply) => void, stop: () => boolean, forgetSent: () => void, showTab: () => void, showHerdr: () => void } | undefined} */
+  /** @type {{ id: string, agent: SessionInfo['agent'], pins: ReturnType<typeof createPinsStore>, openNote: (noteId: string) => boolean, answerPoint: (point: string) => void, putCommand: (command: string) => void, dispose: () => void, putAway: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, keepPlace: (change: () => void) => void, rewound: (reply: import('./model/rewind.js').RewindReply) => void, stop: () => boolean, forgetSent: () => void, showTab: () => void, showHerdr: () => void } | undefined} */
   let current;
   /** How long each session has been written to: its robots' story goes on as its row is drawn again. */
   const workClock = createWorkClock(() => Date.now());
@@ -1209,6 +1216,7 @@ function createPage() {
       },
       stop: () => composer.stop(),
       answerPoint: (point) => composer.answerPoint(point),
+      putCommand: (command) => composer.putCommand(command),
       forgetSent: () => view.forgetSent(),
       // over the feed, the conversation its tab went on from
       showTab() {
@@ -1279,6 +1287,13 @@ function createPage() {
      */
     answerPoint(point) {
       current?.answerPoint(point);
+    },
+    /**
+     * A command an answer names pressed: into the open session's prompt box.
+     * @param {string} command
+     */
+    putCommand(command) {
+      current?.putCommand(command);
     },
     /** @param {'previous' | 'next'} direction — move to the neighbouring prompt (Alt+↑ / Alt+↓) */
     step(direction) {

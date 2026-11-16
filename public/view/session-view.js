@@ -9,6 +9,7 @@ import { h } from './dom.js';
 import { inlineImage } from './picture.js';
 import { icon } from './icons.js';
 import { renderMarkdown } from './markdown.js';
+import { markCommands } from './command-mentions.js';
 import { markPoints } from './point-replies.js';
 import { createFeedCopy } from '../model/feed-copy.js';
 import { parseSessionStatus } from '../model/session-status.js';
@@ -802,8 +803,9 @@ function createFeed({ thread, waitingBox }, sessionId, hooks) {
         /** @type {Anchor} */
         const answer = { id: event.id, kind: 'answer', label: anchorLabel(event.text), at: event.at };
         const shown = h('div', { className: 'md answer' }, [renderMarkdown(event.text)]);
-        // what it asks the reader to answer, pressed, goes into the prompt box (app.js)
+        // what it asks the reader to answer, and the commands it names, pressed, go into the prompt box (app.js)
         markPoints(shown);
+        markCommands(shown);
         currentTurn().append(hooks.anchor(answer, shown));
         activity = undefined;
         break;

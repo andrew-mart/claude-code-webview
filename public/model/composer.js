@@ -255,6 +255,21 @@ export function promptForBox(prompt, draft) {
 }
 
 /**
+ * The box with a command an answer names put in — pressed (command-mentions.js): where its cursor is, a space between
+ * it and the words around it where there is none.
+ * @param {string} draft — the box
+ * @param {string} command
+ * @param {number} at — where the box's cursor is
+ * @returns {{ text: string, at: number }} — at: the cursor, after the command
+ */
+export function withCommand(draft, command, at) {
+  const before = draft.slice(0, at);
+  const after = draft.slice(at);
+  const lead = before === '' || /\s$/.test(before) ? before : `${before} `;
+  return { text: `${lead}${command}${after === '' || /^\s/.test(after) ? '' : ' '}${after}`, at: lead.length + command.length };
+}
+
+/**
  * The box with a point of an answer added — a 👉 pressed (point-replies.js): after what is written, a blank line
  * between, and a blank line under it for the answer to be written there.
  * @param {string} draft — the box
