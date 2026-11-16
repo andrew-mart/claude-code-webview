@@ -7406,9 +7406,15 @@ a.file-link:hover {
   gap: 1px;
 }
 
-/* a closed tab's conversations together, apart from the next tab's */
+/* a tab's conversations together, apart from the next tab's */
+.history-tab + .history-tab,
 .history-closed-tab + .history-closed-tab {
   margin-top: 10px;
+}
+
+/* the search over the history, over what it shows */
+.history-search-row {
+  padding: 0 0 12px;
 }
 
 /* the conversation its tab runs now: a green dot before its title */

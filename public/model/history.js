@@ -102,19 +102,60 @@ function byLatestLeft(a, b) {
  * @returns {ClosedTab[]}
  */
 export function closedTabs(history) {
+  return historyTabs(history)
+    .flatMap(({ open, tab }) => (open ? [] : [tab]))
+    .sort(byLatestClosed);
+}
+
+/**
+ * The tabs of the history the search finds, ignoring case: by the name of the tab — now or before — its workspace, the
+ * folder, or a conversation's title, note or id; a tab found by one of its conversations keeps them all. Those a
+ * conversation runs in now apart, by their workspace and name; the closed ones the latest closed first. No search finds
+ * them all.
+ * @param {History} history
+ * @param {string} search
+ * @param {(id: string) => string | undefined} titleOf — a conversation's title; none for one the list has none of
+ * @returns {{ open: ClosedTab[], closed: ClosedTab[] }}
+ */
+export function foundTabs(history, search, titleOf) {
+  const wanted = search.trim().toLowerCase();
+  /** @param {Conversation} conversation */
+  const matches = ({ id, place }) => [titleOf(id), id, place.workspace, place.tab, ...place.earlierTabs, place.folder, place.note].join(' ').toLowerCase().includes(wanted);
+  const found = historyTabs(history).filter(({ tab }) => wanted === '' || tab.conversations.some(matches));
+  return {
+    open: found.flatMap(({ open, tab }) => (open ? [tab] : [])).sort((a, b) => a.workspace.localeCompare(b.workspace) || a.tab.localeCompare(b.tab)),
+    closed: found.flatMap(({ open, tab }) => (open ? [] : [tab])).sort(byLatestClosed),
+  };
+}
+
+/**
+ * The tabs of the history, each named as its latest conversation has it, with its conversations, the running one
+ * first, then the latest left: by the tab's terminal, or a session of its own where none tells its tab — one kept with
+ * its workspace alone has no tab.
+ * @param {History} history
+ * @returns {{ open: boolean, tab: ClosedTab }[]} — open: a conversation runs in it now
+ */
+function historyTabs(history) {
   /** @type {Map<string, Conversation[]>} — by the tab's terminal, or by the session where none tells its tab */
   const tabs = new Map();
   for (const [id, place] of Object.entries(history)) {
     const key = place.terminal === undefined ? `session ${id}` : `terminal ${place.terminal}`;
     tabs.set(key, [...(tabs.get(key) ?? []), { id, place }]);
   }
-  return [...tabs.values()]
-    .flatMap((conversations) => {
-      const sorted = conversations.sort(byLatestLeft);
-      const latest = sorted[0]?.place;
-      return latest === undefined || latest.open || latest.tab === undefined ? [] : [{ workspace: latest.workspace, tab: latest.tab, conversations: sorted }];
-    })
-    .sort((a, b) => leftAt(b) - leftAt(a));
+  return [...tabs.values()].flatMap((conversations) => {
+    const sorted = conversations.sort(byLatestLeft);
+    const latest = sorted[0]?.place;
+    return latest === undefined || latest.tab === undefined ? [] : [{ open: latest.open, tab: { workspace: latest.workspace, tab: latest.tab, conversations: sorted } }];
+  });
+}
+
+/**
+ * The tab closed last first.
+ * @param {ClosedTab} a
+ * @param {ClosedTab} b
+ */
+function byLatestClosed(a, b) {
+  return leftAt(b) - leftAt(a);
 }
 
 /**

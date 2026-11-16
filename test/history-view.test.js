@@ -48,14 +48,18 @@ function viewOf({ shown, history, titles, reopens = true }) {
   return { view, opened, reopened };
 }
 /**
- * Each row as it reads: its workspace's icon, its title — where it ran — and what marks it.
+ * A row as it reads: its workspace's icon, its title — where it ran — and what marks it.
+ * @param {Element} row
+ * @returns {string}
+ */
+const rowText = (row) =>
+  [row.querySelector('.workspace-icon')?.textContent, row.querySelector('.herdr-tab-title')?.textContent, '—', row.querySelector('.herdr-tab-where')?.textContent, ...[...row.classList].filter((name) => name !== 'history-conversation' && name !== 'herdr-tab')].filter((part) => part !== undefined).join(' ');
+/**
+ * Each row of a section as it reads.
  * @param {Element} section
  * @returns {string[]}
  */
-const rowsOf = (section) =>
-  [...section.querySelectorAll('.history-conversation')].map((row) =>
-    [row.querySelector('.workspace-icon')?.textContent, row.querySelector('.herdr-tab-title')?.textContent, '—', row.querySelector('.herdr-tab-where')?.textContent, ...[...row.classList].filter((name) => name !== 'history-conversation' && name !== 'herdr-tab')].filter((part) => part !== undefined).join(' '),
-  );
+const rowsOf = (section) => [...section.querySelectorAll('.history-conversation')].map(rowText);
 
 // The tab of the session shown: its conversations, the one running first, then those it went on from, each drawn as the
 // session list draws a session — its title, where it ran under it, its workspace's colour on its edge — the one shown
@@ -133,6 +137,42 @@ test('historyView_Should_MarkShownConversation_AmongClosedTabs_When_ItsTabIsClos
   assert.deepEqual(
     [...view.element.querySelectorAll('section')].map((section) => [section.className, ...rowsOf(section)]),
     [['history-closed-tab', 'API reference — web · docs tinted', 'API outline — web · docs tinted selected']],
+  );
+});
+
+// A search over the history in place of the shown session's tab: the tabs it finds — by the tab's name, its workspace,
+// folder, or a conversation's title — those running under a head of their own, then the closed ones with Restore; one
+// typed into stays typed into as they show; finding nothing is said; emptied, the panel is as it was
+test('historyView_Should_ShowTabsSearchFinds_OpenAndClosed_InPlaceOfShownTab', async () => {
+  const history = {
+    current: ranIn('term_x', 'open'),
+    docs: ranIn('term_y', ago(100), { tab: 'docs' }),
+    deploy: ranIn('term_z', ago(50), { workspace: '🚀 infra', tab: 'deploy', folder: 'D:/infra' }),
+    alerts: ranIn('term_w', 'open', { workspace: '🚀 infra', tab: 'monitor', folder: 'D:/infra' }),
+  };
+  const { view } = viewOf({ shown: 'current', history, titles: { current: 'Coupon codes', docs: 'API reference', deploy: 'Blue-green', alerts: 'Error budget' } });
+  await view.reload();
+  const search = view.element.querySelector('input');
+  if (search === null) assert.fail('no search');
+  search.focus();
+  /** What the panel shows for this search: its heads, its rows, Restore beside a closed tab's, a message. @param {string} text */
+  const searched = (text) => {
+    search.value = text;
+    search.dispatchEvent(new window.Event('input', { bubbles: true }));
+    return [...view.element.querySelectorAll('.history-heading, .history-conversation, .history-restore, .panel-message')].map((part) =>
+      part.classList.contains('history-conversation') ? rowText(part) : part.classList.contains('history-restore') ? 'Restore' : part.classList.contains('panel-message') ? 'message' : part.textContent,
+    );
+  };
+
+  assert.deepEqual(
+    { infra: searched('INFRA'), title: searched('api ref'), none: searched('nothing like it'), focused: window.document.activeElement === search, emptied: searched('') },
+    {
+      infra: ['Open tabs', '🚀 Error budget — infra · monitor tinted running', 'Closed tabs', '🚀 Blue-green — infra · deploy tinted', 'Restore'],
+      title: ['Closed tabs', 'API reference — web · docs tinted', 'Restore'],
+      none: ['message'],
+      focused: true,
+      emptied: ['This tab', 'Coupon codes — web · checkout tinted running selected', 'Closed tabs', '🚀 Blue-green — infra · deploy tinted', 'Restore', 'API reference — web · docs tinted', 'Restore'],
+    },
   );
 });
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { closedTabs, tabConversations, tabNeighbours, tabToContinue } from '../public/model/history.js';
+import { closedTabs, foundTabs, tabConversations, tabNeighbours, tabToContinue } from '../public/model/history.js';
 
 /**
  * Where a session ran in herdr: in the web workspace, closed at this time unless open — as the viewer tells it, an open
@@ -42,6 +42,46 @@ test('closedTabs_Should_ListTabsNothingRunsIn_LatestClosedFirst_WithTheirConvers
       { workspace: 'web', tab: 'deploy', conversations: ['z1'] },
       { workspace: 'web', tab: 'docs', conversations: ['y2', 'y1'] },
       { workspace: 'web', tab: 'notes', conversations: ['older'] },
+    ],
+  );
+});
+
+// The tabs of the history the search finds, ignoring case: by the name of the tab — now or before — its workspace, the
+// folder, a conversation's title, note or id; a tab found by one of its conversations keeps them all. Those running
+// apart from the closed, which go the latest closed first; no search finds them all
+test('foundTabs_Should_FindOpenAndClosedTabs_ByTabWorkspaceFolderTitleNoteOrId', () => {
+  const history = {
+    a1: ranIn('term_a', 'open', { workspace: '🛒 shop', folder: 'D:/shop' }),
+    a0: ranIn('term_a', 4, { workspace: '🛒 shop', tab: 'cart', folder: 'D:/shop' }),
+    b1: ranIn('term_b', 6, { workspace: 'docs', tab: 'guide', earlierTabs: ['draft'], folder: 'D:/docs', note: 'Release notes for May' }),
+    c1: ranIn('term_c', 9, { workspace: '🛒 shop', tab: 'deploy', folder: 'D:/shop/infra' }),
+  };
+  const titles = new Map([
+    ['a1', 'Fix the cart total'],
+    ['a0', 'Coupon codes'],
+    ['b1', 'Write the guide'],
+    ['c1', 'Roll out to staging'],
+  ]);
+  /** @param {string} search */
+  const found = (search) => {
+    const { open, closed } = foundTabs(history, search, (id) => titles.get(id));
+    /** @param {import('../public/model/history.js').ClosedTab} tab */
+    const named = (tab) => `${tab.tab}: ${tab.conversations.map((conversation) => conversation.id).join(' ')}`;
+    return { open: open.map(named), closed: closed.map(named) };
+  };
+
+  assert.deepEqual(
+    ['CHECKOUT', 'draft', 'shop', 'infra', 'coupon', 'release notes', 'b1', 'nothing like it', ''].map(found),
+    [
+      { open: ['checkout: a1 a0'], closed: [] },
+      { open: [], closed: ['guide: b1'] },
+      { open: ['checkout: a1 a0'], closed: ['deploy: c1'] },
+      { open: [], closed: ['deploy: c1'] },
+      { open: ['checkout: a1 a0'], closed: [] },
+      { open: [], closed: ['guide: b1'] },
+      { open: [], closed: ['guide: b1'] },
+      { open: [], closed: [] },
+      { open: ['checkout: a1 a0'], closed: ['deploy: c1', 'guide: b1'] },
     ],
   );
 });

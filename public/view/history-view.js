@@ -2,10 +2,11 @@
 // The conversations of herdr tabs, in the side panel: those of the tab the session shown runs or ran in — the one
 // running first, then those it went on from after /clear, /new or /resume — and the tabs nothing runs in now, the latest
 // closed first, each with its conversations. A conversation opens to be read; a closed tab opens again in herdr, its
-// latest conversation resumed in it, the others along. A conversation is drawn as the session list draws a session
+// latest conversation resumed in it, the others along. A search over the history at its top shows, in their place, the
+// tabs it finds — open or closed — by a tab's name, its workspace, folder, or a conversation's title, note or id. A conversation is drawn as the session list draws a session
 // (session-row.js), its workspace's colour on its edge; the heads as the list's.
 import { formatAgo } from '../model/format.js';
-import { closedTabs, tabConversations } from '../model/history.js';
+import { closedTabs, foundTabs, tabConversations } from '../model/history.js';
 import { splitTabIcon } from '../model/tab-icon.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
@@ -33,7 +34,10 @@ import { tintByWorkspace } from './workspace-tint.js';
  *   anew from what the page knows now; summary: the shown session's tab, for the panel's header
  */
 export function createHistoryView(source) {
-  const element = h('div', { className: 'history' });
+  const search = h('input', { className: 'search history-search', attrs: { type: 'search', placeholder: 'Search: tab, workspace, folder, title, note', 'aria-label': 'Search the history', autocomplete: 'off' } });
+  // what it shows is drawn under the search, which stays as it is typed into
+  const shows = h('div', { className: 'history-shown' });
+  const element = h('div', { className: 'history' }, [h('div', { className: 'history-search-row' }, [search]), shows]);
   /** What the panel shows, to draw it again only when that changes: a tab being restored stays so meanwhile. */
   let drawn = '';
 
@@ -60,17 +64,22 @@ export function createHistoryView(source) {
     return first === undefined || latest === undefined ? [] : [{ first, more, restores: latest.id }];
   };
 
+  /** With no search, the shown session's tab and the tabs closed; searching, the tabs found, running or closed. */
   const render = () => {
     const shown = source.shown();
     const history = source.history();
-    const tab = shownTab(history, shown);
-    const closed = closedTabs(history).flatMap((one) => closedShown(one, shown));
-    const look = JSON.stringify([tab, closed]);
+    const wanted = search.value.trim();
+    const found = wanted === '' ? undefined : foundTabs(history, wanted, (id) => source.listed(id)?.title);
+    const running = found === undefined ? shownTab(history, shown) : found.open.map((tab) => tab.conversations.flatMap((conversation) => rowOf(conversation, shown))).filter((rows) => rows.length > 0);
+    const closed = (found === undefined ? closedTabs(history) : found.closed).flatMap((tab) => closedShown(tab, shown));
+    const look = JSON.stringify([wanted, running, closed]);
     if (look === drawn) return;
     drawn = look;
-    const sections = [...tab.map(tabSection), ...(closed.length === 0 ? [] : [h('h2', { className: 'history-heading history-closed-heading', text: 'Closed tabs' }), ...closed.map(closedSection)])];
-    element.replaceChildren(...(sections.length === 0 ? [h('div', { className: 'panel-message', text: 'No herdr tab has had a conversation to show yet.' })] : sections));
+    const sections = [...(found === undefined ? running.map(thisTab) : openTabs(running)), ...closedTabsShown(closed)];
+    const nothing = found === undefined ? 'No herdr tab has had a conversation to show yet.' : 'No tab in the history matches the search.';
+    shows.replaceChildren(...(sections.length === 0 ? [h('div', { className: 'panel-message', text: nothing })] : sections));
   };
+  search.addEventListener('input', render);
 
   /** @param {Row} row */
   const rowElement = ({ id, title, workspace, where, icon, ago, running, shown }) => {
@@ -87,7 +96,13 @@ export function createHistoryView(source) {
   };
 
   /** @param {readonly Row[]} rows */
-  const tabSection = (rows) => h('section', { className: 'history-tab' }, [h('h2', { className: 'history-heading', text: 'This tab' }), ...rows.map(rowElement)]);
+  const thisTab = (rows) => h('section', { className: 'history-tab' }, [h('h2', { className: 'history-heading', text: 'This tab' }), ...rows.map(rowElement)]);
+
+  /** The tabs a search found running, under one head. @param {readonly (readonly Row[])[]} tabs */
+  const openTabs = (tabs) => (tabs.length === 0 ? [] : [h('h2', { className: 'history-heading', text: 'Open tabs' }), ...tabs.map((rows) => h('section', { className: 'history-tab' }, rows.map(rowElement)))]);
+
+  /** @param {readonly ClosedShown[]} tabs */
+  const closedTabsShown = (tabs) => (tabs.length === 0 ? [] : [h('h2', { className: 'history-heading history-closed-heading', text: 'Closed tabs' }), ...tabs.map(closedSection)]);
 
   /** @param {ClosedShown} tab */
   const closedSection = ({ first, more, restores }) => {
