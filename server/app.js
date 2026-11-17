@@ -23,6 +23,7 @@ import { isRecord, text } from '../public/model/narrow.js';
 import { latestPrompt, standingRewind, takenBackPrompt, unansweredPrompt } from './branch.js';
 import { branchChanges, branchFileDiff } from './branch-changes.js';
 import { agyRecordAt, agyRewoundFrom, createAgyReading } from './agy.js';
+import { createSubagentWatch, withSubagentsAtWork } from './subagent-turns.js';
 import { createCodexReading } from './codex.js';
 import { readCodexUsage } from './codex-usage.js';
 import { openJoined } from './joined.js';
@@ -202,6 +203,21 @@ export async function startServer({ index, host, port, pollMs, changesEveryMs, c
    */
   const rewinds = new Map();
   const transcripts = createTranscriptCache({ maxFiles: cachedTranscripts, agentOf: index.agentOf, partsOf: index.partsOf });
+  // whether a session's subagents work on: its agent at rest is not done with its turn (subagent-turns.js)
+  const subagentsWork = createSubagentWatch({
+    find: (session) => index.find(session),
+    stampOf: async (file) => {
+      const info = await stat(file).catch(() => undefined);
+      return info === undefined ? undefined : `${info.mtimeMs}:${info.size}`;
+    },
+    tasksOf: async (file) => (await transcripts.read(file, { scope: 'main', imageUrl: () => '' })).tasks.list(),
+    activeAt: async (session, taskId) => {
+      const own = await subagentTranscript(index, session, taskId);
+      const info = own === undefined ? undefined : await stat(own).catch(() => undefined);
+      return info?.mtimeMs;
+    },
+    now: () => Date.now(),
+  });
   /** @type {Set<string>} */
   const allowedHosts = new Set();
   /** @type {Set<string>} */
@@ -210,7 +226,7 @@ export async function startServer({ index, host, port, pollMs, changesEveryMs, c
   /** The prompts sent under an id, so that one sent again — its reply lost on the way — is typed once. */
   const sentPrompts = createSentPrompts(sentPromptsKept);
   /** @type {Deps} */
-  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, later, desks, pins, seen, kept, diagnostics, codexInUse, uploads, about, build, pageModules, feedEntries, rewinds, transcripts, feeds, palette, herdrView, terminals, usage, system, processes, chatgptUsage, agyUsage, agyRewound, phrases, sessionStatus, isRunning, editor, fileManager, commands, vscode, instance, fileIcons, sentPrompts };
+  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, later, desks, pins, seen, kept, diagnostics, codexInUse, uploads, about, build, pageModules, feedEntries, rewinds, transcripts, feeds, palette, herdrView, terminals, usage, system, processes, chatgptUsage, agyUsage, agyRewound, phrases, subagentsWork, sessionStatus, isRunning, editor, fileManager, commands, vscode, instance, fileIcons, sentPrompts };
   const server = http.createServer((request, response) => {
     handle(deps, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
@@ -246,7 +262,7 @@ export async function startServer({ index, host, port, pollMs, changesEveryMs, c
 
 /**
  * @typedef {ReturnType<typeof createSessionIndex>} SessionIndex — Claude Code's sessions and Codex's (sessions.js)
- * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, desks: import('./desks.js').Desks, pins: import('./pins.js').Pins, uploads: Uploads, about: About, build: string, pageModules: readonly string[], feedEntries: string, rewinds: Map<string, import('./branch.js').RewindMark>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, system: SystemUsage, processes: Processes, chatgptUsage: ReadUsage, agyUsage: ReadUsage, agyRewound: AgyRewound, phrases: Phrases, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, kept: Kept, diagnostics: Diagnostics, codexInUse: () => Promise<boolean>, sentPrompts: import('./sent-prompts.js').SentPrompts }} Deps
+ * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, desks: import('./desks.js').Desks, pins: import('./pins.js').Pins, uploads: Uploads, about: About, build: string, pageModules: readonly string[], feedEntries: string, rewinds: Map<string, import('./branch.js').RewindMark>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, system: SystemUsage, processes: Processes, chatgptUsage: ReadUsage, agyUsage: ReadUsage, agyRewound: AgyRewound, phrases: Phrases, subagentsWork: (session: string) => Promise<boolean>, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, kept: Kept, diagnostics: Diagnostics, codexInUse: () => Promise<boolean>, sentPrompts: import('./sent-prompts.js').SentPrompts }} Deps
  *   instance: this run of the viewer, told apart from any other — see /api/machine; vscode: VS Code's web server
  *   behind /vscode/, none when the viewer runs none
  * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'forkedFrom' | 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'focusTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hideWorkspace' | 'showWorkspace' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'continueTab' | 'createWorkspace' | 'history' | 'reopen' | 'restart' | 'exit'>} HerdrView
@@ -325,7 +341,7 @@ async function handle(deps, request, response) {
     case '/api/workspaces':
       return sendRevalidated(response, await deps.herdrView.workspacesOf(await deps.index.list()));
     case '/api/herdr':
-      return sendRevalidated(response, await deps.herdrView.layout());
+      return sendRevalidated(response, await shownLayout(deps));
     // the answers seen on any device: the green lamps out on every one
     case '/api/seen':
       return sendRevalidated(response, await deps.seen.all());
@@ -1655,6 +1671,19 @@ async function openFile(deps, body, response) {
 }
 
 /**
+ * herdr's layout as the page shows it: an agent at rest whose subagents work on — it ended a turn told one's report,
+ * waiting for the others — shown at work, its lamp not lit green, no chime (subagent-turns.js).
+ * @param {Deps} deps
+ * @returns {Promise<import('../public/model/herdr.js').HerdrLayout>}
+ */
+async function shownLayout(deps) {
+  const layout = await deps.herdrView.layout();
+  const resting = layout.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes.flatMap((pane) => (pane.session !== undefined && (pane.status === 'done' || pane.status === 'idle') ? [pane.session] : []))));
+  const working = (await Promise.all([...new Set(resting)].map(async (session) => ((await deps.subagentsWork(session)) ? [session] : [])))).flat();
+  return working.length === 0 ? layout : withSubagentsAtWork(layout, new Set(working));
+}
+
+/**
  * The work the session started in the background: subagents and commands.
  * @param {Deps} deps
  * @param {string} id
@@ -1665,7 +1694,21 @@ async function sendTasks(deps, id, response) {
   if (path === undefined) return sendJson(response, []);
   const read = await deps.transcripts.read(path, { scope: 'main', imageUrl: (lineStart, n) => imageLink(id, null, lineStart, n) });
   // asked every few seconds while one runs, a long session's hundred and more: the same list again is a 304
-  return sendRevalidated(response, await seenTasks(read.tasks.list(), await deps.isRunning(id), (agentId) => deps.index.findSubagent(id, agentId)));
+  return sendRevalidated(response, await seenTasks(read.tasks.list(), await deps.isRunning(id), (agentId) => subagentTranscript(deps.index, id, agentId)));
+}
+
+/**
+ * A subagent's own transcript: Claude Code keeps it beside its session's; agy's subagent is a conversation of its own,
+ * by its id.
+ * @param {SessionIndex} index
+ * @param {string} session — the session that set it going
+ * @param {string} agentId — Claude Code's agent's id, or agy's subagent's conversation
+ * @returns {Promise<string | undefined>}
+ */
+async function subagentTranscript(index, session, agentId) {
+  const path = await index.find(session);
+  if (path === undefined) return undefined;
+  return index.agentOf(path) === 'agy' ? index.find(agentId) : index.findSubagent(session, agentId);
 }
 
 /**
