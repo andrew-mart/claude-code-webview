@@ -2,7 +2,7 @@
 // Starting the viewer server in this process.
 import { spawn } from 'node:child_process';
 import { mkdir, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { homedir, uptime } from 'node:os';
 import { basename, join } from 'node:path';
 import { createVsCode, desktopVsCode } from '../server/vscode.js';
 import { bringForward } from '../server/window-front.js';
@@ -18,7 +18,7 @@ import { createDiagnosticsLog } from '../server/diagnostics.js';
 import { createKeptFile } from '../server/kept.js';
 import { createUploads } from '../server/uploads.js';
 import { createComposer } from '../server/composer.js';
-import { latestRecords, readSessionRecords, startedSessions } from '../server/registry.js';
+import { latestRecords, readSessionRecords, runningRecords, startedSessions } from '../server/registry.js';
 import { createHerdrRunner, herdrTurnedOff, paneIoOf, pasteAsTyped, readSavedHerdr, resolveHerdr, saveHerdr } from '../server/herdr.js';
 import { createHerdrSocket, socketRunner } from '../server/herdr-socket.js';
 import { createHerdrView } from '../server/herdr-view.js';
@@ -89,7 +89,9 @@ export async function serve({ port, about, palette, publicAddresses, herdr, clau
   await mkdir(stateDir, { recursive: true });
   const { run, via, note } = await herdrToUse(herdr);
   const claude = claudeDir(process.env);
-  const readRecords = () => readSessionRecords(join(claude, 'sessions'));
+  // a record left behind by a Claude Code ended with the computer, or killed, is no session open
+  const bootedAt = Date.now() - uptime() * 1000;
+  const readRecords = async () => runningRecords(await readSessionRecords(join(claude, 'sessions')), { alive: processAlive, bootedAt });
   const usageFiles = { claudeState: claudeStateFile(process.env), rateLimits: join(stateDir, 'rate-limits.json') };
   // agy's usage: what it gave its status line last, if that drops it here
   const agyStatusLine = join(stateDir, 'agy-statusline.json');

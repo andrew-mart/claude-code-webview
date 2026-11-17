@@ -81,3 +81,17 @@ function parseRecord(raw) {
   const startedAt = typeof raw.startedAt === 'number' ? raw.startedAt : undefined;
   return sessionId === undefined || status === undefined ? undefined : { pid: raw.pid, startedAt, sessionId, cwd: text(raw.cwd), status, updatedAt };
 }
+
+/**
+ * The records whose process runs now. Claude Code takes its record away when it ends; one ended with the computer — a
+ * restart, a container brought up again — or killed leaves it behind, its session taken for open: its process is gone,
+ * or it started before the computer did, its number given to another process since (Windows gives a freed one to the
+ * next soon). One that does not tell when it started counts while a process of its number runs.
+ * @param {readonly unknown[]} records — contents of ~/.claude/sessions/<pid>.json
+ * @param {{ alive: (pid: number) => boolean, bootedAt: number }} system — alive: whether a process of this number runs
+ *   (agy-live.js: processAlive); bootedAt: when the computer started, ms
+ * @returns {unknown[]}
+ */
+export function runningRecords(records, { alive, bootedAt }) {
+  return records.filter((raw) => isRecord(raw) && typeof raw.pid === 'number' && alive(raw.pid) && !(typeof raw.startedAt === 'number' && raw.startedAt < bootedAt));
+}
