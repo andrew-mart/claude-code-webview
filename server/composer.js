@@ -52,9 +52,10 @@ const enterLooks = 8;
 /**
  * The looks at the box for a prompt typed to show there: while the box keeps changing the prompt is still coming — agy
  * takes a long one a few characters at a time, tens of seconds on Windows — and the wait goes on, at most some minutes;
- * the box standing still this many looks, the prompt went elsewhere.
+ * the box standing still this many looks — some seconds: an agent short of memory draws what it was typed that late —
+ * the prompt went elsewhere.
  */
-const typedLooks = { still: 20, most: 1200 };
+const typedLooks = { still: 60, most: 1200 };
 
 /**
  * @param {{ readRecords: () => Promise<readonly unknown[]>, herdr: RunHerdr, codexPlace: (sessionId: string) => Promise<import('./herdr-view.js').AgentPlace>, agyPlace?: (sessionId: string) => Promise<import('./herdr-view.js').AgentPlace> }} deps
@@ -217,7 +218,11 @@ export function createComposer({ readRecords, herdr, codexPlace, agyPlace = asyn
       (screen) => boxOf(place.agent, screen),
       typedLooks,
     );
-    return landed === undefined && landing === 'required' ? { ok: false, error: 'not-typed' } : typed;
+    if (landed !== undefined || landing === 'hoped') return typed;
+    // what the box showed instead, for the server's log: a dialog over it, or an agent slower still
+    const seen = await terminalOf(place).read();
+    console.warn(`text typed into pane ${place.pane} never showed in its box; its screen ends with:\n${(seen ?? '').split('\n').slice(-12).join('\n')}`);
+    return { ok: false, error: 'not-typed' };
   }
 
   /**

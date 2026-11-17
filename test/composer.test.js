@@ -287,6 +287,18 @@ test('send_Should_RefuseAsNotSent_When_PromptStaysInBoxAfterEnters', async () =>
   assert.deepEqual({ outcome, typed: typedInto(herdr.calls) }, { outcome: { ok: false, error: 'not-sent' }, typed: ['fix the flaky test', 'enter', 'enter', 'enter'] });
 });
 
+// A Claude Code slow to draw — its computer short of memory — shows the text typed only seconds later, its box standing
+// still meanwhile: the wait goes on, and the prompt is sent once it shows
+test('send_Should_WaitForSlowBox_ToShowTextTyped_ThenSend', async () => {
+  const box = (/** @type {string} */ typed) => ['● Done.', '────────', `❯ ${typed}`, '────────'].join('\n');
+  const typed = 'fix the flaky test';
+  const herdr = fakeHerdr({ screens: [box(''), ...Array.from({ length: 25 }, () => box('')), box(typed), box('')] });
+
+  const outcome = await composerOf([record], herdr).send(sessionId, typed);
+
+  assert.deepEqual({ outcome, typed: typedInto(herdr.calls) }, { outcome: { ok: true, pane: 'w3D:p1' }, typed: [typed, 'enter'] });
+});
+
 // The box in view, and the text typed never shows in it — something on the screen took the keys, a dialog over the box:
 // Enter is not pressed, and the page is told the prompt was not typed, to keep it
 test('send_Should_NotPressEnter_When_TextNeverShowsInBox', async () => {
