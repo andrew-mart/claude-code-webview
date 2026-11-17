@@ -33,7 +33,7 @@ const web = {
 };
 
 /** A sidebar nobody opens a workspace from. @type {import('../public/view/herdr-panel.js').SidebarActions} */
-const noActions = { createWorkspace: async () => ({ ok: false, error: 'failed' }), open: () => undefined, folders: () => [], foldersOnDisk: async () => [], separator: () => '/', renameWorkspace: async () => ({ ok: false, error: 'failed' }), closeWorkspace: async () => ({ ok: false, error: 'failed' }), hideWorkspace: async () => ({ ok: false, error: 'failed' }), showWorkspace: async () => ({ ok: false, error: 'failed' }), setWorkspaceIcon: async () => ({ ok: false, error: 'failed' }), iconTags: async () => ({}), renameTab: async () => ({ ok: false, error: 'failed' }), closeTab: async () => ({ ok: false, error: 'failed' }), hidePane: async () => ({ ok: false, error: 'failed' }), showHidden: async () => ({ ok: false, error: 'failed' }), keptLit: () => false, keepLit: () => undefined, sessionOrder: { value: () => 'lamps', choose: () => undefined } };
+const noActions = { createWorkspace: async () => ({ ok: false, error: 'failed' }), open: () => undefined, folders: () => [], foldersOnDisk: async () => [], separator: () => '/', renameWorkspace: async () => ({ ok: false, error: 'failed' }), closeWorkspace: async () => ({ ok: false, error: 'failed' }), hideWorkspace: async () => ({ ok: false, error: 'failed' }), showWorkspace: async () => ({ ok: false, error: 'failed' }), setWorkspaceIcon: async () => ({ ok: false, error: 'failed' }), iconTags: async () => ({}), renameTab: async () => ({ ok: false, error: 'failed' }), closeTab: async () => ({ ok: false, error: 'failed' }), hidePane: async () => ({ ok: false, error: 'failed' }), showHidden: async () => ({ ok: false, error: 'failed' }), keptLit: () => false, keepLit: () => undefined, sessionOrder: { value: () => 'lamps', choose: () => undefined }, recentIcons: () => [] };
 
 test('tabBar_Should_OfferSeparateGptStartOnlyWhenConfigured', async () => {
   const { bar, asked, click } = barAboveSession();
@@ -153,11 +153,12 @@ test('tabNaming_Should_StartFromEmptyBox_ForUnnamedTabMovedElsewhere', () => {
  * opens as w2:p9.
  * @param {string} [session]
  * @param {import('../public/model/herdr.js').HerdrWorkspace} [workspace]
- * @param {{ copies: boolean, continuing?: import('../public/view/herdr-panel.js').TabActions['continuing'], continues?: boolean, corner?: HTMLElement }} [herdr]
+ * @param {{ copies: boolean, continuing?: import('../public/view/herdr-panel.js').TabActions['continuing'], continues?: boolean, corner?: HTMLElement, recent?: readonly string[] }} [herdr]
  *   - copies: herdr opens a tab's copy, as w2:p8; it does unless told; continuing: what a tab with nothing in it would go
- *   on with — nothing, unless told; continues: whether herdr starts it there; corner: what stands at the bar's end
+ *   on with — nothing, unless told; continues: whether herdr starts it there; corner: what stands at the bar's end;
+ *   recent: the icons put on tabs and workspaces last — none, unless told
  */
-function barAboveSession(session = 's1', workspace = web, { copies, continuing = () => undefined, continues = true, corner = document.createElement('div') } = { copies: true }) {
+function barAboveSession(session = 's1', workspace = web, { copies, continuing = () => undefined, continues = true, corner = document.createElement('div'), recent = [] } = { copies: true }) {
   /** @type {(string | undefined)[][]} */
   const asked = [];
   /** The panes whose agents are kept lit. */
@@ -207,6 +208,7 @@ function barAboveSession(session = 's1', workspace = web, { copies, continuing =
     },
     iconTags: async () => lucideTags,
     corner,
+    recentIcons: () => recent,
   });
   bar.render({ herdr: true, workspaces: [workspace] }, { kind: 'session', id: session }, new Map());
   /** @param {string} selector */
@@ -583,6 +585,7 @@ test('herdrSidebar_Should_OpenNewWorkspace_FromItsNameAndFolder', async () => {
     showHidden: async () => ({ ok: false, error: 'failed' }),
     keptLit: () => false,
     keepLit: () => undefined,
+    recentIcons: () => [],
   });
   const layout = { herdr: true, workspaces: [web] };
   sidebar.render(layout, undefined, '', new Map());
@@ -1234,6 +1237,24 @@ test('herdrSidebar_Should_PickWorkspacesIconByHand_AsItIsNamed', async () => {
   await new Promise((done) => setTimeout(done, 0));
 
   assert.deepEqual(changes, [['rename workspace', 'w2', `${workspaceIcons[0]} shop`]]);
+});
+
+// The emoji at hand are those put on tabs and workspaces last, the latest first, ahead of the usual ones — a
+// workspace's in the sidebar, a new tab's in the tab bar; Lucide's icons stay in their own tab
+test('iconPickers_Should_HaveIconsUsedLastAtHand_TheLatestFirst', () => {
+  const recent = ['🍉', 'lucide:wallet@green', '🦊'];
+  const element = window.document.createElement('div');
+  createHerdrSidebar(element, { ...noActions, recentIcons: () => recent }).render({ herdr: true, workspaces: [web] }, { kind: 'session', id: 's1' }, '', new Map());
+  clickOn(element, '.herdr-workspace.selected');
+  pressIn(element, '.herdr-row-rename');
+  pressIn(element, '.herdr-icon-picker > button');
+  const { bar, click } = barAboveSession('s1', web, { copies: true, recent });
+  click('.herdr-tab-new');
+  click('.herdr-icon-picker > button');
+  /** The first ones at hand. @param {Element} root */
+  const atHand = (root) => [...root.querySelectorAll('.herdr-icon-at-hand > button')].slice(0, 3).map((button) => button.textContent);
+
+  assert.deepEqual({ workspace: atHand(element), tab: atHand(bar.element) }, { workspace: ['🍉', '🦊', '🐙'], tab: ['🍉', '🦊', '🚀'] });
 });
 
 /** The workspace web with an icon of its own, ahead of its name. */

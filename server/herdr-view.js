@@ -19,6 +19,7 @@ import { foregroundPids, foregroundPrograms, forkedFrom, overShell, shellAtPromp
 import { latestRecords, processKey } from './registry.js';
 import { acceptTrust } from './trust.js';
 import { parseHistory, tabToContinue } from '../public/model/history.js';
+import { splitTabIcon } from '../public/model/tab-icon.js';
 import { observed } from './session-history.js';
 
 /**
@@ -44,9 +45,11 @@ import { observed } from './session-history.js';
 /** A viewer told nothing of restarting: no process of its is ended, so no session restarts. */
 /** @type {Restarting} */
 const noRestarting = { env: [], shell: 'posix', endProcess: async () => false };
+/** A viewer that keeps no icons used last: the pickers' usual ones are at hand. */
+const noRecentIcons = { all: async () => [], use: async () => undefined };
 
 /**
- * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, codexThreads: () => Promise<readonly import('./codex-live.js').LiveThread[]>, icons: { iconsOf: (workspaces: readonly import('./workspace-icons.js').IconedWorkspace[]) => Promise<ReadonlyMap<string, string>>, setIcon: (folder: string, icon: string | undefined) => Promise<void> }, hidden: ReturnType<typeof import('./hidden-panes.js').createHiddenPanes>, hiddenWorkspaces: ReturnType<typeof import('./hidden-workspaces.js').createHiddenWorkspaces>, file: string, refreshMs: number, claudeCommand: string, claudeGptCommand?: string | undefined, claudeModelOf?: ((session: string) => Promise<import('./claude-model.js').LastAnswer | undefined>) | undefined, codexCommand: string, agyCommand?: string | undefined, agyRuns?: () => Promise<readonly import('./agy-live.js').AgyRun[]>, listed?: () => Promise<readonly { id: string, title: string | undefined }[]>, agySeen?: (pids: readonly number[]) => void, trust: { looks: number, stepMs: number }, restart?: Restarting }} deps
+ * @param {{ herdr: import('./composer.js').RunHerdr, readRecords: () => Promise<readonly unknown[]>, codexThreads: () => Promise<readonly import('./codex-live.js').LiveThread[]>, icons: { iconsOf: (workspaces: readonly import('./workspace-icons.js').IconedWorkspace[]) => Promise<ReadonlyMap<string, string>>, setIcon: (folder: string, icon: string | undefined) => Promise<void> }, hidden: ReturnType<typeof import('./hidden-panes.js').createHiddenPanes>, hiddenWorkspaces: ReturnType<typeof import('./hidden-workspaces.js').createHiddenWorkspaces>, file: string, refreshMs: number, claudeCommand: string, claudeGptCommand?: string | undefined, claudeModelOf?: ((session: string) => Promise<import('./claude-model.js').LastAnswer | undefined>) | undefined, codexCommand: string, agyCommand?: string | undefined, agyRuns?: () => Promise<readonly import('./agy-live.js').AgyRun[]>, listed?: () => Promise<readonly { id: string, title: string | undefined }[]>, agySeen?: (pids: readonly number[]) => void, trust: { looks: number, stepMs: number }, restart?: Restarting, recentIcons?: { all: () => Promise<string[]>, use: (icon: string) => Promise<void> } }} deps
  *   readRecords — contents of ~/.claude/sessions/*.json; codexThreads — the threads Codex has open now; agyRuns — agy's
  *   processes alive now (agy-live.js), none told — no agy; listed — the sessions listed, with their titles: an agy
  *   pane is titled by its conversation's; agySeen — told the processes herdr names agy in agy panes: they are agy's,
@@ -55,9 +58,10 @@ const noRestarting = { env: [], shell: 'posix', endProcess: async () => false };
  *   hiddenWorkspaces — the workspaces hidden from it, by their ids (hidden-workspaces.js); file — where the
  *   workspaces of sessions seen running are kept; refreshMs — herdr is asked at most this often; claudeCommand,
  *   codexCommand, agyCommand — what starts Claude Code, Codex and Antigravity CLI in a new tab — none, no agy;
- *   restart — how a session is restarted where it runs
+ *   restart — how a session is restarted where it runs; recentIcons — the icons put on tabs and workspaces last
+ *   (recent-icons.js)
  */
-export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidden, hiddenWorkspaces, file, refreshMs, claudeCommand, claudeGptCommand, claudeModelOf = async () => undefined, codexCommand, agyCommand, agyRuns = async () => [], listed = async () => [], agySeen = () => undefined, trust, restart = noRestarting }) {
+export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidden, hiddenWorkspaces, file, refreshMs, claudeCommand, claudeGptCommand, claudeModelOf = async () => undefined, codexCommand, agyCommand, agyRuns = async () => [], listed = async () => [], agySeen = () => undefined, trust, restart = noRestarting, recentIcons = noRecentIcons }) {
   /**
    * A process's pane does not change while it runs: process-info is asked once for each Claude process — by its key
    * (registry.js): the number goes to another process once it is gone.
@@ -280,6 +284,16 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
     return started;
   };
 
+  /**
+   * The emoji leading a tab's or a workspace's name, used now if it was not there before: a name changed alone uses none.
+   * @param {string | undefined} before — the name it had
+   * @param {string} name — the one it has now
+   */
+  const iconUsed = async (before, name) => {
+    const icon = splitTabIcon(name).icon;
+    if (icon !== undefined && icon !== (before === undefined ? undefined : splitTabIcon(before).icon)) await recentIcons.use(icon);
+  };
+
   /** Pages that ask at once, or within refreshMs, share one look at herdr. */
   const currentView = () => {
     if (latest === undefined || Date.now() - latest.at >= refreshMs) latest = { at: Date.now(), view: lookAtHerdr() };
@@ -338,7 +352,10 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
       latest = undefined;
       const tab = succeeded(reply) ? tabOf(reply.json) : undefined;
       const name = label?.replace(/\s+/g, ' ').trim();
-      if (tab !== undefined && name !== undefined && name !== '') await herdr(['tab', 'rename', tab, name]);
+      if (tab !== undefined && name !== undefined && name !== '') {
+        await herdr(['tab', 'rename', tab, name]);
+        await iconUsed(undefined, name);
+      }
       if (start !== 'shell' && !(await startAgent(pane, start, undefined))) return { ok: false, error: 'failed' };
       return { ok: true, target: `#/pane/${pane}` };
     },
@@ -401,7 +418,10 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
       // a tab's name is one line
       const name = label.replace(/\s+/g, ' ').trim();
       if (name === '') return { ok: false, error: 'empty' };
-      return changed(await herdr(['tab', 'rename', tabId, name]));
+      const before = (await currentView())?.snapshot.tabs.find((tab) => tab.id === tabId)?.label;
+      const outcome = changed(await herdr(['tab', 'rename', tabId, name]));
+      if (outcome.ok) await iconUsed(before, name);
+      return outcome;
     },
     /**
      * Moves a tab among its workspace's tabs, as herdr does when one is dragged in its own bar.
@@ -422,7 +442,11 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
       // a workspace's name is one line
       const name = label.replace(/\s+/g, ' ').trim();
       if (name === '') return { ok: false, error: 'empty' };
-      return changed(await herdr(['workspace', 'rename', workspaceId, name]));
+      const view = await currentView();
+      const before = view === undefined ? undefined : workspaceLabels(view.snapshot).get(workspaceId);
+      const outcome = changed(await herdr(['workspace', 'rename', workspaceId, name]));
+      if (outcome.ok) await iconUsed(before, name);
+      return outcome;
     },
     /**
      * A workspace's icon picked by hand — one its name cannot hold, Lucide's — kept for its folder, or taken back.
@@ -435,6 +459,7 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
       const folder = view === undefined ? undefined : workspaceFolder(view.snapshot, workspaceId);
       if (folder === undefined) return { ok: false, error: 'failed' };
       await icons.setIcon(folder, icon);
+      if (icon !== undefined) await recentIcons.use(icon);
       latest = undefined;
       return { ok: true };
     },
@@ -653,7 +678,8 @@ export function createHerdrView({ herdr, readRecords, codexThreads, icons, hidde
       const agy = agyCommand === undefined ? {} : { agy: true };
       if (view === undefined) return { herdr: false, workspaces: [] };
       const titles = new Map((await listed()).flatMap(({ id, title }) => (title === undefined ? [] : [/** @type {const} */ ([id, title])])));
-      return { herdr: true, ...(claudeGptCommand === undefined ? {} : { claudeGpt: /** @type {const} */ (true) }), ...agy, ...(restart.env.length === 0 ? {} : { restartEnv: restart.env.map(({ name, value }) => `${name}=${value}`) }), workspaces: layoutOf(view.snapshot, { sessionByPane: view.sessionByPane, icons: view.icons, hidden: view.hidden, hiddenWorkspaces: view.hiddenWorkspaces, titles }) };
+      const recent = await recentIcons.all();
+      return { herdr: true, ...(claudeGptCommand === undefined ? {} : { claudeGpt: /** @type {const} */ (true) }), ...agy, ...(restart.env.length === 0 ? {} : { restartEnv: restart.env.map(({ name, value }) => `${name}=${value}`) }), ...(recent.length === 0 ? {} : { recentIcons: recent }), workspaces: layoutOf(view.snapshot, { sessionByPane: view.sessionByPane, icons: view.icons, hidden: view.hidden, hiddenWorkspaces: view.hiddenWorkspaces, titles }) };
     },
   };
 }

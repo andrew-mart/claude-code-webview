@@ -148,6 +148,14 @@ test('parseHerdrLayout_Should_KeepVariablesSessionsRestartWith', () => {
   });
 });
 
+// The icons put on tabs and workspaces last, as the viewer tells them, the latest first; what is no icon is left out
+test('parseHerdrLayout_Should_KeepIconsUsedLast', () => {
+  assert.deepEqual([parseHerdrLayout({ herdr: true, recentIcons: ['🐞', 'lucide:wallet@green', 'shop', 7], workspaces: [] }), parseHerdrLayout({ herdr: true, workspaces: [] })], [
+    { herdr: true, recentIcons: ['🐞', 'lucide:wallet@green'], workspaces: [] },
+    { herdr: true, workspaces: [] },
+  ]);
+});
+
 // Every session of every workspace, in the order asked: those with their lamp lit — at work, asking, done with an answer
 // not seen, kept to come back to — above those idle, each part the one whose agent changed state last first, as herdr
 // lists its agents; or by that alone, lamps or not. A pane without an agent — a shell, nvim — is no session

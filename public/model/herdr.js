@@ -1,6 +1,7 @@
 // @ts-check
 // What herdr shows, as the page gets it from /api/herdr (server/herdr-view.js): workspaces, their tabs, the panes in
 // them — and in a pane with Claude Code, its session.
+import { parseIcon } from './icon-choice.js';
 import { groupLamp, paneLamp } from './lamps.js';
 import { isRecord, text } from './narrow.js';
 
@@ -17,9 +18,10 @@ import { isRecord, text } from './narrow.js';
  * @typedef {{ id: string, number: number, label: string, icon?: string | undefined, status: AgentStatus, activeTab: string | undefined, hidden?: true, tabs: readonly HerdrTab[] }} HerdrWorkspace
  *   icon: the emoji it is marked with (server/workspace-icons.js); hidden: its user hid it from the sidebar's list, to
  *   keep it open out of the way (server/hidden-workspaces.js)
- * @typedef {{ herdr: boolean, claudeGpt?: true, agy?: true, restartEnv?: readonly string[], workspaces: readonly HerdrWorkspace[] }} HerdrLayout — herdr: whether it answers;
+ * @typedef {{ herdr: boolean, claudeGpt?: true, agy?: true, restartEnv?: readonly string[], recentIcons?: readonly string[], workspaces: readonly HerdrWorkspace[] }} HerdrLayout — herdr: whether it answers;
  *   agy: a new tab may start Antigravity CLI — it has run on the viewer's computer; restartEnv: the variables a session
- *   restarted from the page starts with, each NAME=VALUE, none when there are none
+ *   restarted from the page starts with, each NAME=VALUE, none when there are none; recentIcons: the icons put on tabs
+ *   and workspaces last, the latest first (model/recent-icons.js), none before any
  * @typedef {{ ok: true, target: string } | { ok: false, error: 'failed' }} NewTab — a tab opened from the page; target: its page address
  * @typedef {'lamps' | 'activity'} SessionOrder — the sessions with their lamp lit first, or by the latest change alone
  * @typedef {'shell' | 'claude' | 'claude-gpt' | 'codex' | 'agy'} TabStart — the shell, ordinary Claude Code, Claude Code through GPT, Codex, or
@@ -147,9 +149,10 @@ export function openedAt(hash) {
 export function parseHerdrLayout(json) {
   if (!isRecord(json) || json.herdr !== true || !Array.isArray(json.workspaces)) return { herdr: false, workspaces: [] };
   const restartEnv = Array.isArray(json.restartEnv) ? json.restartEnv.filter((variable) => typeof variable === 'string') : [];
+  const recentIcons = Array.isArray(json.recentIcons) ? json.recentIcons.filter((icon) => typeof icon === 'string' && parseIcon(icon) !== undefined) : [];
   /** @type {{ agy?: true }} */
   const agy = json.agy === true ? { agy: true } : {};
-  return { herdr: true, ...(json.claudeGpt === true ? { claudeGpt: /** @type {const} */ (true) } : {}), ...agy, ...(restartEnv.length === 0 ? {} : { restartEnv }), workspaces: json.workspaces.filter(isRecord).flatMap(parseWorkspace) };
+  return { herdr: true, ...(json.claudeGpt === true ? { claudeGpt: /** @type {const} */ (true) } : {}), ...agy, ...(restartEnv.length === 0 ? {} : { restartEnv }), ...(recentIcons.length === 0 ? {} : { recentIcons }), workspaces: json.workspaces.filter(isRecord).flatMap(parseWorkspace) };
 }
 
 const statuses = /** @type {const} */ (['idle', 'working', 'blocked', 'done', 'unknown']);

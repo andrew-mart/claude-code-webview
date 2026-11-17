@@ -544,6 +544,8 @@ function createPage() {
     closeTab: (tab) => changeTab('/api/tab/close', { tab }),
     hidePane: (pane) => changeTab('/api/herdr/hide', { pane }),
     showHidden: () => changeTab('/api/herdr/show', {}),
+    // the icons put on tabs and workspaces last, at hand first: none told, none used yet
+    recentIcons: () => herdrLayout.recentIcons ?? [],
     keptLit: (pane) => keptNow(pane, keptPanes),
     keepLit: (pane) => page.toggleKept(pane),
     // the browser keeps the order chosen; their lamps lit first until another is
@@ -592,6 +594,7 @@ function createPage() {
     setWorkspaceIcon: (workspace, icon) => changeTab('/api/workspace/icon', { workspace, icon: icon === undefined ? null : icon }),
     iconTags: lucideTags,
     corner: systemMeters.element,
+    recentIcons: () => herdrLayout.recentIcons ?? [],
   });
   /** The side questions (/btw) of the sessions opened: an answer outlives the session's box. */
   const asides = createAsideStore();

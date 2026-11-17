@@ -7,6 +7,7 @@ import { agyStartedId } from '../server/agy-live.js';
 import { createHerdrView } from '../server/herdr-view.js';
 import { createHiddenPanes } from '../server/hidden-panes.js';
 import { createHiddenWorkspaces } from '../server/hidden-workspaces.js';
+import { createRecentIconsFile } from '../server/recent-icons.js';
 
 const running = '7d4e1b20-2222-4333-8444-955566667777';
 
@@ -543,6 +544,26 @@ test('renameTab_Should_NameTabInHerdr_And_ShowNameAtOnce', async () => {
   const outcome = await view.renameTab('w2:t1', '  checkout\n  fix ');
 
   assert.deepEqual({ outcome, changes: herdr.changes, names: tabNames(await view.layout()) }, { outcome: { ok: true }, changes: ['tab rename w2:t1 checkout fix'], names: ['checkout fix', 'tests'] });
+});
+
+// An icon put on a tab or a workspace from the page goes first among those used last — told with the layout, kept
+// over a restart; a name changed with its icon as it was, or one with no icon, uses none
+test('recentIcons_Should_KeepIconsPutOnTabsAndWorkspaces_TheLatestFirst', async () => {
+  const herdr = tabsHerdr();
+  const file = join(tempDir('ccw-recent-icons-'), 'recent-icons.json');
+  const view = createHerdrView({ herdr: herdr.run, readRecords: async () => [], codexThreads: async () => [], icons: noIcons, hidden: noHidden, hiddenWorkspaces: noHiddenWorkspaces, file: join(tempDir('ccw-workspaces-'), 'workspaces.json'), refreshMs: 60_000, trust: { looks: 3, stepMs: 1 }, claudeCommand: 'claude', codexCommand: 'codex', recentIcons: createRecentIconsFile(file) });
+  const none = (await view.layout()).recentIcons;
+
+  await view.renameTab('w2:t1', '🧪 checkout');
+  await view.setWorkspaceIcon('w2', 'lucide:wallet@green');
+  await view.renameTab('w2:t2', '🐞 tests');
+  await view.renameTab('w2:t1', '🧪 checkout fix');
+  await view.renameWorkspace('w2', 'web');
+
+  assert.deepEqual(
+    { none, told: (await view.layout()).recentIcons, kept: await createRecentIconsFile(file).all() },
+    { none: undefined, told: ['🐞', 'lucide:wallet@green', '🧪'], kept: ['🐞', 'lucide:wallet@green', '🧪'] },
+  );
 });
 
 // A tab dragged on the page to another place among its workspace's tabs moves there in herdr — the place counted

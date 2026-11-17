@@ -16,6 +16,7 @@ import { createPinsFile } from '../server/pins.js';
 import { createSeenFile } from '../server/seen.js';
 import { createDiagnosticsLog } from '../server/diagnostics.js';
 import { createKeptFile } from '../server/kept.js';
+import { createRecentIconsFile } from '../server/recent-icons.js';
 import { createUploads } from '../server/uploads.js';
 import { createComposer } from '../server/composer.js';
 import { latestRecords, readSessionRecords, runningRecords, startedSessions } from '../server/registry.js';
@@ -108,7 +109,7 @@ export async function serve({ port, about, palette, publicAddresses, herdr, clau
   const index = createSessionIndex(join(claude, 'projects'), { summaryBudgetMs: 1500, missRetryMs: 2000, codexRoot: join(codexHome, 'sessions'), agy: createAgyConversations(agyHome), started });
   const codexThreads = createCodexThreads({ home: codexHome, summaryOf: index.summaryOf, held: lockHeld });
   const icons = createWorkspaceIcons({ file: join(stateDir, 'workspace-icons.json'), random: Math.random });
-  const herdrView = createHerdrView({ herdr: run, readRecords, codexThreads: codexThreads.open, icons, hidden: createHiddenPanes(join(stateDir, 'hidden-panes.json')), hiddenWorkspaces: createHiddenWorkspaces(join(stateDir, 'hidden-workspaces.json')), file: join(stateDir, 'workspaces.json'), refreshMs: herdrRefreshMs, trust: claudeTrustPace, claudeCommand, claudeGptCommand, claudeModelOf: createClaudeModels(index.find), codexCommand, agyCommand: agyHere ? agyCommand : undefined, agyRuns: agyProcesses.open, listed: () => index.list(), agySeen: agyCheck.vouch, restart: { env: restartEnv, shell: process.platform === 'win32' ? 'powershell' : 'posix', endProcess: (pid) => endProcess(pid, claudeEndPace) } });
+  const herdrView = createHerdrView({ herdr: run, readRecords, codexThreads: codexThreads.open, icons, hidden: createHiddenPanes(join(stateDir, 'hidden-panes.json')), hiddenWorkspaces: createHiddenWorkspaces(join(stateDir, 'hidden-workspaces.json')), file: join(stateDir, 'workspaces.json'), refreshMs: herdrRefreshMs, trust: claudeTrustPace, claudeCommand, claudeGptCommand, claudeModelOf: createClaudeModels(index.find), codexCommand, agyCommand: agyHere ? agyCommand : undefined, agyRuns: agyProcesses.open, listed: () => index.list(), agySeen: agyCheck.vouch, restart: { env: restartEnv, shell: process.platform === 'win32' ? 'powershell' : 'posix', endProcess: (pid) => endProcess(pid, claudeEndPace) }, recentIcons: createRecentIconsFile(join(stateDir, 'recent-icons.json')) });
   // the notes and files pinned for a piece of work, on desks in the folders worked in (desks.js): a session's is its herdr
   // workspace's, else the one of the folder it started in — Codex's, the folder it runs in
   const deskFiles = createDeskFiles();
