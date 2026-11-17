@@ -9,6 +9,7 @@
 //   herdr pane send-text / send-keys → the text and Enter, as if the user typed them
 import { setTimeout as delay } from 'node:timers/promises';
 import { agyDialog, agyInputBox } from './agy-screen.js';
+import { driveAgyRewind } from './agy-rewind.js';
 import { driveBtw, readBtw, withPanelClosed } from './btw.js';
 import { inputBox, plainScreen, settleOn, settleWhileChanging, settleWithin, squash } from './claude-screen.js';
 import { driveCodexBtw } from './codex-btw.js';
@@ -589,7 +590,13 @@ export function createComposer({ readRecords, herdr, codexPlace, agyPlace = asyn
           if (place.status === 'busy') return { ok: false, error: 'busy' };
           return driveRewind(terminalOf(place), { ...request, wait: (ms) => delay(ms) });
         }
-        if (place.agent === 'agy' || request.action !== 'conversation') return { ok: false, error: 'option-not-found' };
+        // agy rewinds its conversation only with the files changed since: through its /rewind, at rest
+        if (place.agent === 'agy') {
+          if (request.action !== 'both') return { ok: false, error: 'option-not-found' };
+          if (place.status === 'busy') return { ok: false, error: 'busy' };
+          return driveAgyRewind(terminalOf(place), { stepsUp: request.stepsUp, prompt: request.prompt, wait: (ms) => delay(ms) });
+        }
+        if (request.action !== 'conversation') return { ok: false, error: 'option-not-found' };
         if (place.status === 'busy') return { ok: false, error: 'busy' };
         const terminal = terminalOf(place);
         const screen = await terminal.read();

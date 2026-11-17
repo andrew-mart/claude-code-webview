@@ -20,6 +20,10 @@ import { folderKey } from './folders.js';
 
 /**
  * @typedef {AgyProcess & { startedAt: number }} AgyRun — an agy run alive: startedAt, when, in ms — its log is named so
+ * @typedef {{ step: number, at: number }} AgyRewind — agy rewound a conversation to a step: the steps after it are gone
+ *   from it, though its transcript keeps them until the next message; at — when, in ms
+ * @typedef {{ stamp: string, process: AgyProcess | undefined, rewinds: (AgyRewind & { conversation: string })[] }} ReadLog
+ *   — what a run's log tells, as the file was when read: stamp, its time and size then
  */
 
 /**
@@ -76,6 +80,30 @@ export function agyProcessOf(log) {
   return { serverPid: pid, folder: folder === undefined || folder === '' ? undefined : folder, conversation: conversations.at(-1), print: log.includes('Print mode: starting'), ended: shutDown.test(log) };
 }
 
+/**
+ * A conversation rewound, as a run's log tells it: when — the month and the day, the time to the microsecond, in the
+ * computer's time — which, to which step.
+ */
+const revertedLine = /^I(\d{2})(\d{2}) (\d{2}):(\d{2}):(\d{2})\.(\d{3})\d*\s.*\] Reverted conversation ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}) to step (\d+)\b/gm;
+const dayMs = 86_400_000;
+
+/**
+ * The rewinds a run's log tells, in its order: its lines tell the month and the day alone — of the year the run
+ * started in, or of the next one, once the year turned while it ran.
+ * @param {string} log — a run's, whole
+ * @param {number} startedAt — when the run started, in ms
+ * @returns {(AgyRewind & { conversation: string })[]}
+ */
+function rewindsOf(log, startedAt) {
+  const year = new Date(startedAt).getFullYear();
+  return [...log.matchAll(revertedLine)].flatMap((match) => {
+    const [month = 1, day = 1, hours = 0, minutes = 0, seconds = 0, ms = 0] = match.slice(1, 7).map(Number);
+    const inYear = (/** @type {number} */ one) => new Date(one, month - 1, day, hours, minutes, seconds, ms).getTime();
+    const conversation = match[7];
+    return conversation === undefined ? [] : [{ conversation, step: Number(match[8]), at: inYear(year) < startedAt - dayMs ? inYear(year + 1) : inYear(year) }];
+  });
+}
+
 /** The processes found are told again for this long: the feed asks whether its conversation is open several times a second. */
 const freshMs = 1500;
 /** How many of the latest runs' logs are looked at: a log stays once its run ended, a program's runs leave many a day. */
@@ -84,17 +112,17 @@ const latestLogs = 300;
 /**
  * agy's processes alive now, from the latest runs' logs: each read once, and again once it has grown; a run whose log
  * tells it ended, or whose language server is no longer agy's — gone, or its pid given to another program — has ended.
+ * The same logs tell the conversations agy rewound, a run's ended or not.
  * @param {{ home: string, agyOnes: (pids: readonly number[]) => ReadonlySet<number> }} deps — home: agy's,
  *   ~/.gemini/antigravity-cli; agyOnes: which of these pids are agy's processes now (createAgyCheck)
  */
 export function createAgyProcesses({ home, agyOnes }) {
-  /** Each log read, by its path, and the state of the file it was read in. */
-  /** @type {Map<string, { stamp: string, process: AgyProcess | undefined }>} */
+  /** Each log read, by its path. */
+  /** @type {Map<string, ReadLog>} */
   const read = new Map();
-  /** @type {{ at: number, found: Promise<AgyRun[]> } | undefined} */
+  /** @type {{ at: number, found: Promise<{ runs: AgyRun[], rewinds: (AgyRewind & { conversation: string })[] }> } | undefined} */
   let last;
 
-  /** @returns {Promise<AgyRun[]>} */
   const look = async () => {
     const folder = join(home, 'log');
     // a run's log is named by when it started: the latest last
@@ -104,25 +132,27 @@ export function createAgyProcesses({ home, agyOnes }) {
         const path = join(folder, name);
         const startedAt = startedAtOf(name);
         const info = await stat(path).catch(() => undefined);
-        if (info === undefined || startedAt === undefined) return [];
+        if (info === undefined || startedAt === undefined) return { runs: [], rewinds: [] };
         const stamp = `${info.mtimeMs}:${info.size}`;
         const known = read.get(path);
-        const process = known?.stamp === stamp ? known.process : agyProcessOf(await readFile(path, 'utf8').catch(() => ''));
-        read.set(path, { stamp, process });
-        return process === undefined ? [] : [{ ...process, startedAt }];
+        const told = known?.stamp === stamp ? known : logOf(await readFile(path, 'utf8').catch(() => ''), stamp, startedAt);
+        read.set(path, told);
+        return { runs: told.process === undefined ? [] : [{ ...told.process, startedAt }], rewinds: told.rewinds };
       }),
     );
-    const runs = logged.flat().filter((run) => !run.ended);
+    const runs = logged.flatMap((one) => one.runs).filter((run) => !run.ended);
     const agys = agyOnes(runs.map((run) => run.serverPid));
-    return runs.filter((run) => agys.has(run.serverPid));
+    return { runs: runs.filter((run) => agys.has(run.serverPid)), rewinds: logged.flatMap((one) => one.rewinds) };
   };
 
-  /** @returns {Promise<AgyRun[]>} */
-  const open = () => {
+  const found = () => {
     const now = Date.now();
     if (last === undefined || now - last.at >= freshMs) last = { at: now, found: look() };
     return last.found;
   };
+
+  /** @returns {Promise<AgyRun[]>} */
+  const open = async () => (await found()).runs;
 
   return {
     open,
@@ -133,7 +163,27 @@ export function createAgyProcesses({ home, agyOnes }) {
      * @returns {Promise<boolean>}
      */
     holds: async (id) => (await open()).some((run) => run.conversation === id || agyStartedSessions([run]).some((started) => started.id === id)),
+    /**
+     * The latest rewind of a conversation; none if agy never rewound it.
+     * @param {string} conversation
+     * @returns {Promise<AgyRewind | undefined>}
+     */
+    rewound: async (conversation) => {
+      const latest = (await found()).rewinds.filter((rewind) => rewind.conversation === conversation).sort((a, b) => a.at - b.at).at(-1);
+      return latest === undefined ? undefined : { step: latest.step, at: latest.at };
+    },
   };
+}
+
+/**
+ * What a run's log tells.
+ * @param {string} log — whole
+ * @param {string} stamp — the file's time and size when read
+ * @param {number} startedAt — when the run started, in ms
+ * @returns {ReadLog}
+ */
+function logOf(log, stamp, startedAt) {
+  return { stamp, process: agyProcessOf(log), rewinds: rewindsOf(log, startedAt) };
 }
 
 /** A pid the system told agy's — or not — is believed so this long while it lives; then the system is asked again. */

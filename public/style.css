@@ -4340,6 +4340,45 @@ table.diff tr.gap td {
   gap: 6px;
 }
 
+/* a picker's levels — agy's /model, the chosen model's effort — in a row right under the choice under the cursor, the
+   one set lit as that choice is */
+.dialog-levels {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  padding: 0 10px;
+}
+
+.dialog-levels-name {
+  margin-right: 4px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.dialog-level {
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.dialog-level.current {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border-strong));
+  background: var(--bg-hover);
+}
+
+.dialog-levels-about {
+  flex-basis: 100%;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
 .dialog-cancel {
   margin-left: auto;
   color: var(--text-3);

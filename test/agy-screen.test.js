@@ -72,3 +72,149 @@ test('agyDialog_Should_ReadWhatAgyAsks_ItsChoicesAnsweredWithArrows', () => {
     },
   ]);
 });
+
+// agy asks several questions one after another: each "Question n/m" under a head of its own, ← and → going back to the
+// one before and on to the next, as the keys' row tells — the first one has no way back, the last one none on — and
+// the questions' choices answered as a single question's are
+test('agyDialog_Should_ReadOneOfSeveralQuestions_GoneBetweenWithArrows', () => {
+  /** @param {string} keys */
+  const question = (keys) => screenOf(['? Who comes to the meeting?', '? What is it for?', '', 'Question', rule, '', 'Question 2/3: What is it for?', '', '> 1. (Recommended) Agree on a pilot', '  2. A demo only', '  3. Write-in...', '', `  ${keys}`, 'esc to cancel']);
+  const options = [
+    { key: '', label: '(Recommended) Agree on a pilot', detail: undefined, checked: undefined, current: true },
+    { key: '', label: 'A demo only', detail: undefined, checked: undefined, current: false },
+    { key: '', label: 'Write-in...', detail: undefined, checked: undefined, current: false },
+  ];
+
+  assert.deepEqual(
+    ['↑/↓ Navigate · → Next · enter Select · esc Skip', '↑/↓ Navigate · ← Back · → Next · enter Select · esc Skip', '↑/↓ Navigate · ← Back · enter Select · esc Skip'].map((keys) => agyDialog(question(keys))),
+    [
+      { lines: ['Question 2/3: What is it for?'], options, tabs: true, previews: true },
+      { lines: ['Question 2/3: What is it for?'], options, tabs: true, previews: true },
+      { lines: ['Question 2/3: What is it for?'], options, tabs: true, previews: true },
+    ],
+  );
+});
+
+// A question of several answers: each choice ticked or not — "[ ]", "[x]" — Space ticking the one under the cursor,
+// Enter doing what the keys' row names, sending them all; a choice too long for the screen goes on in the line under
+// it, from the line's start, and is one choice; one of the questions' own words has no box to tick
+test('agyDialog_Should_ReadQuestionOfSeveralAnswers_TickedWithSpace_LongChoicesWhole', () => {
+  const screen = screenOf([
+    '? Which repository?',
+    '? How are the pictures made?',
+    '',
+    'Question',
+    rule,
+    '',
+    'Question 2/2: How are the pictures made?',
+    '',
+    '> 1. [ ] (Recommended) Taken by a script on a demo collection with the interface in English, the export',
+    'formats too',
+    '  2. [x] Taken by hand',
+    '  3. Write-in...',
+    '',
+    '  ↑/↓ Navigate · ← Back · space Toggle · enter Submit All · esc Skip',
+    'esc to cancel',
+  ]);
+
+  assert.deepEqual(agyDialog(screen), {
+    lines: ['Question 2/2: How are the pictures made?'],
+    options: [
+      { key: '', label: '(Recommended) Taken by a script on a demo collection with the interface in English, the export formats too', detail: undefined, checked: false, current: true },
+      { key: '', label: 'Taken by hand', detail: undefined, checked: true, current: false },
+      { key: '', label: 'Write-in...', detail: undefined, checked: undefined, current: false },
+    ],
+    tabs: true,
+    previews: true,
+    toggles: { enter: 'Submit All' },
+  });
+});
+
+/** agy's /mcp, drawn under its prompt box — still on the screen, keys going to the panel — over its keys' row. */
+const mcpPanel = (/** @type {readonly string[]} */ lines, /** @type {string} */ keys) =>
+  screenOf([rule, '>', rule, 'MCP Servers', 'Plugins (~/.gemini/config/plugins)', ...lines, keys, `${' '.repeat(40)}Gemini 4 Argon · high`]);
+
+// /mcp shows agy's MCP servers under its box: each row a server's state and name, its tools after a gap, the chosen
+// one marked ">" — gone along with ↑/↓, Enter opening its actions; the actions in a row under it, the chosen one in
+// brackets — gone along with ←/→, Enter doing it, Esc back to the servers. While it shows, the box takes no keys
+test('agyMcp_Should_ReadServersAndTheirActions_AsWhatAgyAsks_TheBoxTakingNoKeysMeanwhile', () => {
+  const servers = [
+    '>  ✓ shop-db  Tools: list_orders, refund_order, +12 more',
+    '   ✓ browser  Tools: browser_open, browser_click, +30 more',
+    '   ⣯ notes  initializing...',
+  ];
+  const list = mcpPanel(servers, 'Keyboard: ↑/↓ Navigate  enter Actions  esc Exit');
+  const actions = mcpPanel([servers[0] ?? '', '    [Restart]   Disable', ...servers.slice(1)], 'Keyboard: ↑/↓ Navigate  ←/→ Action  enter Select  esc Cancel');
+
+  assert.deepEqual({ dialogs: [agyDialog(list), agyDialog(actions)], boxes: [agyInputBox(list), agyInputBox(actions)] }, {
+    dialogs: [
+      {
+        lines: ['MCP Servers', 'Plugins (~/.gemini/config/plugins)'],
+        options: [
+          { key: '', label: '✓ shop-db', detail: 'Tools: list_orders, refund_order, +12 more', checked: undefined, current: true },
+          { key: '', label: '✓ browser', detail: 'Tools: browser_open, browser_click, +30 more', checked: undefined, current: false },
+          { key: '', label: '⣯ notes', detail: 'initializing...', checked: undefined, current: false },
+        ],
+        tabs: false,
+        previews: true,
+      },
+      {
+        lines: ['MCP Servers', '✓ shop-db', 'Tools: list_orders, refund_order, +12 more'],
+        options: [
+          { key: '', label: 'Restart', detail: undefined, checked: undefined, current: true },
+          { key: '', label: 'Disable', detail: undefined, checked: undefined, current: false },
+        ],
+        tabs: false,
+        previews: true,
+        sideways: true,
+        goesBack: true,
+      },
+    ],
+    boxes: [undefined, undefined],
+  });
+});
+
+// agy's /rewind, opened by hand: the user's messages under its box — each cut short, how long ago under it — over
+// "(current)", the chosen one marked ">"; Enter rewinds at once, the conversation and the files changed since, and the
+// card says so above them. While it shows, the box takes no keys
+test('agyRewind_Should_ReadTheMessagesToRewindTo_AsWhatAgyAsks_SayingEnterRewindsAtOnce', () => {
+  const panel = screenOf([rule, '>', rule, 'Rewind Conversation', '', '  Add the price filter to the catalo...', '    (2h ago)', '', '  Run the tests', '    (1h ago)', '', '> (current)', 'Keyboard: ↑/↓ Navigate  enter Select  esc Cancel', `${' '.repeat(40)}Gemini 4 Argon · high`]);
+
+  assert.deepEqual({ dialog: agyDialog(panel), box: agyInputBox(panel) }, {
+    dialog: {
+      lines: ['Rewind Conversation', 'A message picked rewinds at once: the conversation, and the file edits made since.'],
+      options: [
+        { key: '', label: 'Add the price filter to the catalo...', detail: '(2h ago)', checked: undefined, current: false },
+        { key: '', label: 'Run the tests', detail: '(1h ago)', checked: undefined, current: false },
+        { key: '', label: '(current)', detail: undefined, checked: undefined, current: true },
+      ],
+      tabs: false,
+      previews: true,
+    },
+    box: undefined,
+  });
+});
+
+/** agy's /model under its box: the models, and under them the chosen one's effort gauge, if it has one. */
+const modelPanel = (/** @type {readonly string[]} */ rows, /** @type {readonly string[]} */ gauge, /** @type {string} */ keys) =>
+  screenOf([rule, '>', rule, 'Switch Model', '  Search:', `          ${'─'.repeat(20)}`, ...rows, ...gauge, keys, `${' '.repeat(40)}Gemini 4 Argon · high`]);
+
+// /model shows agy's models under its box, the chosen one marked ">", the one in use "(current)" — gone along with
+// ↑/↓ — and the chosen one's effort gauge, its levels named under it, the one set ◉ — gone along with ←/→; Enter picks
+// the model at that effort, Esc goes back. A model with one effort has no gauge. While it shows, the box takes no keys
+test('agyModel_Should_ReadTheModelsAndTheChosenOnesEffort_AsWhatAgyAsks_TheBoxTakingNoKeysMeanwhile', () => {
+  const rows = ['  Gemini 4 Carbon', '> Gemini 4 Argon        (current)', '  GPT-OSS 120B (Medium)'];
+  const withGauge = modelPanel(rows, ['  Effort  ◂      ●━━━━━━━━━━◉──────────○──────────○      ▸', '                low      medium      high       xhigh', '            Balanced speed and reasoning quality for most tasks'], 'Keyboard: ↑/↓ Navigate  ←/→ Effort  enter Select  esc Go Back');
+  const noGauge = modelPanel(['  Gemini 4 Carbon', '  Gemini 4 Argon        (current)', '> GPT-OSS 120B (Medium)'], [], 'Keyboard: ↑/↓ Navigate  enter Select  esc Go Back');
+  /** @param {number} at — the row the cursor is on */
+  const models = (at) =>
+    ['Gemini 4 Carbon', 'Gemini 4 Argon', 'GPT-OSS 120B (Medium)'].map((label, index) => ({ key: '', label, detail: index === 1 ? '(current)' : undefined, checked: undefined, current: index === at }));
+
+  assert.deepEqual({ dialogs: [agyDialog(withGauge), agyDialog(noGauge)], boxes: [agyInputBox(withGauge), agyInputBox(noGauge)] }, {
+    dialogs: [
+      { lines: ['Switch Model'], options: models(1), tabs: false, previews: true, goesBack: true, picker: { levels: ['low', 'medium', 'high', 'xhigh'], chosen: 1, about: 'Balanced speed and reasoning quality for most tasks' } },
+      { lines: ['Switch Model'], options: models(2), tabs: false, previews: true, goesBack: true, picker: { levels: [], chosen: undefined, about: undefined } },
+    ],
+    boxes: [undefined, undefined],
+  });
+});

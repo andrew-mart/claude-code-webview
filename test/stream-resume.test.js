@@ -109,7 +109,7 @@ const imageUrl = (lineStart, n) => `/api/image?at=${lineStart}&n=${n}`;
 
 /**
  * A page following the session: its copy of the feed as the stream's events keep it, from a copy it goes on from.
- * @param {{ transcripts: ReturnType<typeof createTranscriptCache>, locate: () => Promise<string>, rewoundAt: () => string | undefined, tail: number | undefined, version: string }} viewer
+ * @param {{ transcripts: ReturnType<typeof createTranscriptCache>, locate: () => Promise<string>, rewoundAt: () => Promise<string | undefined>, tail: number | undefined, version: string }} viewer
  * @param {import('../public/model/feed-copy.js').KeptFeed | undefined} from
  */
 function follow(viewer, from) {
@@ -189,7 +189,7 @@ test('streamTranscript_Should_KeepEveryCopyTheSameAsTheWholeFeed_ThroughRandomSe
     /** @type {string | undefined} */
     let point;
     const tail = random() < 0.3 ? undefined : 2 + Math.floor(random() * 8);
-    const viewer = { transcripts: createTranscriptCache({ maxFiles: 4 }), locate: async () => transcript.path(), rewoundAt: () => point, tail, version: 'v1' };
+    const viewer = { transcripts: createTranscriptCache({ maxFiles: 4 }), locate: async () => transcript.path(), rewoundAt: async () => point, tail, version: 'v1' };
     const staying = follow(viewer, undefined);
     /** @type {ReturnType<typeof follow> | undefined} */
     let leaving = follow(viewer, undefined);
@@ -229,7 +229,7 @@ test('streamTranscript_Should_SendNothingAgain_ButResetCopyOfAnotherBuildOrWithN
   const path = join(tempDir('ccw-resume-'), 'session.jsonl');
   const line = (/** @type {string} */ uuid, /** @type {string | null} */ parent) => `${JSON.stringify({ type: 'user', uuid, parentUuid: parent, timestamp: stamp(1), message: { role: 'user', content: `question ${uuid}` } })}\n`;
   await writeFile(path, line('u1', null) + line('u2', 'u1') + line('u3', 'u2'));
-  const viewer = { transcripts: createTranscriptCache({ maxFiles: 4 }), locate: async () => path, rewoundAt: () => undefined, tail: undefined, version: 'v1' };
+  const viewer = { transcripts: createTranscriptCache({ maxFiles: 4 }), locate: async () => path, rewoundAt: async () => undefined, tail: undefined, version: 'v1' };
   const whole = await wholeFeed(path, undefined);
   const first = follow(viewer, undefined);
   await caughtUp(first.copy, whole);
@@ -253,7 +253,7 @@ test('streamTranscript_Should_SendLatestTailFirst_When_CopyIsFurtherBehindThanTa
   const path = join(tempDir('ccw-resume-'), 'session.jsonl');
   const line = (/** @type {string} */ uuid, /** @type {string | null} */ parent) => `${JSON.stringify({ type: 'user', uuid, parentUuid: parent, timestamp: stamp(1), message: { role: 'user', content: `question ${uuid}` } })}\n`;
   await writeFile(path, line('u1', null) + line('u2', 'u1'));
-  const viewer = { transcripts: createTranscriptCache({ maxFiles: 4 }), locate: async () => path, rewoundAt: () => undefined, tail: 2, version: 'v1' };
+  const viewer = { transcripts: createTranscriptCache({ maxFiles: 4 }), locate: async () => path, rewoundAt: async () => undefined, tail: 2, version: 'v1' };
   const first = follow(viewer, undefined);
   await caughtUp(first.copy, await wholeFeed(path, undefined));
   await first.stop();

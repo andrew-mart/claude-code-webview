@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createAgyReading } from '../server/agy.js';
 import { createTaskTracker } from '../server/tasks.js';
 
 /**
@@ -94,4 +95,87 @@ test('tasks_Should_FollowSubagents_WhileTheyWork', () => {
     { id: 'toolu_docs', kind: 'agent', title: 'Read the docs', detail: undefined, startedAt: '2026-10-12T10:08:00.000Z', endedAt: undefined, state: 'running', note: undefined, taskId: 'adocs', output: 'C:\\Temp\\claude\\s1\\tasks\\adocs.output' },
     { id: 'toolu_plan', kind: 'agent', title: 'Plan the fix', detail: 'Plan', startedAt: '2026-10-12T10:09:00.000Z', endedAt: undefined, state: 'running', note: undefined, taskId: undefined, output: undefined },
   ]);
+});
+
+/** When a step of agy's was written: at this second of a minute. @param {number} second */
+const agyAt = (second) => `2026-11-17T07:00:${String(second).padStart(2, '0')}Z`;
+/**
+ * A step of agy's transcript, done, written at its own second.
+ * @param {number} index
+ * @param {string} type
+ * @param {Record<string, unknown>} fields
+ */
+const agyStep = (index, type, fields) => ({ step_index: index, source: type === 'USER_INPUT' ? 'USER_EXPLICIT' : type === 'SYSTEM_MESSAGE' ? 'SYSTEM' : 'MODEL', type, status: 'DONE', created_at: agyAt(index), ...fields });
+/** What agy hands its model from background work: a message from its sender, in agy's wrapping. @param {string} sender @param {string} content */
+const agyMessage = (sender, content) => `The following is a <SYSTEM_MESSAGE> not actually sent by the user. It is provided by the system as important information to pay attention to.\n\n<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-17T07:00:00Z sender=${sender} priority=MESSAGE_PRIORITY_HIGH content=${content}\n</SYSTEM_MESSAGE>`;
+
+// agy's background work, as its transcript tells it, is followed as Claude Code's: a command agy sent to the background
+// — its log the output — runs until agy tells it finished, failed by its exit code, or was cancelled; a subagent agy
+// created, by its role and type, works until it sends its report back
+test('tasks_Should_FollowAgysBackgroundCommandsAndSubagents_AsItsTranscriptTellsThem', () => {
+  const reading = createAgyReading();
+  const tracker = createTaskTracker();
+  const log = (/** @type {string} */ task) => `file:///D:/shop/brain/c1/.system_generated/tasks/${task}.log`;
+  const launched = (/** @type {string} */ task, /** @type {string} */ command) => `Created At: 2026-11-17T12:00:02+05:00\nTool is running as a background task with task id: c1/${task}\nTask Description: ${command}\nTask logs are available at: ${log(task)}\nLog output:\n`;
+  const subagent = '5f0c2b7e-1111-4222-8333-944455556666';
+  /** @param {readonly unknown[]} steps */
+  const read = (steps) => {
+    for (const one of steps) for (const record of reading.translate(one)) tracker.note(record);
+    return tracker.list().map(({ title, detail, state, taskId, output, note, endedAt }) => ({ title, detail, state, taskId, output, note, endedAt }));
+  };
+
+  const started = read([
+    agyStep(0, 'USER_INPUT', { content: '<USER_REQUEST>Run the tests, and ask for a review of the cart</USER_REQUEST>' }),
+    agyStep(1, 'PLANNER_RESPONSE', {
+      tool_calls: [
+        { name: 'run_command', args: { CommandLine: 'npm test', toolSummary: 'Run the tests', WaitMsBeforeAsync: 5000 } },
+        { name: 'run_command', args: { CommandLine: 'npm run e2e', toolSummary: 'Run the browser tests', WaitMsBeforeAsync: 5000 } },
+        { name: 'invoke_subagent', args: { Prompt: 'Review the cart', Role: 'Cart reviewer', TypeName: 'research' } },
+      ],
+    }),
+    agyStep(2, 'GENERIC', { content: launched('task-3', 'npm test') }),
+    agyStep(3, 'GENERIC', { content: launched('task-4', 'npm run e2e') }),
+    agyStep(4, 'GENERIC', { content: `Created the following subagent:\n{\n  "conversationId": "${subagent}",\n  "workspaceUris": [\n    "file:///D:/shop"\n  ]\n}\nThe subagent will send you a message when it has completed its task or requires guidance.` }),
+  ]);
+  const ended = read([
+    agyStep(5, 'SYSTEM_MESSAGE', { content: agyMessage('c1/task-3', `Task id "c1/task-3" finished with result:\nCommand exited with code 1.\n\nCommand output:\n2 failing\n\nLog: ${log('task-3')}`) }),
+    agyStep(6, 'SYSTEM_MESSAGE', { content: agyMessage('c1/task-4', `Task id "c1/task-4" was canceled with result:\nTool execution was canceled\nLog: ${log('task-4')}`) }),
+    agyStep(7, 'SYSTEM_MESSAGE', { content: agyMessage(subagent, '# Cart review\n\nThe totals are right.') }),
+  ]);
+
+  assert.deepEqual(
+    { started: started.map(({ title, state, taskId, output }) => ({ title, state, taskId, output })), ended },
+    {
+      started: [
+        { title: 'Cart reviewer', state: 'running', taskId: subagent, output: undefined },
+        { title: 'Run the tests', state: 'running', taskId: 'c1/task-3', output: 'D:/shop/brain/c1/.system_generated/tasks/task-3.log' },
+        { title: 'Run the browser tests', state: 'running', taskId: 'c1/task-4', output: 'D:/shop/brain/c1/.system_generated/tasks/task-4.log' },
+      ],
+      ended: [
+        { title: 'Cart reviewer', detail: 'research', state: 'completed', taskId: subagent, output: undefined, note: 'Cart review', endedAt: agyAt(7) },
+        { title: 'Run the tests', detail: 'npm test', state: 'failed', taskId: 'c1/task-3', output: 'D:/shop/brain/c1/.system_generated/tasks/task-3.log', note: 'Command exited with code 1.', endedAt: agyAt(5) },
+        { title: 'Run the browser tests', detail: 'npm run e2e', state: 'killed', taskId: 'c1/task-4', output: 'D:/shop/brain/c1/.system_generated/tasks/task-4.log', note: 'Tool execution was canceled', endedAt: agyAt(6) },
+      ],
+    },
+  );
+});
+
+// A subagent's report too long for agy's transcript is written cut short, the end of its wrapping lost: it still sends
+// the subagent's report back
+test('tasks_Should_EndAgysSubagent_When_ItsReportIsCutShort', () => {
+  const reading = createAgyReading();
+  const tracker = createTaskTracker();
+  const subagent = '5f0c2b7e-1111-4222-8333-944455556666';
+  for (const one of [
+    agyStep(0, 'USER_INPUT', { content: '<USER_REQUEST>Ask for a review of the cart</USER_REQUEST>' }),
+    agyStep(1, 'PLANNER_RESPONSE', { tool_calls: [{ name: 'invoke_subagent', args: { Prompt: 'Review the cart', Role: 'Cart reviewer', TypeName: 'research' } }] }),
+    agyStep(2, 'GENERIC', { content: `Created the following subagent:\n{\n  "conversationId": "${subagent}"\n}\nThe subagent will send you a message when it has completed its task or requires guidance.` }),
+    agyStep(3, 'SYSTEM_MESSAGE', { content: agyMessage(subagent, '# Cart review\n\nThe totals are right, and').replace(/\n<\/SYSTEM_MESSAGE>$/, '') }),
+  ])
+    for (const record of reading.translate(one)) tracker.note(record);
+
+  assert.deepEqual(
+    tracker.list().map(({ title, state, note }) => ({ title, state, note })),
+    [{ title: 'Cart reviewer', state: 'completed', note: 'Cart review' }],
+  );
 });

@@ -856,7 +856,7 @@ function createPage() {
       agentId: undefined,
       bookmarks,
       // Antigravity CLI is rewound in its terminal alone
-      onRewind: agent === 'agy' ? undefined : (prompt) => rewindDialog.open(id, prompt, agent),
+      onRewind: (prompt) => rewindDialog.open(id, prompt, agent),
       sendQueueNow: () => queue.send(),
       startAt: places.get(id),
       openFeed: feedHub.open,

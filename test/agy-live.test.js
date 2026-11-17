@@ -66,6 +66,25 @@ test('agyProcesses_Should_TellRunsAliveFromTheirLogs_AndConversationsTheyHoldOpe
   );
 });
 
+// agy rewound a conversation: a run's log tells to which step and when — the month and the day, in the computer's time,
+// of the year the run started in, or the next one's once the year turned in it; the latest rewind counts, of all runs'
+// logs, an ended run's too — its conversation stays rewound; a conversation never rewound, none
+test('agyProcesses_Should_TellLatestRewindOfConversation_FromAllRunsLogs', async () => {
+  const home = tempDir('ccw-agy-');
+  await mkdir(join(home, 'log'));
+  const turned = '0569c158-6d1a-409e-9a15-6e92eaf4c4a1';
+  const reverted = (/** @type {string} */ when, /** @type {string} */ conversation, /** @type {number} */ step) => `I${when}   91971 server.go:2615] Reverted conversation ${conversation} to step ${step}, reverted URIs: `;
+  await writeFile(join(home, 'log', 'cli-20261112_153117.log'), [...started, reverted('1113 10:26:48.690351', first, 129), `I1115 17:15:18.530242  554340 conversation_manager.go:1873] Rewinding conversation ${first} to step 1218`, reverted('1115 17:15:18.856154', first, 1218)].join('\n'));
+  await writeFile(join(home, 'log', 'cli-20261114_210838.log'), [...started, reverted('1114 21:10:00.000000', first, 900), reverted('1114 21:12:00.250000', other, 4), 'I1114 22:00:00.000000    5424 server.go:4046] Language server shutting down'].join('\n'));
+  await writeFile(join(home, 'log', 'cli-20261231_235000.log'), [...started, reverted('0101 00:01:00.000000', turned, 7)].join('\n'));
+  const processes = createAgyProcesses({ home, agyOnes: () => new Set() });
+
+  assert.deepEqual(
+    [await processes.rewound(first), await processes.rewound(other), await processes.rewound(turned), await processes.rewound('c4f1b7e2-0d3a-4e8b-9f61-2a7c5d9e0b13')],
+    [{ step: 1218, at: new Date(2026, 10, 15, 17, 15, 18, 856).getTime() }, { step: 4, at: new Date(2026, 10, 14, 21, 12, 0, 250).getTime() }, { step: 7, at: new Date(2027, 0, 1, 0, 1, 0).getTime() }, undefined],
+  );
+});
+
 // A run before its first message goes by an id of its own, a session's id in shape, made from the run — the same for
 // it each time, another for another run — marked apart from those of agy's conversations
 test('agyStartedId_Should_NameRunBeforeItsFirstMessage_TheSameEachTime', () => {

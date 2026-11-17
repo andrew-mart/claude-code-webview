@@ -6,12 +6,18 @@
  * @typedef {{ key: string, label: string, detail: string | undefined, checked: boolean | undefined, current: boolean }} DialogOption
  *   key: the digit that picks it; detail: the line under it; checked: in a question with several answers, whether it
  *   is ticked; current: the terminal's cursor is on it
- * @typedef {{ lines: readonly string[], options: readonly DialogOption[], tabs: boolean, previews: boolean, sessionOnly?: true, goesBack?: true }} Dialog — lines:
+ * @typedef {{ levels: readonly string[], chosen: number | undefined, about: string | undefined }} DialogPicker — a
+ *   picker's levels for the choice under the cursor, gone along with ← and →, the one set and what it does; none for a
+ *   choice with one level
+ * @typedef {{ lines: readonly string[], options: readonly DialogOption[], tabs: boolean, previews: boolean, sessionOnly?: true, goesBack?: true, sideways?: true, picker?: DialogPicker, toggles?: { enter: string } }} Dialog — toggles: its answers are ticked with
+ *   Space, Enter doing what it names — agy's question of several answers, "Submit All"; sideways: its answers stand in a row, gone along with ← and → — agy's /mcp's actions; picker: the
+ *   choice under the cursor has levels, gone along with ← and →, to be picked at one — agy's /model, its models and
+ *   their effort; lines:
  *   what the dialog says above its options: the tabs of its questions, the question, a review of the answers; tabs: it
  *   has several questions, ← and → go between them; previews: its answers are drawn beside previews — or it is Codex's —
  *   where a digit picks nothing: the arrows go to an answer and Enter picks it; goesBack: Esc goes back to the screen
  *   before — /mcp's, under its first — not out of the dialog; such a screen may have nothing to choose, only to read
- * @typedef {'1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | 'left' | 'right' | 'up' | 'down' | 'enter' | 'esc' | 's'} DialogKey — the keys a
+ * @typedef {'1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | 'left' | 'right' | 'up' | 'down' | 'enter' | 'esc' | 's' | 'space'} DialogKey — the keys a
  *   dialog is answered with: a choice's digit, the next or the previous question, the answer above or below, Enter, Esc
  *   to cancel it
  * @typedef {{ key: DialogKey } | { text: string }} DialogStep — a key, or words typed for "Type something"
@@ -35,12 +41,36 @@ export function parseDialog(json) {
   });
   const goesBack = json.goesBack === true;
   return lines.length === json.lines.length && options.length === json.options.length && (options.length > 0 || goesBack)
-    ? { lines, options, tabs: json.tabs, previews: json.previews, ...(json.sessionOnly === true ? { sessionOnly: /** @type {const} */ (true) } : {}), ...(goesBack ? { goesBack: /** @type {const} */ (true) } : {}) }
+    ? { lines, options, tabs: json.tabs, previews: json.previews, ...(json.sessionOnly === true ? { sessionOnly: /** @type {const} */ (true) } : {}), ...(goesBack ? { goesBack: /** @type {const} */ (true) } : {}), ...(json.sideways === true ? { sideways: /** @type {const} */ (true) } : {}), ...pickerOf(json.picker), ...togglesOf(json.toggles) }
     : undefined;
 }
 
+/**
+ * A picker's levels, as /api/live tells them; nothing for any other shape — the dialog is then no picker.
+ * @param {unknown} json
+ * @returns {{ picker?: DialogPicker }}
+ */
+function pickerOf(json) {
+  if (!isRecord(json) || !Array.isArray(json.levels)) return {};
+  const levels = json.levels.flatMap((level) => (typeof level === 'string' ? [level] : []));
+  const chosen = json.chosen;
+  const about = json.about === undefined ? undefined : text(json.about);
+  if (levels.length !== json.levels.length || (json.about !== undefined && about === undefined) || (chosen !== undefined && (typeof chosen !== 'number' || !Number.isInteger(chosen) || chosen < 0 || chosen >= levels.length))) return {};
+  return { picker: { levels, chosen, about } };
+}
+
+/**
+ * What Enter does in a dialog whose answers are ticked with Space, as /api/live tells it; nothing for any other shape.
+ * @param {unknown} json
+ * @returns {{ toggles?: { enter: string } }}
+ */
+function togglesOf(json) {
+  const enter = isRecord(json) ? text(json.enter) : undefined;
+  return enter === undefined ? {} : { toggles: { enter } };
+}
+
 /** @type {ReadonlySet<string>} */
-const dialogKeys = new Set(['1', '2', '3', '4', '5', '6', '7', '8', '9', 'left', 'right', 'up', 'down', 'enter', 'esc', 's']);
+const dialogKeys = new Set(['1', '2', '3', '4', '5', '6', '7', '8', '9', 'left', 'right', 'up', 'down', 'enter', 'esc', 's', 'space']);
 /**
  * An answer takes a few keys — a digit, the words, Enter — or, in a list with no digits (/mcp's), the arrows down to a
  * row one by one: as many as the terminal shows rows.

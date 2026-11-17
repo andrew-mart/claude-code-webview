@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agyRecordAt, createAgyReading } from '../server/agy.js';
+import { agyRecordAt, agyRewoundFrom, createAgyReading } from '../server/agy.js';
+import { linkOf } from '../server/branch.js';
 
 const at = (/** @type {number} */ second) => `2026-11-10T06:35:${String(second).padStart(2, '0')}Z`;
 /**
@@ -178,6 +179,29 @@ test('agyReading_Should_TellARewoundStepAsABranchFromTheStepBeforeIt', () => {
       ['agy-3-r1', 'agy-2-r1'],
       ['agy-3-r1-end', 'agy-3-r1'],
     ],
+  );
+});
+
+// agy rewound to a step — as its run's log tells, when — took back the steps after it in the branch it was on then,
+// writing nothing of it until the next message: they are gone from the conversation from their first record on; a
+// message sent since — even in the same second, the transcript telling seconds alone — goes on from the step and is
+// not rewound; rewound again to the same step, the branch rewound is the one written in between; rewound to the
+// last step, nothing is
+test('agyRewoundFrom_Should_TellFirstRecordOfStepsTakenBack_InBranchOfThen', () => {
+  const records = read([
+    step(0, 'USER_INPUT', { content: '<USER_REQUEST>Write the notes</USER_REQUEST>' }),
+    step(1, 'PLANNER_RESPONSE', { content: 'Which notes?' }),
+    step(2, 'USER_INPUT', { content: '<USER_REQUEST>The shop ones</USER_REQUEST>' }),
+    step(3, 'PLANNER_RESPONSE', { content: 'Done.' }),
+    { ...step(2, 'USER_INPUT', { content: '<USER_REQUEST>The shop ones, in Russian</USER_REQUEST>' }), created_at: at(10) },
+    { ...step(3, 'PLANNER_RESPONSE', { content: 'Готово.' }), created_at: at(11) },
+  ]);
+  const links = records.map(linkOf);
+  const when = (/** @type {number} */ second) => Date.parse(at(second)) + 400;
+
+  assert.deepEqual(
+    [agyRewoundFrom(links, { step: 1, at: when(5) }), agyRewoundFrom(links, { step: 1, at: when(9) }), agyRewoundFrom(links, { step: 1, at: when(10) }), agyRewoundFrom(links, { step: 1, at: when(12) }), agyRewoundFrom(links, { step: 3, at: when(5) })],
+    ['agy-2', 'agy-2', 'agy-2', 'agy-2-r1', undefined],
   );
 });
 

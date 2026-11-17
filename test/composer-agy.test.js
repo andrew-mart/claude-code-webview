@@ -12,11 +12,12 @@ const permission = [...banner, rule, 'Run command?', '  npm test', '', '> Allow 
 /**
  * A fake herdr whose pane shows agy's screen: its box empty until text is typed, then with the text, until Enter takes
  * it — or a permission dialog in its place. Records the calls that change something.
- * @param {{ asking?: true, takes?: number, scrolled?: true }} [options] - asking: agy asks to run a command; takes: the
+ * @param {{ asking?: true, takes?: number, scrolled?: true, panel?: readonly string[] }} [options] - asking: agy asks to
+ *   run a command; panel: the lines of a panel of agy's under its box — /mcp — the keys going to it; takes: the
  *   characters typed that agy's box takes between two looks at the screen — all at once if not told; scrolled: the pane
  *   scrolled up in herdr, what is in view its earlier lines, its box under them — the screen's last lines are as ever
  */
-function fakeHerdr({ asking, takes = Number.POSITIVE_INFINITY, scrolled } = {}) {
+function fakeHerdr({ asking, takes = Number.POSITIVE_INFINITY, scrolled, panel } = {}) {
   let box = '';
   // typed, not in the box yet
   let coming = '';
@@ -31,7 +32,7 @@ function fakeHerdr({ asking, takes = Number.POSITIVE_INFINITY, scrolled } = {}) 
       box += coming.slice(0, takes);
       coming = coming.slice(takes);
       const inView = scrolled === true && args.includes('visible');
-      return { ok: true, json: undefined, text: asking === true ? permission : inView ? banner.join('\n') : agyScreen(box) };
+      return { ok: true, json: undefined, text: asking === true ? permission : inView ? banner.join('\n') : panel !== undefined ? [agyScreen(box), ...panel].join('\n') : agyScreen(box) };
     }
     if ((command === 'send-text' || command === 'paste-text') && argument !== undefined) coming += argument;
     if (command === 'send-keys' && keys.includes('enter')) box = '';
@@ -125,8 +126,38 @@ test('send_Should_TypePromptIntoAgy_ThoughItsPaneIsScrolledUp', async () => {
   assert.deepEqual({ outcome, typed: scrolled.changes }, { outcome: { ok: true, pane: 'w2:p1' }, typed: ['paste-text w2:p1 Add the price filter', 'send-keys w2:p1 enter'] });
 });
 
+// agy rewound — its conversation and the files changed since — through its /rewind, typed into its box; not while it
+// works: the keys would go into its turn
+test('rewind_Should_TypeRewindIntoIdleAgy_AndNothingWhileItWorks', async () => {
+  const idle = fakeHerdr();
+  const busy = fakeHerdr();
+  const request = { stepsUp: 1, prompt: 'Add the price filter', action: /** @type {const} */ ('both') };
+
+  const outcomes = [await composerOf({ found: 'pane', pane: 'w2:p1', working: true }, busy).rewind(conversation, request), await composerOf({ found: 'pane', pane: 'w2:p1', working: false }, idle).rewind(conversation, request)];
+
+  // this agy shows no /rewind panel: the rewind gives up, nothing chosen in it
+  assert.deepEqual({ outcomes, busy: busy.changes, idle: idle.changes }, { outcomes: [{ ok: false, error: 'busy' }, { ok: false, error: 'menu-not-shown' }], busy: [], idle: ['send-text w2:p1 /rewind', 'send-keys w2:p1 enter'] });
+});
+
+// agy's /mcp open under its box takes the keys, the box still on the screen: the page is told what it shows — its
+// servers — and answers it with keys; a prompt is not typed into it
+test('liveState_answer_And_send_Should_ShowAgysMcpServers_AnswerThemWithKeys_AndTypeNoPromptIntoThem', async () => {
+  const herdr = fakeHerdr({ panel: ['MCP Servers', '>  ✓ shop-db  Tools: list_orders, +12 more', '   ✓ browser  Tools: browser_open, +30 more', 'Keyboard: ↑/↓ Navigate  enter Actions  esc Exit'] });
+  const composer = composerOf({ found: 'pane', pane: 'w2:p1', working: false }, herdr);
+
+  const live = await composer.liveState(conversation);
+  const answered = await composer.answer(conversation, [{ key: 'down' }, { key: 'enter' }]);
+  const sent = await composer.send(conversation, 'Add the price filter');
+
+  assert.deepEqual(
+    { servers: live.state === 'live' ? live.dialog?.options.map((option) => option.label) : undefined, answered, sent, typed: herdr.changes },
+    { servers: ['✓ shop-db', '✓ browser'], answered: { ok: true }, sent: { ok: false, error: 'asking' }, typed: ['send-keys w2:p1 down', 'send-keys w2:p1 enter'] },
+  );
+});
+
 // While agy asks something — a permission, a question — a prompt is not typed: its keys would answer it. agy has no
-// side question nor rewind the viewer drives: nothing is typed for them either
+// side question the viewer drives, and rewinds its conversation only with the files changed since: nothing is typed for
+// a side question, nor for the conversation rewound alone
 test('send_btw_And_rewind_Should_TypeNothingIntoAgy_WhileItAsks_OrForWhatAgyHasNot', async () => {
   const asking = fakeHerdr({ asking: true });
   const idle = fakeHerdr();

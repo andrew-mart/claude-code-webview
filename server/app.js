@@ -22,7 +22,7 @@ import { iconValue, parseIcon } from '../public/model/icon-choice.js';
 import { isRecord, text } from '../public/model/narrow.js';
 import { latestPrompt, standingRewind, takenBackPrompt, unansweredPrompt } from './branch.js';
 import { branchChanges, branchFileDiff } from './branch-changes.js';
-import { agyRecordAt, createAgyReading } from './agy.js';
+import { agyRecordAt, agyRewoundFrom, createAgyReading } from './agy.js';
 import { createCodexReading } from './codex.js';
 import { readCodexUsage } from './codex-usage.js';
 import { openJoined } from './joined.js';
@@ -131,6 +131,8 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  * @typedef {{ name: string, version: string }} About
  * @typedef {() => Promise<import('../public/model/usage.js').Usage | undefined>} ReadUsage — none until Claude Code has read it
  * @typedef {(sessionId: string) => Promise<import('../public/model/session-status.js').SessionStatus | undefined>} ReadSessionStatus
+ * @typedef {(conversation: string) => Promise<import('./agy-live.js').AgyRewind | undefined>} AgyRewound — agy's latest rewind of a
+ *   conversation, as its runs' logs tell; none if it never rewound it
  * @typedef {(sessionId: string) => Promise<boolean>} IsRunning
  * @typedef {(path: string, line: number) => Promise<import('./editor.js').EditorOutcome>} OpenEditor
  * @typedef {(session: { agent: import('./sessions.js').Agent, cwd: string | undefined }) => Promise<readonly import('./commands.js').SlashCommand[]>} SessionCommands —
@@ -145,18 +147,18 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
  */
 
 /**
- * @param {{ index: SessionIndex, host: string, port: number, pollMs: number, changesEveryMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, desks: import('./desks.js').Desks, pins: import('./pins.js').Pins, seen: Seen, kept: Kept, diagnostics: Diagnostics, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, system: SystemUsage, processes: Processes, chatgptUsage?: ReadUsage, agyUsage?: ReadUsage, sessionStatus?: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode?: import('./vscode.js').VsCode | undefined, codexInUse: () => Promise<boolean> }} options
+ * @param {{ index: SessionIndex, host: string, port: number, pollMs: number, changesEveryMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, desks: import('./desks.js').Desks, pins: import('./pins.js').Pins, seen: Seen, kept: Kept, diagnostics: Diagnostics, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, system: SystemUsage, processes: Processes, chatgptUsage?: ReadUsage, agyUsage?: ReadUsage, agyRewound?: AgyRewound, sessionStatus?: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode?: import('./vscode.js').VsCode | undefined, codexInUse: () => Promise<boolean> }} options
  *   about — package name and version for /api/health; palette — the page's colours (public/model/palettes.js);
  *   publicAddresses — where else the page is opened at, answered as the local address is; herdrView — what herdr
  *   shows (herdr-view.js); terminals — herdr panes' terminals (terminal.js); usage — the account's usage (usage.js);
- *   agyUsage — Antigravity CLI's, as its status line dropped it (usage.js); system — how busy the viewer's computer is (system-usage.js);
+ *   agyUsage — Antigravity CLI's, as its status line dropped it (usage.js); agyRewound — agy's rewinds (agy-live.js); system — how busy the viewer's computer is (system-usage.js);
  *   isRunning — whether Claude Code has a session open, Codex a thread, agy a conversation — Claude Code's file
  *   written only with its first message; editor — opens a file at a line in the editor of this computer, if the viewer was given one; seen — the
  *   answers seen, for every device (seen.js); codexInUse — whether Codex has a
  *   thread open (codex-live.js)
  * @returns {Promise<{ port: number, close: () => void }>}
  */
-export async function startServer({ index, host, port, pollMs, changesEveryMs, composer, bookmarks, later, desks, pins, seen, kept, diagnostics, uploads, about, palette, publicAddresses, herdrView, terminals, usage, system, processes, chatgptUsage = async () => undefined, agyUsage = async () => undefined, sessionStatus = async () => undefined, isRunning, editor, fileManager, commands, vscode, codexInUse }) {
+export async function startServer({ index, host, port, pollMs, changesEveryMs, composer, bookmarks, later, desks, pins, seen, kept, diagnostics, uploads, about, palette, publicAddresses, herdrView, terminals, usage, system, processes, chatgptUsage = async () => undefined, agyUsage = async () => undefined, agyRewound = async () => undefined, sessionStatus = async () => undefined, isRunning, editor, fileManager, commands, vscode, codexInUse }) {
   const instance = randomUUID();
   const build = await pageBuild();
   const pageModules = await modulesAtStart();
@@ -203,7 +205,7 @@ export async function startServer({ index, host, port, pollMs, changesEveryMs, c
   /** The prompts sent under an id, so that one sent again — its reply lost on the way — is typed once. */
   const sentPrompts = createSentPrompts(sentPromptsKept);
   /** @type {Deps} */
-  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, later, desks, pins, seen, kept, diagnostics, codexInUse, uploads, about, build, pageModules, feedEntries, rewinds, transcripts, feeds, palette, herdrView, terminals, usage, system, processes, chatgptUsage, agyUsage, sessionStatus, isRunning, editor, fileManager, commands, vscode, instance, fileIcons, sentPrompts };
+  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, later, desks, pins, seen, kept, diagnostics, codexInUse, uploads, about, build, pageModules, feedEntries, rewinds, transcripts, feeds, palette, herdrView, terminals, usage, system, processes, chatgptUsage, agyUsage, agyRewound, sessionStatus, isRunning, editor, fileManager, commands, vscode, instance, fileIcons, sentPrompts };
   const server = http.createServer((request, response) => {
     handle(deps, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
@@ -239,7 +241,7 @@ export async function startServer({ index, host, port, pollMs, changesEveryMs, c
 
 /**
  * @typedef {ReturnType<typeof createSessionIndex>} SessionIndex — Claude Code's sessions and Codex's (sessions.js)
- * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, desks: import('./desks.js').Desks, pins: import('./pins.js').Pins, uploads: Uploads, about: About, build: string, pageModules: readonly string[], feedEntries: string, rewinds: Map<string, import('./branch.js').RewindMark>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, system: SystemUsage, processes: Processes, chatgptUsage: ReadUsage, agyUsage: ReadUsage, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, kept: Kept, diagnostics: Diagnostics, codexInUse: () => Promise<boolean>, sentPrompts: import('./sent-prompts.js').SentPrompts }} Deps
+ * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, desks: import('./desks.js').Desks, pins: import('./pins.js').Pins, uploads: Uploads, about: About, build: string, pageModules: readonly string[], feedEntries: string, rewinds: Map<string, import('./branch.js').RewindMark>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, system: SystemUsage, processes: Processes, chatgptUsage: ReadUsage, agyUsage: ReadUsage, agyRewound: AgyRewound, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, kept: Kept, diagnostics: Diagnostics, codexInUse: () => Promise<boolean>, sentPrompts: import('./sent-prompts.js').SentPrompts }} Deps
  *   instance: this run of the viewer, told apart from any other — see /api/machine; vscode: VS Code's web server
  *   behind /vscode/, none when the viewer runs none
  * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'forkedFrom' | 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'focusTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hideWorkspace' | 'showWorkspace' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'continueTab' | 'createWorkspace' | 'history' | 'reopen' | 'restart' | 'exit'>} HerdrView
@@ -1066,12 +1068,14 @@ async function rewind(deps, sessionId, body, response) {
   // A message sent while Claude was working joined that turn: the menu does not list it.
   if (target === undefined) return sendJson(response, { ok: false, error: 'not-listed' }, 404);
   const reply = await deps.composer.rewind(sessionId, { ...target, action });
-  // Claude Code's transcript keeps the branch rewound from, hidden here until the next prompt; Codex goes on in a file of
-  // its own, which is read in its place — and numbers what follows from where it was rewound
+  // Claude Code's transcript keeps the branch rewound from, hidden here until the next prompt — agy's too, writing
+  // nothing of the rewind till then; Codex goes on in a file of its own, which is read in its place — and numbers what
+  // follows from where it was rewound
   const path = await deps.index.find(sessionId);
-  const claude = path !== undefined && deps.index.agentOf(path) === 'claude';
+  const agent = path === undefined ? undefined : deps.index.agentOf(path);
+  const keepsBranch = agent === 'claude' || agent === 'agy';
   const lastPrompt = latestPrompt(records);
-  if (reply.ok && claude && (action === 'both' || action === 'conversation') && lastPrompt !== undefined) deps.rewinds.set(sessionId, { prompt: body.prompt, lastPrompt });
+  if (reply.ok && keepsBranch && (action === 'both' || action === 'conversation') && lastPrompt !== undefined) deps.rewinds.set(sessionId, { prompt: body.prompt, lastPrompt });
   return sendJson(response, reply.ok ? { ok: true, ...(reply.restoredPrompt ? { prompt: target.prompt } : {}) } : reply);
 }
 
@@ -1385,7 +1389,7 @@ function feedOf(deps, { id, agentId, tail, from }) {
     running: agentId === null ? () => deps.isRunning(id) : async () => false,
     sessionStatus: agentId === null ? () => deps.sessionStatus(id) : async () => undefined,
     scope: agentId === null ? /** @type {const} */ ('main') : /** @type {const} */ ('subagent'),
-    rewoundAt: (/** @type {readonly import('./branch.js').Link[]} */ links) => (agentId === null ? standingRewind(links, deps.rewinds.get(id)) : undefined),
+    rewoundAt: async (/** @type {readonly import('./branch.js').Link[]} */ links) => (agentId === null ? rewoundPrompt(deps, id, links) : undefined),
     imageUrl: (/** @type {number} */ lineStart, /** @type {number} */ n) => imageLink(id, agentId, lineStart, n),
     pollMs: deps.pollMs,
     transcripts: deps.transcripts,
@@ -1588,7 +1592,23 @@ async function sendSnapshot(deps, url, id, response) {
     return;
   }
   const read = await deps.transcripts.read(path, { scope: 'main', imageUrl: (lineStart, n) => imageLink(id, null, lineStart, n) });
-  return sendJson(response, openingPart(read.entries, standingRewind(read.entries.map(({ link }) => link), deps.rewinds.get(id)), tailOf(url)));
+  return sendJson(response, openingPart(read.entries, await rewoundPrompt(deps, id, read.entries.map(({ link }) => link)), tailOf(url)));
+}
+
+/**
+ * Where a session's feed hides a rewound branch from at once, before its transcript shows the fork: the prompt the page
+ * took back, while that stands; else, for agy's conversation, the first record of the steps agy took back, as its run's
+ * log tells — rewound in its terminal, or from the page.
+ * @param {Deps} deps
+ * @param {string} id
+ * @param {readonly import('./branch.js').Link[]} links — the transcript's, in file order
+ * @returns {Promise<string | undefined>}
+ */
+async function rewoundPrompt(deps, id, links) {
+  const taken = standingRewind(links, deps.rewinds.get(id));
+  if (taken !== undefined) return taken;
+  const rewind = await deps.agyRewound(id);
+  return rewind === undefined ? undefined : agyRewoundFrom(links, rewind);
 }
 
 /**

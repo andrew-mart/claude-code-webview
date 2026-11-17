@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { choiceDialog } from '../server/dialog.js';
+import { agyDialog } from '../server/agy-screen.js';
 import { parseDialog, parseSteps } from '../public/model/dialog.js';
 
 const { window } = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
@@ -253,4 +254,66 @@ test('mcpTool_Should_ShowWhatItSays_AndGoBack_ByBackButton', async () => {
   await settled();
 
   assert.deepEqual({ said, answers }, { said: ['get_forecast [read-only]', 'weather', 'Description:', 'The forecast for a city.'], answers: [[{ key: 'esc' }]] });
+});
+
+// agy's /mcp: a server's actions in a row, the chosen one in brackets — a click on another goes to it with ← and →,
+// as the terminal goes along that row, and does it with Enter; Esc goes back to the servers, and the card's button
+// says so
+test('agyMcpActions_Should_PickAnActionWithSidewaysArrowsAndEnter_AndGoBackToTheServers', async () => {
+  const { card, answers, press } = cardAboveBox();
+  const panel = ['─'.repeat(60), '>', '─'.repeat(60), 'MCP Servers', '>  ✓ shop-db  Tools: list_orders, +12 more', '    [Restart]   Disable', 'Keyboard: ↑/↓ Navigate  ←/→ Action  enter Select  esc Cancel'].join('\n');
+  card.show(parseDialog(agyDialog(panel)));
+  press('Disable');
+  await settled();
+  press('Back (Esc)');
+  await settled();
+
+  assert.deepEqual(answers, [[{ key: 'right' }, { key: 'enter' }], [{ key: 'esc' }]]);
+});
+
+// agy's question of several answers: a click on one ticks it or takes its tick off — the arrows go to it, Space ticks
+// it — and the card's button does what Enter does there, sending the answers ticked; the viewer takes Space as a key
+test('agyQuestionOfSeveralAnswers_Should_TickAnswersWithSpace_AndSendThemWithEnter', async () => {
+  const { card, answers, press } = cardAboveBox();
+  const screen = ['Question', '─'.repeat(60), '', 'Question 2/2: How are the pictures made?', '', '> 1. [ ] By a script', '  2. [x] By hand', '  3. Write-in...', '', '  ↑/↓ Navigate · ← Back · space Toggle · enter Submit All · esc Skip', 'esc to cancel'].join('\n');
+  card.show(parseDialog(agyDialog(screen)));
+  const marks = [...card.element.querySelectorAll('.dialog-option-label')].map((label) => label.textContent);
+  for (const name of ['By hand', 'Submit All (Enter)']) {
+    press(name);
+    await settled();
+  }
+
+  assert.deepEqual({ marks, answers, taken: parseSteps(answers[0]) }, {
+    marks: ['☐ By a script', '☑ By hand', 'Write-in...'],
+    answers: [[{ key: 'down' }, { key: 'space' }], [{ key: 'enter' }]],
+    taken: [{ key: 'down' }, { key: 'space' }],
+  });
+});
+
+// agy's /model: a click on a model goes to it with the arrows — agy shows its effort then, at its default, not the one
+// in use — and picks nothing yet; the effort of the model under the cursor stands right under it, a click on a level
+// going to it with ← and → and picking the model at it with Enter; a click on the model under the cursor picks it at
+// the effort shown; Esc goes back
+test('agyModel_Should_GoToAModelClicked_PickingTheOneUnderTheCursor_AtAnEffortUnderIt', async () => {
+  const { card, answers, press } = cardAboveBox();
+  const panel = [
+    ...['─'.repeat(60), '>', '─'.repeat(60), 'Switch Model', '  Search:', `          ${'─'.repeat(20)}`],
+    ...['  Gemini 4 Carbon', '> Gemini 4 Argon        (current)', '  GPT-OSS 120B (Medium)'],
+    ...['  Effort  ◂      ●━━━━━━━━━━◉──────────○      ▸', '                low      medium      high', '            Balanced speed and reasoning quality for most tasks'],
+    'Keyboard: ↑/↓ Navigate  ←/→ Effort  enter Select  esc Go Back',
+  ].join('\n');
+  card.show(parseDialog(agyDialog(panel)));
+  const order = [...card.element.querySelectorAll('.dialog-option-label, .dialog-levels')].map((part) => (part.matches('.dialog-levels') ? 'levels' : part.textContent));
+  for (const name of ['GPT-OSS 120B (Medium)', 'high', 'Gemini 4 Argon', 'Back (Esc)']) {
+    press(name);
+    await settled();
+  }
+
+  assert.deepEqual(
+    { order, answers },
+    {
+      order: ['Gemini 4 Carbon', 'Gemini 4 Argon', 'levels', 'GPT-OSS 120B (Medium)'],
+      answers: [[{ key: 'down' }], [{ key: 'right' }, { key: 'enter' }], [{ key: 'enter' }], [{ key: 'esc' }]],
+    },
+  );
 });

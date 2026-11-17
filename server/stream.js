@@ -26,10 +26,11 @@ const batchSize = 1000;
 
 /**
  * Runs until the signal is aborted. The file is looked up again on every round: after /cd it moves.
- * @param {{ locate: () => Promise<string | undefined>, running: () => Promise<boolean>, scope: 'main' | 'subagent', imageUrl: ImageUrl, rewoundAt: (links: readonly import('./branch.js').Link[]) => string | undefined, send: Send, signal: AbortSignal, pollMs: number, transcripts: TranscriptCache, tail: number | undefined, version: string, from: string | undefined, sessionStatus?: (() => Promise<import('../public/model/session-status.js').SessionStatus | undefined>) | undefined }} options
- *   running — whether Claude Code has the session open; rewoundAt — the prompt this page rewound the session to, if it
- *   did, while the transcript — its entries' links, none before it is read — shows no prompt since (branch.js:
- *   standingRewind); tail — how many of the latest entries to send at first ("earlier" tells how many were left out); undefined —
+ * @param {{ locate: () => Promise<string | undefined>, running: () => Promise<boolean>, scope: 'main' | 'subagent', imageUrl: ImageUrl, rewoundAt: (links: readonly import('./branch.js').Link[]) => Promise<string | undefined>, send: Send, signal: AbortSignal, pollMs: number, transcripts: TranscriptCache, tail: number | undefined, version: string, from: string | undefined, sessionStatus?: (() => Promise<import('../public/model/session-status.js').SessionStatus | undefined>) | undefined }} options
+ *   running — whether Claude Code has the session open; rewoundAt — where a branch rewound before the transcript shows
+ *   it is hidden from, by its entries' links — none before it is read: the prompt this page rewound the session to,
+ *   while the transcript shows no prompt since (branch.js: standingRewind), or the steps agy took back (agy.js:
+ *   agyRewoundFrom); tail — how many of the latest entries to send at first ("earlier" tells how many were left out); undefined —
  *   all of them; version: of what entries are (feed-version.js) — a token of another is not gone on from; from — the
  *   token of the copy the page holds: what came since is sent alone, or — the token not to be gone on from, or more
  *   than the tail come since — "reset" and the feed from its start
@@ -53,7 +54,7 @@ export async function streamTranscript({ locate, running, scope, imageUrl, rewou
   /** Entries that already have a prompt sent from them: another prompt from there means the conversation was rewound. */
   /** @type {Set<string>} */
   let promptParents = new Set();
-  let point = rewoundAt([]);
+  let point = await rewoundAt([]);
   /** The file followed, kept read while the page follows it: reading other sessions does not push it out. */
   /** @type {{ path: string, letGo: () => void } | undefined} */
   let kept;
@@ -97,7 +98,7 @@ export async function streamTranscript({ locate, running, scope, imageUrl, rewou
             generation = read.generation;
           } else send('reset', null);
         }
-        const nextPoint = rewoundAt(read.entries.map(({ link }) => link));
+        const nextPoint = await rewoundAt(read.entries.map(({ link }) => link));
         // The file was rewritten, or the page rewound the session: the feed starts over.
         if ((generation !== undefined && read.generation !== generation) || (nextPoint !== point && sent > 0)) restart();
         generation = read.generation;

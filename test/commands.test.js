@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tempDir } from '../test-support/temp-dir.js';
-import { claudeCommands, codexCommands } from '../server/commands.js';
+import { agyCommands, claudeCommands, codexCommands } from '../server/commands.js';
 
 /** @param {string} file @param {string} text */
 async function put(file, text) {
@@ -95,4 +95,15 @@ test('codexCommands_Should_OfferBuiltInsAndUsersPrompts', async () => {
     { review: offered.find((command) => command.name === '/review')?.source, prompts: offered.filter((command) => command.source !== 'built-in') },
     { review: 'built-in', prompts: [{ name: '/prompts:fix', hint: '[test]', about: 'Fix the failing test', source: 'personal' }] },
   );
+});
+
+// agy's "/" offers what the viewer drives in agy — shown in the page as agy shows it, and answered from there: /mcp, its
+// MCP servers; /model, its models and their effort; /rewind, its messages to rewind to — named as agy's own menu names
+// them
+test('agyCommands_Should_OfferMcpModelAndRewind', () => {
+  assert.deepEqual(agyCommands(), [
+    { name: '/mcp', hint: '', about: 'Manage MCP servers', source: 'built-in' },
+    { name: '/model', hint: '', about: 'Set a model, or run a single prompt on another model', source: 'built-in' },
+    { name: '/rewind', hint: '', about: 'Rewind conversation to a previous message', source: 'built-in' },
+  ]);
 });

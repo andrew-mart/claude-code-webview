@@ -87,7 +87,8 @@ export function createTaskTracker() {
     shellCalls.delete(id);
     const taskId = text(facts.backgroundTaskId);
     if (taskId === undefined) return;
-    tasks.set(id, { id, kind: 'shell', ...shell, endedAt: undefined, state: 'running', note: undefined, taskId, output: outputFile.exec(resultText(block.content))?.[1] });
+    // its output's file, as Claude Code's result says it — or as one translated tells it (agy.js)
+    tasks.set(id, { id, kind: 'shell', ...shell, endedAt: undefined, state: 'running', note: undefined, taskId, output: text(facts.outputFile) ?? outputFile.exec(resultText(block.content))?.[1] });
   };
   /** @param {Notification} told @param {string} at */
   const noteEnd = (told, at) => {
@@ -131,6 +132,9 @@ function blocksOf(raw) {
  * @returns {Notification | undefined}
  */
 function notificationOf(raw) {
+  // a record translated from another agent's transcript tells it as it is (agy.js: BackgroundEnd)
+  const ended = isRecord(raw.backgroundEnded) ? raw.backgroundEnded : undefined;
+  if (ended !== undefined) return { taskId: text(ended.taskId), toolUseId: undefined, status: text(ended.status) ?? '', summary: text(ended.summary), output: text(ended.output) };
   const attachment = isRecord(raw.attachment) ? raw.attachment : undefined;
   const body =
     raw.type === 'user' && isRecord(raw.message)

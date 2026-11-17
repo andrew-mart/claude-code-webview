@@ -27,3 +27,19 @@ test('rewindDialog_Should_OfferCodexItsConversationAlone', () => {
     { codex: { offered: ['conversation'], note: 'Codex rewinds the conversation alone: files stay as they are.' }, claude: ['both', 'conversation', 'code', 'summarize-from', 'summarize-up-to'] },
   );
 });
+
+// agy rewinds its conversation and the files changed since together, with one choice: the dialog offers that alone, and
+// says so
+test('rewindDialog_Should_OfferAgyItsConversationWithItsFiles', () => {
+  const dialog = createRewindDialog({ onDone: () => undefined });
+  // the latest dialog made: an earlier test's stays in the document
+  const own = [...window.document.querySelectorAll('.rewind-dialog')].at(-1);
+  const offered = () => [...(own?.querySelectorAll('.rewind-choice') ?? [])].filter((button) => button instanceof window.HTMLElement && !button.hidden).map((button) => button.getAttribute('data-action'));
+
+  dialog.open('s3', prompt, 'agy');
+
+  assert.deepEqual(
+    { offered: offered(), note: own?.querySelector('.rewind-note')?.textContent },
+    { offered: ['both'], note: 'agy rewinds the conversation and undoes the file edits made since, together.' },
+  );
+});

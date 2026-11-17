@@ -80,9 +80,35 @@ export function createDialogCard({ asker, answer }) {
     made.classList.toggle('current', option.current);
     // the terminal's cursor on it: lit again once one's own words no longer take Enter
     made.dataset.current = String(option.current);
-    made.addEventListener('click', () => send(dialog.previews ? walkTo(dialog, option) : [{ key: digitOf(option.key) }]));
+    // an answer of several ticked with Space, as agy ticks them; in a picker one gone to, its levels shown under it — agy
+    // shows a choice's default there, not the one in use — the one under the cursor picked; any other picked
+    made.addEventListener('click', () => send(dialog.toggles !== undefined && option.checked !== undefined ? [...arrowsTo(dialog, option), { key: 'space' }] : dialog.picker !== undefined ? (option.current ? [{ key: 'enter' }] : arrowsTo(dialog, option)) : dialog.previews ? walkTo(dialog, option) : [{ key: digitOf(option.key) }]));
     return made;
   };
+
+  /**
+   * A picker's levels for the choice under the cursor — agy's /model, a model's effort — right under it: a click goes
+   * to one with ← and → and picks the choice at it with Enter.
+   * @param {import('../model/dialog.js').DialogPicker} picker
+   */
+  const levelRow = (picker) =>
+    h('div', { className: 'dialog-levels' }, [
+      h('span', { className: 'dialog-levels-name', text: 'Effort' }),
+      ...picker.levels.map((level, at) => {
+        const made = button(level, [...levelSteps(picker, at), { key: 'enter' }], 'dialog-level');
+        made.classList.toggle('current', at === picker.chosen);
+        return made;
+      }),
+      // what the level set does
+      ...(picker.about === undefined ? [] : [h('span', { className: 'dialog-levels-about', text: picker.about })]),
+    ]);
+
+  /**
+   * The levels a picker has for the choice under the cursor; none for no picker, or a choice with one level.
+   * @param {import('../model/dialog.js').DialogPicker | undefined} picker
+   * @returns {HTMLElement[]}
+   */
+  const levelsOf = (picker) => (picker === undefined || picker.levels.length === 0 ? [] : [levelRow(picker)]);
 
   /**
    * A line of one's own words: in a question with one answer the choice that opens it, the words, Enter, which answers;
@@ -132,10 +158,12 @@ export function createDialogCard({ asker, answer }) {
         h(
           'div',
           { className: 'dialog-options' },
-          dialog.options.map((option) => (ownWords.test(option.label) ? ownAnswer(option, dialog) : choice(option, dialog))),
+          dialog.options.flatMap((option) => [ownWords.test(option.label) ? ownAnswer(option, dialog) : choice(option, dialog), ...(option.current ? levelsOf(dialog.picker) : [])]),
         ),
         h('div', { className: 'dialog-nav' }, [
           ...(dialog.tabs ? [button('← Previous', [{ key: 'left' }], 'dialog-nav-button'), button('Next →', [{ key: 'right' }], 'dialog-nav-button')] : []),
+          // the answers ticked sent, as Enter does there
+          ...(dialog.toggles === undefined ? [] : [button(`${dialog.toggles.enter} (Enter)`, [{ key: 'enter' }], 'dialog-nav-button dialog-use')]),
           button(dialog.goesBack === true ? 'Back (Esc)' : 'Cancel (Esc)', [{ key: 'esc' }], 'dialog-nav-button dialog-cancel'),
         ]),
         status,
@@ -176,7 +204,20 @@ function walkTo(dialog, option) {
 }
 
 /**
- * The arrows from the answer under the cursor to the one wanted.
+ * The arrows along a picker's levels from the one set to the one wanted.
+ * @param {import('../model/dialog.js').DialogPicker} picker
+ * @param {number} at — the level wanted
+ * @returns {import('../model/dialog.js').DialogStep[]}
+ */
+function levelSteps(picker, at) {
+  const moves = at - (picker.chosen ?? 0);
+  /** @type {import('../model/dialog.js').DialogStep} */
+  const step = { key: moves > 0 ? 'right' : 'left' };
+  return Array.from({ length: Math.abs(moves) }, () => step);
+}
+
+/**
+ * The arrows from the answer under the cursor to the one wanted: down or up a list, right or left along a row.
  * @param {import('../model/dialog.js').Dialog} dialog
  * @param {import('../model/dialog.js').DialogOption} option
  * @returns {import('../model/dialog.js').DialogStep[]}
@@ -184,7 +225,8 @@ function walkTo(dialog, option) {
 function arrowsTo(dialog, option) {
   const from = Math.max(0, dialog.options.findIndex((known) => known.current));
   const moves = dialog.options.indexOf(option) - from;
+  const [ahead, back] = dialog.sideways === true ? /** @type {const} */ (['right', 'left']) : /** @type {const} */ (['down', 'up']);
   /** @type {import('../model/dialog.js').DialogStep} */
-  const step = { key: moves > 0 ? 'down' : 'up' };
+  const step = { key: moves > 0 ? ahead : back };
   return Array.from({ length: Math.abs(moves) }, () => step);
 }

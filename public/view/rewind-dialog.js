@@ -1,6 +1,7 @@
 // @ts-check
 // The rewind dialog: the same choices as Esc Esc in the terminal, for one of the user's messages — Claude Code's all of
-// them, Codex's its one: the conversation, its files staying as they are.
+// them, Codex's its one: the conversation, its files staying as they are; agy's its one: the conversation and the files
+// changed since, together.
 import { parseRewindReply, rewindMessage } from '../model/rewind.js';
 import { h } from './dom.js';
 
@@ -19,7 +20,9 @@ const actions = /** @type {const} */ ([
 ]);
 
 /** What the note under the choices says, by whose session it is. */
-const notes = /** @type {const} */ ({ claude: 'Edits made by shell commands are not restored.', codex: 'Codex rewinds the conversation alone: files stay as they are.' });
+const notes = /** @type {const} */ ({ claude: 'Edits made by shell commands are not restored.', codex: 'Codex rewinds the conversation alone: files stay as they are.', agy: 'agy rewinds the conversation and undoes the file edits made since, together.' });
+/** The one choice of each agent that has one, by whose session it is. */
+const onlyChoice = /** @type {const} */ ({ codex: 'conversation', agy: 'both' });
 
 /**
  * @param {{ onDone: (reply: RewindReply & { ok: true }) => void }} hooks — after a rewind went through
@@ -76,14 +79,14 @@ export function createRewindDialog({ onDone }) {
     /**
      * @param {string} sessionId
      * @param {Anchor} prompt
-     * @param {'claude' | 'codex'} agent — whose session: Codex rewinds its conversation alone; Antigravity CLI's is
-     *   rewound in its terminal, not from here
+     * @param {'claude' | 'codex' | 'agy'} agent — whose session: Codex rewinds its conversation alone; agy its
+     *   conversation with the files changed since
      */
     open(sessionId, prompt, agent) {
       target = { sessionId, prompt };
       quote.textContent = prompt.label;
       note.textContent = notes[agent];
-      for (const button of choices) button.hidden = agent === 'codex' && button.dataset.action !== 'conversation';
+      for (const button of choices) button.hidden = agent !== 'claude' && button.dataset.action !== onlyChoice[agent];
       status.textContent = '';
       setBusy(false);
       dialog.showModal();

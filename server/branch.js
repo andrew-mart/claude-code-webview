@@ -5,8 +5,9 @@
 import { isRecord } from '../public/model/narrow.js';
 
 /**
- * turn — a message the user sent (not a tool result): only such siblings mean a rewind.
- * @typedef {{ uuid: string | undefined, parent: string | undefined, turn: boolean }} Link
+ * turn — a message the user sent (not a tool result): only such siblings mean a rewind; time — when it was written, in
+ * ms: none for an entry that does not tell.
+ * @typedef {{ uuid: string | undefined, parent: string | undefined, turn: boolean, time: number | undefined }} Link
  * @typedef {{ prompt: string, lastPrompt: string }} RewindMark — the prompt the page took back — rewound the session
  *   to, or stopped before Claude started on it — and the latest prompt the transcript had then
  */
@@ -16,12 +17,13 @@ import { isRecord } from '../public/model/narrow.js';
  * @returns {Link}
  */
 export function linkOf(raw) {
-  if (!isRecord(raw)) return { uuid: undefined, parent: undefined, turn: false };
+  if (!isRecord(raw)) return { uuid: undefined, parent: undefined, turn: false, time: undefined };
   const uuid = typeof raw.uuid === 'string' ? raw.uuid : undefined;
   const parent = typeof raw.parentUuid === 'string' ? raw.parentUuid : undefined;
   const content = isRecord(raw.message) ? raw.message.content : undefined;
   const toolResults = Array.isArray(content) && content.some((block) => isRecord(block) && block.type === 'tool_result');
-  return { uuid, parent, turn: raw.type === 'user' && raw.isSidechain !== true && raw.isMeta !== true && !toolResults };
+  const time = typeof raw.timestamp === 'string' ? Date.parse(raw.timestamp) : Number.NaN;
+  return { uuid, parent, turn: raw.type === 'user' && raw.isSidechain !== true && raw.isMeta !== true && !toolResults, time: Number.isFinite(time) ? time : undefined };
 }
 
 /**

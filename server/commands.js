@@ -231,3 +231,17 @@ export async function codexCommands({ home }) {
 function nameOrder(a, b) {
   return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 }
+
+/**
+ * What agy's "/" offers here: the commands of agy's the viewer drives — /mcp, its MCP servers; /model, its models and
+ * their effort; /rewind, its messages to rewind to — shown in the page as agy shows them (agy-screen.js) and answered
+ * from there, named as agy's own menu names them.
+ * @returns {SlashCommand[]}
+ */
+export function agyCommands() {
+  return [
+    { name: '/mcp', hint: '', about: 'Manage MCP servers', source: 'built-in' },
+    { name: '/model', hint: '', about: 'Set a model, or run a single prompt on another model', source: 'built-in' },
+    { name: '/rewind', hint: '', about: 'Rewind conversation to a previous message', source: 'built-in' },
+  ];
+}

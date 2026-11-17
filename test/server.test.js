@@ -143,13 +143,14 @@ const webWorkspace = {
 
 /**
  * @param {import('node:test').TestContext} t
- * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[], sessionRunning?: boolean, editor?: 'set' | 'none', vscode?: import('../server/vscode.js').VsCode | undefined, codexRoot?: string | undefined, codexInUse?: boolean, chatgptUsage?: import('../public/model/usage.js').Usage | undefined, agyUsage?: import('../public/model/usage.js').Usage | undefined, agy?: string | undefined, sessionStatus?: import('../public/model/session-status.js').SessionStatus | undefined, statusRead?: Promise<unknown> }} [options] - takenBack: see
+ * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[], sessionRunning?: boolean, editor?: 'set' | 'none', vscode?: import('../server/vscode.js').VsCode | undefined, codexRoot?: string | undefined, codexInUse?: boolean, chatgptUsage?: import('../public/model/usage.js').Usage | undefined, agyUsage?: import('../public/model/usage.js').Usage | undefined, agy?: string | undefined, agyRewound?: { conversation: string, step: number, at: number } | undefined, sessionStatus?: import('../public/model/session-status.js').SessionStatus | undefined, statusRead?: Promise<unknown> }} [options] - takenBack: see
  *   fakeComposer; palette, publicAddresses: what the viewer is started with; sessionRunning: whether Claude Code has the
  *   session open; editor: whether the viewer opens files in an editor — the files it is asked to open are recorded;
  *   vscode: VS Code's web server behind /vscode/; codexRoot: Codex's sessions folder; codexInUse: whether Codex has a
- *   thread open; statusRead: the session's status is read once it settles — a slow read
+ *   thread open; agyRewound: agy's latest rewind of a conversation, as its run's log tells; statusRead: the session's
+ *   status is read once it settles — a slow read
  */
-async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true, editor = 'set', vscode = undefined, codexRoot = undefined, codexInUse = false, chatgptUsage = undefined, agyUsage = undefined, agy = undefined, sessionStatus = undefined, statusRead = Promise.resolve() } = {}) {
+async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true, editor = 'set', vscode = undefined, codexRoot = undefined, codexInUse = false, chatgptUsage = undefined, agyUsage = undefined, agy = undefined, agyRewound = undefined, sessionStatus = undefined, statusRead = Promise.resolve() } = {}) {
   const root = tempDir('csv-');
   // the folders the sessions started in, for their desks: the session and one beside it in x, another in y
   const work = tempDir('server-desks-');
@@ -275,7 +276,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // the file manager opens what is asked
   /** @type {import('../server/file-manager.js').FileManagerTarget[]} */
   const shownInFileManager = [];
-  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot, ...(agy === undefined ? {} : { agy: createAgyConversations(agy) }) }), host: '127.0.0.1', port: 0, pollMs: 30, changesEveryMs: 40, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), later: createLaterFile(join(root, 'later.json')), desks, pins: createPinsFile(join(root, 'pins.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), kept: createKeptFile(join(root, 'kept.json'), { limit: 100 }), diagnostics: createDiagnosticsLog(join(root, 'diagnostics.jsonl'), { maxBytes: 1_000_000 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, system: { read: async () => ({ cpu: 31, memory: { used: 24_000, total: 32_000 }, gpu: undefined }) }, processes: { read: async (by) => [{ pid: 4120, name: `node by ${by}`, cpu: 12, memory: 104_857_600, gpu: by === 'gpu' ? 3 : undefined }] }, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, agyUsage: async () => agyUsage, sessionStatus: async (id) => {
+  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot, ...(agy === undefined ? {} : { agy: createAgyConversations(agy) }) }), host: '127.0.0.1', port: 0, pollMs: 30, changesEveryMs: 40, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), later: createLaterFile(join(root, 'later.json')), desks, pins: createPinsFile(join(root, 'pins.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), kept: createKeptFile(join(root, 'kept.json'), { limit: 100 }), diagnostics: createDiagnosticsLog(join(root, 'diagnostics.jsonl'), { maxBytes: 1_000_000 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, system: { read: async () => ({ cpu: 31, memory: { used: 24_000, total: 32_000 }, gpu: undefined }) }, processes: { read: async (by) => [{ pid: 4120, name: `node by ${by}`, cpu: 12, memory: 104_857_600, gpu: by === 'gpu' ? 3 : undefined }] }, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, agyUsage: async () => agyUsage, agyRewound: async (conversation) => (agyRewound?.conversation === conversation ? { step: agyRewound.step, at: agyRewound.at } : undefined), sessionStatus: async (id) => {
       await statusRead;
       return id === sessionId ? sessionStatus : undefined;
     } });
@@ -1600,6 +1601,56 @@ test('interrupt_Should_HideStoppedPromptClaudeGaveBackFromFeedAtOnce', { timeout
   // the terminal takes the prompt out of the conversation, so does the page
   assert.equal((await next()).event, 'reset');
   assert.deepEqual(uuids(await next()), ['u1', 'a1']);
+});
+
+// agy rewound from the page: the message counted among those its /rewind lists, the conversation and the files changed
+// since rewound together — the message back for the page's box — and its branch out of the feed at once, as agy's
+// terminal shows it, before agy writes anything of it
+test('rewind_Should_RewindAgysConversationWithItsFiles_AndHideItsBranchAtOnce', async (t) => {
+  const id = '9342f993-b892-4839-845d-ce2d261b092e';
+  const home = await agyHome({ conversations: [{ id, request: 'Add the price filter', summary: { title: 'Price filter', folder: 'file:///D:/dev/shop' } }], typedIn: [id] });
+  const step = (/** @type {number} */ index, /** @type {string} */ type, /** @type {Record<string, unknown>} */ fields) => JSON.stringify({ step_index: index, source: type === 'USER_INPUT' ? 'USER_EXPLICIT' : 'MODEL', type, status: 'DONE', created_at: `2026-11-10T06:35:0${index}Z`, ...fields });
+  const steps = [step(1, 'PLANNER_RESPONSE', { content: 'Added.' }), step(2, 'USER_INPUT', { content: '<USER_REQUEST>Now test it</USER_REQUEST>' }), step(3, 'PLANNER_RESPONSE', { content: 'Tested.' })];
+  await appendFile(join(home, 'brain', id, '.system_generated', 'logs', 'transcript_full.jsonl'), steps.map((line) => `${line}\n`).join(''));
+  const { base, port, calls } = await withServer(t, { agy: home });
+
+  const response = await post(port, '/api/rewind', pageHeaders(port), JSON.stringify({ session: id, prompt: 'agy-2', action: 'both' }));
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const stream = await fetch(`${base}/api/stream?session=${id}`, { signal: controller.signal });
+  assert.ok(stream.body);
+  const shown = uuids(await sseEvents(stream.body)());
+
+  assert.deepEqual(
+    { reply: JSON.parse(response.body), calls: calls.filter((call) => call[0] === 'rewind'), prompts: shown.filter((uuid) => /^agy-\d+$/.test(uuid)) },
+    { reply: { ok: true, prompt: 'Now test it' }, calls: [['rewind', id, JSON.stringify({ stepsUp: 1, prompt: 'Now test it', action: 'both' })]], prompts: ['agy-0', 'agy-1'] },
+  );
+});
+
+// agy rewound in its own terminal — the page did nothing: its run's log tells to which step, the transcript nothing
+// until the next message — the steps taken back are out of the feed and of the page's copy to read offline, as agy's
+// terminal shows the conversation
+test('stream_Should_HideStepsAgyRewoundInItsTerminal_AsItsLogTells', async (t) => {
+  const id = '9342f993-b892-4839-845d-ce2d261b092e';
+  const home = await agyHome({ conversations: [{ id, request: 'Add the price filter', summary: { title: 'Price filter', folder: 'file:///D:/dev/shop' } }], typedIn: [id] });
+  const step = (/** @type {number} */ index, /** @type {string} */ type, /** @type {Record<string, unknown>} */ fields) => JSON.stringify({ step_index: index, source: type === 'USER_INPUT' ? 'USER_EXPLICIT' : 'MODEL', type, status: 'DONE', created_at: `2026-11-10T06:35:0${index}Z`, ...fields });
+  const steps = [step(1, 'PLANNER_RESPONSE', { content: 'Added.' }), step(2, 'USER_INPUT', { content: '<USER_REQUEST>Now test it</USER_REQUEST>' }), step(3, 'PLANNER_RESPONSE', { content: 'Tested.' })];
+  await appendFile(join(home, 'brain', id, '.system_generated', 'logs', 'transcript_full.jsonl'), steps.map((line) => `${line}\n`).join(''));
+  const { base } = await withServer(t, { agy: home, agyRewound: { conversation: id, step: 1, at: Date.parse('2026-11-10T06:40:00Z') } });
+
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const stream = await fetch(`${base}/api/stream?session=${id}`, { signal: controller.signal });
+  assert.ok(stream.body);
+  const shown = uuids(await sseEvents(stream.body)());
+  const snapshot = await (await fetch(`${base}/api/snapshot?session=${id}`)).json();
+  /** @type {unknown[]} */
+  const offline = snapshot.entries;
+
+  assert.deepEqual(
+    { shown, offline: offline.flatMap((entry) => (isRecord(entry) && typeof entry.uuid === 'string' ? [entry.uuid] : [])) },
+    { shown: ['agy-0', 'agy-1', 'agy-1-end'], offline: ['agy-0', 'agy-1', 'agy-1-end'] },
+  );
 });
 
 // agy stopped puts nothing back into its box, as Claude Code does: the prompt it had done nothing for yet comes back to
