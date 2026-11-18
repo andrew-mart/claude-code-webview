@@ -25,6 +25,7 @@ import { createDiagnosticsLog } from '../server/diagnostics.js';
 import { createKeptFile } from '../server/kept.js';
 import { createPhrasesFile } from '../server/phrases.js';
 import { createUploads } from '../server/uploads.js';
+import { createPromptFiles } from '../server/prompt-files.js';
 import { createVsCode } from '../server/vscode.js';
 import net from 'node:net';
 
@@ -279,7 +280,7 @@ async function withServer(t, { takenBack, refused, palette = 'clay', publicAddre
   // the file manager opens what is asked
   /** @type {import('../server/file-manager.js').FileManagerTarget[]} */
   const shownInFileManager = [];
-  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot, ...(agy === undefined ? {} : { agy: createAgyConversations(agy) }) }), host: '127.0.0.1', port: 0, pollMs: 30, changesEveryMs: 40, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), checks: createCheckFile(join(root, 'checks.json')), later: createLaterFile(join(root, 'later.json')), desks, pins: createPinsFile(join(root, 'pins.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), kept: createKeptFile(join(root, 'kept.json'), { limit: 100 }), diagnostics: createDiagnosticsLog(join(root, 'diagnostics.jsonl'), { maxBytes: 1_000_000 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, system: { read: async () => ({ cpu: 31, memory: { used: 24_000, total: 32_000 }, gpu: undefined }) }, processes: { read: async (by) => [{ pid: 4120, name: `node by ${by}`, cpu: 12, memory: 104_857_600, gpu: by === 'gpu' ? 3 : undefined }] }, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, agyUsage: async () => agyUsage, phrases: createPhrasesFile(join(root, 'phrases.json')), agyRewound: async (conversation) => (agyRewound?.conversation === conversation ? { step: agyRewound.step, at: agyRewound.at } : undefined), sessionStatus: async (id) => {
+  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot, ...(agy === undefined ? {} : { agy: createAgyConversations(agy) }) }), host: '127.0.0.1', port: 0, pollMs: 30, changesEveryMs: 40, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), checks: createCheckFile(join(root, 'checks.json')), later: createLaterFile(join(root, 'later.json')), desks, pins: createPinsFile(join(root, 'pins.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), kept: createKeptFile(join(root, 'kept.json'), { limit: 100 }), diagnostics: createDiagnosticsLog(join(root, 'diagnostics.jsonl'), { maxBytes: 1_000_000 }), uploads: createUploads(join(root, 'uploads')), promptFiles: createPromptFiles(join(root, 'prompts')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, system: { read: async () => ({ cpu: 31, memory: { used: 24_000, total: 32_000 }, gpu: undefined }) }, processes: { read: async (by) => [{ pid: 4120, name: `node by ${by}`, cpu: 12, memory: 104_857_600, gpu: by === 'gpu' ? 3 : undefined }] }, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, agyUsage: async () => agyUsage, phrases: createPhrasesFile(join(root, 'phrases.json')), agyRewound: async (conversation) => (agyRewound?.conversation === conversation ? { step: agyRewound.step, at: agyRewound.at } : undefined), sessionStatus: async (id) => {
       await statusRead;
       return id === sessionId ? sessionStatus : undefined;
     } });
@@ -1066,6 +1067,79 @@ test('bookmarks_Should_RejectChangeOfUnknownShape', async (t) => {
   const responses = await Promise.all(malformed.map((change) => post(port, '/api/bookmarks', pageHeaders(port), JSON.stringify({ session: sessionId, change }))));
 
   assert.deepEqual(responses.map((response) => response.status), [400, 400, 400]);
+});
+
+/** A prompt's lines, together longer than Claude Code's read of its terminal — 1,024 bytes: only such a prompt can lose a read. */
+const longLines = ['1. Check the totals of last month.', '2. Round the taxes to cents.', '3. Send the report to the team.'].map((line) => `${line}${' Keep the notes short and clear.'.repeat(12)}`);
+
+// A prompt the page sent that Claude Code wrote down with a piece gone — it lost part of a long one reading it from its
+// terminal — has Claude stopped at once, as the page's Stop does, and is held whole in the session's live state till a
+// page takes it to put it back into its box
+test('send_Should_StopClaudeAndHoldThePromptWhole_When_ClaudeCodeWritesItDownCutShort', async (t) => {
+  const { base, port, file, calls } = await withServer(t);
+  const [first, second, third] = longLines;
+  const sent = [first, second, third].join('\n');
+  const heldNow = async () => (await (await fetch(`${base}/api/live?session=${sessionId}`)).json()).cut;
+
+  await post(port, '/api/send', pageHeaders(port), JSON.stringify({ session: sessionId, text: sent }));
+  await appendFile(file, promptLine('u2', [first, third].join('\n')));
+  for (let waited = 0; waited < 3000 && (await heldNow()) === undefined; waited += 50) await new Promise((resolve) => setTimeout(resolve, 50));
+  const held = await heldNow();
+  const stopped = calls.filter(([call]) => call === 'interrupt').length;
+  const taken = await post(port, '/api/cut-taken', pageHeaders(port), JSON.stringify({ session: sessionId }));
+
+  assert.deepEqual({ held, stopped, taken: taken.status, after: await heldNow() }, { held: { text: sent, lost: 413, after: 'notes short and clear.' }, stopped: 1, taken: 200, after: undefined });
+});
+
+// A prompt sent through a file — typed in whole, it came cut short — goes into a file of the viewer's, and the agent's
+// terminal gets a line telling it to read the prompt there: short enough to come in one read
+test('send_Should_PutThePromptInAFileAndTypeALineToReadIt_When_SentThroughAFile', async (t) => {
+  const { port, calls } = await withServer(t);
+  const sent = longLines.join('\n');
+
+  const response = await post(port, '/api/send', pageHeaders(port), JSON.stringify({ session: sessionId, text: sent, throughFile: true }));
+  const typed = calls.find(([call]) => call === 'send')?.[2] ?? '';
+  const file = /file (\S+\.md)/.exec(typed)?.[1];
+
+  assert.deepEqual(
+    { status: response.status, oneRead: Buffer.byteLength(typed) <= 1024, inFile: file === undefined ? `no file named in: ${typed.slice(0, 60)}` : await readFile(file, 'utf8') },
+    { status: 200, oneRead: true, inFile: sent },
+  );
+});
+
+// agy too: a prompt the page sent that agy wrote down with a piece gone — its request, as agy wraps it — has agy stopped
+// at once and is held whole for a page to take
+test('send_Should_StopAgyAndHoldThePromptWhole_When_AgyWritesItDownCutShort', async (t) => {
+  const id = '9342f993-b892-4839-845d-ce2d261b092e';
+  const home = await agyHome({ conversations: [{ id, request: 'Add the price filter', summary: { title: 'Price filter', folder: 'file:///D:/dev/shop' } }], typedIn: [id] });
+  const { base, port, calls } = await withServer(t, { agy: home });
+  const [first, second, third] = longLines;
+  const sent = [first, second, third].join('\n');
+  const heldNow = async () => (await (await fetch(`${base}/api/live?session=${id}`)).json()).cut;
+  const request = `<USER_REQUEST>\n${[first, third].join('\n')}\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nThe current local time is: 2026-11-10T11:36:00+05:00.\n</ADDITIONAL_METADATA>`;
+
+  await post(port, '/api/send', pageHeaders(port), JSON.stringify({ session: id, text: sent }));
+  await appendFile(join(home, 'brain', id, '.system_generated', 'logs', 'transcript_full.jsonl'), `${JSON.stringify({ step_index: 1, source: 'USER_EXPLICIT', type: 'USER_INPUT', status: 'DONE', created_at: '2026-11-10T06:36:00Z', content: request })}\n`);
+  for (let waited = 0; waited < 3000 && (await heldNow()) === undefined; waited += 50) await new Promise((resolve) => setTimeout(resolve, 50));
+
+  assert.deepEqual(
+    { held: await heldNow(), stopped: calls.filter(([call, session]) => call === 'interrupt' && session === id).length },
+    { held: { text: sent, lost: 413, after: 'notes short and clear.' }, stopped: 1 },
+  );
+});
+
+// A prompt with pictures goes with their paths after its words, and Claude Code writes it down so, paths and all —
+// the feed shows the pictures in their place: written whole, Claude is let be
+test('send_Should_LetClaudeBe_When_APromptWithPicturesIsWrittenDownWhole', async (t) => {
+  const { base, port, file, calls } = await withServer(t);
+  const sent = `${longLines.join('\n')}\n\nAttached images:\nC:\\Users\\dev\\.claude-code-webview\\uploads\\20261018_101500-1a2b3c4d.png`;
+
+  await post(port, '/api/send', pageHeaders(port), JSON.stringify({ session: sessionId, text: sent }));
+  await appendFile(file, promptLine('u2', sent));
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+  const held = (await (await fetch(`${base}/api/live?session=${sessionId}`)).json()).cut;
+
+  assert.deepEqual({ held, stopped: calls.filter(([call]) => call === 'interrupt').length }, { held: undefined, stopped: 0 });
 });
 
 // A message checked on the page is the viewer's: the page asks for the checks again — on another device too — and a

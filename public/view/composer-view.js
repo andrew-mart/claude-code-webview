@@ -4,7 +4,7 @@
 // Claude Code waits for — its AskUserQuestion dialog — shows above the box too, and is answered from there (/api/dialog).
 // A command typed — a slash first — has the session's commands and skills offered over the box (command-menu.js).
 import { pollWhileShown } from './polling.js';
-import { askerNames, btwMessage, composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, sideQuestionOf, stopMessage, withCommand, withPasted, withPoint } from '../model/composer.js';
+import { askerNames, btwMessage, composerState, outcomeMessage, parseBtwReply, parseHeldCut, parseLiveState, parseOutcome, parseStopOutcome, promptCutMessage, promptForBox, sideQuestionOf, stopMessage, withCommand, withPasted, withPoint } from '../model/composer.js';
 import { parseDialogReply } from '../model/dialog.js';
 import { parseNewTab } from '../model/herdr.js';
 import { answerBlocks } from '../model/side-answer.js';
@@ -113,6 +113,8 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   /** What the card shows, to draw it again only when that changes: it is looked at every few seconds. */
   let ranShown = '';
   const status = h('div', { className: 'composer-status', attrs: { role: 'status' } });
+  // a prompt the terminal took cut short, back in the box, goes again through a file: the agent reads it whole from there
+  const throughFile = h('button', { className: 'composer-through-file', text: 'Send through a file', title: 'The viewer puts the prompt in a file and types the agent only a line to read it there', attrs: { type: 'button', hidden: '' } });
   let enabled = false;
   /** The viewer answers: a prompt goes now — else it waits in the browser, and images cannot go at all. */
   let reachable = false;
@@ -264,7 +266,7 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
       later.remove(prompt.id);
       fit();
       refreshButtons();
-      submitPrompt('queued');
+      submitPrompt('queued', 'typed');
     },
     remove: (prompt) => later.remove(prompt.id),
   });
@@ -324,7 +326,7 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     say(why, 'busy');
     refreshButtons();
   };
-  const element = h('div', { className: 'composer' }, [dialogCard.element, aside, queued, laterList.element, waitingBox, resume, phraseBar.element, form, h('div', { className: 'composer-footer' }, [hint, status]), attachments.input]);
+  const element = h('div', { className: 'composer' }, [dialogCard.element, aside, queued, laterList.element, waitingBox, resume, phraseBar.element, form, h('div', { className: 'composer-footer' }, [hint, h('div', { className: 'composer-said' }, [status, throughFile])]), attachments.input]);
 
   const fit = () => {
     input.style.height = 'auto';
@@ -344,6 +346,7 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   };
   const refreshButtons = () => {
     send.disabled = !enabled || sending || asking || (input.value.trim() === '' && attachments.images().length === 0);
+    throughFile.disabled = send.disabled;
     // setting aside and images need the viewer: out of its reach the box only sends, to wait
     setAsideButton.disabled = !enabled || !reachable || input.value.trim() === '';
     laterList.allowSend(enabled && reachable && input.value.trim() === '' && attachments.images().length === 0);
@@ -358,9 +361,26 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     status.dataset.tone = tone;
     if (tone === 'ok') noticeTimer = setTimeout(() => (status.textContent = ''), noticeMs);
   };
+  /** The prompt the viewer held whole that this box took last: one held still, as the reply came, is not taken again. */
+  let cutTaken = '';
+  /**
+   * The prompt Claude Code got cut short — the viewer stopped Claude on it and holds it whole: said so, put back into
+   * the box, the viewer told so — no other page puts it back.
+   * @param {{ text: string, cut: import('../model/composer.js').PromptCut } | undefined} held
+   */
+  const takeCut = (held) => {
+    if (held === undefined || held.text === cutTaken) return;
+    cutTaken = held.text;
+    say(promptCutMessage(held.cut, agent), 'error');
+    fill(held.text);
+    throughFile.hidden = false;
+    void post('/api/cut-taken', {});
+  };
   const refreshLive = async () => {
     const response = await fetch(`/api/live?session=${encodeURIComponent(sessionId)}`).catch(() => undefined);
-    const live = response?.ok ? parseLiveState(await response.json().catch(() => undefined)) : undefined;
+    const json = response?.ok ? await response.json().catch(() => undefined) : undefined;
+    const live = parseLiveState(json);
+    takeCut(parseHeldCut(json));
     const view = live === undefined ? outOfReach : composerState(live, { id: sessionId, agent });
     reachable = live !== undefined;
     element.hidden = !view.shown;
@@ -377,7 +397,8 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     if (dialog !== undefined) onDialog();
     showQueued(live?.state === 'live' ? live.queued : []);
     // at its prompt: idle and asking nothing, or closed — a turn it was in is over
-    onAtPrompt(live?.state === 'offline' || (live?.state === 'live' && live.status === 'idle' && live.dialog === undefined));
+    // idle with a command of its left running in the background is idle too: Claude Code's "shell"
+    onAtPrompt(live?.state === 'offline' || (live?.state === 'live' && (live.status === 'idle' || live.status === 'shell') && live.dialog === undefined));
     refreshButtons();
     // what waits, as the browser keeps it now — another tab, or the page, may have sent some — goes, the viewer
     // answering and the session taking prompts
@@ -409,7 +430,7 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     reopen.title = runningNow === undefined ? 'A tab of the workspace it ran in, named as before; Claude Code resumes the session there' : 'A copy of its tab in the workspace; Claude Code resumes the session there';
   };
   /**
-   * @param {'/api/send' | '/api/interrupt' | '/api/btw' | '/api/dialog' | '/api/history/reopen'} path
+   * @param {'/api/send' | '/api/interrupt' | '/api/btw' | '/api/dialog' | '/api/history/reopen' | '/api/cut-taken'} path
    * @param {{ text?: string, images?: readonly import('./attachment-picker.js').AttachedImage[], now?: true, id?: string, question?: string, resume?: true, steps?: readonly import('../model/dialog.js').DialogStep[] }} payload — now: past
    *   Claude Code's queue; id: a prompt's, typed once however often it is sent; resume: a side question's answer asked
    *   for again, the question not asked anew
@@ -588,8 +609,9 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
    * The box's prompt to the session: queued while Claude works, as Enter does in the terminal — or now, past the queue,
    * as its Ctrl+Enter does, an empty box sending what waits there.
    * @param {'queued' | 'now'} when
+   * @param {'typed' | 'through a file'} how — typed into the terminal, or put in a file the agent is told to read
    */
-  const submitPrompt = (when) => {
+  const submitPrompt = (when, how) => {
     const now = when === 'now' && busy;
     if (now ? !enabled || sending || asking : send.disabled) return;
     const question = sideQuestionOf(input.value, agent);
@@ -606,7 +628,7 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     const text = input.value;
     // the id it goes by: should its reply not come, it waits under it and, sent again, is typed once
     const id = newPromptId();
-    void post('/api/send', { text, images, id, ...(now ? { now: true } : {}) }).then((json) => {
+    void post('/api/send', { text, images, id, ...(now ? { now: true } : {}), ...(how === 'through a file' ? { throughFile: true } : {}) }).then((json) => {
       const outcome = parseOutcome(json);
       sending = false;
       if (outcome === undefined && images.length === 0) {
@@ -621,6 +643,7 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
         writeDraft(draftKey, '');
         attachments.clear();
         fit();
+        throughFile.hidden = true;
       }
       say(outcome === undefined ? 'The viewer server did not answer. The text stays in the box.' : outcomeMessage(outcome), outcome?.ok === true ? 'ok' : 'error');
       refreshButtons();
@@ -629,8 +652,9 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   };
   form.addEventListener('submit', (event) => {
     event.preventDefault();
-    submitPrompt('queued');
+    submitPrompt('queued', 'typed');
   });
+  throughFile.addEventListener('click', () => submitPrompt('queued', 'through a file'));
   /** The box's words set aside for later, the box free again; its images stay in it. */
   const setAside = () => {
     const text = input.value.trim();
@@ -662,7 +686,7 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     if (keyboard === 'physical' && event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       // Ctrl+Enter sends now, past the queue, as in the terminal; with no queue it sends as Enter does
-      submitPrompt(event.ctrlKey || event.metaKey ? 'now' : 'queued');
+      submitPrompt(event.ctrlKey || event.metaKey ? 'now' : 'queued', 'typed');
     }
   });
   // A screenshot pasted from the clipboard or images dropped on the box are attached like picked ones.

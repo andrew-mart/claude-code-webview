@@ -95,6 +95,123 @@ export function stopMessage(outcome, agent) {
 }
 
 /**
+ * @typedef {{ lost: number, after: string }} PromptCut — a prompt written down with a piece of the one sent gone: lost —
+ *   how many characters; after — the last words before the gap, none where the start is gone
+ */
+
+/** What Claude Code may put where a character was broken: a piece of it gone with the rest. */
+const brokenCharacter = '\uFFFD';
+
+/** The shortest piece of a sent prompt a written one is taken to be made of: a shorter run any text has. */
+const shortestPiece = 16;
+/** The most pieces a written prompt is taken to be made of: of more, it is another text. */
+const mostPieces = 12;
+
+/**
+ * A prompt sent from the box that the agent wrote down with pieces gone: Claude Code reads a long prompt from its
+ * terminal a kilobyte at a time and, on Windows, now and then drops reads — one, several in a row, two apart — and
+ * now and then takes the last one twice. What it writes down is then made of pieces of the prompt sent, in its words,
+ * at most a broken character where a piece ends, and lacks some of it. Spaces and line ends do not count; words
+ * changed, or two prompts written as one, are no cut: their text the prompt sent has not.
+ * @param {string} sent — as the box sent it
+ * @param {string} written — as the agent wrote it down
+ * @returns {PromptCut | undefined}
+ */
+export function promptCut(sent, written) {
+  const whole = oneSpaced(sent);
+  const took = oneSpaced(written);
+  if (took === '' || took === whole) return undefined;
+  /** Where in the sent prompt each piece of the written one stands. @type {{ from: number, to: number }[]} */
+  const pieces = [];
+  let at = 0;
+  while (at < took.length) {
+    if (took[at] === brokenCharacter) {
+      at += 1;
+      continue;
+    }
+    const piece = longestPiece(whole, took, at);
+    if (piece === undefined || pieces.length === mostPieces) return undefined;
+    pieces.push({ from: piece.from, to: piece.from + piece.length });
+    at += piece.length;
+  }
+  const { kept, firstGap } = keptOf(pieces, whole.length);
+  if (kept === whole.length) return undefined;
+  return { lost: whole.length - kept, after: whole.slice(0, firstGap).trim().split(' ').slice(-4).join(' ') };
+}
+
+/**
+ * The longest run of the written prompt from a place that the sent one has, and where it stands there; none shorter
+ * than a piece — but for the written prompt's last few characters, which the sent one has.
+ * @param {string} whole — the prompt sent
+ * @param {string} took — the prompt written down
+ * @param {number} at
+ * @returns {{ from: number, length: number } | undefined}
+ */
+function longestPiece(whole, took, at) {
+  const rest = took.length - at;
+  const least = Math.min(shortestPiece, rest);
+  if (!whole.includes(took.slice(at, at + least))) return undefined;
+  // a longer run had, every shorter one is: the longest is searched by halves
+  let had = least;
+  let hadNot = rest + 1;
+  while (hadNot - had > 1) {
+    const middle = Math.floor((had + hadNot) / 2);
+    if (whole.includes(took.slice(at, at + middle))) had = middle;
+    else hadNot = middle;
+  }
+  return { from: whole.indexOf(took.slice(at, at + had)), length: had };
+}
+
+/**
+ * How much of the sent prompt the pieces hold — a piece come twice counted once — and where the first of it they do
+ * not hold begins.
+ * @param {readonly { from: number, to: number }[]} pieces
+ * @param {number} length — the sent prompt's
+ * @returns {{ kept: number, firstGap: number }}
+ */
+function keptOf(pieces, length) {
+  let kept = 0;
+  let reach = 0;
+  let firstGap = length;
+  for (const { from, to } of [...pieces].sort((a, b) => a.from - b.from)) {
+    if (from > reach && firstGap === length) firstGap = reach;
+    if (to > reach) {
+      kept += to - Math.max(from, reach);
+      reach = to;
+    }
+  }
+  if (reach < length && firstGap === length) firstGap = reach;
+  return { kept, firstGap };
+}
+
+/**
+ * The prompt Claude Code got cut short, held whole by the viewer — Claude stopped on it — as the session's live state
+ * carries it; none in a reply without it, or of another shape.
+ * @param {unknown} json — the viewer's /api/live reply
+ * @returns {{ text: string, cut: PromptCut } | undefined}
+ */
+export function parseHeldCut(json) {
+  const held = isRecord(json) ? json.cut : undefined;
+  if (!isRecord(held) || typeof held.text !== 'string' || typeof held.lost !== 'number' || typeof held.after !== 'string') return undefined;
+  return { text: held.text, cut: { lost: held.lost, after: held.after } };
+}
+
+/**
+ * @param {PromptCut} cut
+ * @param {Agent} agent — the session's, that got the message so
+ * @returns {string}
+ */
+export function promptCutMessage(cut, agent) {
+  const gone = cut.after === '' ? `its first ${cut.lost} characters` : `${cut.lost} characters after “${cut.after}”`;
+  return `${askerNames[agent]} got the message without ${gone}. The whole message is back in the box.`;
+}
+
+/** @param {string} text — its spaces and line ends one space each, none at its ends */
+function oneSpaced(text) {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/**
  * @param {SendOutcome} outcome
  * @returns {string}
  */

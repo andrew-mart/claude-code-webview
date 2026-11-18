@@ -27,6 +27,15 @@ import { rewoundEntries } from './branch.js';
 
 /** agy's wrapping of what the user asked: the request itself, between these. */
 const requestTags = /<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/;
+/**
+ * What the user asked, as agy wrote it down in a request step: between its tags, its own lines around it taken off.
+ * @param {string} said — the step's content
+ * @returns {string}
+ */
+export function agyRequestOf(said) {
+  return (requestTags.exec(said)?.[1] ?? said).trim();
+}
+
 /** The lines agy puts ahead of a tool's output: when it began and ended. */
 const outputStamps = /^(?:Created At|Completed At): .*\n/gm;
 /** What a call cut short by agy's stop is answered with. */
@@ -113,7 +122,7 @@ function madeOf(raw, uuid, timestamp, state) {
       /** @type {Made[]} */
       const interrupted = cut.length === 0 ? [] : [{ type: 'user', uuid: `${uuid}-interrupted`, message: { role: 'user', content: '[Request interrupted by user]' } }];
       state.calls = [];
-      return [...cut, ...interrupted, { type: 'user', uuid, message: { role: 'user', content: (requestTags.exec(said)?.[1] ?? said).trim() } }];
+      return [...cut, ...interrupted, { type: 'user', uuid, message: { role: 'user', content: agyRequestOf(said) } }];
     }
     case 'PLANNER_RESPONSE': {
       const calls = Array.isArray(raw.tool_calls) ? raw.tool_calls.filter(isRecord) : [];

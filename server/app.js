@@ -5,7 +5,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { open, readdir, readFile, stat } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import http from 'node:http';
 import net from 'node:net';
 import { homedir } from 'node:os';
@@ -25,6 +26,8 @@ import { latestPrompt, standingRewind, takenBackPrompt, unansweredPrompt } from 
 import { branchChanges, branchFileDiff } from './branch-changes.js';
 import { agyRecordAt, agyRewoundFrom, createAgyReading } from './agy.js';
 import { createSubagentWatch, withSubagentsAtWork } from './subagent-turns.js';
+import { createCutWatch } from './prompt-cuts.js';
+import { agyRequestOf } from './agy.js';
 import { createCodexReading } from './codex.js';
 import { readCodexUsage } from './codex-usage.js';
 import { openJoined } from './joined.js';
@@ -52,6 +55,7 @@ import { moduleGraph } from './module-graph.js';
 import { createTranscriptCache } from './transcript-cache.js';
 import { readTaskOutput, seenTasks } from './tasks.js';
 import { parseImages } from './uploads.js';
+import { readPromptLine } from './prompt-files.js';
 import { vscodeBasePath } from './vscode.js';
 
 const publicDir = fileURLToPath(new URL('../public', import.meta.url));
@@ -122,6 +126,10 @@ const contentTypes = {
 
 /** How many prompts sent under an id are kept, to type each once. */
 const sentPromptsKept = 500;
+/** How often a transcript is read for the prompt sent into it, and how long the prompt is waited for: Claude Code writes
+ * one it queued only once it takes it. */
+const cutPollMs = 250;
+const cutWatchMs = 15 * 60_000;
 
 const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const agentIdPattern = /^[0-9a-z]{1,64}$/i;
@@ -154,7 +162,7 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
 const noPhrases = { top: async () => [], sent: async () => undefined };
 
 /**
- * @param {{ index: SessionIndex, host: string, port: number, pollMs: number, changesEveryMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, checks: import('./checks.js').Checks, later: import('./later.js').LaterPrompts, desks: import('./desks.js').Desks, pins: import('./pins.js').Pins, seen: Seen, kept: Kept, diagnostics: Diagnostics, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, system: SystemUsage, processes: Processes, chatgptUsage?: ReadUsage, agyUsage?: ReadUsage, agyRewound?: AgyRewound, phrases?: Phrases, sessionStatus?: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode?: import('./vscode.js').VsCode | undefined, codexInUse: () => Promise<boolean> }} options
+ * @param {{ index: SessionIndex, host: string, port: number, pollMs: number, changesEveryMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, checks: import('./checks.js').Checks, later: import('./later.js').LaterPrompts, desks: import('./desks.js').Desks, pins: import('./pins.js').Pins, seen: Seen, kept: Kept, diagnostics: Diagnostics, uploads: Uploads, promptFiles: PromptFiles, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, system: SystemUsage, processes: Processes, chatgptUsage?: ReadUsage, agyUsage?: ReadUsage, agyRewound?: AgyRewound, phrases?: Phrases, sessionStatus?: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode?: import('./vscode.js').VsCode | undefined, codexInUse: () => Promise<boolean> }} options
  *   about — package name and version for /api/health; palette — the page's colours (public/model/palettes.js);
  *   publicAddresses — where else the page is opened at, answered as the local address is; herdrView — what herdr
  *   shows (herdr-view.js); terminals — herdr panes' terminals (terminal.js); usage — the account's usage (usage.js);
@@ -165,7 +173,7 @@ const noPhrases = { top: async () => [], sent: async () => undefined };
  *   thread open (codex-live.js)
  * @returns {Promise<{ port: number, close: () => void }>}
  */
-export async function startServer({ index, host, port, pollMs, changesEveryMs, composer, bookmarks, checks, later, desks, pins, seen, kept, diagnostics, uploads, about, palette, publicAddresses, herdrView, terminals, usage, system, processes, chatgptUsage = async () => undefined, agyUsage = async () => undefined, agyRewound = async () => undefined, phrases = noPhrases, sessionStatus = async () => undefined, isRunning, editor, fileManager, commands, vscode, codexInUse }) {
+export async function startServer({ index, host, port, pollMs, changesEveryMs, composer, bookmarks, checks, later, desks, pins, seen, kept, diagnostics, uploads, promptFiles, about, palette, publicAddresses, herdrView, terminals, usage, system, processes, chatgptUsage = async () => undefined, agyUsage = async () => undefined, agyRewound = async () => undefined, phrases = noPhrases, sessionStatus = async () => undefined, isRunning, editor, fileManager, commands, vscode, codexInUse }) {
   const instance = randomUUID();
   const build = await pageBuild();
   const pageModules = await modulesAtStart();
@@ -226,8 +234,19 @@ export async function startServer({ index, host, port, pollMs, changesEveryMs, c
   const fileIcons = createFileIcons();
   /** The prompts sent under an id, so that one sent again — its reply lost on the way — is typed once. */
   const sentPrompts = createSentPrompts(sentPromptsKept);
+  // a prompt Claude Code wrote down with a piece gone: Claude stopped, the prompt held whole for a page (prompt-cuts.js)
+  /** @type {PromptCuts} */
+  const promptCuts = createCutWatch({
+    written: (_, mark) => promptsWrittenSince(mark),
+    stop: (session) => composer.interrupt(session),
+    // a watch keeps nothing running: the server closed, it goes with it
+    wait: (ms) => delay(ms, undefined, { ref: false }),
+    now: () => Date.now(),
+    pollMs: cutPollMs,
+    giveUpMs: cutWatchMs,
+  });
   /** @type {Deps} */
-  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, checks, later, desks, pins, seen, kept, diagnostics, codexInUse, uploads, about, build, pageModules, feedEntries, rewinds, transcripts, feeds, palette, herdrView, terminals, usage, system, processes, chatgptUsage, agyUsage, agyRewound, phrases, subagentsWork, sessionStatus, isRunning, editor, fileManager, commands, vscode, instance, fileIcons, sentPrompts };
+  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, checks, later, desks, pins, seen, kept, diagnostics, codexInUse, uploads, promptFiles, about, build, pageModules, feedEntries, rewinds, transcripts, feeds, palette, herdrView, terminals, usage, system, processes, chatgptUsage, agyUsage, agyRewound, phrases, subagentsWork, sessionStatus, isRunning, editor, fileManager, commands, vscode, instance, fileIcons, sentPrompts, promptCuts };
   const server = http.createServer((request, response) => {
     handle(deps, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
@@ -263,12 +282,13 @@ export async function startServer({ index, host, port, pollMs, changesEveryMs, c
 
 /**
  * @typedef {ReturnType<typeof createSessionIndex>} SessionIndex — Claude Code's sessions and Codex's (sessions.js)
- * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, checks: import('./checks.js').Checks, later: import('./later.js').LaterPrompts, desks: import('./desks.js').Desks, pins: import('./pins.js').Pins, uploads: Uploads, about: About, build: string, pageModules: readonly string[], feedEntries: string, rewinds: Map<string, import('./branch.js').RewindMark>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, system: SystemUsage, processes: Processes, chatgptUsage: ReadUsage, agyUsage: ReadUsage, agyRewound: AgyRewound, phrases: Phrases, subagentsWork: (session: string) => Promise<boolean>, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, kept: Kept, diagnostics: Diagnostics, codexInUse: () => Promise<boolean>, sentPrompts: import('./sent-prompts.js').SentPrompts }} Deps
+ * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, checks: import('./checks.js').Checks, later: import('./later.js').LaterPrompts, desks: import('./desks.js').Desks, pins: import('./pins.js').Pins, uploads: Uploads, promptFiles: PromptFiles, about: About, build: string, pageModules: readonly string[], feedEntries: string, rewinds: Map<string, import('./branch.js').RewindMark>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, system: SystemUsage, processes: Processes, chatgptUsage: ReadUsage, agyUsage: ReadUsage, agyRewound: AgyRewound, phrases: Phrases, subagentsWork: (session: string) => Promise<boolean>, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, kept: Kept, diagnostics: Diagnostics, codexInUse: () => Promise<boolean>, sentPrompts: import('./sent-prompts.js').SentPrompts, promptCuts: PromptCuts }} Deps
  *   instance: this run of the viewer, told apart from any other — see /api/machine; vscode: VS Code's web server
  *   behind /vscode/, none when the viewer runs none
  * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'forkedFrom' | 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'focusTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hideWorkspace' | 'showWorkspace' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'continueTab' | 'createWorkspace' | 'history' | 'reopen' | 'restart' | 'exit'>} HerdrView
  * @typedef {Pick<ReturnType<typeof import('./terminal.js').createTerminals>, 'stream' | 'type'>} Terminals
  * @typedef {ReturnType<typeof import('./uploads.js').createUploads>} Uploads
+ * @typedef {ReturnType<typeof import('./prompt-files.js').createPromptFiles>} PromptFiles
  * @typedef {{ origin: string, host: string }} PublicAddress — where the page is opened from outside, behind a tunnel:
  *   origin https://viewer.example.com, host viewer.example.com
  */
@@ -298,7 +318,7 @@ async function handle(deps, request, response) {
       // This reply tells the CLI that the port is held by the viewer itself, and which process to stop.
       return sendJson(response, { ...deps.about, pid: process.pid });
     case '/api/live':
-      return withSession(url, response, async (id) => sendJson(response, await deps.composer.liveState(id)));
+      return withSession(url, response, async (id) => sendJson(response, withHeldCut(await deps.composer.liveState(id), deps.promptCuts.held(id))));
     case '/api/sessions': {
       // ?since=<version from the last reply> — only what changed since; an empty version — everything, with a version.
       const since = url.searchParams.get('since');
@@ -707,12 +727,17 @@ async function handleWrite(deps, url, request, response) {
         // Claude Code and Codex open attached images by path; the files stay only if the terminal took the prompt.
         const paths = await deps.uploads.save(attached.images);
         const typed = isRecord(body) && typeof body.text === 'string' ? body.text : '';
-        const prompt = withAttachedImages(typed, paths);
+        const whole = withAttachedImages(typed, paths);
+        // sent through a file — typed in whole, it came cut short: the terminal gets only a line to read it there
+        const prompt = isRecord(body) && body.throughFile === true ? readPromptLine(await deps.promptFiles.save(whole)) : whole;
+        // where Claude Code's transcript stood before the prompt went: what it writes down past it is read for the prompt
+        const mark = await transcriptEnd(deps.index, sessionId);
         // now: what waits in Claude Code's queue goes at once, the prompt with it — Ctrl+Enter on the page
         const outcome = isRecord(body) && body.now === true ? await deps.composer.sendNow(sessionId, prompt) : await deps.composer.send(sessionId, prompt);
         if (!outcome.ok) await deps.uploads.remove(paths);
         // a phrase the terminal took counts as sent once more
         else await deps.phrases.sent(typed, Date.now());
+        if (outcome.ok && mark !== undefined) void deps.promptCuts.watch(sessionId, prompt, mark).catch((error) => console.error(`Watching session ${sessionId} for its prompt failed`, error));
         return outcome;
       };
       // a prompt sent again under the id it went by — its reply lost while the page was out of reach — is typed once
@@ -721,6 +746,10 @@ async function handleWrite(deps, url, request, response) {
     }
     case '/api/interrupt':
       return stop(deps, sessionId, response);
+    // a page put the prompt Claude Code got cut short back into its box: no other page puts it there again
+    case '/api/cut-taken':
+      deps.promptCuts.take(sessionId);
+      return sendJson(response, { ok: true });
     case '/api/rewind':
       return rewind(deps, sessionId, isRecord(body) ? body : {}, response);
     case '/api/dialog': {
@@ -1707,6 +1736,96 @@ async function sendTasks(deps, id, response) {
   const read = await deps.transcripts.read(path, { scope: 'main', imageUrl: (lineStart, n) => imageLink(id, null, lineStart, n) });
   // asked every few seconds while one runs, a long session's hundred and more: the same list again is a 304
   return sendRevalidated(response, await seenTasks(read.tasks.list(), await deps.isRunning(id), (agentId) => subagentTranscript(deps.index, id, agentId)));
+}
+
+/**
+ * @typedef {ReturnType<typeof createCutWatch<TranscriptMark>>} PromptCuts
+ * @typedef {{ path: string, offset: number, agent: 'claude' | 'agy' }} TranscriptMark — a transcript, a byte in it, and
+ *   whose it is: Claude Code's or agy's
+ */
+
+/**
+ * Where a session's transcript ends now — Claude Code's or agy's; none for Codex's, or none found.
+ * @param {SessionIndex} index
+ * @param {string} session
+ * @returns {Promise<TranscriptMark | undefined>}
+ */
+async function transcriptEnd(index, session) {
+  const path = await index.find(session);
+  if (path === undefined) return undefined;
+  const agent = index.agentOf(path);
+  if (agent !== 'claude' && agent !== 'agy') return undefined;
+  const info = await stat(path).catch(() => undefined);
+  return info === undefined ? undefined : { path, offset: info.size, agent };
+}
+
+/**
+ * The prompts a transcript wrote down past a mark — whole lines alone, a line being written read next time — and the
+ * mark after them.
+ * @param {TranscriptMark} mark
+ * @returns {Promise<{ prompts: readonly string[], mark: TranscriptMark }>}
+ */
+async function promptsWrittenSince(mark) {
+  const handle = await open(mark.path, 'r').catch(() => undefined);
+  if (handle === undefined) return { prompts: [], mark };
+  try {
+    const { size } = await handle.stat();
+    if (size <= mark.offset) return { prompts: [], mark };
+    const bytes = Buffer.alloc(size - mark.offset);
+    await handle.read(bytes, 0, bytes.length, mark.offset);
+    const whole = bytes.lastIndexOf(0x0a) + 1;
+    const prompts = bytes.subarray(0, whole).toString('utf8').split('\n').flatMap(mark.agent === 'agy' ? requestOfLine : promptOfLine);
+    return { prompts, mark: { ...mark, offset: mark.offset + whole } };
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * The prompt a transcript line writes down, word for word as Claude Code took it — the pictures' paths after its words
+ * too, which the feed takes off; none for any other line: a tool's result, a note of Claude Code's own. A prompt
+ * Claude Code only queued is not looked at: it is written down again once Claude takes it.
+ * @param {string} line
+ * @returns {string[]}
+ */
+function promptOfLine(line) {
+  /** @type {unknown} */
+  let entry;
+  try {
+    entry = JSON.parse(line);
+  } catch {
+    return []; // an empty line, or one cut at the read's end — whole lines are read alone
+  }
+  if (!isRecord(entry) || entry.type !== 'user' || entry.isMeta === true || !isRecord(entry.message)) return [];
+  const content = entry.message.content;
+  if (typeof content === 'string') return [content];
+  if (!Array.isArray(content) || !content.every((part) => isRecord(part) && (part.type === 'text' || part.type === 'image'))) return [];
+  return [content.flatMap((part) => (isRecord(part) && part.type === 'text' && typeof part.text === 'string' ? [part.text] : [])).join('\n')];
+}
+
+/**
+ * The request an agy transcript line writes down, word for word as agy took it; none for any other step.
+ * @param {string} line
+ * @returns {string[]}
+ */
+function requestOfLine(line) {
+  /** @type {unknown} */
+  let step;
+  try {
+    step = JSON.parse(line);
+  } catch {
+    return []; // an empty line, or one cut at the read's end — whole lines are read alone
+  }
+  return isRecord(step) && step.type === 'USER_INPUT' && typeof step.content === 'string' ? [agyRequestOf(step.content)] : [];
+}
+
+/**
+ * The session's live state, with the prompt Claude Code got cut short — held whole — for the page to put back.
+ * @param {import('./composer.js').LiveState} live
+ * @param {import('./prompt-cuts.js').HeldCut | undefined} held
+ */
+function withHeldCut(live, held) {
+  return held === undefined ? live : { ...live, cut: { text: held.text, lost: held.cut.lost, after: held.cut.after } };
 }
 
 /**

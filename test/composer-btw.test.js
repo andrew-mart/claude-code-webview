@@ -212,9 +212,10 @@ test('composer_Should_ShowWhatCodexQueued_AboveTheBox', async () => {
   assert.deepEqual([await open(['Then update the docs.', 'And the changelog.']), (await open([])).items], [{ items: ['Then update the docs.', 'And the changelog.'], note: 'Codex sends these next, once its turn is over.' }, []]);
 });
 
-// Whether the agent is at its prompt, told as the session's state comes: at it — idle, asking nothing — or closed; not
-// while it works or asks. A feed of an agent that writes nothing when stopped — agy — learns so that its calls left
-// waiting were cut short
+// Whether the agent is at its prompt, told as the session's state comes: at it — idle, asking nothing, or idle with a
+// command of its left running in the background (Claude Code's "shell") — or closed; not while it works or asks. A feed
+// of an agent that writes nothing when stopped — agy — learns so that its calls left waiting were cut short; one whose
+// prompt was taken back unanswered, that it does not work on it
 test('composer_Should_TellWhetherAgentIsAtItsPrompt', async () => {
   /** @param {unknown} live */
   const told = async (live) => {
@@ -231,8 +232,14 @@ test('composer_Should_TellWhetherAgentIsAtItsPrompt', async () => {
   const asking = { lines: ['Run command?'], options: [{ key: '', label: 'Allow once', detail: undefined, checked: undefined, current: true }], tabs: false, previews: true };
 
   assert.deepEqual(
-    [await told({ state: 'live', status: 'idle', pane: 'w2:p1', queued: [] }), await told({ state: 'live', status: 'busy', pane: 'w2:p1', queued: [] }), await told({ state: 'live', status: 'idle', pane: 'w2:p1', dialog: asking, queued: [] }), await told({ state: 'offline' })],
-    [true, false, false, true],
+    [
+      await told({ state: 'live', status: 'idle', pane: 'w2:p1', queued: [] }),
+      await told({ state: 'live', status: 'shell', pane: 'w2:p1', queued: [] }),
+      await told({ state: 'live', status: 'busy', pane: 'w2:p1', queued: [] }),
+      await told({ state: 'live', status: 'idle', pane: 'w2:p1', dialog: asking, queued: [] }),
+      await told({ state: 'offline' }),
+    ],
+    [true, true, false, false, true],
   );
 });
 

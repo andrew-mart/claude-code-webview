@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, sideQuestionOf, withCommand, withPoint } from '../public/model/composer.js';
+import { composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutcome, parseStopOutcome, promptCut, promptCutMessage, promptForBox, sideQuestionOf, withCommand, withPoint } from '../public/model/composer.js';
 
 const sessionId = '3f2c9a50-1111-4222-8333-944455556666';
 /** @type {{ id: string, agent: 'claude' }} */
@@ -54,6 +54,49 @@ test('composerState_Should_ExplainWhyInputIsUnavailable', () => {
 test('outcomeMessage_Should_SayWhatHappenedToSentText', () => {
   assert.equal(outcomeMessage({ ok: true, pane: 'w3D:p1' }), 'Sent to the terminal.');
   assert.equal(outcomeMessage({ ok: false, error: 'send-failed' }), 'herdr did not accept the text — the pane may have closed. The text stays in the box.');
+});
+
+// Claude Code reading a long prompt from its terminal now and then drops pieces of it: the prompt it writes down is
+// made of pieces of the one sent, in its words, with pieces gone — from its middle, its start or its end, one or more,
+// at most a broken character where a piece ends — a piece coming twice now and then. Told: how many characters are
+// gone, and the last words before the first gap. Spaces and line ends do not count; words changed, or two prompts
+// written as one, are no cut
+test('promptCut_Should_TellPiecesGone_When_ClaudeWroteThePromptWithPiecesMissing', () => {
+  const sent = '1. Check the totals of last month.\n2. Round the taxes to cents.\n3. Send the report to the team.';
+
+  assert.deepEqual(
+    {
+      middle: promptCut(sent, '1. Check the totals of last month.\n2. Round the report to the team.'),
+      start: promptCut(sent, 'Round the taxes to cents.\n3. Send the report to the team.'),
+      end: promptCut(sent, '1. Check the totals of last month.\n2. Round the taxes to cents.'),
+      broken: promptCut(sent, '1. Check the totals of last month.\n2. Round the\uFFFDreport to the team.'),
+      twoGaps: promptCut(sent, '1. Check the totals of last month.\ntaxes to cents.\nSend the report to the team.'),
+      lastTwice: promptCut(sent, 'Round the taxes to cents.\n3. Send the report to the team.Round the taxes to cents.\n3. Send the report to the team.'),
+      spaced: promptCut(sent, '1. Check the totals of last month.  2. Round the taxes to cents.\r\n3. Send the report to the team.\n'),
+      changed: promptCut(sent, '1. Check the totals of this month.\n2. Round the taxes to cents.\n3. Send the report to the team.'),
+      joined: promptCut(sent, `${sent}\n4. Archive the report.`),
+    },
+    {
+      middle: { lost: 28, after: 'month. 2. Round the' },
+      start: { lost: 38, after: '' },
+      end: { lost: 32, after: 'the taxes to cents.' },
+      broken: { lost: 29, after: 'month. 2. Round the' },
+      twoGaps: { lost: 16, after: 'totals of last month.' },
+      lastTwice: { lost: 38, after: '' },
+      spaced: undefined,
+      changed: undefined,
+      joined: undefined,
+    },
+  );
+});
+
+// A prompt cut short says which agent got it so, how much of it is gone and where, and that it is back in the box to be
+// sent again
+test('promptCutMessage_Should_SayWhichAgentLostHowMuchAndWhere', () => {
+  assert.deepEqual([promptCutMessage({ lost: 28, after: 'month. 2. Round the' }, 'claude'), promptCutMessage({ lost: 38, after: '' }, 'agy')], [
+    'Claude Code got the message without 28 characters after “month. 2. Round the”. The whole message is back in the box.',
+    'Antigravity CLI got the message without its first 38 characters. The whole message is back in the box.',
+  ]);
 });
 
 test('parseLiveState_Should_AcceptOnlyKnownServerReplies', () => {

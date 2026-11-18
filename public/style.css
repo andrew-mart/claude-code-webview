@@ -4836,10 +4836,12 @@ table.diff tr.gap td {
   fill: currentColor;
 }
 
+/* what the viewer says, too long to sit beside the hint, goes under it rather than crushing it */
 .composer-footer {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
-  gap: 12px;
+  gap: 2px 12px;
   padding: 6px 6px 0;
   font-size: 11.5px;
 }
@@ -4935,13 +4937,44 @@ table.diff tr.gap td {
 }
 
 .composer-hint {
+  flex: 1 1 12em;
   min-width: 0;
   color: var(--text-4);
 }
 
+/* what the viewer says, at the right, and the button that answers it beside it: a long message wraps in the footer */
+.composer-said {
+  display: flex;
+  flex: 0 1 auto;
+  gap: 12px;
+  align-items: flex-start;
+  min-width: 0;
+  margin-left: auto;
+}
+
 .composer-status {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
   color: var(--ok);
+}
+
+/* a prompt the terminal took cut short, back in the box: sent again through a file — a link-like button */
+.composer-through-file {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.composer-through-file:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .composer-status[data-tone="error"] {
