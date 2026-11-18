@@ -285,3 +285,20 @@ export function agentOfSession(layout, sessionId) {
   if (pane?.agent === 'codex') return 'codex';
   return pane?.agent === 'agy' ? 'agy' : 'claude';
 }
+
+/**
+ * The page address of the tab beside the one open — a swipe goes to it — in herdr's order of its workspace's tabs: its
+ * session's feed, or the terminal of a tab with none (tabTarget).
+ * @param {HerdrLayout} layout
+ * @param {Opened} opened
+ * @param {'previous' | 'next'} direction
+ * @returns {string | undefined} — none past its workspace's first tab or last, or for what no tab holds
+ */
+export function tabBeside(layout, opened, direction) {
+  const place = placeOf(layout, opened);
+  if (place === undefined) return undefined;
+  const tabs = place.workspace.tabs;
+  const at = tabs.indexOf(place.tab);
+  const beside = tabs[direction === 'next' ? at + 1 : at - 1];
+  return beside === undefined ? undefined : tabTarget(beside);
+}

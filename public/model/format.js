@@ -51,13 +51,16 @@ export function formatDuration(ms) {
   return `${seconds}s`;
 }
 
+/** Day, month and time to the minute, made once: a date's toLocaleString makes a formatter anew each time, slow by the hundred. */
+const momentFormat = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+
 /**
  * When something happened, by the reader's clock: day, month and time to the minute — 9 Oct, 07:02.
  * @param {Date} at
  * @returns {string}
  */
 export function formatMoment(at) {
-  return at.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+  return momentFormat.format(at);
 }
 
 /**

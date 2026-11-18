@@ -58,9 +58,10 @@ const stickPx = 8;
 const initialTail = { wide: 2000, narrow: 800 };
 /**
  * How many of its latest entries a session not kept opens with first: shown at once, the rest of the tail asked for
- * after them — over a slow way to the viewer the latest come in a moment, not after the whole tail.
+ * after them — over a slow way to the viewer the latest come in a moment, not after the whole tail. A phone shows a
+ * message or two on its screen and lays out slowly: it starts with fewer.
  */
-const quickTail = 50;
+const quickTails = { wide: 50, narrow: 20 };
 /**
  * New entries are kept for reading offline at most this often — and at once when the page is put away or the session
  * closed. Each time the whole copy, hundreds of entries, is copied into the browser's store in the page's own thread: a
@@ -152,6 +153,8 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, checks, 
   let onReady = [];
 
   const nearBottom = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= stickPx;
+  /** Within a screen of the top of what is shown — or all of it in view. */
+  const nearTop = () => scroller.scrollTop <= scroller.clientHeight;
   const toBottom = () => {
     scroller.scrollTop = scroller.scrollHeight;
   };
@@ -298,7 +301,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, checks, 
       onReady = [];
       for (const resolve of waiting) resolve();
       // the latest entries shown: the rest of the tail asked for — a copy gone on from is shown as it is
-      if (tail === quickTail && cutShort) widen();
+      if (tail === quickTail && cutShort) widenWhenRead();
     });
     next.on('reset', () => {
       copy.take('reset', null);
@@ -437,17 +440,32 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, checks, 
       clearTimeout(retryTimer);
     };
   };
+  /** A phone's, or a tablet's: slow to lay out, swiped through tab to tab. */
+  const narrow = matchMedia('(max-width: 820px), (pointer: coarse)').matches;
   /** The tail a session is shown with: its latest entries come first (quickTail), then the rest of it. */
-  const wholeTail = matchMedia('(max-width: 820px), (pointer: coarse)').matches ? initialTail.narrow : initialTail.wide;
+  const wholeTail = narrow ? initialTail.narrow : initialTail.wide;
+  const quickTail = narrow ? quickTails.narrow : quickTails.wide;
   /** How many of the latest entries the stream starts with; undefined once the whole session was asked for. */
   /** @type {number | undefined} */
   let tail = quickTail;
   /** The latest entries shown, the rest of the tail asked for: they stay in view, marked over them where it will come. */
   const widen = () => {
+    widenNearTop = false;
     source?.close();
     startOver('earlier');
     tail = wholeTail;
     source = connect(tail);
+  };
+  /** The rest of the tail waits until the reader scrolls up near the top of the latest entries shown. */
+  let widenNearTop = false;
+  /**
+   * The latest entries shown, the rest of the tail asked for — at once on a computer; on a phone once the reader scrolls
+   * up near their top, or at once when they all are in view: hundreds of entries laid out at once hold a phone's page up
+   * for a second or more, the tabs swiped through meanwhile, while one glanced at needs its latest entries alone.
+   */
+  const widenWhenRead = () => {
+    if (!narrow || nearTop()) widen();
+    else widenNearTop = true;
   };
   /** @type {import('./feed-hub.js').FeedSource | undefined} */
   let source;
@@ -490,6 +508,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, checks, 
     if (!shown) return;
     stuck = nearBottom() || (stuck && !up);
     jump.hidden = stuck;
+    if (widenNearTop && nearTop()) widen();
   };
   scroller.addEventListener('scroll', onScroll, { passive: true });
   jump.addEventListener('click', () => {

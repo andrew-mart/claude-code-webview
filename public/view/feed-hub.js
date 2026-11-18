@@ -53,9 +53,18 @@ export function createFeedHub({ page, connect, post, retryMs, onBackInSight, now
   /** Whether the page needs its stream: a feed followed, or what changed listened for. */
   const needed = () => feeds.size > 0 || changeListeners.length > 0;
 
+  /** How many hold what the feeds are told now (hold); what they are told meanwhile, in order. */
+  let holding = 0;
+  /** @type {(() => void)[]} */
+  let told = [];
+  /** @param {string} name @param {string} event @param {unknown} data */
+  const tellNow = (name, event, data) => {
+    for (const listener of feeds.get(name)?.listeners.get(event) ?? []) listener(data);
+  };
   /** @param {string} name @param {string} event @param {unknown} data */
   const tell = (name, event, data) => {
-    for (const listener of feeds.get(name)?.listeners.get(event) ?? []) listener(data);
+    if (holding > 0) told.push(() => tellNow(name, event, data));
+    else tellNow(name, event, data);
   };
   /** The feed asked for over the stream open now: opened, from the token of its copy as it is now. @param {string} name */
   const ask = (name) => {
@@ -121,6 +130,24 @@ export function createFeedHub({ page, connect, post, retryMs, onBackInSight, now
   });
 
   return {
+    /**
+     * What the feeds are told held until let go, each in its order: a feed laid out as it comes — hundreds of entries
+     * on opening — holds the page up, and while a feed is swiped to the tab beside it is not to stand still.
+     * @returns {() => void} — lets go; what was held is told then, once, the last holder let go
+     */
+    hold() {
+      holding += 1;
+      let held = true;
+      return () => {
+        if (!held) return;
+        held = false;
+        holding -= 1;
+        if (holding > 0) return;
+        const waiting = told;
+        told = [];
+        for (const one of waiting) one();
+      };
+    },
     /**
      * What changed of what the page shows — herdr's tabs, the answers seen, the sessions — as the viewer tells it over
      * the page's stream, opened for it with no feed followed: their names; or, the stream opened again, that all may have.

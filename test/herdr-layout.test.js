@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentOfSession, openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf, searchLayout, sessionsByActivity, successorIn, tabTarget, workspacesShown } from '../public/model/herdr.js';
+import { agentOfSession, openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf, searchLayout, sessionsByActivity, successorIn, tabBeside, tabTarget, workspacesShown } from '../public/model/herdr.js';
 
 const session = '7d4e1b20-2222-4333-8444-955566667777';
 
@@ -35,6 +35,34 @@ test('tabTarget_Should_OpenSessionOfClaudeTab_AndTerminalOfAnyOther', () => {
   const [checklist] = notebook.tabs;
 
   assert.deepEqual([resume, apply, search, checklist].map((tab) => tab && tabTarget(tab)), [`#/${session}`, '#/pane/w2:p2', '#/pane/w2:p3', '#/pane/w3:p1']);
+});
+
+// A swipe goes to the tab beside the one open, in herdr's order of its workspace's tabs — its session's feed, or the
+// terminal of a tab with none — from a feed or a terminal alike; nowhere past the workspace's first or last
+test('tabBeside_Should_GoToTheTabBeforeOrAfter_ItsFeedOrTerminal_WithinItsWorkspace', () => {
+  const [first, second, third] = ['1a2b3c40-1111-4222-8333-944455550001', '1a2b3c40-1111-4222-8333-944455550002', '1a2b3c40-1111-4222-8333-944455550003'];
+  /** @param {string} id @param {string | undefined} sessionId @returns {import('../public/model/herdr.js').HerdrTab} */
+  const tab = (id, sessionId) => ({ id, number: 1, label: id, status: 'idle', panes: [{ id: `${id}:p`, agent: sessionId === undefined ? undefined : 'claude', status: 'idle', title: undefined, session: sessionId, size: undefined, activity: undefined }] });
+  /** @type {import('../public/model/herdr.js').HerdrWorkspace[]} */
+  const workspaces = [
+    { id: 'w1', number: 1, label: 'shop', status: 'idle', activeTab: undefined, tabs: [tab('w1:t1', first), tab('w1:t2', undefined), tab('w1:t3', second)] },
+    { id: 'w2', number: 2, label: 'trips', status: 'idle', activeTab: undefined, tabs: [tab('w2:t1', third)] },
+  ];
+  /** @type {[import('../public/model/herdr.js').Opened, 'previous' | 'next'][]} */
+  const asked = [
+    [{ kind: 'session', id: first }, 'previous'],
+    [{ kind: 'session', id: first }, 'next'],
+    [{ kind: 'pane', id: 'w1:t2:p' }, 'previous'],
+    [{ kind: 'pane', id: 'w1:t2:p' }, 'next'],
+    [{ kind: 'session', id: second }, 'next'],
+    [{ kind: 'session', id: third }, 'previous'],
+    [{ kind: 'session', id: session }, 'next'],
+  ];
+
+  assert.deepEqual(
+    asked.map(([opened, direction]) => tabBeside({ herdr: true, workspaces }, opened, direction)),
+    [undefined, '#/pane/w1:t2:p', `#/${first}`, `#/${second}`, undefined, undefined, undefined],
+  );
 });
 
 // A tab split into panes opens the one with a Claude Code session, else its first pane

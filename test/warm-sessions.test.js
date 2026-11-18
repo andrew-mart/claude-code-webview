@@ -21,6 +21,15 @@ test('warmSessions_Should_KeepLatestSessionsPutAway_LettingGoOfTheOldest', () =>
   assert.deepEqual({ taken, kept, letGo, keptAfterDrop: ['s1', 's2', 's3'].filter((id) => warm.has(id)) }, { taken: 'feed 3', kept: ['s1'], letGo: ['feed 2', 'feed 1 again'], keptAfterDrop: [] });
 });
 
+// A session kept is looked at where it is — the feed beside a swiped one drawn as it was kept — and stays kept
+test('warmSessions_Should_ShowWhatIsKept_KeepingIt', () => {
+  const warm = createWarmSessions({ most: 2, budget: 100, weigh: () => 1, letGo: () => undefined });
+
+  warm.keep('s1', 'feed 1');
+
+  assert.deepEqual({ looked: [warm.get('s1'), warm.get('s2')], kept: warm.has('s1') }, { looked: ['feed 1', undefined], kept: true });
+});
+
 // As many sessions are kept as their weight allows — a feed grows while out of sight, and is weighed as it is then —
 // the one put away last kept whatever it weighs, the ones put away longest ago let go of first
 test('warmSessions_Should_KeepAsManyAsTheirWeightAllows_TheLastPutAwayWhateverItWeighs', () => {

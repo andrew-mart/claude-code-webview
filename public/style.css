@@ -996,6 +996,7 @@ button {
 
 /* The tabs, scrolling sideways when they do not fit, in a strip of their own beside how busy the computer is. */
 .herdr-tab-strip {
+  position: relative;
   display: flex;
   flex: 1 1 auto;
   align-items: center;
@@ -1110,6 +1111,26 @@ button {
 .herdr-chip.selected {
   background: var(--bg-selected);
   color: var(--text);
+}
+
+/* While the feed is swiped to the tab beside, the open tab's mark glides toward that tab's, under the tabs' names
+   (swipe-along.js) */
+.herdr-tab-strip.gliding > .herdr-chip {
+  position: relative;
+  z-index: 1;
+}
+
+.herdr-tab-strip.gliding > .herdr-chip.selected {
+  background: transparent;
+}
+
+.herdr-chip-glide {
+  position: absolute;
+  left: 0;
+  z-index: 0;
+  border-radius: 8px 8px 0 0;
+  background: var(--bg-selected);
+  pointer-events: none;
 }
 
 /* The open tab's icon, ✎ and ×, right after it: small, not to crowd the other tabs. */
@@ -2045,6 +2066,18 @@ input.herdr-row-name.failed {
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* the title of the session beside, taking the title's place while the feed is swiped there (swipe-along.js) */
+.title-beside {
+  position: absolute;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 /* The facts at a glance: one line of small chips; a click opens the details. */
@@ -3895,27 +3928,111 @@ table.diff tr.gap td {
 
 /* ---------- Prompt composer ---------- */
 
+/* the feed drawn sideways to the tab beside (app.js: watchFeedSwipe) stays inside its column: the page never scrolls */
+.feed-column.swiping {
+  overflow: clip;
+}
+
+/* The feeds — the one shown and those kept out of sight — share the column's first cell, all of one size: one shown in
+   another's place, or swiped in beside it, is not laid out anew. Under them what the feed shown has under it — its
+   tasks, its box — a row each. */
 .feed-column {
   position: relative;
   /* the feeds kept out of sight go under what it shows, not under the page */
   isolation: isolate;
-  display: flex;
+  display: grid;
   flex: 1;
-  flex-direction: column;
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: auto;
   min-width: 0;
   min-height: 0;
 }
 
-/* the feed of a session kept out of sight (app.js): laid out as it was, as wide, over the column and hidden — shown again
-   at once, with no layout to make anew. Hidden by content-visibility alone — what is under it neither drawn nor pressed:
-   a property every element under it inherits, visibility or pointer-events, would be worked out anew for each of them,
+.feed-column > .scroller,
+.feed-column > .terminal-pane {
+  grid-area: 1 / 1;
+}
+
+/* A terminal's tab beside the one shown, swiped in: its live terminal is not drawn ahead, a card names it until it is
+   shown (app.js) */
+.feed-column > .tab-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  grid-area: 1 / 1;
+  z-index: -1;
+  padding: 24px;
+  background: #1e1d1c;
+  opacity: 0;
+}
+
+.feed-column > .tab-card.peeking {
+  z-index: 0;
+  opacity: 1;
+}
+
+/* a session's tab beside not put together yet: its title on the page's own ground, its feed shown once swiped to */
+.feed-column > .tab-card.session {
+  background: var(--bg);
+}
+
+.feed-column > .tab-card.session .tab-card-kind {
+  color: var(--text-4);
+}
+
+.feed-column > .tab-card.session .tab-card-name {
+  color: var(--text);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.tab-card-kind {
+  color: #8f8c84;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tab-card-name {
+  overflow: hidden;
+  max-width: 100%;
+  color: #f5f4ef;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the feed of a session kept out of sight (app.js): laid out as it was, in the same cell, hidden — shown again at once,
+   with no layout to make anew. Hidden by content-visibility alone — what is under it neither drawn nor pressed: a
+   property every element under it inherits, visibility or pointer-events, would be worked out anew for each of them,
    both ways. Its own box, empty as it looks, would still take what is pressed over the column — the /btw answer under
    the feed shown — so it lies under all the column shows */
 .scroller.parked {
-  position: absolute;
-  inset: 0;
   z-index: -1;
   content-visibility: hidden;
+}
+
+/* the feeds of the tabs beside the one shown on a phone, laid out ahead though unseen — by opacity, which nothing under
+   them inherits: a swipe brings one out without laying it out or working out its styles then (app.js) */
+.scroller.parked.beside {
+  content-visibility: visible;
+  opacity: 0;
+}
+
+/* the feed of the tab beside one swiped, drawn beside it (feed-pager.js) */
+.scroller.parked.peeking {
+  z-index: 0;
+  content-visibility: visible;
+  opacity: 1;
+}
+
+.feed-column.swiping > :is(.scroller, .terminal-pane, .tab-card) {
+  will-change: transform;
 }
 
 .composer {
@@ -3924,6 +4041,11 @@ table.diff tr.gap td {
   max-width: 800px;
   margin: 0 auto;
   padding: 0 24px 14px;
+}
+
+/* the strip under the box that slides up the recent tabs: a phone's alone */
+.tabs-grip {
+  display: none;
 }
 
 /* The session's background work over its input box: a line of what runs; opened, every task, each with its work. */
@@ -13212,7 +13334,8 @@ a.file-link:hover {
     padding: calc(4px + env(safe-area-inset-top)) 6px 8px;
   }
 
-  .title {
+  .title,
+  .title-beside {
     padding-left: 2px;
     font-size: 15.5px;
   }
@@ -13351,8 +13474,31 @@ a.file-link:hover {
     margin: 2px 0 0 4px;
   }
 
+  /* the space under the box is the strip that slides up the recent tabs (.tabs-grip) */
   .composer {
-    padding: 0 10px calc(8px + env(safe-area-inset-bottom));
+    padding: 0 10px;
+  }
+
+  /* Under the box, in the space it left there — the home indicator's on an iPhone — a strip with a grip: a tap slides up
+     the recent tabs from the bottom (tab-switcher.js) */
+  .tabs-grip {
+    display: flex;
+    flex: none;
+    justify-content: center;
+    width: 100%;
+    min-height: max(22px, calc(8px + env(safe-area-inset-bottom)));
+    padding: 7px 0 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
+  }
+
+  .tabs-grip-bar {
+    width: 44px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--text-4);
+    opacity: 0.7;
   }
 
   /* Every line counts on a phone: how to send is told by the button itself. */
@@ -13737,6 +13883,38 @@ table.diff,
   background: var(--bg-elev);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
   transform: translateX(-50%);
+}
+
+/* Slid up from the bottom of a phone's screen: a sheet over a shade, the page under it */
+.tab-switcher-shade {
+  display: none;
+}
+
+.tab-switcher-layer.from-bottom > .tab-switcher-shade {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 69;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.tab-switcher-layer.from-bottom > .tab-switcher {
+  top: auto;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  max-height: 70vh;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  border-width: 1px 0 0;
+  border-radius: 14px 14px 0 0;
+  transform: none;
+  animation: tab-switcher-up 0.18s ease-out;
+}
+
+@keyframes tab-switcher-up {
+  from {
+    transform: translateY(100%);
+  }
 }
 
 .tab-switcher-title {

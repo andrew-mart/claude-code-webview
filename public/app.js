@@ -19,9 +19,11 @@ import { createDrawers } from './view/drawers.js';
 import { afterDrawing } from './view/after-drawing.js';
 import { pollWhileShown } from './view/polling.js';
 import { downloadAddress } from './model/download-address.js';
-import { watchCloseSwipe, watchEdgeSwipe, watchPullDown } from './view/edge-swipe.js';
+import { watchCloseSwipe, watchEdgeSwipe, watchFeedSwipe, watchPullDown } from './view/edge-swipe.js';
+import { createFeedPager } from './view/feed-pager.js';
+import { createSwipeAlong } from './view/swipe-along.js';
 import { createPageAddress } from './view/page-address.js';
-import { agentOfSession, openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf, successorIn } from './model/herdr.js';
+import { agentOfSession, openedAt, paneSession, parseHerdrLayout, parseNewTab, parseNewWorkspace, parseTabChange, placeOf, successorIn, tabBeside } from './model/herdr.js';
 import { folderChoices, folderSearch, foundFolders, rememberFolder, systemFolder } from './model/folders.js';
 import { parseHistory, tabNeighbours, tabToContinue } from './model/history.js';
 import { parseUsage, usageView } from './model/usage.js';
@@ -222,7 +224,10 @@ const phrasesEvent = 'viewer:phrases';
 // A view setting that resizes the feed keeps the reader at the message they were at.
 const settings = createSettings((change) => page.keepPlace(change));
 // a chime when an agent finishes a turn, while the page is open — muted behind ⋯, on this device (view/chime.js)
-const chime = createChime(document);
+/** How long after the page opens the chime's audio is made. */
+const chimeAudioAfterMs = 3000;
+// its audio made a while after the page opens, idle then: a first press — a swipe begun — not held up by it
+const chime = createChime(document, { audio: () => new AudioContext(), idle: (then) => void setTimeout(then, chimeAudioAfterMs) });
 // turned on, it chimes once: what it sounds like, as loud as it will be
 document.addEventListener('click', (event) => {
   const button = event.target instanceof Element ? event.target.closest('[data-setting="sound"]') : null;
@@ -250,6 +255,10 @@ const machine = fetch('/api/machine')
   .then(parseMachine, () => undefined);
 /** The sessions and terminals opened lately, the latest first, as the browser keeps them for Ctrl+Tab — read as the page is made. */
 const recentTabsKey = 'viewer.recentTabs';
+/** How long after a session is shown on a phone the feeds of the tabs beside it are put together, for a swipe. */
+const besideAfterMs = 1500;
+/** How long after a swipe is let go of the feeds' events are held at most, whatever became of it. */
+const feedsHeldMostMs = 2000;
 const recentTabsKept = 40;
 const page = createPage();
 // prompts left waiting by a page closed out of the viewer's reach go as this one opens
@@ -435,6 +444,9 @@ function createPage() {
    */
   /** @type {{ id: string, agent: SessionInfo['agent'], pins: ReturnType<typeof createPinsStore>, openNote: (noteId: string) => boolean, answerPoint: (point: string) => void, putCommand: (command: string) => void, dispose: () => void, putAway: () => void, step: (direction: 'previous' | 'next') => void, header: ReturnType<typeof createSessionHeader>, place: () => import('./view/session-view.js').ReadingPlace, keepPlace: (change: () => void) => void, rewound: (reply: import('./model/rewind.js').RewindReply) => void, stop: () => boolean, forgetSent: () => void, showTab: () => void, showHerdr: () => void } | undefined} */
   let current;
+  /** The session the feed was swiped to, until it is shown. */
+  /** @type {string | undefined} */
+  let swipedTo;
   /** How long each session has been written to: its robots' story goes on as its row is drawn again. */
   const workClock = createWorkClock(() => Date.now());
   /** Where the reader left each session opened in this tab: coming back returns there. */
@@ -488,12 +500,16 @@ function createPage() {
     // the agents kept lit show their lamps lit, as in the session list
     entries: () => switcherEntries(recentTabs, keptLit(herdrLayout, keptPanes)),
     open: (place) => {
-      location.hash = place.kind === 'session' ? `#/${place.id}` : `#/pane/${place.id}`;
+      // as the page goes anywhere: in the iPhone's home-screen app adding nothing to go back to (page-address.js)
+      address.go(place.kind === 'session' ? `#/${place.id}` : `#/pane/${place.id}`);
     },
     // drawn as the session list draws its rows, its robots going on from where the list's are
     rowOf: (entry) => herdrSidebar.rowOf(entry, seenAnswers.get()),
   });
   document.body.append(tabSwitcher.element);
+  // on a phone, the strip under the box — the space it leaves there — slides the recent tabs up from the bottom
+  const tabsGrip = h('button', { className: 'tabs-grip', title: 'Recent tabs', attrs: { type: 'button', 'aria-label': 'Recent tabs' } }, [h('span', { className: 'tabs-grip-bar' })]);
+  tabsGrip.addEventListener('click', () => tabSwitcher.openFromBottom());
   let herdrKnown = '';
   /** The agents kept lit to come back to, as the viewer keeps them for every device (model/lamps.js: keptLit). */
   /** @type {import('./model/lamps.js').KeptPanes} */
@@ -803,10 +819,11 @@ function createPage() {
     // On a phone the sidebar is a drawer: the terminal's top row opens it, as a session's header does.
     const title = h('span', { className: 'terminal-title', text: paneName(paneId) });
     const top = h('div', { className: 'terminal-top' }, [drawerButton('sessions', 'menu', 'Sessions'), title]);
-    main.replaceChildren(top, tabBar.element, terminal.element);
+    showPaneParts(top, terminal.element);
     currentPane = { id: paneId, terminal, title, sessionWhenOpened: paneSession(herdrLayout, paneId, undefined) };
     renderList();
     redrawHistory();
+    prepareBeside(() => currentPane?.id === paneId);
   };
 
   /**
@@ -834,13 +851,181 @@ function createPage() {
     if (main.children[0] === tabBar.element && main.children[2] === mainBody) main.children[1]?.replaceWith(headerElement);
     else main.replaceChildren(tabBar.element, headerElement, mainBody);
     for (const child of [...feedColumn.children]) if (!child.classList.contains('scroller')) child.remove();
-    for (const other of feedColumn.querySelectorAll(':scope > .scroller')) other.classList.toggle('parked', other !== scroller);
+    // on a phone the feed left stays laid out though unseen — its tab is beside the one shown, a swipe back brings it out
+    // at once; on a computer it is parked as every other
+    const besides = matchMedia('(max-width: 820px)').matches;
+    for (const other of feedColumn.querySelectorAll(':scope > .scroller')) {
+      other.classList.toggle('beside', besides && other !== scroller && !other.classList.contains('parked'));
+      other.classList.toggle('parked', other !== scroller);
+    }
     scroller.classList.remove('parked');
     if (scroller.parentElement !== feedColumn) feedColumn.append(scroller);
     feedColumn.append(...under);
     for (const child of [...mainBody.children]) if (child !== feedColumn) child.remove();
     mainBody.append(...beside);
+    // swiped to: the feed beside, drawn in its place already, is the one shown
+    pager.clear();
   };
+  /**
+   * A pane's terminal in the feeds' cell, where a session shows its feed — a swipe goes from it to the tab beside as from
+   * a feed — the feeds kept parked under it.
+   * @param {HTMLElement} top — the terminal's top row
+   * @param {HTMLElement} terminalElement
+   */
+  const showPaneParts = (top, terminalElement) => {
+    main.replaceChildren(top, tabBar.element, mainBody);
+    for (const child of [...feedColumn.children]) if (!child.classList.contains('scroller')) child.remove();
+    // on a phone the feed left stays laid out though unseen, as when a feed takes its place
+    const besides = matchMedia('(max-width: 820px)').matches;
+    for (const other of feedColumn.querySelectorAll(':scope > .scroller')) {
+      other.classList.toggle('beside', besides && !other.classList.contains('parked'));
+      other.classList.add('parked');
+    }
+    feedColumn.append(terminalElement);
+    for (const child of [...mainBody.children]) if (child !== feedColumn) child.remove();
+    pager.clear();
+  };
+  /** The tab beside the one shown, in herdr's order of its workspace's tabs: none past the workspace's first or last. */
+  const tabTo = (/** @type {'previous' | 'next'} */ direction) => {
+    const opened = openedAt(location.hash);
+    return opened === undefined ? undefined : tabBeside(herdrLayout, opened, direction);
+  };
+  /**
+   * What the tab beside the one shown opens: its session's feed, or its pane's terminal — none past the workspace's ends.
+   * @param {'previous' | 'next'} direction
+   */
+  const openedBeside = (direction) => {
+    const target = tabTo(direction);
+    return target === undefined ? undefined : openedAt(target);
+  };
+  /**
+   * The feed of the session of the tab beside the one shown, parked in the column: kept as it was shown, or mounted for
+   * it now and kept. None for a tab with a terminal, or past the workspace's ends.
+   * @param {'previous' | 'next'} direction
+   */
+  const sessionFeedBeside = (direction) => {
+    const opened = openedBeside(direction);
+    if (opened?.kind !== 'session') return undefined;
+    const kept = warm.get(opened.id);
+    if (kept !== undefined) return kept.scroller;
+    const info = sessions.find((session) => session.id === opened.id);
+    const part = mountFeed(opened.id, info === undefined ? agentOfSession(herdrLayout, opened.id) : info.agent);
+    part.scroller.classList.add('parked');
+    feedColumn.prepend(part.scroller);
+    warm.keep(opened.id, part);
+    return part.scroller;
+  };
+  /**
+   * What a swipe brings in from the tab beside: its session's feed, put together already — none is put together as the
+   * finger moves, its loading would hold the page up — or else a card in the feeds' cell naming the session, or the
+   * terminal, whose live screen is not drawn ahead: what it names is shown once swiped to.
+   * @param {'previous' | 'next'} direction
+   */
+  const feedBeside = (direction) => {
+    const opened = openedBeside(direction);
+    if (opened === undefined) return undefined;
+    const kept = opened.kind === 'session' ? warm.get(opened.id) : undefined;
+    if (kept !== undefined) return kept.scroller;
+    for (const old of feedColumn.querySelectorAll(':scope > .tab-card')) old.remove();
+    const [kind, name] = opened.kind === 'pane' ? ['Terminal', paneName(opened.id)] : ['Session', sessions.find((session) => session.id === opened.id)?.title ?? 'Untitled'];
+    const card = h('div', { className: `tab-card ${opened.kind}` }, [h('span', { className: 'tab-card-kind', text: kind }), h('span', { className: 'tab-card-name', text: name })]);
+    feedColumn.append(card);
+    return card;
+  };
+  /**
+   * On a phone, the feeds of the tabs beside put together once what is shown has settled, while nothing is swiped, and
+   * laid out though unseen: a swipe brings one along at once, not making it or laying it out as the finger moves.
+   * @param {() => boolean} stillShown — whether what was shown is still
+   */
+  const prepareBeside = (stillShown) => {
+    if (!matchMedia('(max-width: 820px)').matches) return;
+    const put = () => {
+      if (!stillShown() || !swipeOpens()) return;
+      // not while a feed is swiped: what is put together would hold it up
+      if (feedColumn.classList.contains('swiping')) {
+        setTimeout(put, besideAfterMs);
+        return;
+      }
+      const beside = [sessionFeedBeside('next'), sessionFeedBeside('previous')];
+      for (const feed of feedColumn.querySelectorAll(':scope > .scroller.parked')) feed.classList.toggle('beside', beside.some((one) => one === feed));
+    };
+    setTimeout(put, besideAfterMs);
+  };
+  /**
+   * While a feed is swiped — drawn, then sliding — what the feeds are told waits (feed-hub.js: hold): a feed loading, laid
+   * out as it comes, would hold the page up under the finger. Let go once the pager is cleared, or a while after it is let
+   * go of, whatever became of it.
+   * @type {(() => void) | undefined}
+   */
+  let feedsHeld;
+  const holdFeeds = () => {
+    feedsHeld ??= feedHub.hold();
+  };
+  const letFeedsGo = () => {
+    feedsHeld?.();
+    feedsHeld = undefined;
+  };
+  // the open tab's mark in the tabs' row and the title go along with the feed swiped (swipe-along.js)
+  const along = createSwipeAlong({
+    strip: () => {
+      const row = tabBar.element.querySelector('.herdr-tab-strip');
+      return row instanceof HTMLElement ? row : undefined;
+    },
+    tabBeside: (direction) => {
+      const opened = openedBeside(direction);
+      return opened === undefined ? undefined : placeOf(herdrLayout, opened)?.tab.id;
+    },
+    title: () => {
+      const heading = main.querySelector('.session-head > .title, .terminal-top > .terminal-title');
+      return heading instanceof HTMLElement ? heading : undefined;
+    },
+    titleBeside: (direction) => {
+      const opened = openedBeside(direction);
+      if (opened === undefined) return undefined;
+      return opened.kind === 'pane' ? paneName(opened.id) : sessions.find((session) => session.id === opened.id)?.title;
+    },
+  });
+  // On a phone showing a session, its feed drawn sideways goes to the tab beside, as a pager's: drawn left, the next
+  // one; drawn right, the one before — its feed coming along beside, then shown at once (feed-pager.js)
+  const pager = createFeedPager({
+    column: feedColumn,
+    // a session's feed, or a pane's terminal
+    shown: () => {
+      if (currentPane !== undefined) return currentPane.terminal.element;
+      const feed = feedColumn.querySelector(':scope > .scroller:not(.parked)');
+      return feed instanceof HTMLElement ? feed : undefined;
+    },
+    beside: feedBeside,
+    go: (direction) => {
+      const target = tabTo(direction);
+      const opened = openedBeside(direction);
+      swipedTo = opened?.kind === 'session' ? opened.id : undefined;
+      // adding nothing to go back to in the iPhone's home-screen app: there the swipe from an edge stays the drawers'
+      if (target !== undefined) address.go(target);
+    },
+    width: () => feedColumn.clientWidth,
+    frame: (draw) => void requestAnimationFrame(draw),
+    later: (ms, done) => void setTimeout(done, ms),
+    along: {
+      follow: along.follow,
+      settle: along.settle,
+      clear: () => {
+        along.clear();
+        letFeedsGo();
+      },
+    },
+  });
+  watchFeedSwipe(window, feedColumn, {
+    holds: (target) => swipeOpens() && target instanceof Element && target.closest('.feed-column > .scroller:not(.parked), .feed-column > .terminal-pane') !== null,
+    follow: (across) => {
+      holdFeeds();
+      pager.follow(across);
+    },
+    settle: (direction) => {
+      pager.settle(direction);
+      setTimeout(letFeedsGo, feedsHeldMostMs);
+    },
+  });
   /**
    * The sessions opened lately, kept as shown while out of sight, their feeds going on: one opened again shows at once,
    * up to date. As many as their feeds' elements allow — each costs the page about 3 KB, a long session's feed some
@@ -1166,9 +1351,11 @@ function createPage() {
       className: 'outline-resizer',
     });
     part.queue.send = () => composer.sendQueue();
-    showSessionParts(header.element, scroller, [tasks.element, dock.element, composer.element], [outlineResizer, outlineElement]);
+    showSessionParts(header.element, scroller, [tasks.element, dock.element, composer.element, tabsGrip], [outlineResizer, outlineElement]);
     // shown at once as it was, the reader where they were
-    if (part === kept) view.restore(places.get(id) ?? { kind: 'bottom' });
+    // swiped to, it shows already where it is to be: not scrolled there again
+    if (part === kept && swipedTo !== id) view.restore(places.get(id) ?? { kind: 'bottom' });
+    swipedTo = undefined;
     // what the feed told while out of sight — or before — told to the header and outline first, then what comes
     // What the box, the tasks and the branch show is asked for as the session's status changes — a turn begun or ended,
     // the feed back — not every few seconds; what the box shows also as herdr's tabs change: a dialog open in the
@@ -1268,6 +1455,7 @@ function createPage() {
     current.showHerdr();
     renderList();
     redrawHistory();
+    prepareBeside(() => current?.id === id);
   };
 
   /** Opens the open session anew: its box, rewinds and hints as whose the list tells it is now. */

@@ -14,15 +14,25 @@ const peak = 0.16;
 const ringS = 0.55;
 
 /**
+ * What of the browser's audio the chime uses.
+ * @typedef {Pick<AudioContext, 'state' | 'currentTime' | 'resume' | 'createOscillator' | 'createGain' | 'destination'>} Audio
+ */
+
+/**
  * @param {Pick<Document, 'addEventListener'>} page — whose presses wake the audio
+ * @param {{ audio: () => Audio, idle: (then: () => void) => void }} making — audio: the browser's, made; idle: when the
+ *   page idles — the audio is made then, not at a press: making it takes a while, and a press may start a swipe that is
+ *   to follow the finger at once
  * @returns {{ play: () => void }} — play: the chime, if the audio is awake; nothing before the reader did anything
  */
-export function createChime(page) {
-  /** @type {{ context: AudioContext | undefined }} */
+export function createChime(page, { audio: make, idle }) {
+  /** @type {{ context: Audio | undefined }} */
   const audio = { context: undefined };
+  idle(() => {
+    audio.context = make();
+  });
   const wake = () => {
-    if (audio.context === undefined) audio.context = new AudioContext();
-    if (audio.context.state === 'suspended') void audio.context.resume();
+    if (audio.context?.state === 'suspended') void audio.context.resume();
   };
   for (const press of /** @type {const} */ (['pointerdown', 'keydown', 'touchend'])) page.addEventListener(press, wake, { passive: true });
   return {

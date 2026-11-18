@@ -43,6 +43,12 @@ export function createWarmSessions({ most, budget, weigh, letGo }) {
     /** @param {string} sessionId */
     has: (sessionId) => kept.has(sessionId),
     /**
+     * The session kept, looked at where it is: still kept. None for one not kept.
+     * @param {string} sessionId
+     * @returns {T | undefined}
+     */
+    get: (sessionId) => kept.get(sessionId),
+    /**
      * A session no longer to be kept as it was shown: let go of.
      * @param {string} sessionId
      */

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { watchCloseSwipe, watchEdgeSwipe, watchPullDown } from '../public/view/edge-swipe.js';
+import { watchCloseSwipe, watchEdgeSwipe, watchFeedSwipe, watchPullDown } from '../public/view/edge-swipe.js';
 
 /**
  * A phone's page, 400 CSS pixels wide, that counts the swipes from either edge.
@@ -52,8 +52,14 @@ test('edgeSwipe_Should_TellSwipeFromEachEdge_WhenFingerDrawnInward', (t) => {
     [370, 302],
     [310, 306],
   ]);
+  // an edge is 40px wide: the feed's own sideways swipe starts past it
+  drag(window, [
+    [34, 400],
+    [60, 404],
+    [110, 410],
+  ]);
 
-  assert.deepEqual(seen, { fromLeft: 1, fromRight: 1 });
+  assert.deepEqual(seen, { fromLeft: 2, fromRight: 1 });
 });
 
 // The feed scrolled by a finger put down at an edge, a finger drawn in the middle of the screen, or one drawn outward
@@ -195,4 +201,97 @@ test('pullDown_Should_PutSheetAway_WhenDrawnFarEnoughDown_FollowingTheFinger', (
   ]);
 
   assert.deepEqual(seen, { pulled: 1, followed: [40, 110, 0, 30, 0] });
+});
+
+/**
+ * A finger put down on the element at the first point and drawn through the others, then lifted — each point with when
+ * it was there, in ms. What is told of each move: whether it was kept from scrolling the page.
+ * @param {import('jsdom').DOMWindow} window
+ * @param {Element} on
+ * @param {readonly (readonly [number, number, number])[]} path — [x, y, ms]
+ * @param {number} liftedAt — ms
+ * @returns {boolean[]}
+ */
+function timedDragOn(window, on, path, liftedAt) {
+  /** @param {string} type @param {readonly (readonly [number, number, number])[]} at @param {number} time */
+  const fire = (type, at, time) => {
+    const event = new window.Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'touches', { value: at.map(([clientX, clientY]) => ({ clientX, clientY })) });
+    Object.defineProperty(event, 'timeStamp', { value: time });
+    on.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  const [first, ...rest] = path;
+  if (first !== undefined) fire('touchstart', [first], first[2]);
+  const kept = rest.map((point) => fire('touchmove', [point], point[2]));
+  fire('touchend', [], liftedAt);
+  return kept;
+}
+
+// On a phone showing a session the feed is drawn sideways by a finger put down in its middle, the feed beside coming
+// with it, as a pager's: it follows the finger once that goes sideways more than up or down — the page no longer
+// scrolled by it — and, let go, settles on the tab beside — drawn left, the next one; drawn right, the one before — when
+// drawn two fifths of the screen or flicked that way — a flick held still before the finger is lifted is none; else back
+// in its place. A finger put down within an edge's 40px — the drawers' swipes — or off the feed is left alone; one on
+// what scrolls sideways in it — a table, a code block, a terminal — is left to that scrolling while it can scroll that
+// way, and is the swipe's once it is at its edge
+test('feedSwipe_Should_SettleOnTheTabBeside_WhenDrawnFarOrFlicked_FollowingTheFinger', (t) => {
+  const { window } = new JSDOM('<!doctype html><html><body><main class="feed"><pre class="wide" style="overflow-x: auto"></pre></main><div class="box"></div></body></html>');
+  t.after(() => window.close());
+  Object.defineProperty(window, 'innerWidth', { value: 400 });
+  const feed = window.document.querySelector('.feed');
+  const wide = window.document.querySelector('.wide');
+  const box = window.document.querySelector('.box');
+  assert.ok(feed !== null && wide !== null && box !== null);
+  Object.defineProperty(wide, 'scrollWidth', { value: 900 });
+  Object.defineProperty(wide, 'clientWidth', { value: 300 });
+  /** @type {{ settled: string[], followed: number[] }} */
+  const seen = { settled: [], followed: [] };
+  watchFeedSwipe(window, window.document.body, { holds: (target) => target instanceof window.Node && feed.contains(target), follow: (across) => void seen.followed.push(across), settle: (direction) => void seen.settled.push(direction ?? 'back') });
+
+  const keptFromScrolling = timedDragOn(window, feed, [[200, 300, 0], [180, 302, 50], [120, 305, 150], [30, 306, 400]], 400);
+  timedDragOn(window, feed, [[150, 300, 0], [175, 301, 16], [215, 302, 40]], 40);
+  timedDragOn(window, feed, [[200, 300, 0], [230, 301, 100], [260, 302, 300]], 300);
+  timedDragOn(window, feed, [[300, 300, 0], [200, 300, 100], [150, 300, 200], [170, 300, 216]], 216);
+  timedDragOn(window, feed, [[150, 300, 0], [175, 301, 16], [215, 302, 40]], 240);
+  const scrolled = timedDragOn(window, feed, [[200, 300, 0], [203, 280, 16], [230, 200, 32]], 32);
+  timedDragOn(window, box, [[200, 700, 0], [100, 700, 16], [20, 700, 32]], 32);
+  timedDragOn(window, feed, [[34, 300, 0], [120, 300, 16], [200, 300, 32]], 32);
+  timedDragOn(window, wide, [[200, 300, 0], [120, 300, 16], [40, 300, 32]], 32);
+  timedDragOn(window, wide, [[200, 300, 0], [280, 300, 16], [360, 300, 32]], 32);
+
+  assert.deepEqual(
+    { ...seen, keptFromScrolling, scrolled },
+    { settled: ['next', 'previous', 'back', 'back', 'back', 'previous'], followed: [-20, -80, -170, 25, 65, 30, 60, -100, -150, -130, 25, 65, 80, 160], keptFromScrolling: [true, true, true], scrolled: [false, false] },
+  );
+});
+
+// A feed still loading draws itself anew under the finger: what the finger came down on leaves the page, the touch's
+// moves and lift still going to it — a touch keeps the target it began on — and the swipe goes on all the same
+test('feedSwipe_Should_GoOn_When_WhatTheFingerCameDownOnLeavesThePage', (t) => {
+  const { window } = new JSDOM('<!doctype html><html><body><main class="feed"><p class="entry">Loading the conversation</p></main></body></html>');
+  t.after(() => window.close());
+  Object.defineProperty(window, 'innerWidth', { value: 400 });
+  const feed = window.document.querySelector('.feed');
+  const entry = window.document.querySelector('.entry');
+  assert.ok(feed !== null && entry !== null);
+  /** @type {{ settled: string[], followed: number[] }} */
+  const seen = { settled: [], followed: [] };
+  watchFeedSwipe(window, window.document.body, { holds: (target) => target instanceof window.Node && feed.contains(target), follow: (across) => void seen.followed.push(across), settle: (direction) => void seen.settled.push(direction ?? 'back') });
+  /** @param {string} type @param {readonly (readonly [number, number])[]} at @param {number} time */
+  const fire = (type, at, time) => {
+    const event = new window.Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'touches', { value: at.map(([clientX, clientY]) => ({ clientX, clientY })) });
+    Object.defineProperty(event, 'timeStamp', { value: time });
+    entry.dispatchEvent(event);
+  };
+
+  fire('touchstart', [[200, 300]], 0);
+  entry.remove();
+  fire('touchmove', [[180, 302]], 50);
+  fire('touchmove', [[120, 305]], 150);
+  fire('touchmove', [[30, 306]], 400);
+  fire('touchend', [], 400);
+
+  assert.deepEqual(seen, { settled: ['next'], followed: [-20, -80, -170] });
 });

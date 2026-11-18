@@ -218,3 +218,32 @@ test('feedHub_Should_TellWhatChanged_AndThatAllMayHave_OnceTheStreamIsOpenedAgai
 
   assert.deepEqual({ streams: page.sources.length, heard, heardByAway }, { streams: 1, heard: [['seen', 'herdr'], 'all'], heardByAway: [['seen', 'herdr']] });
 });
+
+// While the page holds them — a feed swiped to the tab beside, not to stand still meanwhile — what the feeds are told
+// waits, each in its order, and is told once let go; let go twice, nothing is told twice
+test('feedHub_Should_HoldWhatTheFeedsAreTold_WhileHeld_AndTellItInOrderOnceLetGo', async () => {
+  const page = hubOf();
+  page.feed('a', { session: 's1' });
+  page.feed('b', { session: 's2' });
+  const [source] = page.sources;
+  assert.ok(source);
+  source.emit('open');
+  await page.settle();
+
+  const letGo = page.hub.hold();
+  source.emit('entries', { feed: 'f1', data: [{ uuid: 'u1' }] });
+  source.emit('entries', { feed: 'f2', data: [{ uuid: 'u2' }] });
+  source.emit('ready', { feed: 'f1', data: null });
+  const whileHeld = [...page.heard];
+  letGo();
+  letGo();
+  source.emit('cursor', { feed: 'f1', data: { token: 't2' } });
+
+  assert.deepEqual(
+    { whileHeld, after: page.heard },
+    {
+      whileHeld: ['a open {"resumed":false}', 'b open {"resumed":false}'],
+      after: ['a open {"resumed":false}', 'b open {"resumed":false}', 'a entries [{"uuid":"u1"}]', 'b entries [{"uuid":"u2"}]', 'a ready null', 'a cursor {"token":"t2"}'],
+    },
+  );
+});

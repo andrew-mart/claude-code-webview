@@ -116,3 +116,20 @@ test('tabSwitcher_Should_CloseOnEscape_OpenOnEnterOrClick_AndShowNothingWithOneT
 
   assert.deepEqual({ escaped, opened, backward, alone: alone.shown() }, { escaped: 'hidden', opened: ['w1:p2', 's2'], backward: ' rate-limit  tests >node-24', alone: 'hidden' });
 });
+
+// On a phone the strip under the box slides the switcher up from the bottom of the screen: the tabs in the order they
+// were opened, the one opened before marked; a tap on a tab opens it, a tap beside the list leaves the tab open as it was
+test('tabSwitcher_Should_SlideUpFromBottom_OpenTabTapped_AndGoOnTapBeside', () => {
+  const { switcher, opened, shown } = switcherOver(tabs);
+  const tap = () => new window.MouseEvent('click', { bubbles: true });
+
+  switcher.openFromBottom();
+  const up = shown();
+  const fromBottom = switcher.element.classList.contains('from-bottom');
+  switcher.element.querySelector('.tab-switcher-shade')?.dispatchEvent(tap());
+  const tappedBeside = shown();
+  switcher.openFromBottom();
+  switcher.element.querySelectorAll('.tab-switcher-item')[2]?.dispatchEvent(tap());
+
+  assert.deepEqual({ up, fromBottom, tappedBeside, opened, after: shown() }, { up: ' rate-limit >tests  node-24', fromBottom: true, tappedBeside: 'hidden', opened: ['s2'], after: 'hidden' });
+});

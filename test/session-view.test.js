@@ -251,6 +251,42 @@ test('mountSession_Should_OpenWithLatestEntriesFirst_ThenEarlierOnes_MarkedWhere
   );
 });
 
+// On a phone a session never kept opens with its latest entries alone and keeps to them while the reader stays away from
+// their top — the rest of its tail, hundreds of entries laid out at once, would hold the page up while it is swiped
+// through — and asks for the rest once the reader scrolls up near the top of those shown
+test('mountSession_Should_AskForTheRestOfTheTailOnAPhone_OnlyOnceScrolledNearTheTop', async (t) => {
+  const computer = globalThis.matchMedia;
+  Object.assign(globalThis, { matchMedia: () => ({ matches: true }) });
+  t.after(() => Object.assign(globalThis, { matchMedia: computer }));
+  const { view, feeds } = await mounted(t, undefined);
+  const scroller = view.element.parentElement;
+  assert.ok(scroller !== null);
+  let top = 0;
+  Object.defineProperty(scroller, 'scrollHeight', { value: 5000 });
+  Object.defineProperty(scroller, 'clientHeight', { value: 800 });
+  Object.defineProperty(scroller, 'scrollTop', { get: () => top, set: (value) => void (top = Math.min(value, 4200)) });
+  const scrollTo = (/** @type {number} */ at) => {
+    top = at;
+    scroller.dispatchEvent(new window.Event('scroll'));
+  };
+  const latest = feeds[0];
+  assert.ok(latest);
+
+  latest.emit('open');
+  latest.emit('earlier', { count: 900 });
+  latest.emit('entries', [prompt('u900', 'Latest question')]);
+  latest.emit('ready');
+  await settled();
+  const atBottom = feeds.length;
+  scrollTo(3000);
+  await settled();
+  const midway = feeds.length;
+  scrollTo(600);
+  await settled();
+
+  assert.deepEqual({ atBottom, midway, nearTop: feeds.length, tail: feeds[1]?.wanted.tail }, { atBottom: 1, midway: 1, nearTop: 2, tail: 800 });
+});
+
 // "Show earlier" loads the entries before those shown a part at a time — as many as the session opened with — not the
 // whole session: thousands in a long one, a phone's page thrown away for its size. The button tells how many it loads of
 // how many are left; the last part, all that is left

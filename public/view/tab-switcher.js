@@ -5,7 +5,8 @@
 // Shift+Tab back, the arrows too, and the wheel a tab a notch — Ctrl held, it would zoom the page, not scroll the
 // list; letting go of Ctrl opens the tab marked, as Enter or a click on a tab does; Escape
 // leaves the tab open as it was. A browser keeps Ctrl+Tab to itself in its tabs: the page has it in a window of its own —
-// installed as an app — or in full screen.
+// installed as an app — or in full screen. On a phone it slides up from the bottom of the screen, from the strip under the
+// box: a tap on a tab opens it, a tap beside the list leaves the tab open as it was.
 import { h } from './dom.js';
 
 /** A notch of a mouse's wheel, in pixels — a step of the mark; a line and a page of it, where the wheel counts those. */
@@ -22,11 +23,14 @@ const wheelPage = 800;
  * @param {{ entries: () => readonly SwitcherEntry[], open: (place: Opened) => void, rowOf: (entry: SwitcherEntry) => HTMLElement }} parts
  *   — entries: the tabs as they were opened, the latest first — the one open now first; open: a tab switched to; rowOf:
  *   a tab's row as the session list draws it
- * @returns {{ element: HTMLElement }}
+ * @returns {{ element: HTMLElement, openFromBottom: () => void }} — element: the switcher and, slid up from the bottom, the
+ *   shade over the page beside it
  */
 export function createTabSwitcher({ entries, open, rowOf }) {
   const list = h('ol', { className: 'tab-switcher-list', attrs: { role: 'listbox', 'aria-label': 'Recent tabs' } });
-  const element = h('div', { className: 'tab-switcher', attrs: { hidden: '', role: 'dialog', 'aria-label': 'Switch tabs' } }, [h('div', { className: 'tab-switcher-title', text: 'Recent tabs' }), list]);
+  const shade = h('div', { className: 'tab-switcher-shade' });
+  const panel = h('div', { className: 'tab-switcher', attrs: { role: 'dialog', 'aria-label': 'Switch tabs' } }, [h('div', { className: 'tab-switcher-title', text: 'Recent tabs' }), list]);
+  const element = h('div', { className: 'tab-switcher-layer', attrs: { hidden: '' } }, [shade, panel]);
   /** The tabs shown, while the switcher is: the marked one's place among them. */
   /** @type {{ tabs: readonly SwitcherEntry[], marked: number } | undefined} */
   let showing;
@@ -48,7 +52,17 @@ export function createTabSwitcher({ entries, open, rowOf }) {
   const hide = () => {
     showing = undefined;
     element.hidden = true;
+    element.classList.remove('from-bottom');
     list.replaceChildren();
+  };
+  shade.addEventListener('click', hide);
+  /** Slid up from the bottom of a phone's screen: the tabs as they were opened, the one opened before marked. */
+  const openFromBottom = () => {
+    const tabs = entries();
+    showing = { tabs, marked: Math.min(1, tabs.length - 1) };
+    element.classList.add('from-bottom');
+    element.hidden = false;
+    draw();
   };
   /** @param {number} at */
   const choose = (at) => {
@@ -119,5 +133,5 @@ export function createTabSwitcher({ entries, open, rowOf }) {
   );
   // the window left — another app, another tab — the switcher goes: Ctrl let go there is not heard here
   window.addEventListener('blur', hide);
-  return { element };
+  return { element, openFromBottom };
 }
