@@ -6250,16 +6250,32 @@ table.diff tr.gap td {
   transition: opacity 0.12s ease;
 }
 
-.anchored > .bookmark-toggle {
+/* an answer's flag and check side by side, check then flag, right of the column: two 19px buttons within the 38px
+   the flag alone took — at the column's 40px edge a fraction of a pixel past it scrolls the feed sideways */
+.anchored > .bookmark-toggle,
+.anchored > .check-toggle {
   position: absolute;
   top: 0;
   right: -38px;
+  width: 19px;
+  height: 19px;
+  border-radius: 5px;
 }
 
-/* an answer's flag under it too, at its end, where it is read to */
-.anchored > .bookmark-toggle.bookmark-under {
-  top: auto;
-  bottom: 0;
+.anchored > .check-toggle {
+  right: -19px;
+}
+
+.anchored > :is(.bookmark-toggle, .check-toggle) .icon {
+  width: 15px;
+  height: 15px;
+}
+
+/* an answer's flag and check under it too, at its end, where it is read to. An answer too short for both pairs, one
+   over the other, has the under pair laid on the corner one: one pair in sight. The clamp: under 44px the middle term
+   is far below zero, over it far above the end. */
+.anchored > :is(.bookmark-toggle.bookmark-under, .check-toggle.check-under) {
+  top: clamp(0px, (100% - 44px) * 1000, 100% - 19px);
 }
 
 .msg.user > .bookmark-toggle {
@@ -6289,6 +6305,48 @@ table.diff tr.gap td {
 
 .bookmark-toggle.on svg {
   fill: currentColor;
+}
+
+/* A check beside each bookmark flag: shown the same way; pressed, the message is marked with a green check — done
+   with — that stays in sight. */
+.check-toggle {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-4);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.msg.user > .check-toggle {
+  align-self: center;
+  margin-right: 6px;
+}
+
+.anchor:hover > .check-toggle,
+.check-toggle:focus-visible,
+.check-toggle.on {
+  opacity: 1;
+}
+
+.check-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--lamp-done);
+}
+
+.check-toggle .icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.6;
+}
+
+.check-toggle.on {
+  color: var(--lamp-done);
 }
 
 /* Rewind to before a prompt: next to its bookmark flag, shown the same way. */
@@ -13225,13 +13283,39 @@ a.file-link:hover {
   .anchored > .bookmark-toggle {
     position: static;
     float: right;
+    width: 28px;
+    height: 28px;
     margin: -4px -6px 4px 8px;
+    border-radius: 7px;
   }
 
-  /* under the answer: on a line of its own, at the right */
+  /* under the answer: on a line of its own, at the right — the answer holding it */
+  .anchored {
+    display: flow-root;
+  }
+
   .anchored > .bookmark-toggle.bookmark-under {
-    float: none;
-    margin: 2px -6px 0 auto;
+    clear: right;
+    margin: 2px -6px 0 8px;
+  }
+
+  /* the check beside the flag, left of it: in the corner as the flag is, and on the flag's line under the answer */
+  .anchored > .check-toggle {
+    position: static;
+    float: right;
+    width: 28px;
+    height: 28px;
+    margin: -4px 0 4px 4px;
+    border-radius: 7px;
+  }
+
+  .anchored > :is(.bookmark-toggle, .check-toggle) .icon {
+    width: 16px;
+    height: 16px;
+  }
+
+  .anchored > .check-toggle.check-under {
+    margin: 2px 0 0 4px;
   }
 
   .composer {
@@ -13429,6 +13513,7 @@ a.file-link:hover {
 /* A touch screen has no hover: controls that wait for it stay visible. */
 @media (hover: none) {
   .bookmark-toggle,
+  .check-toggle,
   .rewind-toggle {
     opacity: 0.4;
   }
@@ -13438,6 +13523,7 @@ a.file-link:hover {
   }
 
   .bookmark-toggle.on,
+  .check-toggle.on,
   .outline-remove {
     opacity: 1;
   }

@@ -15,6 +15,7 @@ import { promisify } from 'node:util';
 import { constants as zlibConstants, createGzip, gzip } from 'node:zlib';
 import { withAttachedImages } from '../public/model/attachments.js';
 import { parseBookmarkChange } from '../public/model/bookmarks.js';
+import { parseCheckChange } from '../public/model/checks.js';
 import { parseLaterChange } from '../public/model/later.js';
 import { parseNoteChange } from '../public/model/notes.js';
 import { parsePinChange } from '../public/model/pins.js';
@@ -153,7 +154,7 @@ const paneIdPattern = /^[\w:-]{1,40}$/;
 const noPhrases = { top: async () => [], sent: async () => undefined };
 
 /**
- * @param {{ index: SessionIndex, host: string, port: number, pollMs: number, changesEveryMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, desks: import('./desks.js').Desks, pins: import('./pins.js').Pins, seen: Seen, kept: Kept, diagnostics: Diagnostics, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, system: SystemUsage, processes: Processes, chatgptUsage?: ReadUsage, agyUsage?: ReadUsage, agyRewound?: AgyRewound, phrases?: Phrases, sessionStatus?: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode?: import('./vscode.js').VsCode | undefined, codexInUse: () => Promise<boolean> }} options
+ * @param {{ index: SessionIndex, host: string, port: number, pollMs: number, changesEveryMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, checks: import('./checks.js').Checks, later: import('./later.js').LaterPrompts, desks: import('./desks.js').Desks, pins: import('./pins.js').Pins, seen: Seen, kept: Kept, diagnostics: Diagnostics, uploads: Uploads, about: About, palette: import('../public/model/palettes.js').Palette, publicAddresses: readonly PublicAddress[], herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, system: SystemUsage, processes: Processes, chatgptUsage?: ReadUsage, agyUsage?: ReadUsage, agyRewound?: AgyRewound, phrases?: Phrases, sessionStatus?: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode?: import('./vscode.js').VsCode | undefined, codexInUse: () => Promise<boolean> }} options
  *   about — package name and version for /api/health; palette — the page's colours (public/model/palettes.js);
  *   publicAddresses — where else the page is opened at, answered as the local address is; herdrView — what herdr
  *   shows (herdr-view.js); terminals — herdr panes' terminals (terminal.js); usage — the account's usage (usage.js);
@@ -164,7 +165,7 @@ const noPhrases = { top: async () => [], sent: async () => undefined };
  *   thread open (codex-live.js)
  * @returns {Promise<{ port: number, close: () => void }>}
  */
-export async function startServer({ index, host, port, pollMs, changesEveryMs, composer, bookmarks, later, desks, pins, seen, kept, diagnostics, uploads, about, palette, publicAddresses, herdrView, terminals, usage, system, processes, chatgptUsage = async () => undefined, agyUsage = async () => undefined, agyRewound = async () => undefined, phrases = noPhrases, sessionStatus = async () => undefined, isRunning, editor, fileManager, commands, vscode, codexInUse }) {
+export async function startServer({ index, host, port, pollMs, changesEveryMs, composer, bookmarks, checks, later, desks, pins, seen, kept, diagnostics, uploads, about, palette, publicAddresses, herdrView, terminals, usage, system, processes, chatgptUsage = async () => undefined, agyUsage = async () => undefined, agyRewound = async () => undefined, phrases = noPhrases, sessionStatus = async () => undefined, isRunning, editor, fileManager, commands, vscode, codexInUse }) {
   const instance = randomUUID();
   const build = await pageBuild();
   const pageModules = await modulesAtStart();
@@ -226,7 +227,7 @@ export async function startServer({ index, host, port, pollMs, changesEveryMs, c
   /** The prompts sent under an id, so that one sent again — its reply lost on the way — is typed once. */
   const sentPrompts = createSentPrompts(sentPromptsKept);
   /** @type {Deps} */
-  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, later, desks, pins, seen, kept, diagnostics, codexInUse, uploads, about, build, pageModules, feedEntries, rewinds, transcripts, feeds, palette, herdrView, terminals, usage, system, processes, chatgptUsage, agyUsage, agyRewound, phrases, subagentsWork, sessionStatus, isRunning, editor, fileManager, commands, vscode, instance, fileIcons, sentPrompts };
+  const deps = { index, allowedHosts, allowedOrigins, pollMs, composer, bookmarks, checks, later, desks, pins, seen, kept, diagnostics, codexInUse, uploads, about, build, pageModules, feedEntries, rewinds, transcripts, feeds, palette, herdrView, terminals, usage, system, processes, chatgptUsage, agyUsage, agyRewound, phrases, subagentsWork, sessionStatus, isRunning, editor, fileManager, commands, vscode, instance, fileIcons, sentPrompts };
   const server = http.createServer((request, response) => {
     handle(deps, request, response).catch((error) => {
       console.error(`${request.method} ${request.url} failed`, error);
@@ -262,7 +263,7 @@ export async function startServer({ index, host, port, pollMs, changesEveryMs, c
 
 /**
  * @typedef {ReturnType<typeof createSessionIndex>} SessionIndex — Claude Code's sessions and Codex's (sessions.js)
- * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, later: import('./later.js').LaterPrompts, desks: import('./desks.js').Desks, pins: import('./pins.js').Pins, uploads: Uploads, about: About, build: string, pageModules: readonly string[], feedEntries: string, rewinds: Map<string, import('./branch.js').RewindMark>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, system: SystemUsage, processes: Processes, chatgptUsage: ReadUsage, agyUsage: ReadUsage, agyRewound: AgyRewound, phrases: Phrases, subagentsWork: (session: string) => Promise<boolean>, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, kept: Kept, diagnostics: Diagnostics, codexInUse: () => Promise<boolean>, sentPrompts: import('./sent-prompts.js').SentPrompts }} Deps
+ * @typedef {{ index: SessionIndex, allowedHosts: ReadonlySet<string>, allowedOrigins: ReadonlySet<string>, pollMs: number, composer: Composer, bookmarks: import('./bookmarks.js').Bookmarks, checks: import('./checks.js').Checks, later: import('./later.js').LaterPrompts, desks: import('./desks.js').Desks, pins: import('./pins.js').Pins, uploads: Uploads, about: About, build: string, pageModules: readonly string[], feedEntries: string, rewinds: Map<string, import('./branch.js').RewindMark>, transcripts: import('./stream.js').TranscriptCache, feeds: ReturnType<typeof createFeedPages>, palette: import('../public/model/palettes.js').Palette, herdrView: HerdrView, terminals: Terminals, usage: ReadUsage, system: SystemUsage, processes: Processes, chatgptUsage: ReadUsage, agyUsage: ReadUsage, agyRewound: AgyRewound, phrases: Phrases, subagentsWork: (session: string) => Promise<boolean>, sessionStatus: ReadSessionStatus, isRunning: IsRunning, editor: OpenEditor | undefined, fileManager: OpenFileManager, commands: SessionCommands, vscode: import('./vscode.js').VsCode | undefined, instance: string, fileIcons: ReturnType<typeof createFileIcons>, seen: Seen, kept: Kept, diagnostics: Diagnostics, codexInUse: () => Promise<boolean>, sentPrompts: import('./sent-prompts.js').SentPrompts }} Deps
  *   instance: this run of the viewer, told apart from any other — see /api/machine; vscode: VS Code's web server
  *   behind /vscode/, none when the viewer runs none
  * @typedef {Pick<ReturnType<typeof import('./herdr-view.js').createHerdrView>, 'forkedFrom' | 'workspacesOf' | 'layout' | 'renameTab' | 'closeTab' | 'focusTab' | 'moveTab' | 'renameWorkspace' | 'closeWorkspace' | 'setWorkspaceIcon' | 'hideWorkspace' | 'showWorkspace' | 'hidePane' | 'showHidden' | 'createTab' | 'duplicateTab' | 'continueTab' | 'createWorkspace' | 'history' | 'reopen' | 'restart' | 'exit'>} HerdrView
@@ -388,6 +389,9 @@ async function handle(deps, request, response) {
       return withSession(url, response, async (id) => sendJson(response, await deps.index.subagents(id)));
     case '/api/bookmarks':
       return withSession(url, response, async (id) => sendJson(response, await deps.bookmarks.list(id)));
+    // the messages checked in the session's feed
+    case '/api/checks':
+      return withSession(url, response, async (id) => sendJson(response, await deps.checks.list(id)));
     // the prompts set aside for later in the session's box
     case '/api/later':
       return withSession(url, response, async (id) => sendJson(response, await deps.later.list(id)));
@@ -774,6 +778,14 @@ async function handleWrite(deps, url, request, response) {
         return;
       }
       return sendJson(response, await deps.bookmarks.change(sessionId, change));
+    }
+    case '/api/checks': {
+      const change = parseCheckChange(isRecord(body) ? body.change : undefined);
+      if (change === undefined) {
+        response.writeHead(400).end('Bad check change');
+        return;
+      }
+      return sendJson(response, await deps.checks.change(sessionId, change));
     }
     case '/api/later': {
       const change = parseLaterChange(isRecord(body) ? body.change : undefined);

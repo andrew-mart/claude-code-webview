@@ -71,13 +71,14 @@ const keepDelayMs = 120_000;
 const retryMs = 20_000;
 
 /**
- * @param {{ scroller: HTMLElement, sessionId: string, agentId: string | undefined, bookmarks: import('./bookmark-store.js').BookmarkStore | undefined, onRewind: ((prompt: Anchor) => void) | undefined, listener: SessionListener, startAt: ReadingPlace | undefined, keeping: Keeping | undefined, sendQueueNow: (() => void) | undefined, openFeed: OpenFeed }} options
- * — bookmarks: undefined for a nested subagent feed, which has no bookmarks; onRewind: likewise, a subagent cannot be rewound;
+ * @param {{ scroller: HTMLElement, sessionId: string, agentId: string | undefined, bookmarks: import('./bookmark-store.js').BookmarkStore | undefined, checks: import('./check-store.js').CheckStore | undefined, onRewind: ((prompt: Anchor) => void) | undefined, listener: SessionListener, startAt: ReadingPlace | undefined, keeping: Keeping | undefined, sendQueueNow: (() => void) | undefined, openFeed: OpenFeed }} options
+ * — bookmarks: undefined for a nested subagent feed, which has no bookmarks; checks: the green checks on messages, likewise;
+ *   onRewind: likewise, a subagent cannot be rewound;
  * startAt — where the reader left the session last time; undefined — at the bottom; keeping — the copy kept to read
  * offline and to go on from, undefined for a nested subagent feed; openFeed: the session's feed from the viewer
  * @returns {MountedSession}
  */
-export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind, listener, startAt, keeping, sendQueueNow, openFeed }) {
+export function mountSession({ scroller, sessionId, agentId, bookmarks, checks, onRewind, listener, startAt, keeping, sendQueueNow, openFeed }) {
   // The history arrives in batches of a thousand entries: laid out after each, a long session would be laid out again
   // and again as it grows. It stays hidden until the whole history is in, then is shown once, at the bottom.
   const thread = h('div', { className: 'thread', attrs: { hidden: '' } });
@@ -104,7 +105,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
   // the conversation the session's tab went on from, over all of it
   const lead = h('div', { className: 'session-lead', attrs: { hidden: '' } });
   const element = h('div', { className: 'session' }, [lead, earlier, loadingEarlier, keptThread, updating, thread, loading, empty, working, waitingBox, jump]);
-  const anchors = createAnchors(bookmarks, onRewind);
+  const anchors = createAnchors(bookmarks, checks, onRewind);
   /** @type {HTMLElement[]} */
   const prompts = [];
   /**
@@ -131,6 +132,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
     },
   });
   const unsubscribe = bookmarks?.onChange(anchors.refresh);
+  const unsubscribeChecks = checks?.onChange(anchors.refresh);
   const resetFeed = () => {
     feed.reset();
     anchors.clear();
@@ -532,6 +534,7 @@ export function mountSession({ scroller, sessionId, agentId, bookmarks, onRewind
       scroller.removeEventListener('scroll', onScroll);
       keepAtBottom.disconnect();
       unsubscribe?.();
+      unsubscribeChecks?.();
     },
     scrollToAnchor(id) {
       const target = anchors.find(id);
@@ -624,18 +627,26 @@ function metaWithStatus(meta, status) {
 
 /**
  * Messages one can come back to: each has a bookmark flag — an answer one under it as well, where it is read to its
- * end — and its element can be found by id.
+ * end — and beside each flag a check that marks the message green, done with; its element can be found by id.
  * @param {import('./bookmark-store.js').BookmarkStore | undefined} bookmarks
+ * @param {import('./check-store.js').CheckStore | undefined} checks
  * @param {((prompt: Anchor) => void) | undefined} onRewind — offers to rewind to a prompt; undefined in a subagent feed
  */
-function createAnchors(bookmarks, onRewind) {
-  /** @type {Map<string, { element: HTMLElement, buttons: readonly HTMLButtonElement[] }>} */
+function createAnchors(bookmarks, checks, onRewind) {
+  /** @type {Map<string, { element: HTMLElement, buttons: readonly HTMLButtonElement[], checkButtons: readonly HTMLButtonElement[] }>} */
   const registry = new Map();
   const press = (/** @type {HTMLButtonElement} */ button, /** @type {boolean} */ on) => {
     button.classList.toggle('on', on);
     button.setAttribute('aria-pressed', String(on));
     // The tooltip names the action the click will perform.
     button.title = on ? 'Remove bookmark' : 'Bookmark this message';
+  };
+  const pressCheck = (/** @type {HTMLButtonElement} */ button, /** @type {boolean} */ on) => {
+    button.classList.toggle('on', on);
+    button.setAttribute('aria-pressed', String(on));
+    const label = on ? 'Remove the check' : 'Check this message';
+    button.title = label;
+    button.setAttribute('aria-label', label);
   };
   return {
     /**
@@ -650,6 +661,21 @@ function createAnchors(bookmarks, onRewind) {
       holder.dataset.anchor = anchor.id;
       /** @type {HTMLButtonElement[]} */
       const buttons = [];
+      /** @type {HTMLButtonElement[]} */
+      const checkButtons = [];
+      /** A check, beside a bookmark flag — none where the feed keeps no checks. @param {string} className */
+      const check = (className) => {
+        if (checks === undefined) return [];
+        const store = checks;
+        const button = h('button', { className, attrs: { type: 'button' } }, [icon('check')]);
+        button.addEventListener('click', (event) => {
+          event.stopPropagation();
+          store.toggle(anchor.id);
+        });
+        pressCheck(button, store.has(anchor.id));
+        checkButtons.push(button);
+        return [button];
+      };
       if (bookmarks !== undefined) {
         const store = bookmarks;
         /** @param {string} className */
@@ -663,8 +689,8 @@ function createAnchors(bookmarks, onRewind) {
           buttons.push(button);
           return button;
         };
-        holder.prepend(flag('bookmark-toggle'));
-        if (anchor.kind === 'answer') holder.append(flag('bookmark-toggle bookmark-under'));
+        holder.prepend(flag('bookmark-toggle'), ...check('check-toggle'));
+        if (anchor.kind === 'answer') holder.append(flag('bookmark-toggle bookmark-under'), ...check('check-toggle check-under'));
       }
       // A prompt can be rewound to, as with Esc Esc in the terminal.
       if (anchor.kind === 'prompt' && onRewind !== undefined) {
@@ -675,11 +701,14 @@ function createAnchors(bookmarks, onRewind) {
         });
         holder.prepend(rewind);
       }
-      registry.set(anchor.id, { element: holder, buttons });
+      registry.set(anchor.id, { element: holder, buttons, checkButtons });
       return holder;
     },
     refresh() {
-      for (const [id, { buttons }] of registry) for (const button of buttons) if (bookmarks !== undefined) press(button, bookmarks.has(id));
+      for (const [id, { buttons, checkButtons }] of registry) {
+        for (const button of buttons) if (bookmarks !== undefined) press(button, bookmarks.has(id));
+        for (const button of checkButtons) if (checks !== undefined) pressCheck(button, checks.has(id));
+      }
     },
     /** @param {string} id */
     find: (id) => registry.get(id)?.element,
@@ -1172,6 +1201,7 @@ export async function openSubagentTranscript(sessionId, toolUseId, holder, openF
     startAt: undefined,
     keeping: undefined,
     bookmarks: undefined,
+    checks: undefined,
     onRewind: undefined,
     sendQueueNow: undefined,
     listener: { onMeta: () => {}, onStatus: () => {}, onPrompt: () => {}, onReset: () => {} },

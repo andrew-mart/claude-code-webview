@@ -15,6 +15,7 @@ import { palettes } from '../public/model/palettes.js';
 import { startServer } from '../server/app.js';
 import { createSessionIndex } from '../server/sessions.js';
 import { createBookmarkFile } from '../server/bookmarks.js';
+import { createCheckFile } from '../server/checks.js';
 import { createLaterFile } from '../server/later.js';
 import { createDeskFiles } from '../server/desk-files.js';
 import { createDesks } from '../server/desks.js';
@@ -278,7 +279,7 @@ async function withServer(t, { takenBack, refused, palette = 'clay', publicAddre
   // the file manager opens what is asked
   /** @type {import('../server/file-manager.js').FileManagerTarget[]} */
   const shownInFileManager = [];
-  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot, ...(agy === undefined ? {} : { agy: createAgyConversations(agy) }) }), host: '127.0.0.1', port: 0, pollMs: 30, changesEveryMs: 40, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), later: createLaterFile(join(root, 'later.json')), desks, pins: createPinsFile(join(root, 'pins.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), kept: createKeptFile(join(root, 'kept.json'), { limit: 100 }), diagnostics: createDiagnosticsLog(join(root, 'diagnostics.jsonl'), { maxBytes: 1_000_000 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, system: { read: async () => ({ cpu: 31, memory: { used: 24_000, total: 32_000 }, gpu: undefined }) }, processes: { read: async (by) => [{ pid: 4120, name: `node by ${by}`, cpu: 12, memory: 104_857_600, gpu: by === 'gpu' ? 3 : undefined }] }, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, agyUsage: async () => agyUsage, phrases: createPhrasesFile(join(root, 'phrases.json')), agyRewound: async (conversation) => (agyRewound?.conversation === conversation ? { step: agyRewound.step, at: agyRewound.at } : undefined), sessionStatus: async (id) => {
+  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot, ...(agy === undefined ? {} : { agy: createAgyConversations(agy) }) }), host: '127.0.0.1', port: 0, pollMs: 30, changesEveryMs: 40, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), checks: createCheckFile(join(root, 'checks.json')), later: createLaterFile(join(root, 'later.json')), desks, pins: createPinsFile(join(root, 'pins.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), kept: createKeptFile(join(root, 'kept.json'), { limit: 100 }), diagnostics: createDiagnosticsLog(join(root, 'diagnostics.jsonl'), { maxBytes: 1_000_000 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, system: { read: async () => ({ cpu: 31, memory: { used: 24_000, total: 32_000 }, gpu: undefined }) }, processes: { read: async (by) => [{ pid: 4120, name: `node by ${by}`, cpu: 12, memory: 104_857_600, gpu: by === 'gpu' ? 3 : undefined }] }, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, agyUsage: async () => agyUsage, phrases: createPhrasesFile(join(root, 'phrases.json')), agyRewound: async (conversation) => (agyRewound?.conversation === conversation ? { step: agyRewound.step, at: agyRewound.at } : undefined), sessionStatus: async (id) => {
       await statusRead;
       return id === sessionId ? sessionStatus : undefined;
     } });
@@ -1065,6 +1066,18 @@ test('bookmarks_Should_RejectChangeOfUnknownShape', async (t) => {
   const responses = await Promise.all(malformed.map((change) => post(port, '/api/bookmarks', pageHeaders(port), JSON.stringify({ session: sessionId, change }))));
 
   assert.deepEqual(responses.map((response) => response.status), [400, 400, 400]);
+});
+
+// A message checked on the page is the viewer's: the page asks for the checks again — on another device too — and a
+// change of another shape is refused
+test('checks_Should_KeepMessageCheckedOnPage_AndRefuseChangeOfUnknownShape', async (t) => {
+  const { base, port } = await withServer(t);
+
+  const checked = await post(port, '/api/checks', pageHeaders(port), JSON.stringify({ session: sessionId, change: { action: 'check', id: 'a1:0' } }));
+  const listed = await fetch(`${base}/api/checks?session=${sessionId}`);
+  const refused = await post(port, '/api/checks', pageHeaders(port), JSON.stringify({ session: sessionId, change: { action: 'toggle', id: 'a1:0' } }));
+
+  assert.deepEqual({ checked: checked.status, listed: await listed.json().catch(() => 'not JSON'), refused: refused.status }, { checked: 200, listed: ['a1:0'], refused: 400 });
 });
 
 /** @type {import('../public/model/later.js').LaterPrompt} */

@@ -85,8 +85,9 @@ const cursor = (token, held, earlier = 0) => ({ token, shown: earlier + held.len
  * @param {import('node:test').TestContext} t
  * @param {import('../public/view/offline-store.js').SavedFeed | undefined} saved
  * @param {import('../public/view/bookmark-store.js').BookmarkStore} [bookmarks]
+ * @param {import('../public/view/check-store.js').CheckStore} [checks]
  */
-async function mounted(t, saved, bookmarks) {
+async function mounted(t, saved, bookmarks, checks) {
   /** The feeds asked for, the latest last. @type {FakeFeed[]} */
   const feeds = [];
   /** The copies kept. @type {import('../public/view/offline-store.js').SavedFeed[]} */
@@ -102,6 +103,7 @@ async function mounted(t, saved, bookmarks) {
     sessionId: '3f2c9a50-1111-4222-8333-944455556666',
     agentId: undefined,
     bookmarks,
+    checks,
     onRewind: undefined,
     sendQueueNow: undefined,
     startAt: undefined,
@@ -317,6 +319,61 @@ test('mountSession_Should_OfferAnswersBookmarkUnderItToo_BothFlagsShowingIt', as
   view.dispose();
 
   assert.deepEqual({ before, after }, { before: ['corner false', 'under false'], after: ['corner true', 'under true'] });
+});
+
+// Beside each bookmark flag a message has a check: pressed, the message is checked — every check of it shows it —
+// pressed again, it is not
+test('mountSession_Should_OfferACheckBesideEachBookmarkFlag_AllShowingTheMessageChecked', async (t) => {
+  /** @type {Set<string>} */
+  const checked = new Set();
+  /** @type {(() => void)[]} */
+  const listeners = [];
+  /** @type {import('../public/view/check-store.js').CheckStore} */
+  const checks = {
+    has: (id) => checked.has(id),
+    toggle: (id) => {
+      if (!checked.delete(id)) checked.add(id);
+      for (const listener of listeners) listener();
+    },
+    onChange: (listener) => {
+      listeners.push(listener);
+      return () => undefined;
+    },
+    dispose: () => undefined,
+  };
+  /** @type {import('../public/view/bookmark-store.js').BookmarkStore} */
+  const bookmarks = { list: () => [], has: () => false, toggle: () => undefined, onChange: () => () => undefined, dispose: () => undefined };
+  const { view, source } = await mounted(t, undefined, bookmarks, checks);
+  source.emit('open');
+  source.emit('entries', [prompt('u1', 'Question'), answer('a1', 'The answer.')]);
+  source.emit('ready');
+  await settled();
+  const shown = () =>
+    [...view.element.querySelectorAll('.check-toggle')].map((check) => {
+      const flagBeside = [check.previousElementSibling, check.nextElementSibling].some((next) => next?.matches('.bookmark-toggle') === true);
+      return `${check.closest('.msg.user') === null ? 'answer' : 'prompt'} ${flagBeside ? 'by its flag' : 'alone'} ${check.getAttribute('aria-pressed')}`;
+    });
+  /** @param {number} at */
+  const press = (at) => {
+    const check = view.element.querySelectorAll('.check-toggle')[at];
+    if (check instanceof window.HTMLElement) check.click();
+  };
+
+  const before = shown();
+  press(2);
+  const answerChecked = shown();
+  press(1);
+  const unchecked = shown();
+  view.dispose();
+
+  assert.deepEqual(
+    { before, answerChecked, unchecked },
+    {
+      before: ['prompt by its flag false', 'answer by its flag false', 'answer by its flag false'],
+      answerChecked: ['prompt by its flag false', 'answer by its flag true', 'answer by its flag true'],
+      unchecked: ['prompt by its flag false', 'answer by its flag false', 'answer by its flag false'],
+    },
+  );
 });
 
 // The points of an answer — a 👉 starting a line — are buttons that give what they point at, for the reader to answer
