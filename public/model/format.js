@@ -52,6 +52,15 @@ export function formatDuration(ms) {
 }
 
 /**
+ * When something happened, by the reader's clock: day, month and time to the minute — 9 Oct, 07:02.
+ * @param {Date} at
+ * @returns {string}
+ */
+export function formatMoment(at) {
+  return at.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+/**
  * @param {number} n
  * @returns {string}
  */

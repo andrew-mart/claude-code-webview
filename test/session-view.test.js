@@ -391,6 +391,18 @@ test('mountSession_Should_MakeAnAnswersPointsButtons_NotAPromptsOwn', async (t) 
   );
 });
 
+// The end of a turn says how long it took and when it ended, by the reader's clock: day, month and time
+test('mountSession_Should_SayWhenATurnEnded_BesideHowLongItTook', async (t) => {
+  const ended = new Date(2026, 9, 9, 7, 2, 11).toISOString();
+  const { view, source } = await mounted(t, undefined);
+  source.emit('open');
+  source.emit('entries', [prompt('u1', 'Count the tests'), answer('a1', 'There are 12.'), { type: 'system', subtype: 'turn_duration', uuid: 'e1', timestamp: ended, durationMs: 41_000 }]);
+  source.emit('ready');
+  await settled();
+
+  assert.equal(view.element.querySelector('.turn-end')?.textContent, '✻41s · 9 Oct, 07:02');
+});
+
 // A prompt sent from the page shows in the feed at once, as sent — the terminal took it — until Claude Code writes it
 // down: then it is the prompt itself, once
 test('mountSession_Should_ShowPromptSentFromPage_UntilClaudeWritesItDown', async (t) => {

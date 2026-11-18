@@ -3,7 +3,7 @@
 import { expandedRows, layoutActivity } from '../model/activity.js';
 import { anchorLabel } from '../model/bookmarks.js';
 import { interpretEntry } from '../model/entry.js';
-import { formatDuration, formatTokens } from '../model/format.js';
+import { formatDuration, formatMoment, formatTokens } from '../model/format.js';
 import { isRecord, text } from '../model/narrow.js';
 import { h } from './dom.js';
 import { inlineImage } from './picture.js';
@@ -891,7 +891,8 @@ function createFeed({ thread, waitingBox }, sessionId, hooks) {
         top(divider(`Context compacted${event.trigger === 'auto' ? ' automatically' : ''}${event.preTokens === undefined ? '' : ` · was ${formatTokens(event.preTokens)}`}`));
         break;
       case 'turn-end':
-        (turn ?? thread).append(h('div', { className: 'turn-end' }, [h('span', { className: 'spark', text: '✻' }), h('span', { text: formatDuration(event.durationMs) })]));
+        // how long the turn took, and when it ended
+        (turn ?? thread).append(h('div', { className: 'turn-end' }, [h('span', { className: 'spark', text: '✻' }), h('span', { text: formatDuration(event.durationMs) }), h('time', { className: 'turn-end-at', text: ` · ${formatMoment(new Date(event.at))}`, attrs: { datetime: event.at } })]));
         turn = undefined;
         activity = undefined;
         working = false;
