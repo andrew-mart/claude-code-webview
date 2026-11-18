@@ -24,6 +24,7 @@ import { agentOfSession, openedAt, paneSession, parseHerdrLayout, parseNewTab, p
 import { folderChoices, folderSearch, foundFolders, rememberFolder, systemFolder } from './model/folders.js';
 import { parseHistory, tabNeighbours, tabToContinue } from './model/history.js';
 import { parseUsage, usageView } from './model/usage.js';
+import { parsePhrases } from './model/phrases.js';
 import { createHerdrSidebar, createTabBar } from './view/herdr-panel.js';
 import { createSystemMeters } from './view/system-meters.js';
 import { parseSystemProcesses, parseSystemUsage } from './model/system-usage.js';
@@ -215,6 +216,8 @@ const notesEditorEvent = 'viewer:notes-editor';
 const keptDocsKey = 'viewer.docs';
 /** The diagnostics turned on or off behind ⋯. */
 const diagnosticsEvent = 'viewer:diagnostics';
+/** The phrases' row over the box turned on or off behind ⋯. */
+const phrasesEvent = 'viewer:phrases';
 // A view setting that resizes the feed keeps the reader at the message they were at.
 const settings = createSettings((change) => page.keepPlace(change));
 // a chime when an agent finishes a turn, while the page is open — muted behind ⋯, on this device (view/chime.js)
@@ -1115,6 +1118,15 @@ function createPage() {
       asides,
       // a prompt the terminal took shows in the feed at once, until Claude Code writes it down
       onSent: (text) => view?.expectPrompt(text),
+      // the phrases sent most, over the box — on or off as this device had it last
+      phrases: {
+        load: readPhrases,
+        shown: () => settings.get('phrases') === 'on',
+        watch: (listener) => {
+          document.addEventListener(phrasesEvent, listener);
+          return () => document.removeEventListener(phrasesEvent, listener);
+        },
+      },
       // a dialog in the terminal — /mcp sent opened it: the slash commands sent may never be written down
       onDialog: () => view?.forgetSentCommands(),
       // agy stopped writes nothing of it: its calls still waiting once it is at its prompt were cut short. Claude Code
@@ -1568,6 +1580,7 @@ const rareSettings = [
   ['notes', 'type'],
   ['theme', 'moon'],
   ['sound', 'bell'],
+  ['phrases', 'type'],
   ['diagnostics', 'sliders'],
 ];
 const headerSettings = [...headerSettingGroups.flat(), ...rareSettings];
@@ -1607,6 +1620,11 @@ function createSettings(keepPlace) {
     if (root.dataset.notes !== get('notes')) {
       root.dataset.notes = get('notes');
       document.dispatchEvent(new Event(notesEditorEvent));
+    }
+    // the phrases' row over the box shown or hidden as set, in every box (phrase-bar.js)
+    if (root.dataset.phrases !== get('phrases')) {
+      root.dataset.phrases = get('phrases');
+      document.dispatchEvent(new Event(phrasesEvent));
     }
     // the diagnostics started or stopped as set
     if (root.dataset.diagnostics !== get('diagnostics')) {
@@ -1675,6 +1693,7 @@ function settingKeyOf(value) {
     case 'notes':
     case 'diagnostics':
     case 'sound':
+    case 'phrases':
       return value;
     default:
       return undefined;
@@ -1863,6 +1882,15 @@ async function refreshUsage() {
 
 /** Each agent's name, in the title of its row of usage. */
 const usageAgents = /** @type {const} */ ({ claude: 'Claude', codex: 'ChatGPT / Codex', agy: 'Antigravity CLI' });
+
+/**
+ * The phrases sent most, as the viewer counts them, the most first; none while it is out of reach.
+ * @returns {Promise<{ text: string, count: number }[]>}
+ */
+async function readPhrases() {
+  const response = await fetch('/api/phrases').catch(() => undefined);
+  return response === undefined || !response.ok ? [] : parsePhrases(await response.json().catch(() => undefined));
+}
 
 /**
  * @param {string} path

@@ -4,12 +4,13 @@
 // Claude Code waits for — its AskUserQuestion dialog — shows above the box too, and is answered from there (/api/dialog).
 // A command typed — a slash first — has the session's commands and skills offered over the box (command-menu.js).
 import { pollWhileShown } from './polling.js';
-import { askerNames, btwMessage, composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, sideQuestionOf, stopMessage, withCommand, withPoint } from '../model/composer.js';
+import { askerNames, btwMessage, composerState, outcomeMessage, parseBtwReply, parseLiveState, parseOutcome, parseStopOutcome, promptForBox, sideQuestionOf, stopMessage, withCommand, withPasted, withPoint } from '../model/composer.js';
 import { parseDialogReply } from '../model/dialog.js';
 import { parseNewTab } from '../model/herdr.js';
 import { answerBlocks } from '../model/side-answer.js';
 import { completeCommand, parseCommands } from '../model/command-suggest.js';
 import { createAttachmentPicker } from './attachment-picker.js';
+import { createPhraseBar } from './phrase-bar.js';
 import { createCommandMenu } from './command-menu.js';
 import { createDialogCard } from './dialog-card.js';
 import { h } from './dom.js';
@@ -39,6 +40,41 @@ const noticeMs = 4000;
 const outOfReach = { shown: true, enabled: true, canInterrupt: false, canReopen: false, placeholder: 'The viewer is out of reach — what you send waits here and goes once it is back', hint: 'Prompts sent now wait in this browser and go to the session in the order sent, once the viewer answers.' };
 
 /**
+ * Whether the box holds more than a line: taller than a line and its padding.
+ * @param {HTMLTextAreaElement} box
+ */
+function holdsLines(box) {
+  const style = box.ownerDocument.defaultView?.getComputedStyle(box);
+  if (style === undefined) return false;
+  const line = Number.parseFloat(style.lineHeight);
+  const padding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
+  return Number.isFinite(line) && Number.isFinite(padding) && box.scrollHeight > line * 1.5 + padding;
+}
+
+/**
+ * What the clipboard holds, as the browser hands it to the page: its words, and the pictures in it — or its words
+ * alone, where the browser hands over no more.
+ * @returns {Promise<{ words: string | undefined, pictures: File[] }>} — refused where the browser keeps it from the page
+ */
+async function readClipboard() {
+  const clipboard = navigator.clipboard;
+  if (typeof clipboard.read !== 'function') return { words: await clipboard.readText(), pictures: [] };
+  /** @type {File[]} */
+  const pictures = [];
+  /** @type {string | undefined} */
+  let words;
+  for (const item of await clipboard.read()) {
+    const picture = item.types.find((type) => type.startsWith('image/'));
+    if (picture !== undefined) pictures.push(new File([await item.getType(picture)], `pasted.${picture.slice('image/'.length)}`, { type: picture }));
+    else if (words === undefined && item.types.includes('text/plain')) words = await (await item.getType('text/plain')).text();
+  }
+  return { words, pictures };
+}
+
+/** No phrases at hand: the row stays off. */
+const noPhrases = { load: async () => [], shown: () => false, watch: () => () => undefined };
+
+/**
  * @typedef {{ workspace: string, tab: string | undefined, runningNow: { id: string, title: string, agent: import('../model/composer.js').Agent } | undefined }} Ran — where
  *   a session ran in herdr: its workspace, its tab's name — when it had one; runningNow: the conversation its tab went
  *   on with — /clear, /new or /resume typed there — while it runs, and whose it is
@@ -46,16 +82,17 @@ const outOfReach = { shown: true, enabled: true, canInterrupt: false, canReopen:
 
 /**
  * @param {string} sessionId
- * @param {{ agent: import('../model/composer.js').Agent, focusBox: 'when-ready' | 'no', placeOf: () => Ran | undefined, asides: import('./aside-store.js').AsideStore, onSent: (text: string) => void, onDialog: () => void, onAtPrompt?: (at: boolean) => void }} options —
+ * @param {{ agent: import('../model/composer.js').Agent, focusBox: 'when-ready' | 'no', placeOf: () => Ran | undefined, asides: import('./aside-store.js').AsideStore, onSent: (text: string) => void, phrases?: { load: () => Promise<readonly { text: string, count: number }[]>, shown: () => boolean, watch: (listener: () => void) => () => void }, onDialog: () => void, onAtPrompt?: (at: boolean) => void }} options —
  *   agent: whose session; focusBox when-ready: the user opened the session, so the box takes the focus once the session can be written to; no:
  *   following the active session switched to it. placeOf: where the session ran in herdr, if known. asides:
  *   the side questions and answers of the page's sessions — one outlives the box it was asked in. onSent: a prompt the
- *   session's terminal took — the feed shows it until Claude Code writes it down. onDialog: the terminal shows a dialog —
+ *   session's terminal took — the feed shows it until Claude Code writes it down. phrases: the phrases sent most, in a
+ *   row over the box (phrase-bar.js). onDialog: the terminal shows a dialog —
  *   a slash command sent may have opened it, /mcp, and it is written down only once the dialog does something, if ever;
  *   onAtPrompt: whether the agent is at its prompt now — idle and asking nothing, or closed — told as its state comes
  * @returns {{ element: HTMLElement, say: (message: string, tone: 'ok' | 'error') => void, fill: (text: string) => void, answerPoint: (point: string) => void, putCommand: (command: string) => void, stop: () => boolean, sendQueue: () => void, pokeLive: () => void, dispose: () => void }} — stop: Claude stopped if it was working
  */
-export function createComposer(sessionId, { agent, focusBox, placeOf, asides, onSent, onDialog, onAtPrompt = () => undefined }) {
+export function createComposer(sessionId, { agent, focusBox, placeOf, asides, onSent, phrases = noPhrases, onDialog, onAtPrompt = () => undefined }) {
   /** @type {import('../model/composer.js').Keyboard} */
   const keyboard = matchMedia('(pointer: coarse)').matches ? 'touch' : 'physical';
   const draftKey = `viewer.draft.${sessionId}`;
@@ -108,7 +145,49 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
       input.focus();
     },
   });
-  const form = h('form', { className: 'composer-box' }, [commandMenu.element, fold, attachments.list, attachments.button, input, h('div', { className: 'composer-actions' }, [setAsideButton, interrupt, send])]);
+  /**
+   * Words pressed elsewhere on the page — a command an answer names, a phrase sent often — into the box where its cursor
+   * is, the box focused after them.
+   * @param {string} words
+   */
+  const putAtCursor = (words) => setBox(withCommand(input.value, words, input.selectionStart ?? input.value.length));
+  /**
+   * The box as it is to be, its cursor where told, the box focused there.
+   * @param {{ text: string, at: number }} put
+   */
+  const setBox = (put) => {
+    input.value = put.text;
+    writeDraft(draftKey, input.value);
+    fit();
+    refreshButtons();
+    input.focus();
+    input.setSelectionRange(put.at, put.at);
+  };
+  // what the clipboard holds, pressed in — as Ctrl+V does, where there is no Ctrl+V: its words in place of what is
+  // selected in the box, a picture attached; a clipboard the browser keeps from the page is told of
+  const paste = h('button', { className: 'composer-paste', title: 'Paste from the clipboard', attrs: { type: 'button', 'aria-label': 'Paste from the clipboard' } }, [icon('paste')]);
+  // pressing it leaves the box's selection where it is
+  paste.addEventListener('mousedown', (event) => event.preventDefault());
+  paste.addEventListener('click', () => {
+    void readClipboard().then(
+      async ({ words, pictures }) => {
+        if (pictures.length > 0) await attachments.add(pictures);
+        if (words !== undefined) setBox(withPasted(input.value, words, input.selectionStart ?? input.value.length, input.selectionEnd ?? input.value.length));
+        if (pictures.length === 0 && words === undefined) say('The clipboard holds nothing to paste.', 'error');
+      },
+      () => say('The browser did not let the page read the clipboard.', 'error'),
+    );
+  });
+  // the phrases sent most, over the box: one pressed goes into it
+  const phraseBar = createPhraseBar({ ...phrases, put: putAtCursor });
+  void phraseBar.refresh();
+  // the box emptied at a press, its draft with it — where a phone has no Ctrl+A; the images attached stay
+  const clear = h('button', { className: 'composer-clear', title: 'Clear the box', attrs: { type: 'button', 'aria-label': 'Clear the box' } }, [icon('cross')]);
+  clear.addEventListener('click', () => setBox({ text: '', at: 0 }));
+  // the attach and paste buttons together, one over the other on a phone once the box holds several lines — the clear
+  // button under them then, on a phone alone
+  const tools = h('div', { className: 'composer-tools' }, [attachments.button, paste, clear]);
+  const form = h('form', { className: 'composer-box' }, [commandMenu.element, fold, attachments.list, tools, input, h('div', { className: 'composer-actions' }, [setAsideButton, interrupt, send])]);
   const aside = h('section', { className: 'side-answer', attrs: { hidden: '', 'aria-label': 'Side question', 'aria-live': 'polite' } });
   const closeAside = h('button', { className: 'icon-button side-answer-close', title: 'Close', attrs: { type: 'button', 'aria-label': 'Close' } }, [icon('cross')]);
   closeAside.addEventListener('click', () => asides.set(sessionId, undefined));
@@ -225,6 +304,7 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
       const outcome = parseOutcome(await post('/api/send', { text, images: [], id }));
       if (outcome?.ok === true) {
         onSent(text);
+        void phraseBar.refresh();
         say('The prompt that waited went to the terminal.', 'ok');
       }
       return outcome;
@@ -244,11 +324,12 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     say(why, 'busy');
     refreshButtons();
   };
-  const element = h('div', { className: 'composer' }, [dialogCard.element, aside, queued, laterList.element, waitingBox, resume, form, h('div', { className: 'composer-footer' }, [hint, status]), attachments.input]);
+  const element = h('div', { className: 'composer' }, [dialogCard.element, aside, queued, laterList.element, waitingBox, resume, phraseBar.element, form, h('div', { className: 'composer-footer' }, [hint, status]), attachments.input]);
 
   const fit = () => {
     input.style.height = 'auto';
     input.style.height = `${input.scrollHeight}px`;
+    form.classList.toggle('multiline', holdsLines(input));
     showFold();
   };
   /** The fold button for a box taller than a few lines; a box that is not, unfolded. */
@@ -268,6 +349,8 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     laterList.allowSend(enabled && reachable && input.value.trim() === '' && attachments.images().length === 0);
     input.disabled = !enabled;
     attachments.button.disabled = !enabled || !reachable;
+    paste.disabled = !enabled;
+    clear.disabled = !enabled;
   };
   const say = (/** @type {string} */ message, /** @type {'ok' | 'busy' | 'error'} */ tone) => {
     clearTimeout(noticeTimer);
@@ -533,6 +616,7 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
       }
       if (outcome?.ok === true) {
         onSent(text);
+        void phraseBar.refresh();
         input.value = '';
         writeDraft(draftKey, '');
         attachments.clear();
@@ -700,15 +784,7 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
      * A command an answer names, pressed (command-mentions.js): into the box where its cursor is, the box focused after it.
      * @param {string} command
      */
-    putCommand(command) {
-      const put = withCommand(input.value, command, input.selectionStart ?? input.value.length);
-      input.value = put.text;
-      writeDraft(draftKey, input.value);
-      fit();
-      refreshButtons();
-      input.focus();
-      input.setSelectionRange(put.at, put.at);
-    },
+    putCommand: putAtCursor,
     /** The session wrote something, or herdr's tabs changed: what the terminal shows asked for at once — a dialog may be open. */
     pokeLive: () => live.poke(),
     /** What waits in Claude Code's queue, sent now — ⏩ on a waiting message, as Ctrl+Enter in the terminal. */
@@ -727,6 +803,7 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
       unwatchAsides();
       later.dispose();
       document.removeEventListener('paste', onPaste);
+      phraseBar.dispose();
     },
   };
 }

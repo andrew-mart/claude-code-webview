@@ -22,6 +22,7 @@ import { createPinsFile } from '../server/pins.js';
 import { createSeenFile } from '../server/seen.js';
 import { createDiagnosticsLog } from '../server/diagnostics.js';
 import { createKeptFile } from '../server/kept.js';
+import { createPhrasesFile } from '../server/phrases.js';
 import { createUploads } from '../server/uploads.js';
 import { createVsCode } from '../server/vscode.js';
 import net from 'node:net';
@@ -62,8 +63,9 @@ const promptLine = (uuid, text) =>
 /**
  * A fake terminal sender: records calls, sends nothing to herdr.
  * @param {string} [takenBack] - the prompt Esc takes back into the box, as if Claude had not started on it
+ * @param {string} [refused] - a prompt the terminal does not take
  */
-function fakeComposer(takenBack) {
+function fakeComposer(takenBack, refused) {
   /** @type {string[][]} */
   const calls = [];
   return {
@@ -77,7 +79,7 @@ function fakeComposer(takenBack) {
       /** @param {string} id @param {string} text @returns {Promise<import('../server/composer.js').SendOutcome>} */
       send: async (id, text) => {
         calls.push(['send', id, text]);
-        return { ok: true, pane: 'w3D:p1' };
+        return text === refused ? { ok: false, error: 'not-typed' } : { ok: true, pane: 'w3D:p1' };
       },
       /** @param {string} id @param {string} text @returns {Promise<import('../server/composer.js').SendOutcome>} */
       sendNow: async (id, text) => {
@@ -143,14 +145,14 @@ const webWorkspace = {
 
 /**
  * @param {import('node:test').TestContext} t
- * @param {{ takenBack?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[], sessionRunning?: boolean, editor?: 'set' | 'none', vscode?: import('../server/vscode.js').VsCode | undefined, codexRoot?: string | undefined, codexInUse?: boolean, chatgptUsage?: import('../public/model/usage.js').Usage | undefined, agyUsage?: import('../public/model/usage.js').Usage | undefined, agy?: string | undefined, agyRewound?: { conversation: string, step: number, at: number } | undefined, sessionStatus?: import('../public/model/session-status.js').SessionStatus | undefined, statusRead?: Promise<unknown> }} [options] - takenBack: see
- *   fakeComposer; palette, publicAddresses: what the viewer is started with; sessionRunning: whether Claude Code has the
+ * @param {{ takenBack?: string, refused?: string, palette?: import('../public/model/palettes.js').Palette, publicAddresses?: readonly import('../server/app.js').PublicAddress[], sessionRunning?: boolean, editor?: 'set' | 'none', vscode?: import('../server/vscode.js').VsCode | undefined, codexRoot?: string | undefined, codexInUse?: boolean, chatgptUsage?: import('../public/model/usage.js').Usage | undefined, agyUsage?: import('../public/model/usage.js').Usage | undefined, agy?: string | undefined, agyRewound?: { conversation: string, step: number, at: number } | undefined, sessionStatus?: import('../public/model/session-status.js').SessionStatus | undefined, statusRead?: Promise<unknown> }} [options] - takenBack: see
+ *   fakeComposer; refused: a prompt the terminal does not take; palette, publicAddresses: what the viewer is started with; sessionRunning: whether Claude Code has the
  *   session open; editor: whether the viewer opens files in an editor — the files it is asked to open are recorded;
  *   vscode: VS Code's web server behind /vscode/; codexRoot: Codex's sessions folder; codexInUse: whether Codex has a
  *   thread open; agyRewound: agy's latest rewind of a conversation, as its run's log tells; statusRead: the session's
  *   status is read once it settles — a slow read
  */
-async function withServer(t, { takenBack, palette = 'clay', publicAddresses = [], sessionRunning = true, editor = 'set', vscode = undefined, codexRoot = undefined, codexInUse = false, chatgptUsage = undefined, agyUsage = undefined, agy = undefined, agyRewound = undefined, sessionStatus = undefined, statusRead = Promise.resolve() } = {}) {
+async function withServer(t, { takenBack, refused, palette = 'clay', publicAddresses = [], sessionRunning = true, editor = 'set', vscode = undefined, codexRoot = undefined, codexInUse = false, chatgptUsage = undefined, agyUsage = undefined, agy = undefined, agyRewound = undefined, sessionStatus = undefined, statusRead = Promise.resolve() } = {}) {
   const root = tempDir('csv-');
   // the folders the sessions started in, for their desks: the session and one beside it in x, another in y
   const work = tempDir('server-desks-');
@@ -166,7 +168,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   await mkdir(project);
   const file = join(project, `${sessionId}.jsonl`);
   await writeFile(file, promptLine('u1', 'First question'));
-  const { composer, calls } = fakeComposer(takenBack);
+  const { composer, calls } = fakeComposer(takenBack, refused);
   // herdr puts every listed session into the workspace "web", whose one tab runs the session
   // tabs renamed and closed are recorded
   /** @type {string[][]} */
@@ -276,7 +278,7 @@ async function withServer(t, { takenBack, palette = 'clay', publicAddresses = []
   // the file manager opens what is asked
   /** @type {import('../server/file-manager.js').FileManagerTarget[]} */
   const shownInFileManager = [];
-  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot, ...(agy === undefined ? {} : { agy: createAgyConversations(agy) }) }), host: '127.0.0.1', port: 0, pollMs: 30, changesEveryMs: 40, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), later: createLaterFile(join(root, 'later.json')), desks, pins: createPinsFile(join(root, 'pins.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), kept: createKeptFile(join(root, 'kept.json'), { limit: 100 }), diagnostics: createDiagnosticsLog(join(root, 'diagnostics.jsonl'), { maxBytes: 1_000_000 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, system: { read: async () => ({ cpu: 31, memory: { used: 24_000, total: 32_000 }, gpu: undefined }) }, processes: { read: async (by) => [{ pid: 4120, name: `node by ${by}`, cpu: 12, memory: 104_857_600, gpu: by === 'gpu' ? 3 : undefined }] }, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, agyUsage: async () => agyUsage, agyRewound: async (conversation) => (agyRewound?.conversation === conversation ? { step: agyRewound.step, at: agyRewound.at } : undefined), sessionStatus: async (id) => {
+  const server = await startServer({ index: createSessionIndex(root, { summaryBudgetMs: 1500, missRetryMs: 0, codexRoot, ...(agy === undefined ? {} : { agy: createAgyConversations(agy) }) }), host: '127.0.0.1', port: 0, pollMs: 30, changesEveryMs: 40, composer, bookmarks: createBookmarkFile(join(root, 'bookmarks.json')), later: createLaterFile(join(root, 'later.json')), desks, pins: createPinsFile(join(root, 'pins.json')), seen: createSeenFile(join(root, 'seen.json'), { limit: 100 }), kept: createKeptFile(join(root, 'kept.json'), { limit: 100 }), diagnostics: createDiagnosticsLog(join(root, 'diagnostics.jsonl'), { maxBytes: 1_000_000 }), uploads: createUploads(join(root, 'uploads')), about: { name: 'claude-code-webview', version: '9.9.9' }, palette, publicAddresses, herdrView, terminals, usage: async () => accountUsage, system: { read: async () => ({ cpu: 31, memory: { used: 24_000, total: 32_000 }, gpu: undefined }) }, processes: { read: async (by) => [{ pid: 4120, name: `node by ${by}`, cpu: 12, memory: 104_857_600, gpu: by === 'gpu' ? 3 : undefined }] }, isRunning: async (/** @type {string} */ id) => sessionRunning && id === sessionId, editor: editor === 'set' ? openEditor : undefined, fileManager: async (target) => (shownInFileManager.push(target), true), commands: async ({ agent, cwd }) => [{ name: `/${agent}`, hint: '', about: cwd ?? 'nowhere', source: 'built-in' }], vscode, codexInUse: async () => codexInUse, chatgptUsage: async () => chatgptUsage, agyUsage: async () => agyUsage, phrases: createPhrasesFile(join(root, 'phrases.json')), agyRewound: async (conversation) => (agyRewound?.conversation === conversation ? { step: agyRewound.step, at: agyRewound.at } : undefined), sessionStatus: async (id) => {
       await statusRead;
       return id === sessionId ? sessionStatus : undefined;
     } });
@@ -1651,6 +1653,20 @@ test('stream_Should_HideStepsAgyRewoundInItsTerminal_AsItsLogTells', async (t) =
     { shown, offline: offline.flatMap((entry) => (isRecord(entry) && typeof entry.uuid === 'string' ? [entry.uuid] : [])) },
     { shown: ['agy-0', 'agy-1', 'agy-1-end'], offline: ['agy-0', 'agy-1', 'agy-1-end'] },
   );
+});
+
+// The phrases sent from the page — a command, a word or a few — count once the terminal took them: the page is told
+// the ten sent most, the most first, each as typed last; one refused, or a prompt of several lines, counts for none
+test('phrases_Should_CountPhrasesSentFromThePage_TheMostSentFirst', async (t) => {
+  const { base, port } = await withServer(t, { refused: 'not this one' });
+  for (const text of ['давай', '/clear', 'Давай', 'not this one', 'line one\nline two', '/clear', 'давай']) await post(port, '/api/send', pageHeaders(port), JSON.stringify({ session: sessionId, text }));
+
+  const told = await (await fetch(`${base}/api/phrases`)).json();
+
+  assert.deepEqual(told, [
+    { text: 'давай', count: 3 },
+    { text: '/clear', count: 2 },
+  ]);
 });
 
 // agy stopped puts nothing back into its box, as Claude Code does: the prompt it had done nothing for yet comes back to

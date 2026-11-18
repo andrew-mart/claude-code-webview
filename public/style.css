@@ -2930,6 +2930,51 @@ input.herdr-row-name.failed {
   background: color-mix(in oklch, var(--accent) 28%, transparent);
 }
 
+/* the phrases sent most, over the box: a row that scrolls sideways — by the wheel, a drag, a swipe — with no bar of
+   its own, the most sent first */
+.phrase-bar {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 0 2px 6px;
+  scrollbar-width: none;
+  touch-action: pan-x;
+  user-select: none;
+}
+
+.phrase-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.phrase-chip {
+  flex: none;
+  max-width: 280px;
+  padding: 4px 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.phrase-chip:hover,
+.phrase-chip:focus-visible {
+  outline: none;
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+
+.phrase-none {
+  padding: 4px 2px;
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
 /* a command an answer names: pressed, it goes into the prompt box */
 .command-mention {
   display: inline;
@@ -4565,7 +4610,9 @@ table.diff tr.gap td {
   height: 12px;
 }
 
-.composer-attach {
+.composer-attach,
+.composer-paste,
+.composer-clear {
   display: grid;
   place-items: center;
   width: 32px;
@@ -4578,12 +4625,34 @@ table.diff tr.gap td {
   cursor: pointer;
 }
 
-.composer-attach:hover:not(:disabled) {
+/* the attach and paste buttons, close together at the box's start */
+.composer-tools {
+  display: flex;
+  align-items: center;
+  margin-left: -8px;
+}
+
+.composer-tools > .composer-attach,
+.composer-tools > .composer-paste,
+.composer-tools > .composer-clear {
+  margin-left: 0;
+}
+
+/* the clear button: on a phone alone, under attach and paste once the box holds several lines (pointer: coarse) */
+.composer-clear {
+  display: none;
+}
+
+.composer-attach:hover:not(:disabled),
+.composer-paste:hover:not(:disabled),
+.composer-clear:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--text);
 }
 
-.composer-attach:disabled {
+.composer-attach:disabled,
+.composer-paste:disabled,
+.composer-clear:disabled {
   cursor: default;
   opacity: 0.4;
 }
@@ -13379,9 +13448,27 @@ a.file-link:hover {
   .icon-button,
   .composer-send,
   .composer-stop,
-  .composer-attach {
+  .composer-attach,
+  .composer-paste,
+  .composer-clear {
     width: 40px;
     height: 40px;
+  }
+
+  /* on a phone the two buttons at the box's start narrower, close together; one over the other once the box holds
+     several lines — the box keeps the width */
+  .composer-tools > .composer-attach,
+  .composer-tools > .composer-paste,
+  .composer-tools > .composer-clear {
+    width: 32px;
+  }
+
+  .composer-box.multiline .composer-tools {
+    flex-direction: column;
+  }
+
+  .composer-box.multiline .composer-clear {
+    display: grid;
   }
 
 

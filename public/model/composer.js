@@ -270,6 +270,20 @@ export function withCommand(draft, command, at) {
 }
 
 /**
+ * The box with words pasted from the clipboard: in place of what is selected in it — where its cursor is, nothing
+ * selected — its lines as the box keeps them.
+ * @param {string} draft — the box
+ * @param {string} words — the clipboard's
+ * @param {number} from — where the selection starts
+ * @param {number} to — where it ends
+ * @returns {{ text: string, at: number }} — at: the cursor, after the words
+ */
+export function withPasted(draft, words, from, to) {
+  const lines = words.replace(/\r\n?/g, '\n');
+  return { text: `${draft.slice(0, from)}${lines}${draft.slice(to)}`, at: from + lines.length };
+}
+
+/**
  * The box with a point of an answer added — a 👉 pressed (point-replies.js): after what is written, a blank line
  * between, and a blank line under it for the answer to be written there.
  * @param {string} draft — the box
