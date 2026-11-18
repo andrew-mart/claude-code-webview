@@ -97,13 +97,39 @@ test('codexCommands_Should_OfferBuiltInsAndUsersPrompts', async () => {
   );
 });
 
-// agy's "/" offers what the viewer drives in agy — shown in the page as agy shows it, and answered from there: /mcp, its
-// MCP servers; /model, its models and their effort; /rewind, its messages to rewind to — named as agy's own menu names
-// them
-test('agyCommands_Should_OfferMcpModelAndRewind', () => {
-  assert.deepEqual(agyCommands(), [
+// agy's "/" offers what the viewer drives in agy — /mcp, /model, /rewind, named as agy's own menu names them — and the
+// skills agy finds, as it finds them: the project's, in .agents/skills of each folder from the session's up to the
+// repository's root — the nearest first, none above the root — and in the folders a skills.json there names; then the
+// user's own, in agy's config folder's skills/ and the folders its skills.json names, less what it excludes or leaves out
+test('agyCommands_Should_OfferWhatTheViewerDrivesAndTheSkillsAgyFinds', async () => {
+  const root = tempDir('agy-commands-');
+  const config = join(root, 'gemini', 'config');
+  const shop = join(root, 'shop');
+  const app = join(shop, 'app');
+  /** @param {string} name @param {string} about */
+  const skill = (name, about) => `---\nname: ${name}\ndescription: ${about}\n---\n`;
+  await put(join(config, 'skills', 'notes', 'SKILL.md'), skill('notes', 'Keeps notes'));
+  await put(join(config, 'skills.json'), JSON.stringify({ entries: [{ path: join(root, 'shared'), exclude: ['.trash', 'secret-.*'] }, { path: join(root, 'kit'), include_only: ['review-.*'] }] }));
+  await put(join(root, 'shared', 'review-phase-end', 'SKILL.md'), '---\nname: review-phase-end\ndescription: >-\n  Audit at the end\n  of a phase\n---\n');
+  await put(join(root, 'shared', 'secret-plan', 'SKILL.md'), skill('secret-plan', 'Left out'));
+  await put(join(root, 'shared', '.trash', 'SKILL.md'), skill('trash', 'Left out'));
+  await put(join(root, 'kit', 'review-code', 'SKILL.md'), skill('review-code', 'Review the code'));
+  await put(join(root, 'kit', 'lint', 'SKILL.md'), skill('lint', 'Not included'));
+  await mkdir(join(shop, '.git'), { recursive: true });
+  await put(join(shop, '.agents', 'skills', 'tdd', 'SKILL.md'), skill('tdd', 'The project TDD'));
+  await put(join(shop, '.agents', 'skills.json'), JSON.stringify({ entries: [{ path: 'tools/skills' }] }));
+  await put(join(shop, 'tools', 'skills', 'deploy', 'SKILL.md'), skill('deploy', 'Deploy the shop'));
+  await put(join(app, '.agents', 'skills', 'notes', 'SKILL.md'), skill('notes', 'The app notes'));
+  await put(join(root, '.agents', 'skills', 'outside', 'SKILL.md'), skill('outside', 'Above the repository'));
+
+  assert.deepEqual(await agyCommands({ config, cwd: app }), [
+    { name: '/deploy', hint: '', about: 'Deploy the shop', source: 'project' },
     { name: '/mcp', hint: '', about: 'Manage MCP servers', source: 'built-in' },
     { name: '/model', hint: '', about: 'Set a model, or run a single prompt on another model', source: 'built-in' },
+    { name: '/notes', hint: '', about: 'The app notes', source: 'project' },
+    { name: '/review-code', hint: '', about: 'Review the code', source: 'personal' },
+    { name: '/review-phase-end', hint: '', about: 'Audit at the end of a phase', source: 'personal' },
     { name: '/rewind', hint: '', about: 'Rewind conversation to a previous message', source: 'built-in' },
+    { name: '/tdd', hint: '', about: 'The project TDD', source: 'project' },
   ]);
 });

@@ -2,8 +2,9 @@
 // What a session's "/" offers, as its agent's own menu does. Claude Code's: its built-in commands; the skills and the
 // command files of the user's own and of the session's project; those of the plugins turned on, named after their
 // plugin. Read anew each time: a skill written meanwhile is offered at once.
-import { readdir, readFile } from 'node:fs/promises';
-import { basename, join, relative, resolve, sep } from 'node:path';
+import { readdir, readFile, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { isRecord, text } from '../public/model/narrow.js';
 import { claudeBuiltIns } from './claude-builtins.js';
 import { codexBuiltIns } from './codex-builtins.js';
@@ -233,15 +234,107 @@ function nameOrder(a, b) {
 }
 
 /**
- * What agy's "/" offers here: the commands of agy's the viewer drives — /mcp, its MCP servers; /model, its models and
- * their effort; /rewind, its messages to rewind to — shown in the page as agy shows them (agy-screen.js) and answered
- * from there, named as agy's own menu names them.
- * @returns {SlashCommand[]}
+ * The commands of agy's the viewer drives — /mcp, its MCP servers; /model, its models and their effort; /rewind, its
+ * messages to rewind to — shown in the page as agy shows them (agy-screen.js) and answered from there, named as agy's
+ * own menu names them.
+ * @type {readonly SlashCommand[]}
  */
-export function agyCommands() {
-  return [
-    { name: '/mcp', hint: '', about: 'Manage MCP servers', source: 'built-in' },
-    { name: '/model', hint: '', about: 'Set a model, or run a single prompt on another model', source: 'built-in' },
-    { name: '/rewind', hint: '', about: 'Rewind conversation to a previous message', source: 'built-in' },
+const agyBuiltIns = [
+  { name: '/mcp', hint: '', about: 'Manage MCP servers', source: 'built-in' },
+  { name: '/model', hint: '', about: 'Set a model, or run a single prompt on another model', source: 'built-in' },
+  { name: '/rewind', hint: '', about: 'Rewind conversation to a previous message', source: 'built-in' },
+];
+
+/** The folders agy keeps a project's customizations in, at any folder from the session's up to the repository's root. */
+const agyProjectFolders = ['.agents', '.agent', '_agents', '_agent'];
+
+/**
+ * What agy's "/" offers here: the commands of agy's the viewer drives, and the skills agy finds, as it finds them — the
+ * project's first, the nearest folder's before those further up, then the user's own; of a name, the first stays.
+ * @param {{ config: string, cwd: string | undefined }} where — config: agy's config folder, ~/.gemini/config; cwd: the
+ *   session's folder, none while it is not known
+ * @returns {Promise<SlashCommand[]>} — by name
+ */
+export async function agyCommands({ config, cwd }) {
+  const project = cwd === undefined ? [] : await projectFoldersUp(cwd);
+  const found = [
+    ...agyBuiltIns,
+    ...(await Promise.all(project.flatMap((folder) => agyProjectFolders.map((dotted) => agySkillsOf(join(folder, dotted), 'project'))))).flat(),
+    ...(await agySkillsOf(config, 'personal')),
   ];
+  /** @type {Map<string, SlashCommand>} */
+  const byName = new Map();
+  for (const command of found) if (!byName.has(command.name)) byName.set(command.name, command);
+  return [...byName.values()].sort(nameOrder);
+}
+
+/**
+ * The folders from the session's up to its repository's root — the one holding .git — the session's first; out of any
+ * repository, the session's alone.
+ * @param {string} cwd
+ * @returns {Promise<string[]>}
+ */
+async function projectFoldersUp(cwd) {
+  const folders = [];
+  for (let folder = resolve(cwd); ; folder = dirname(folder)) {
+    folders.push(folder);
+    if (await stat(join(folder, '.git')).then(() => true, () => false)) return folders;
+    if (dirname(folder) === folder) return [resolve(cwd)];
+  }
+}
+
+/**
+ * The skills of one of agy's customization folders: those in its skills/, then those in the folders its skills.json
+ * names — a relative one from the folder above it, each scanned one level deep, less the names it excludes or leaves out.
+ * @param {string} root — a project's .agents, or agy's config folder
+ * @param {string} source
+ * @returns {Promise<SlashCommand[]>}
+ */
+async function agySkillsOf(root, source) {
+  const entries = (await readJson(join(root, 'skills.json')))?.entries;
+  const declared = Array.isArray(entries) ? entries.filter(isRecord) : [];
+  const lists = await Promise.all(
+    declared.map((entry) => {
+      const path = text(entry.path);
+      return path === undefined ? [] : agySkillsIn(resolve(dirname(root), path.replace(/^~(?=[\\/])/, homedir())), keptBy(entry), source);
+    }),
+  );
+  return [...(await agySkillsIn(join(root, 'skills'), () => true, source)), ...lists.flat()];
+}
+
+/**
+ * Which skill folders a skills.json entry keeps, by its include_only and exclude patterns, each matching a whole name.
+ * @param {Record<string, unknown>} entry
+ * @returns {(name: string) => boolean}
+ */
+function keptBy(entry) {
+  const patterns = (/** @type {unknown} */ value) => (Array.isArray(value) ? value.filter((one) => typeof one === 'string').map(wholeName) : undefined);
+  const only = patterns(entry.include_only);
+  const excluded = patterns(entry.exclude) ?? [];
+  return (name) => (only === undefined || only.some((pattern) => pattern(name))) && !excluded.some((pattern) => pattern(name));
+}
+
+/**
+ * @param {string} pattern — a regular expression, or a name as it is when it is not one
+ * @returns {(name: string) => boolean}
+ */
+function wholeName(pattern) {
+  try {
+    const expression = new RegExp(`^(?:${pattern})$`);
+    return (name) => expression.test(name);
+  } catch {
+    return (name) => name === pattern; // not a regular expression: the name itself
+  }
+}
+
+/**
+ * @param {string} folder
+ * @param {(name: string) => boolean} keeps
+ * @param {string} source
+ * @returns {Promise<SlashCommand[]>}
+ */
+async function agySkillsIn(folder, keeps, source) {
+  const entries = await readdir(folder, { withFileTypes: true }).catch(() => []);
+  const skills = await Promise.all(entries.filter((entry) => (entry.isDirectory() || entry.isSymbolicLink()) && keeps(entry.name)).map((entry) => skillAt(join(folder, entry.name), source, '')));
+  return skills.flatMap((skill) => (skill === undefined ? [] : [skill]));
 }
