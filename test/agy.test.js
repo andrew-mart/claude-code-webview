@@ -222,3 +222,22 @@ test('agyRecordAt_Should_ReadLineAsItWasReadInTurn', () => {
     [[{ type: 'tool_result', tool_use_id: 'agy-1-1', content: '12 tests — ✓' }], 'List the tests', undefined],
   );
 });
+
+// A turn agy goes on with after its end — woken by another agent's message, a background task done or a subagent's
+// report — ends again after its last words, timed from that message: the answer it ends with says when, as the first
+test('agyReading_Should_EndATurnAgain_When_AMessageWakesTheModelAfterItsEnd', () => {
+  const records = read([
+    step(0, 'USER_INPUT', { content: '<USER_REQUEST>\nRun the shop tests in the background\n</USER_REQUEST>' }),
+    step(2, 'PLANNER_RESPONSE', { content: 'Started them; I will look once they finish.' }),
+    step(5, 'SYSTEM_MESSAGE', { content: '[Message] timestamp=2026-11-10T06:35:05Z sender=background priority=normal content=Task t1 finished' }),
+    step(9, 'PLANNER_RESPONSE', { content: 'All 12 tests pass.' }),
+  ]);
+
+  assert.deepEqual(
+    records.filter((record) => record.subtype === 'turn_duration').map((record) => ({ after: record.parentUuid, durationMs: record.durationMs })),
+    [
+      { after: 'agy-2', durationMs: 2000 },
+      { after: 'agy-9', durationMs: 4000 },
+    ],
+  );
+});

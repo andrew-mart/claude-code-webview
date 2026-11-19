@@ -158,6 +158,8 @@ function madeOf(raw, uuid, timestamp, state) {
     case 'SYSTEM_MESSAGE': {
       const said = text(raw.content) ?? '';
       const ended = backgroundEnd(said);
+      // after its turn's end it wakes the model: what agy does then ends again, timed from here
+      state.turnStart ??= timeOf(timestamp);
       return [{ type: 'user', uuid, isMeta: true, message: { role: 'user', content: said }, ...(ended === undefined ? {} : { backgroundEnded: ended }) }];
     }
     case 'ERROR_MESSAGE': {
