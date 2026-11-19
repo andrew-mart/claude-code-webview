@@ -43,7 +43,7 @@ import { createSentPrompts } from './sent-prompts.js';
 import { askedBytes, attachment, fileToDownload, folderToZip, uploadFile, writeZip } from './transfer.js';
 import { readBranch, workTreeOf } from './git.js';
 import { readImage } from './images.js';
-import { rewindTarget } from './rewind.js';
+import { menuPrompts, rewindTarget } from './rewind.js';
 import { createSessionIndex } from './sessions.js';
 import { slimEntry } from './slim.js';
 import { createFeedPages } from './feeds.js';
@@ -157,7 +157,7 @@ const agentIdPattern = /^[0-9a-z]{1,64}$/i;
 const paneIdPattern = /^[\w:-]{1,40}$/;
 
 /**
- * @typedef {{ liveState: (sessionId: string) => Promise<import('./composer.js').LiveState>, send: (sessionId: string, text: string) => Promise<import('./composer.js').SendOutcome>, sendNow: (sessionId: string, text: string) => Promise<import('./composer.js').SendOutcome>, interrupt: (sessionId: string) => Promise<import('./composer.js').StopReply>, rewind: (sessionId: string, request: import('./composer.js').RewindRequest) => Promise<import('./composer.js').RewindReply>, btw: (sessionId: string, question: string) => Promise<import('./composer.js').BtwReply>, resumeBtw: (sessionId: string, question: string) => Promise<import('./composer.js').BtwReply>, answer: (sessionId: string, steps: readonly import('../public/model/dialog.js').DialogStep[]) => Promise<import('../public/model/dialog.js').DialogReply> }} Composer
+ * @typedef {{ liveState: (sessionId: string) => Promise<import('./composer.js').LiveState>, send: (sessionId: string, text: string) => Promise<import('./composer.js').SendOutcome>, sendNow: (sessionId: string, text: string) => Promise<import('./composer.js').SendOutcome>, interrupt: (sessionId: string) => Promise<import('./composer.js').StopReply>, rewind: (sessionId: string, request: import('./composer.js').RewindRequest) => Promise<import('./composer.js').RewindReply>, btw: (sessionId: string, question: string) => Promise<import('./composer.js').BtwReply>, resumeBtw: (sessionId: string, question: string) => Promise<import('./composer.js').BtwReply>, answer: (sessionId: string, steps: readonly import('../public/model/dialog.js').DialogStep[], shown: string, sentPrompts: () => Promise<readonly string[]>) => Promise<import('../public/model/dialog.js').DialogReply> }} Composer
  * @typedef {{ name: string, version: string }} About
  * @typedef {() => Promise<import('../public/model/usage.js').Usage | undefined>} ReadUsage — none until Claude Code has read it
  * @typedef {(sessionId: string) => Promise<import('../public/model/session-status.js').SessionStatus | undefined>} ReadSessionStatus
@@ -774,11 +774,14 @@ async function handleWrite(deps, url, request, response) {
       return rewind(deps, sessionId, isRecord(body) ? body : {}, response);
     case '/api/dialog': {
       const steps = parseSteps(isRecord(body) ? body.steps : undefined);
-      if (steps === undefined) {
+      // the options the page showed: the keys go only while the terminal shows them
+      const shown = isRecord(body) && typeof body.shown === 'string' ? body.shown : undefined;
+      if (steps === undefined || shown === undefined) {
         response.writeHead(400).end('Bad answer');
         return;
       }
-      return sendJson(response, await deps.composer.answer(sessionId, steps));
+      // the rewind's confirmation answered — /rewind typed in the page's box — puts a message back: whole, from here
+      return sendJson(response, await deps.composer.answer(sessionId, steps, shown, async () => menuPrompts(await transcriptRecords(deps, sessionId))));
     }
     // A session closed in herdr, opened there again: in its folder, which the transcript names, by its agent — one the
     // list has no transcript of is known from herdr's history alone, which is Claude Code's.

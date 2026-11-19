@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createComposer } from '../server/composer.js';
+import { choiceDialog } from '../server/dialog.js';
+import { dialogPrint } from '../public/model/dialog.js';
 
 const sessionId = '7d4e1b20-2222-4333-8444-955566667777';
 const record = { pid: 94168, sessionId, kind: 'interactive', status: 'busy', updatedAt: 1791541557691 };
@@ -164,7 +166,7 @@ test('liveState_Should_TreatHerdrErrorReplyAsUnavailable', async () => {
 });
 
 test('rewind_Should_TouchTerminalOnlyWhileClaudeWaitsForInput', async () => {
-  const request = { stepsUp: 1, prompt: 'Now test it', action: /** @type {const} */ ('conversation') };
+  const request = { stepsUp: 1, prompt: 'Now test it', sentAt: undefined, action: /** @type {const} */ ('conversation') };
   const busy = fakeHerdr();
   const offline = fakeHerdr();
 
@@ -344,6 +346,16 @@ test('liveState_Should_TellChoiceClaudeCodeWaitsFor', async () => {
   });
 });
 
+/**
+ * The options the page showed for a screen, as it sends them with its answer.
+ * @param {string} screen
+ */
+const shownOn = (screen) => {
+  const dialog = choiceDialog(screen);
+  if (dialog === undefined) throw new Error('no dialog on the screen');
+  return dialogPrint(dialog);
+};
+
 /** Claude Code's AskUserQuestion dialog in the session's pane. */
 const askingScreen = ['● Let me ask.', '─'.repeat(40), 'Which colour do you prefer?', '❯ 1. Red', '  2. Green', '  3. Type something.', '', 'Enter to select · ↑/↓ to navigate · Esc to cancel'].join('\n');
 
@@ -352,16 +364,67 @@ const askingScreen = ['● Let me ask.', '─'.repeat(40), 'Which colour do you 
 test('answer_Should_TypeAnswerIntoDialog_StepByStep', async () => {
   const herdr = fakeHerdr({ screens: [askingScreen] });
 
-  const outcome = await composerOf([record], herdr).answer(sessionId, [{ key: '3' }, { text: 'Purple' }, { key: 'enter' }]);
+  const outcome = await composerOf([record], herdr).answer(sessionId, [{ key: '3' }, { text: 'Purple' }, { key: 'enter' }], shownOn(askingScreen), async () => []);
 
   assert.deepEqual({ outcome, typed: typedInto(herdr.calls) }, { outcome: { ok: true }, typed: ['3', 'Purple', 'enter'] });
+});
+
+/** /rewind's confirmation of a message, typed in the page's box: as Claude Code 2.1.327 draws it. */
+const rewindConfirmation = [
+  '● OK',
+  '▔'.repeat(40),
+  '  Rewind',
+  '',
+  '  Restore to the point before you sent this message:',
+  '',
+  '  │ Add a price filter to the list',
+  '  │ (3m ago)',
+  '',
+  '  The conversation goes back to before this message.',
+  '  The code will be unchanged.',
+  '',
+  '  ❯ 1. Restore conversation',
+  '    2. Summarize from here',
+  '    3. Summarize up to here',
+  '    4. Never mind',
+].join('\n');
+/** Claude Code's prompt box holding this text. @param {string} text */
+const boxHolding = (text) => ['● OK', '─'.repeat(40), `❯ ${text}`, '─'.repeat(40), '  ⏵⏵ auto mode on'].join('\n');
+
+// The rewind's confirmation answered from the page: the message Claude Code puts back into its box goes into the page's,
+// taken out of the terminal's — as a rewind from the page gives it — whole, as the transcript has it
+test('answer_Should_TakeMessageTheRewindPutsBack_OutOfTerminalBoxForThePage', async () => {
+  const herdr = fakeHerdr({ screens: [rewindConfirmation, boxHolding('Add a price filter to the list'), boxHolding('')] });
+
+  const outcome = await composerOf([record], herdr).answer(sessionId, [{ key: '1' }], shownOn(rewindConfirmation), async () => ['Add a price filter to the list', 'Now sort it by date']);
+
+  assert.deepEqual({ outcome, typed: typedInto(herdr.calls) }, { outcome: { ok: true, prompt: 'Add a price filter to the list' }, typed: ['1', 'esc', 'esc'] });
+});
+
+// A summary up to the message puts nothing back: the terminal's box is left as it is
+test('answer_Should_LeaveTerminalBoxAlone_When_RewindPutsNoMessageBack', async () => {
+  const herdr = fakeHerdr({ screens: [rewindConfirmation, boxHolding('')] });
+
+  const outcome = await composerOf([record], herdr).answer(sessionId, [{ key: '3' }], shownOn(rewindConfirmation), async () => ['Add a price filter to the list']);
+
+  assert.deepEqual({ outcome, typed: typedInto(herdr.calls) }, { outcome: { ok: true }, typed: ['3'] });
+});
+
+// A card clicked again once its keys opened the next screen — /rewind's message opened, its confirmation shown — is
+// answered nothing: the arrows and Enter of a message would pick one of the confirmation's actions
+test('answer_Should_TypeNothing_When_TerminalShowsOtherOptionsThanThePageShowed', async () => {
+  const herdr = fakeHerdr({ screens: [rewindConfirmation] });
+
+  const outcome = await composerOf([record], herdr).answer(sessionId, [{ key: 'up' }, { key: 'up' }, { key: 'enter' }], shownOn(askingScreen), async () => []);
+
+  assert.deepEqual({ outcome, typed: typedInto(herdr.calls) }, { outcome: { ok: false, error: 'no-dialog' }, typed: [] });
 });
 
 // The dialog may be gone — answered in the terminal: then the digits would be typed into the prompt box as text
 test('answer_Should_TypeNothing_When_NoDialogIsShown', async () => {
   const herdr = fakeHerdr({ screens: [['● Done.', '────────', '❯ ', '────────'].join('\n')] });
 
-  const outcome = await composerOf([record], herdr).answer(sessionId, [{ key: '2' }]);
+  const outcome = await composerOf([record], herdr).answer(sessionId, [{ key: '2' }], shownOn(askingScreen), async () => []);
 
   assert.deepEqual({ outcome, typed: typedInto(herdr.calls) }, { outcome: { ok: false, error: 'no-dialog' }, typed: [] });
 });

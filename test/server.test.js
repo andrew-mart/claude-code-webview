@@ -93,9 +93,9 @@ function fakeComposer(takenBack, refused) {
         calls.push(['interrupt', id]);
         return { ok: true, pane: 'w3D:p1', prompt: takenBack };
       },
-      /** @param {string} id @param {readonly import('../public/model/dialog.js').DialogStep[]} steps @returns {Promise<import('../public/model/dialog.js').DialogReply>} */
-      answer: async (id, steps) => {
-        calls.push(['answer', id, JSON.stringify(steps)]);
+      /** @param {string} id @param {readonly import('../public/model/dialog.js').DialogStep[]} steps @param {string} shown @returns {Promise<import('../public/model/dialog.js').DialogReply>} */
+      answer: async (id, steps, shown) => {
+        calls.push(['answer', id, JSON.stringify(steps), shown]);
         return { ok: true };
       },
       /** @param {string} id @param {string} question @returns {Promise<import('../server/composer.js').BtwReply>} */
@@ -585,22 +585,28 @@ test('pageFile_Should_KeepItsTag_WhenWrittenAnewTheSame', async (t) => {
 });
 
 // An answer to Claude Code's question goes to the session's terminal as the keys and words the page sent; anything but
-// a dialog's keys and one line of words is refused before the terminal
+// a dialog's keys and one line of words is refused before the terminal, and so is an answer that names no options shown
 test('dialog_Should_PassAnswerFromViewerPage_And_RefuseOtherKeys', async (t) => {
   const { port, calls } = await withServer(t);
   const answer = [{ key: '3' }, { text: 'Purple' }, { key: 'enter' }];
   // beside previews an answer is gone to with the arrows
   const arrowed = [{ key: 'down' }, { key: 'up' }, { key: 'down' }, { key: 'enter' }];
 
-  const answered = await post(port, '/api/dialog', pageHeaders(port), JSON.stringify({ session: sessionId, steps: answer }));
-  const walked = await post(port, '/api/dialog', pageHeaders(port), JSON.stringify({ session: sessionId, steps: arrowed }));
+  const shown = '[[["1","Red",null,null,true]],null]';
+  const answered = await post(port, '/api/dialog', pageHeaders(port), JSON.stringify({ session: sessionId, steps: answer, shown }));
+  const walked = await post(port, '/api/dialog', pageHeaders(port), JSON.stringify({ session: sessionId, steps: arrowed, shown }));
   const refused = await Promise.all(
-    [[{ key: 'ctrl+c' }], [{ text: 'two\nlines' }], []].map((steps) => post(port, '/api/dialog', pageHeaders(port), JSON.stringify({ session: sessionId, steps }))),
+    [
+      { steps: [{ key: 'ctrl+c' }], shown },
+      { steps: [{ text: 'two\nlines' }], shown },
+      { steps: [], shown },
+      { steps: answer },
+    ].map((body) => post(port, '/api/dialog', pageHeaders(port), JSON.stringify({ session: sessionId, ...body }))),
   );
 
   assert.deepEqual(
     { answered: [answered.status, JSON.parse(answered.body)], walked: walked.status, refused: refused.map((reply) => reply.status), calls },
-    { answered: [200, { ok: true }], walked: 200, refused: [400, 400, 400], calls: [['answer', sessionId, JSON.stringify(answer)], ['answer', sessionId, JSON.stringify(arrowed)]] },
+    { answered: [200, { ok: true }], walked: 200, refused: [400, 400, 400, 400], calls: [['answer', sessionId, JSON.stringify(answer), shown], ['answer', sessionId, JSON.stringify(arrowed), shown]] },
   );
 });
 
@@ -1640,7 +1646,7 @@ test('rewind_Should_RewindToChosenMessageAndHideItsBranchFromFeedAtOnce', async 
 
   assert.equal(response.status, 200);
   assert.deepEqual(JSON.parse(response.body), { ok: true, prompt: 'Now test it' });
-  assert.deepEqual(calls, [['rewind', sessionId, JSON.stringify({ stepsUp: 1, prompt: 'Now test it', action: 'conversation' })]]);
+  assert.deepEqual(calls, [['rewind', sessionId, JSON.stringify({ stepsUp: 1, prompt: 'Now test it', sentAt: Date.parse(at), action: 'conversation' })]]);
   // the terminal no longer shows the rewound messages, so neither does the page
   assert.equal((await next()).event, 'reset');
   assert.deepEqual(uuids(await next()), ['u1', 'a1']);
@@ -1712,7 +1718,7 @@ test('rewind_Should_RewindAgysConversationWithItsFiles_AndHideItsBranchAtOnce', 
 
   assert.deepEqual(
     { reply: JSON.parse(response.body), calls: calls.filter((call) => call[0] === 'rewind'), prompts: shown.filter((uuid) => /^agy-\d+$/.test(uuid)) },
-    { reply: { ok: true, prompt: 'Now test it' }, calls: [['rewind', id, JSON.stringify({ stepsUp: 1, prompt: 'Now test it', action: 'both' })]], prompts: ['agy-0', 'agy-1'] },
+    { reply: { ok: true, prompt: 'Now test it' }, calls: [['rewind', id, JSON.stringify({ stepsUp: 1, prompt: 'Now test it', sentAt: Date.parse('2026-11-10T06:35:02Z'), action: 'both' })]], prompts: ['agy-0', 'agy-1'] },
   );
 });
 
@@ -2634,7 +2640,7 @@ test('rewind_Should_FindPromptOfCodexSession_InItsTranscript', async (t) => {
 
   const response = await post(port, '/api/rewind', pageHeaders(port), JSON.stringify({ session: id, prompt: 'codex-1', action: 'conversation' }));
 
-  assert.deepEqual({ status: response.status, calls: calls.filter((call) => call[0] === 'rewind') }, { status: 200, calls: [['rewind', id, JSON.stringify({ stepsUp: 2, prompt: 'Redraw the old map', action: 'conversation' })]] });
+  assert.deepEqual({ status: response.status, calls: calls.filter((call) => call[0] === 'rewind') }, { status: 200, calls: [['rewind', id, JSON.stringify({ stepsUp: 2, prompt: 'Redraw the old map', sentAt: Date.parse(at), action: 'conversation' })]] });
 });
 
 // Codex's usage of the account comes from the session it worked in last: the latest token count there — while Codex

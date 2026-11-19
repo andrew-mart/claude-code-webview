@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { choiceDialog } from '../server/dialog.js';
 import { agyDialog } from '../server/agy-screen.js';
-import { parseDialog, parseSteps } from '../public/model/dialog.js';
+import { dialogPrint, parseDialog, parseSteps } from '../public/model/dialog.js';
 
 const { window } = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
 // The icons are drawn when their module loads: the DOM is set up before it.
@@ -28,10 +28,13 @@ const colour = {
 function cardAboveBox() {
   /** @type {import('../public/model/dialog.js').DialogStep[][]} */
   const answers = [];
+  /** @type {string[]} */
+  const prints = [];
   const card = createDialogCard({
     asker: 'Claude Code',
-    answer: async (steps) => {
+    answer: async (steps, shown) => {
       answers.push([...steps]);
+      prints.push(shown);
       return { ok: true };
     },
   });
@@ -42,10 +45,20 @@ function cardAboveBox() {
     assert.ok(button, `no button ${name}`);
     button.click();
   };
-  return { card, answers, press };
+  return { card, answers, prints, press };
 }
 
 const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+// The card names the options it shows with its answer: the viewer sends the keys only while the terminal shows those
+test('dialogCard_Should_NameTheOptionsItShows_WithItsAnswer', async () => {
+  const { prints, press } = cardAboveBox();
+
+  press('Green');
+  await settled();
+
+  assert.deepEqual(prints, [dialogPrint(colour)]);
+});
 
 test('modelPicker_Should_ChangeOnlyThisSession_WithoutSavingGlobalClaudeDefaults', async () => {
   const { card, answers, press } = cardAboveBox();

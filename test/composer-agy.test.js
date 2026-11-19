@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createComposer } from '../server/composer.js';
+import { dialogPrint } from '../public/model/dialog.js';
 
 const conversation = 'c2da1db1-1271-4baa-aac2-0f4026b2453a';
 const rule = '─'.repeat(60);
@@ -131,7 +132,7 @@ test('send_Should_TypePromptIntoAgy_ThoughItsPaneIsScrolledUp', async () => {
 test('rewind_Should_TypeRewindIntoIdleAgy_AndNothingWhileItWorks', async () => {
   const idle = fakeHerdr();
   const busy = fakeHerdr();
-  const request = { stepsUp: 1, prompt: 'Add the price filter', action: /** @type {const} */ ('both') };
+  const request = { stepsUp: 1, prompt: 'Add the price filter', sentAt: undefined, action: /** @type {const} */ ('both') };
 
   const outcomes = [await composerOf({ found: 'pane', pane: 'w2:p1', working: true }, busy).rewind(conversation, request), await composerOf({ found: 'pane', pane: 'w2:p1', working: false }, idle).rewind(conversation, request)];
 
@@ -146,7 +147,7 @@ test('liveState_answer_And_send_Should_ShowAgysMcpServers_AnswerThemWithKeys_And
   const composer = composerOf({ found: 'pane', pane: 'w2:p1', working: false }, herdr);
 
   const live = await composer.liveState(conversation);
-  const answered = await composer.answer(conversation, [{ key: 'down' }, { key: 'enter' }]);
+  const answered = await composer.answer(conversation, [{ key: 'down' }, { key: 'enter' }], live.state === 'live' && live.dialog !== undefined ? dialogPrint(live.dialog) : '', async () => []);
   const sent = await composer.send(conversation, 'Add the price filter');
 
   assert.deepEqual(
@@ -166,7 +167,7 @@ test('send_btw_And_rewind_Should_TypeNothingIntoAgy_WhileItAsks_OrForWhatAgyHasN
   const outcomes = [
     await composerOf({ found: 'pane', pane: 'w2:p1', working: false }, asking).send(conversation, 'Add the price filter'),
     await composer.btw(conversation, 'Which page is busiest?'),
-    await composer.rewind(conversation, { stepsUp: 1, prompt: 'Add the price filter', action: 'conversation' }),
+    await composer.rewind(conversation, { stepsUp: 1, prompt: 'Add the price filter', sentAt: undefined, action: 'conversation' }),
   ];
 
   assert.deepEqual(

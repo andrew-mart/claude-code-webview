@@ -3,6 +3,7 @@
 // question, its choices as buttons, an answer of one's own, ← and → between several questions, Esc. A click is the key
 // the terminal would get. A click on its head folds it to that line — who asks, and the question — leaving the
 // conversation the room; it stays folded while something is asked, and the next thing asked shows unfolded.
+import { dialogPrint } from '../model/dialog.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
 
@@ -10,12 +11,15 @@ import { icon } from './icons.js';
 const ownWords = /^Type something/;
 
 /**
- * @param {{ asker: string, answer: (steps: readonly import('../model/dialog.js').DialogStep[]) => Promise<import('../model/dialog.js').DialogReply> }} actions —
- *   asker: the agent that asks, by name; answer resolves once the terminal has the keys
+ * @param {{ asker: string, answer: (steps: readonly import('../model/dialog.js').DialogStep[], shown: string) => Promise<import('../model/dialog.js').DialogReply> }} actions —
+ *   asker: the agent that asks, by name; answer resolves once the terminal has the keys — shown: the options the card
+ *   shows (dialogPrint), the keys going only while the terminal shows them
  */
 export function createDialogCard({ asker, answer }) {
   const element = h('section', { className: 'dialog-card', attrs: { hidden: '', 'aria-label': `${asker} asks`, 'aria-live': 'polite' } });
   let shown = '';
+  /** The options shown, as the answer names them. */
+  let asked = '';
   /** Whether the card shows its head alone: kept while something is asked. */
   let folded = false;
   const status = h('div', { className: 'dialog-card-status', attrs: { role: 'status' } });
@@ -50,7 +54,7 @@ export function createDialogCard({ asker, answer }) {
   const send = (steps) => {
     for (const button of element.querySelectorAll('button')) button.disabled = true;
     status.textContent = '';
-    void answer(steps).then((reply) => {
+    void answer(steps, asked).then((reply) => {
       for (const button of element.querySelectorAll('button')) button.disabled = false;
       if (!reply.ok) status.textContent = reply.error === 'no-dialog' ? 'The question is no longer in the terminal.' : 'The answer did not reach the terminal.';
     });
@@ -152,6 +156,7 @@ export function createDialogCard({ asker, answer }) {
         folded = false;
         return element.replaceChildren();
       }
+      asked = dialogPrint(dialog);
       element.replaceChildren(
         head(dialog),
         ...dialog.lines.map((line) => h('p', { className: 'dialog-line', text: line })),

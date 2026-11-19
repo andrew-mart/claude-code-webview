@@ -262,6 +262,100 @@ test('choiceDialog_Should_ReadMoveToNewDirectory_AnsweredWithArrows', () => {
   });
 });
 
+// Claude Code's /rewind, typed in the page's box, opens in the terminal: the messages sent — under each what rewinding
+// it does to the code — "(current)" last; gone along with the arrows, Enter opening the one chosen (Claude Code 2.1.327)
+test('choiceDialog_Should_ReadRewindMenusMessages_GoneAlongWithArrows', () => {
+  const menu = [
+    ...above,
+    mcpEdge,
+    '  Rewind',
+    '',
+    '  Restore the code and/or conversation to the point before…',
+    '',
+    '    Create a file note.txt containing the word one. Reply with one word.',
+    '    note.txt +1',
+    '',
+    '  ❯ Reply with the single word OK',
+    '    No code changes',
+    '',
+    '    (current)',
+    '',
+    '',
+    '',
+    '  Enter to continue · Esc to cancel',
+    '',
+  ].join('\n');
+
+  assert.deepEqual(choiceDialog(menu), {
+    lines: ['Rewind', 'Restore the code and/or conversation to the point before…'],
+    options: [
+      { key: '', label: 'Create a file note.txt containing the word one. Reply with one word.', detail: 'note.txt +1', checked: undefined, current: false },
+      { key: '', label: 'Reply with the single word OK', detail: 'No code changes', checked: undefined, current: true },
+      { key: '', label: '(current)', detail: undefined, checked: undefined, current: false },
+    ],
+    tabs: false,
+    previews: true,
+  });
+});
+
+// A message opened in /rewind: the confirmation — the message, how long ago it was sent, what rewinding does — with no
+// keys told under it; its actions numbered, a digit picking one; Esc goes back to the messages
+test('choiceDialog_Should_ReadRewindConfirmation_ItsActionsPickedByDigit', () => {
+  const confirmation = [
+    ...above,
+    mcpEdge,
+    '  Rewind',
+    '',
+    '  Restore to the point before you sent this message:',
+    '',
+    '  │ Create a file note.txt containing the word one. Reply with one word.',
+    '  │ (45s ago)',
+    '',
+    '  The conversation goes back to before this message.',
+    '  The code will be restored -1 in note.txt.',
+    '',
+    '  ❯ 1. Restore code and conversation',
+    '    2. Restore conversation',
+    '    3. Restore code',
+    '    4. Summarize from here',
+    '    5. Summarize up to here',
+    '    6. Never mind',
+    '',
+    '  ⚠ Restored files go back whole, losing later changes by anyone. Bash changes to other files are not undone.',
+    '',
+  ].join('\n');
+
+  assert.deepEqual(choiceDialog(confirmation), {
+    lines: [
+      'Rewind',
+      'Restore to the point before you sent this message:',
+      'Create a file note.txt containing the word one. Reply with one word.',
+      '(45s ago)',
+      'The conversation goes back to before this message.',
+      'The code will be restored -1 in note.txt.',
+      '⚠ Restored files go back whole, losing later changes by anyone. Bash changes to other files are not undone.',
+    ],
+    options: [
+      { key: '1', label: 'Restore code and conversation', detail: undefined, checked: undefined, current: true },
+      { key: '2', label: 'Restore conversation', detail: undefined, checked: undefined, current: false },
+      { key: '3', label: 'Restore code', detail: undefined, checked: undefined, current: false },
+      { key: '4', label: 'Summarize from here', detail: undefined, checked: undefined, current: false },
+      { key: '5', label: 'Summarize up to here', detail: undefined, checked: undefined, current: false },
+      { key: '6', label: 'Never mind', detail: undefined, checked: undefined, current: false },
+    ],
+    tabs: false,
+    previews: false,
+    goesBack: true,
+  });
+});
+
+// /rewind with nothing to rewind to says so: a card to leave with Esc
+test('choiceDialog_Should_SayRewindHasNothingToGoBackTo', () => {
+  const nothing = [...above, mcpEdge, '  Rewind', '', '  Nothing to rewind to yet.', '', '  Esc to cancel', ''].join('\n');
+
+  assert.deepEqual(choiceDialog(nothing), { lines: ['Rewind', 'Nothing to rewind to yet.'], options: [], tabs: false, previews: false, goesBack: true });
+});
+
 test('choiceDialog_Should_FindNothing_When_PromptBoxIsShown', () => {
   const waiting = [...above, rule, '● Here is the plan:', '  1. Read the config', '  2. Fix the test', 'Press Esc to cancel it.', rule, '❯ ', rule, '  ⏵⏵ auto mode on'].join('\n');
 
@@ -274,4 +368,9 @@ test('parseDialogReply_Should_TakeKnownReplies_And_CountAnyOtherAsNotSent', () =
     [{ ok: true }, { ok: false, error: 'no-dialog' }, { ok: false, error: 'exploded' }, undefined].map(parseDialogReply),
     [{ ok: true }, { ok: false, error: 'no-dialog' }, { ok: false, error: 'send-failed' }, { ok: false, error: 'send-failed' }],
   );
+});
+
+// The rewind's confirmation answered: the message it put back, for the page's box; anything else there is no message
+test('parseDialogReply_Should_TakeMessagePutBack_ForThePagesBox', () => {
+  assert.deepEqual([{ ok: true, prompt: 'Add a price filter to the list' }, { ok: true, prompt: 42 }].map(parseDialogReply), [{ ok: true, prompt: 'Add a price filter to the list' }, { ok: true }]);
 });

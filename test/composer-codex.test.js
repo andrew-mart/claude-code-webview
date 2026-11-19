@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createComposer } from '../server/composer.js';
+import { dialogPrint } from '../public/model/dialog.js';
 
 const thread = '01a13a06-5376-7481-9aa7-ec19297d2f7c';
 const footer = ['', '  D:\\gits\\shop · main · No changes · GPT-6-Astra xhigh', '  ← for agents · ? for shortcuts'];
@@ -134,8 +135,8 @@ test('liveState_And_answer_Should_ShowWhatCodexAsks_AndAnswerItFromThePage', asy
   const place = /** @type {const} */ ({ found: 'pane', pane: 'w4:p1', working: false });
 
   const live = await composerOf(place, asking).liveState(thread);
-  const answered = await composerOf(place, asking).answer(thread, [{ key: 'down' }, { key: 'enter' }]);
-  const notAsked = await composerOf(place, typing).answer(thread, [{ key: 'enter' }]);
+  const answered = await composerOf(place, asking).answer(thread, [{ key: 'down' }, { key: 'enter' }], live.state === 'live' && live.dialog !== undefined ? dialogPrint(live.dialog) : '', async () => []);
+  const notAsked = await composerOf(place, typing).answer(thread, [{ key: 'enter' }], '', async () => []);
 
   assert.deepEqual(
     { dialog: live.state === 'live' ? live.dialog?.options.map((option) => option.label) : undefined, answered, notAsked, keys: asking.changes, untouched: typing.changes },
@@ -207,9 +208,9 @@ test('rewind_Should_RefuseWhatCodexCannotRewind_BeforeAnyKey', async () => {
   const at = /** @param {boolean} working */ (working) => /** @type {const} */ ({ found: 'pane', pane: 'w4:p1', working });
 
   const replies = [
-    await composerOf(at(false), idle).rewind(thread, { stepsUp: 1, prompt: 'Add a rate limit', action: 'both' }),
-    await composerOf(at(true), busy).rewind(thread, { stepsUp: 1, prompt: 'Add a rate limit', action: 'conversation' }),
-    await composerOf(at(false), viewing).rewind(thread, { stepsUp: 1, prompt: 'Add a rate limit', action: 'conversation' }),
+    await composerOf(at(false), idle).rewind(thread, { stepsUp: 1, prompt: 'Add a rate limit', sentAt: undefined, action: 'both' }),
+    await composerOf(at(true), busy).rewind(thread, { stepsUp: 1, prompt: 'Add a rate limit', sentAt: undefined, action: 'conversation' }),
+    await composerOf(at(false), viewing).rewind(thread, { stepsUp: 1, prompt: 'Add a rate limit', sentAt: undefined, action: 'conversation' }),
   ];
 
   assert.deepEqual({ replies, keys: [...idle.changes, ...busy.changes, ...viewing.changes] }, { replies: [{ ok: false, error: 'option-not-found' }, { ok: false, error: 'busy' }, { ok: false, error: 'subagent' }], keys: [] });

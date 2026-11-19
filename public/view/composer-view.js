@@ -195,8 +195,10 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   let shownAt = 0;
   const dialogCard = createDialogCard({
     asker: askerNames[agent],
-    answer: async (steps) => {
-      const reply = parseDialogReply(await post('/api/dialog', { steps }));
+    answer: async (steps, shown) => {
+      const reply = parseDialogReply(await post('/api/dialog', { steps, shown }));
+      // the rewind's confirmation answered: the message it put back comes into this box, as a rewind from the page's does
+      if (reply.ok && reply.prompt !== undefined) fill(reply.prompt);
       setTimeout(() => void refreshLive(), redrawMs);
       return reply;
     },
@@ -422,8 +424,8 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   };
   /**
    * @param {'/api/send' | '/api/interrupt' | '/api/btw' | '/api/dialog' | '/api/history/reopen' | '/api/cut-taken'} path
-   * @param {{ text?: string, images?: readonly import('./attachment-picker.js').AttachedImage[], now?: true, id?: string, question?: string, resume?: true, steps?: readonly import('../model/dialog.js').DialogStep[] }} payload — now: past
-   *   Claude Code's queue; id: a prompt's, typed once however often it is sent; resume: a side question's answer asked
+   * @param {{ text?: string, images?: readonly import('./attachment-picker.js').AttachedImage[], now?: true, id?: string, question?: string, resume?: true, steps?: readonly import('../model/dialog.js').DialogStep[], shown?: string }} payload — now: past
+   *   Claude Code's queue; id: a prompt's, typed once however often it is sent; shown: the options of the dialog answered; resume: a side question's answer asked
    *   for again, the question not asked anew
    * @param {string} [session] - whose: the box's session unless another
    * @returns {Promise<unknown>} — the reply's JSON; undefined if the server did not answer

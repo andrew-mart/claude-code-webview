@@ -21,8 +21,9 @@
  *   dialog is answered with: a choice's digit, the next or the previous question, the answer above or below, Enter, Esc
  *   to cancel it
  * @typedef {{ key: DialogKey } | { text: string }} DialogStep — a key, or words typed for "Type something"
- * @typedef {{ ok: true } | { ok: false, error: 'no-dialog' | 'send-failed' | 'herdr-missing' | 'offline' | 'no-herdr' | 'outside-herdr' }} DialogReply
- *   no-dialog: the terminal shows no dialog any more — answered there, or gone
+ * @typedef {{ ok: true, prompt?: string } | { ok: false, error: 'no-dialog' | 'send-failed' | 'herdr-missing' | 'offline' | 'no-herdr' | 'outside-herdr' }} DialogReply
+ *   prompt: the message Claude Code's rewind put back, taken out of its box for the page's; no-dialog: the terminal shows
+ *   no dialog any more — answered there, or gone
  */
 
 import { isRecord, text } from './narrow.js';
@@ -43,6 +44,17 @@ export function parseDialog(json) {
   return lines.length === json.lines.length && options.length === json.options.length && (options.length > 0 || goesBack)
     ? { lines, options, tabs: json.tabs, previews: json.previews, ...(json.sessionOnly === true ? { sessionOnly: /** @type {const} */ (true) } : {}), ...(goesBack ? { goesBack: /** @type {const} */ (true) } : {}), ...(json.sideways === true ? { sideways: /** @type {const} */ (true) } : {}), ...pickerOf(json.picker), ...togglesOf(json.toggles) }
     : undefined;
+}
+
+/**
+ * The options a dialog shows and where the cursor is, as the page sends them with its answer: the viewer sends its keys
+ * only while the terminal shows the same — the arrows are counted from the cursor, and a card clicked again once its
+ * keys opened the next screen would answer that one. Its lines are left out: the age a confirmation tells goes on.
+ * @param {Dialog} dialog
+ * @returns {string}
+ */
+export function dialogPrint(dialog) {
+  return JSON.stringify([dialog.options.map((option) => [option.key, option.label, option.detail, option.checked, option.current]), dialog.picker === undefined ? null : dialog.picker.chosen]);
 }
 
 /**
@@ -133,7 +145,7 @@ const replyErrors = new Set(['no-dialog', 'send-failed', 'herdr-missing', 'offli
  * @returns {DialogReply}
  */
 export function parseDialogReply(json) {
-  if (isRecord(json) && json.ok === true) return { ok: true };
+  if (isRecord(json) && json.ok === true) return typeof json.prompt === 'string' ? { ok: true, prompt: json.prompt } : { ok: true };
   return { ok: false, error: isRecord(json) && isReplyError(json.error) ? json.error : 'send-failed' };
 }
 

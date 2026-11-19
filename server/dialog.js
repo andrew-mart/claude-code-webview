@@ -4,8 +4,10 @@
 // takes the prompt box's place, between a rule above it and its footer ("Enter to select · … · Esc to cancel") — or, in
 // the review, the bottom of the screen; a rule inside it sets apart its last answers ("Chat about this"). Some are
 // drawn their own way: the /model picker; lists with no digits — /mcp's servers, a server's tools, /cd's question
-// whether to move to a folder the session has not worked in — and /mcp's page of a tool, with nothing to choose.
+// whether to move to a folder the session has not worked in — and /mcp's page of a tool, with nothing to choose; and
+// /rewind's messages and its confirmation of one (rewind.js).
 import { inputBox } from './claude-screen.js';
+import { rewindDialog } from './rewind.js';
 
 const rule = /^\s*[─▔]{4,}\s*$/;
 const footerLine = /Enter to select|Esc to cancel/;
@@ -31,8 +33,8 @@ const edgeSlack = 20;
  */
 export function choiceDialog(screen) {
   if (inputBox(screen) !== undefined) return undefined;
-  // the /model picker, /mcp's lists and pages: each drawn its own way
-  const own = modelDialog(screen) ?? cursorList(screen) ?? pageToGoBackFrom(screen);
+  // /rewind's screens, the /model picker, /mcp's lists and pages: each drawn its own way
+  const own = rewindDialog(screen) ?? modelDialog(screen) ?? cursorList(screen) ?? pageToGoBackFrom(screen);
   if (own !== undefined) return own;
   const lines = screen.split('\n');
   const footer = endOf(lines);

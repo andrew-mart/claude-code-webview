@@ -18,7 +18,8 @@ import { codexDialog, codexInputBox, codexQueued, showsSideConversation, showsSu
 import { choiceDialog } from './dialog.js';
 import { claudePaneIds, foregroundPids, succeeded, toTerminalInput } from './herdr.js';
 import { latestRecords, processKey } from './registry.js';
-import { driveRewind } from './rewind.js';
+import { confirmShows, driveRewind, messagePutBackBy, takeBackPrompt } from './rewind.js';
+import { dialogPrint } from '../public/model/dialog.js';
 import { driveStop } from './stop.js';
 
 /**
@@ -27,7 +28,8 @@ import { driveStop } from './stop.js';
  * @typedef {import('./registry.js').LiveRecord} LiveRecord
  * @typedef {import('../public/model/composer.js').LiveState} LiveState — the /api/live contract, shared with the page
  * @typedef {import('../public/model/composer.js').SendOutcome} SendOutcome
- * @typedef {{ stepsUp: number, prompt: string, action: import('./rewind.js').RewindAction }} RewindRequest
+ * @typedef {{ stepsUp: number, prompt: string, sentAt: number | undefined, action: import('./rewind.js').RewindAction }} RewindRequest
+ *   sentAt — when the message was sent, ms: told apart from others of the same words by its age
  * @typedef {import('./rewind.js').RewindOutcome | { ok: false, error: 'herdr-missing' | 'offline' | 'no-herdr' | 'outside-herdr' | 'busy' | 'subagent' }} RewindReply
  * @typedef {import('../public/model/composer.js').StopOutcome} StopReply
  * @typedef {import('../public/model/composer.js').BtwReply} BtwReply
@@ -536,24 +538,34 @@ export function createComposer({ readRecords, herdr, codexPlace, agyPlace = asyn
     /**
      * An answer to the choice the agent waits for — Claude Code's AskUserQuestion dialog, what Codex asks — typed as the
      * terminal would get it. Only while the dialog is on the screen: in the prompt box its keys would be typed as text.
+     * The rewind's confirmation answered so — /rewind typed in the page's box — the message Claude Code puts back into
+     * its box goes to the page's, taken out of the terminal's, as a rewind from the page gives it.
      * @param {string} sessionId
      * @param {readonly import('../public/model/dialog.js').DialogStep[]} steps
+     * @param {string} shown — the options the page showed (dialogPrint): the keys go only while the terminal shows them
+     * @param {() => Promise<readonly string[]>} sentPrompts — the messages the rewind menu lists, whole, as the
+     *   transcript has them: read only when an answer puts one back
      * @returns {Promise<import('../public/model/dialog.js').DialogReply>}
      */
-    async answer(sessionId, steps) {
+    async answer(sessionId, steps, shown, sentPrompts) {
       return inTurn(sessionId, async () => {
         const where = await locate(sessionId);
         if (where.kind !== 'live') return { ok: false, error: where.kind };
         const terminal = terminalOf(where.place);
         const screen = await terminal.read();
-        if (screen === undefined || dialogOf(where.place.agent, screen) === undefined) return { ok: false, error: 'no-dialog' };
+        const dialog = screen === undefined ? undefined : dialogOf(where.place.agent, screen);
+        // a card clicked again once its keys opened the next screen — /rewind's confirmation — answers nothing there
+        if (screen === undefined || dialog === undefined || dialogPrint(dialog) !== shown) return { ok: false, error: 'no-dialog' };
+        const putBackBy = where.place.agent === 'claude' ? messagePutBackBy(screen, steps) : undefined;
         for (const step of steps) {
           const done = 'key' in step ? await terminal.keys(step.key) : await terminal.text(step.text);
           if (!done) return { ok: false, error: 'send-failed' };
           // a digit opens "Type something" for the words that follow: the dialog redraws first
           await delay(answerStepMs);
         }
-        return { ok: true };
+        if (putBackBy === undefined) return { ok: true };
+        const prompt = (await sentPrompts()).findLast((sent) => confirmShows(screen, sent));
+        return prompt !== undefined && (await takeBackPrompt(terminal, prompt, { action: putBackBy, wait: (ms) => delay(ms) })) ? { ok: true, prompt } : { ok: true };
       });
     },
     /**
@@ -593,7 +605,7 @@ export function createComposer({ readRecords, herdr, codexPlace, agyPlace = asyn
         const { place } = where;
         if (place.agent === 'claude') {
           if (place.status === 'busy') return { ok: false, error: 'busy' };
-          return driveRewind(terminalOf(place), { ...request, wait: (ms) => delay(ms) });
+          return driveRewind(terminalOf(place), { ...request, now: Date.now(), wait: (ms) => delay(ms) });
         }
         // agy rewinds its conversation only with the files changed since: through its /rewind, at rest
         if (place.agent === 'agy') {
