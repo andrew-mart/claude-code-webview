@@ -223,6 +223,24 @@ test('agyRecordAt_Should_ReadLineAsItWasReadInTurn', () => {
   );
 });
 
+// The model's output may come back empty — no words, no call: agy writes the error and goes on with the turn, which
+// ends after its last words, timed from the request — not after the empty output
+test('agyReading_Should_EndTurnAfterItsLastWords_When_AnEmptyOutputErredOnTheWay', () => {
+  const records = read([
+    step(0, 'USER_INPUT', { content: '<USER_REQUEST>\nLook at the shop tests\n</USER_REQUEST>' }),
+    step(2, 'PLANNER_RESPONSE', {}),
+    step(3, 'ERROR_MESSAGE', { error: 'Error: model output error: model output must contain either output text or tool calls' }),
+    step(4, 'PLANNER_RESPONSE', { tool_calls: [{ name: 'read_file', args: { AbsolutePath: 'D:/shop/shop.test.js' } }] }),
+    step(5, 'GENERIC', { content: stamped('12 tests') }),
+    step(8, 'PLANNER_RESPONSE', { content: 'All 12 tests look right.' }),
+  ]);
+
+  assert.deepEqual(
+    records.filter((record) => record.subtype === 'turn_duration').map((record) => ({ after: record.parentUuid, durationMs: record.durationMs })),
+    [{ after: 'agy-8', durationMs: 8000 }],
+  );
+});
+
 // A turn agy goes on with after its end — woken by another agent's message, a background task done or a subagent's
 // report — ends again after its last words, timed from that message: the answer it ends with says when, as the first
 test('agyReading_Should_EndATurnAgain_When_AMessageWakesTheModelAfterItsEnd', () => {

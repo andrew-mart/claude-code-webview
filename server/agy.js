@@ -137,10 +137,11 @@ function madeOf(raw, uuid, timestamp, state) {
       ];
       /** @type {Made[]} */
       const answer = content.length === 0 ? [] : [{ type: 'assistant', uuid, message: { id: uuid, role: 'assistant', content, usage: usageOf(raw) } }];
-      // the response that calls no tool is the turn's last
+      // the response that calls no tool is the turn's last — unless it says nothing either: the model's output came back
+      // empty, agy tells the error and goes on with the turn
       const started = state.turnStart;
       const ended = timeOf(timestamp);
-      if (calls.length > 0 || started === undefined || ended === undefined) return answer;
+      if (calls.length > 0 || said === undefined || said === '' || started === undefined || ended === undefined) return answer;
       state.turnStart = undefined;
       return [...answer, { type: 'system', subtype: 'turn_duration', uuid: `${uuid}-end`, durationMs: ended - started }];
     }
