@@ -203,6 +203,8 @@ const feedSettlesAt = 0.4;
 const flickSpeed = 0.45;
 /** How long the finger may rest before it is lifted for a flick to still be one, in ms. */
 const flickRestMs = 100;
+/** How long a finger on the feed may rest before it moves for a swipe to still be one, in ms: past it, a long press. */
+const swipeRestMs = 300;
 
 /**
  * The feed drawn sideways by a finger put down in its middle, as a pager's, to go to the tab beside: it follows the
@@ -211,7 +213,8 @@ const flickRestMs = 100;
  * that way; else back in its place. A finger put down within an edge is left to the drawers' swipes; one on what scrolls
  * sideways — a table, a code block, a terminal — to that scrolling while it can scroll the way the finger goes, and to
  * the swipe once it is at its edge.
- * @param {Pick<Window, 'innerWidth' | 'getComputedStyle'>} view — the page's window: its width, its styles
+ * @param {Pick<Window, 'innerWidth' | 'getComputedStyle' | 'getSelection'>} view — the page's window: its width, its
+ *   styles, what is selected on it
  * @param {HTMLElement} area — what holds the feed: the moves over it are listened to
  * @param {{ holds: (target: EventTarget | null) => boolean, follow: (across: number) => void, settle: (direction: 'previous' | 'next' | undefined) => void }} feed
  *   holds: whether the finger came down on the feed, while the swipe is the page's — a phone showing a session, nothing
@@ -235,6 +238,12 @@ export function watchFeedSwipe(view, area, { holds, follow, settle }) {
     const across = touch.clientX - start.x;
     const along = Math.abs(touch.clientY - start.y);
     if (!start.taken && along > straying && along >= Math.abs(across)) {
+      start = undefined;
+      return;
+    }
+    // a finger that rested first was pressed long, to select: no swipe
+    if (!start.taken && event.timeStamp - start.at > swipeRestMs) {
+      forget();
       start = undefined;
       return;
     }
@@ -272,7 +281,9 @@ export function watchFeedSwipe(view, area, { holds, follow, settle }) {
       forget();
       const touch = event.touches[0];
       const away = touch !== undefined && touch.clientX > edgeWidth && touch.clientX < view.innerWidth - edgeWidth;
-      start = touch === undefined || !away || !holds(event.target) ? undefined : { x: touch.clientX, y: touch.clientY, across: 0, at: event.timeStamp, speed: 0, taken: false, scrollers: sidewaysScrollers(view, event.target) };
+      // text selected: the finger is on its handles, drawing the selection, not the feed
+      const selecting = view.getSelection()?.isCollapsed === false;
+      start = touch === undefined || !away || selecting || !holds(event.target) ? undefined : { x: touch.clientX, y: touch.clientY, across: 0, at: event.timeStamp, speed: 0, taken: false, scrollers: sidewaysScrollers(view, event.target) };
       const target = touchedElement(event.target);
       if (start === undefined || target === undefined) return;
       // a touch's moves and lift go to what it began on, on the page or no longer: a feed still loading draws itself

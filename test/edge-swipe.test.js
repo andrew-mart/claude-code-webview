@@ -295,3 +295,28 @@ test('feedSwipe_Should_GoOn_When_WhatTheFingerCameDownOnLeavesThePage', (t) => {
 
   assert.deepEqual(seen, { settled: ['next'], followed: [-20, -80, -170] });
 });
+
+// Text being selected is no swipe: a drag begun while there is a selection — a finger on its handles — and a finger
+// rested a while before it moves — a long press, to select — leave the feed where it is
+test('feedSwipe_Should_LeaveTheFeed_When_TextIsSelectedOrTheFingerRestsFirst', (t) => {
+  const { window } = new JSDOM('<!doctype html><html><body><main class="feed"><p class="said">Read https://example.org/report first</p></main></body></html>');
+  t.after(() => window.close());
+  Object.defineProperty(window, 'innerWidth', { value: 400 });
+  const feed = window.document.querySelector('.feed');
+  const said = window.document.querySelector('.said');
+  assert.ok(feed !== null && said !== null && said.firstChild !== null);
+  /** @type {number[]} */
+  const followed = [];
+  watchFeedSwipe(window, window.document.body, { holds: (target) => target instanceof window.Node && feed.contains(target), follow: (across) => void followed.push(across), settle: () => undefined });
+
+  const range = window.document.createRange();
+  range.setStart(said.firstChild, 5);
+  range.setEnd(said.firstChild, 10);
+  window.getSelection()?.addRange(range);
+  timedDragOn(window, said, [[200, 300, 0], [150, 300, 16], [80, 300, 32]], 32);
+  window.getSelection()?.removeAllRanges();
+  const whileSelected = [...followed];
+  timedDragOn(window, said, [[200, 300, 0], [198, 301, 600], [150, 300, 616], [80, 300, 632]], 632);
+
+  assert.deepEqual({ whileSelected, afterRest: followed }, { whileSelected: [], afterRest: [] });
+});
