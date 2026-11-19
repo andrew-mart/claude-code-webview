@@ -42,3 +42,26 @@ test('composer_Should_EmptyTheBoxAndItsDraft_When_ClearIsPressed', async (t) => 
 
   assert.deepEqual({ emptied, reopened: reopened instanceof window.HTMLTextAreaElement ? reopened.value : 'no box' }, { emptied: '', reopened: '' });
 });
+
+// The clear button shows only while the box holds something to clear: an empty box offers none
+test('composer_Should_OfferClear_OnlyWhileTheBoxHoldsText', async (t) => {
+  Object.assign(globalThis, {
+    matchMedia: () => ({ matches: false }),
+    requestAnimationFrame: (/** @type {() => void} */ callback) => setTimeout(callback, 0),
+    fetch: async () => new Response(JSON.stringify({ state: 'live', status: 'idle', pane: 'w1:p1' }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+  });
+  const composer = opened();
+  t.after(() => composer.dispose());
+  window.document.body.append(composer.element);
+  await settled();
+  const box = composer.element.querySelector('.composer-input');
+  const clear = composer.element.querySelector('.composer-clear');
+  assert.ok(box instanceof window.HTMLTextAreaElement && clear instanceof window.HTMLButtonElement);
+  const empty = clear.hidden;
+  box.value = 'Round the taxes to cents';
+  box.dispatchEvent(new window.Event('input', { bubbles: true }));
+  const typed = clear.hidden;
+  clear.click();
+
+  assert.deepEqual({ empty, typed, cleared: clear.hidden }, { empty: true, typed: false, cleared: true });
+});

@@ -4747,20 +4747,50 @@ table.diff tr.gap td {
   cursor: pointer;
 }
 
-/* the attach and paste buttons, close together at the box's start */
+/* The box's text the whole width of it, a row of its buttons under it, as a chat app's: attach, paste and — on a
+   phone — clear at the row's start; setting aside, stop and send at its end */
+.composer-box > .composer-input {
+  flex: 1 1 100%;
+}
+
+/* as narrow as the box: the phrases in it scroll, not widen it */
+.composer-bar {
+  display: flex;
+  flex: 1 1 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
 .composer-tools {
   display: flex;
   align-items: center;
+  gap: 2px;
   margin-left: -8px;
 }
 
-.composer-tools > .composer-attach,
-.composer-tools > .composer-paste,
-.composer-tools > .composer-clear {
+.composer-tools > :is(.composer-attach, .composer-paste, .composer-clear) {
   margin-left: 0;
 }
 
-/* the clear button: on a phone alone, under attach and paste once the box holds several lines (pointer: coarse) */
+/* the phrases sent most, in the row between the buttons: what it holds past its width scrolls, fading at its ends */
+.composer-bar > .phrase-bar {
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+  padding: 0 4px;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 6px, #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 6px, #000 calc(100% - 14px), transparent);
+}
+
+.composer-bar > .phrase-bar > .phrase-none {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the clear button: on a phone alone (pointer: coarse), while the box holds text */
 .composer-clear {
   display: none;
 }
@@ -13720,19 +13750,7 @@ a.file-link:hover {
     height: 40px;
   }
 
-  /* on a phone the two buttons at the box's start narrower, close together; one over the other once the box holds
-     several lines — the box keeps the width */
-  .composer-tools > .composer-attach,
-  .composer-tools > .composer-paste,
-  .composer-tools > .composer-clear {
-    width: 32px;
-  }
-
-  .composer-box.multiline .composer-tools {
-    flex-direction: column;
-  }
-
-  .composer-box.multiline .composer-clear {
+  .composer-clear {
     display: grid;
   }
 

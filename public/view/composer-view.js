@@ -40,18 +40,6 @@ const noticeMs = 4000;
 const outOfReach = { shown: true, enabled: true, canInterrupt: false, canReopen: false, placeholder: 'The viewer is out of reach — what you send waits here and goes once it is back', hint: 'Prompts sent now wait in this browser and go to the session in the order sent, once the viewer answers.' };
 
 /**
- * Whether the box holds more than a line: taller than a line and its padding.
- * @param {HTMLTextAreaElement} box
- */
-function holdsLines(box) {
-  const style = box.ownerDocument.defaultView?.getComputedStyle(box);
-  if (style === undefined) return false;
-  const line = Number.parseFloat(style.lineHeight);
-  const padding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
-  return Number.isFinite(line) && Number.isFinite(padding) && box.scrollHeight > line * 1.5 + padding;
-}
-
-/**
  * What the clipboard holds, as the browser hands it to the page: its words, and the pictures in it — or its words
  * alone, where the browser hands over no more.
  * @returns {Promise<{ words: string | undefined, pictures: File[] }>} — refused where the browser keeps it from the page
@@ -96,7 +84,8 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   /** @type {import('../model/composer.js').Keyboard} */
   const keyboard = matchMedia('(pointer: coarse)').matches ? 'touch' : 'physical';
   const draftKey = `viewer.draft.${sessionId}`;
-  const input = h('textarea', { className: 'composer-input', attrs: { rows: '1', 'aria-label': 'Prompt for Claude' } });
+  // two lines at least: room for what is typed
+  const input = h('textarea', { className: 'composer-input', attrs: { rows: '2', 'aria-label': 'Prompt for Claude' } });
   input.value = readDraft(draftKey);
   const interrupt = h('button', { className: 'composer-stop', title: 'Stop — press Esc in the session terminal', attrs: { type: 'button', hidden: '', 'aria-label': 'Stop' } }, [icon('stop')]);
   const send = h('button', { className: 'composer-send', title: keyboard === 'touch' ? 'Send' : 'Send (Enter)', attrs: { type: 'submit', 'aria-label': 'Send' } }, [icon('send')]);
@@ -186,10 +175,11 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   // the box emptied at a press, its draft with it — where a phone has no Ctrl+A; the images attached stay
   const clear = h('button', { className: 'composer-clear', title: 'Clear the box', attrs: { type: 'button', 'aria-label': 'Clear the box' } }, [icon('cross')]);
   clear.addEventListener('click', () => setBox({ text: '', at: 0 }));
-  // the attach and paste buttons together, one over the other on a phone once the box holds several lines — the clear
-  // button under them then, on a phone alone
+  // the text the whole width of the box, a row of its buttons under it: attach, paste and — on a phone — clear at its
+  // start, setting aside, stop and send at its end, the phrases sent most between them
   const tools = h('div', { className: 'composer-tools' }, [attachments.button, paste, clear]);
-  const form = h('form', { className: 'composer-box' }, [commandMenu.element, fold, attachments.list, tools, input, h('div', { className: 'composer-actions' }, [setAsideButton, interrupt, send])]);
+  const bar = h('div', { className: 'composer-bar' }, [tools, phraseBar.element, h('div', { className: 'composer-actions' }, [setAsideButton, interrupt, send])]);
+  const form = h('form', { className: 'composer-box' }, [commandMenu.element, fold, attachments.list, input, bar]);
   const aside = h('section', { className: 'side-answer', attrs: { hidden: '', 'aria-label': 'Side question', 'aria-live': 'polite' } });
   const closeAside = h('button', { className: 'icon-button side-answer-close', title: 'Close', attrs: { type: 'button', 'aria-label': 'Close' } }, [icon('cross')]);
   closeAside.addEventListener('click', () => asides.set(sessionId, undefined));
@@ -326,12 +316,11 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     say(why, 'busy');
     refreshButtons();
   };
-  const element = h('div', { className: 'composer' }, [dialogCard.element, aside, queued, laterList.element, waitingBox, resume, phraseBar.element, form, h('div', { className: 'composer-footer' }, [hint, h('div', { className: 'composer-said' }, [status, throughFile])]), attachments.input]);
+  const element = h('div', { className: 'composer' }, [dialogCard.element, aside, queued, laterList.element, waitingBox, resume, form, h('div', { className: 'composer-footer' }, [hint, h('div', { className: 'composer-said' }, [status, throughFile])]), attachments.input]);
 
   const fit = () => {
     input.style.height = 'auto';
     input.style.height = `${input.scrollHeight}px`;
-    form.classList.toggle('multiline', holdsLines(input));
     showFold();
   };
   /** The fold button for a box taller than a few lines; a box that is not, unfolded. */
@@ -354,6 +343,8 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
     attachments.button.disabled = !enabled || !reachable;
     paste.disabled = !enabled;
     clear.disabled = !enabled;
+    // nothing in the box, nothing to clear
+    clear.hidden = input.value === '';
   };
   const say = (/** @type {string} */ message, /** @type {'ok' | 'busy' | 'error'} */ tone) => {
     clearTimeout(noticeTimer);
