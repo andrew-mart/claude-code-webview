@@ -26,7 +26,7 @@ import { agentOfSession, openedAt, paneSession, parseHerdrLayout, parseNewTab, p
 import { folderChoices, folderSearch, foundFolders, rememberFolder, systemFolder } from './model/folders.js';
 import { parseHistory, tabNeighbours, tabToContinue } from './model/history.js';
 import { parseUsage, usageView } from './model/usage.js';
-import { parsePhrases } from './model/phrases.js';
+import { createPhraseCount, parsePhrases } from './model/phrases.js';
 import { createHerdrSidebar, createTabBar } from './view/herdr-panel.js';
 import { createSystemMeters } from './view/system-meters.js';
 import { parseSystemProcesses, parseSystemUsage } from './model/system-usage.js';
@@ -452,6 +452,8 @@ function createPage() {
   /** @type {Map<string, import('./view/session-view.js').ReadingPlace>} */
   const places = new Map();
   const rewindDialog = createRewindDialog({ onDone: (reply) => current?.rewound(reply) });
+  /** The phrases sent most, the same for every tab's box: kept here, the viewer asked again when a prompt is sent. */
+  const phraseCount = createPhraseCount(readPhrases);
 
   /** The herdr workspace of each session (server/workspaces.js); none while herdr is not used or does not answer. */
   /** @type {Workspaces} */
@@ -1308,7 +1310,7 @@ function createPage() {
       onSent: (text) => view?.expectPrompt(text),
       // the phrases sent most, over the box — on or off as this device had it last
       phrases: {
-        load: readPhrases,
+        count: phraseCount,
         shown: () => settings.get('phrases') === 'on',
         watch: (listener) => {
           document.addEventListener(phrasesEvent, listener);

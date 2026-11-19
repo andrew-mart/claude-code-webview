@@ -6,6 +6,7 @@ const { window } = new JSDOM('<!doctype html><html><body></body></html>', { url:
 Object.assign(globalThis, { window, document: window.document, localStorage: window.localStorage, HTMLElement: window.HTMLElement, File: window.File, Blob: window.Blob, FileReader: window.FileReader });
 const { createComposer } = await import('../public/view/composer-view.js');
 const { createAsideStore } = await import('../public/view/aside-store.js');
+const { createPhraseCount } = await import('../public/model/phrases.js');
 
 const sessionId = '5b7d1e30-3333-4444-8555-966677778888';
 const settled = () => new Promise((resolve) => setTimeout(resolve, 20));
@@ -25,10 +26,10 @@ test('composer_Should_ShowPhrasesTurnedOnBehindTheMenu_WithNoButtonOfItsOwn', as
     onSent: () => undefined,
     onDialog: () => undefined,
     phrases: {
-      load: async () => [
+      count: createPhraseCount(async () => [
         { text: 'Check the totals', count: 9 },
         { text: '/clear', count: 4 },
-      ],
+      ]),
       shown: () => true,
       watch: () => () => undefined,
     },

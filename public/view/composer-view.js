@@ -7,6 +7,7 @@ import { pollWhileShown } from './polling.js';
 import { askerNames, btwMessage, composerState, outcomeMessage, parseBtwReply, parseHeldCut, parseLiveState, parseOutcome, parseStopOutcome, promptCutMessage, promptForBox, sideQuestionOf, stopMessage, withCommand, withPasted, withPoint } from '../model/composer.js';
 import { parseDialogReply } from '../model/dialog.js';
 import { parseNewTab } from '../model/herdr.js';
+import { createPhraseCount } from '../model/phrases.js';
 import { answerBlocks } from '../model/side-answer.js';
 import { completeCommand, parseCommands } from '../model/command-suggest.js';
 import { createAttachmentPicker } from './attachment-picker.js';
@@ -60,7 +61,7 @@ async function readClipboard() {
 }
 
 /** No phrases at hand: the row stays off. */
-const noPhrases = { load: async () => [], shown: () => false, watch: () => () => undefined };
+const noPhrases = { count: createPhraseCount(async () => []), shown: () => false, watch: () => () => undefined };
 
 /**
  * @typedef {{ workspace: string, tab: string | undefined, runningNow: { id: string, title: string, agent: import('../model/composer.js').Agent } | undefined }} Ran — where
@@ -70,7 +71,7 @@ const noPhrases = { load: async () => [], shown: () => false, watch: () => () =>
 
 /**
  * @param {string} sessionId
- * @param {{ agent: import('../model/composer.js').Agent, focusBox: 'when-ready' | 'no', placeOf: () => Ran | undefined, asides: import('./aside-store.js').AsideStore, onSent: (text: string) => void, phrases?: { load: () => Promise<readonly { text: string, count: number }[]>, shown: () => boolean, watch: (listener: () => void) => () => void }, onDialog: () => void, onAtPrompt?: (at: boolean) => void }} options —
+ * @param {{ agent: import('../model/composer.js').Agent, focusBox: 'when-ready' | 'no', placeOf: () => Ran | undefined, asides: import('./aside-store.js').AsideStore, onSent: (text: string) => void, phrases?: { count: import('../model/phrases.js').PhraseCount, shown: () => boolean, watch: (listener: () => void) => () => void }, onDialog: () => void, onAtPrompt?: (at: boolean) => void }} options —
  *   agent: whose session; focusBox when-ready: the user opened the session, so the box takes the focus once the session can be written to; no:
  *   following the active session switched to it. placeOf: where the session ran in herdr, if known. asides:
  *   the side questions and answers of the page's sessions — one outlives the box it was asked in. onSent: a prompt the
@@ -171,7 +172,6 @@ export function createComposer(sessionId, { agent, focusBox, placeOf, asides, on
   });
   // the phrases sent most, over the box: one pressed goes into it
   const phraseBar = createPhraseBar({ ...phrases, put: putAtCursor });
-  void phraseBar.refresh();
   // the box emptied at a press, its draft with it — where a phone has no Ctrl+A; the images attached stay
   const clear = h('button', { className: 'composer-clear', title: 'Clear the box', attrs: { type: 'button', 'aria-label': 'Clear the box' } }, [icon('cross')]);
   clear.addEventListener('click', () => setBox({ text: '', at: 0 }));

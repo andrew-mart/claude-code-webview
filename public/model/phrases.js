@@ -68,3 +68,41 @@ export function parsePhrases(json) {
   if (!Array.isArray(json)) return [];
   return json.flatMap((one) => (isRecord(one) && typeof one.text === 'string' && typeof one.count === 'number' ? [{ text: one.text, count: one.count }] : []));
 }
+
+/**
+ * @typedef {{ known: () => readonly { text: string, count: number }[] | undefined, reread: () => Promise<void>, watch: (listener: () => void) => () => void }} PhraseCount
+ *   — the page's count of the phrases sent most, the same for every tab's box: known — as the viewer told it last,
+ *   none till it has; reread — the viewer asked again, the watchers told once it answers — of readings crossing, the
+ *   last asked counts; watch — told so, till let go of
+ */
+
+/**
+ * The phrases sent most, kept for the whole page: a tab's box opened draws them from here at once, and the viewer is
+ * asked again when a prompt is sent — the count changed — every tab's row drawn from its answer.
+ * @param {() => Promise<readonly { text: string, count: number }[]>} read — the viewer's count
+ * @returns {PhraseCount}
+ */
+export function createPhraseCount(read) {
+  /** @type {readonly { text: string, count: number }[] | undefined} */
+  let known;
+  let asked = 0;
+  /** @type {Set<() => void>} */
+  const listeners = new Set();
+  return {
+    known: () => known,
+    async reread() {
+      const mine = ++asked;
+      const phrases = await read();
+      // a later reading is under way: its answer counts
+      if (mine !== asked) return;
+      known = phrases;
+      for (const listener of listeners) listener();
+    },
+    watch(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}

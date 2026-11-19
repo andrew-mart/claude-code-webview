@@ -6,30 +6,42 @@ const { window } = new JSDOM('<!doctype html><html><body></body></html>', { url:
 // The icons are drawn when their module loads: the DOM is set up before it.
 Object.assign(globalThis, { window, document: window.document });
 const { createPhraseBar } = await import('../public/view/phrase-bar.js');
+const { createPhraseCount } = await import('../public/model/phrases.js');
 
 const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+/** The phrases the viewer tells first. */
+const sentMost = [
+  { text: 'давай', count: 12 },
+  { text: '/clear', count: 7 },
+  { text: 'проверь', count: 3 },
+];
+
 /**
- * A bar over the box: the phrases the viewer tells, what was put into the box, whether it is to show — kept as a
- * device keeps it.
- * @param {boolean} on — whether it showed last
+ * The page's count of the phrases, as the viewer tells it — each answer in turn, the last one again and again — its
+ * readings counted.
+ * @param {readonly (readonly { text: string, count: number }[])[]} answers
  */
-function barOf(on) {
+function countOf(answers = [sentMost]) {
+  let reads = 0;
+  const count = createPhraseCount(async () => answers[Math.min(reads++, answers.length - 1)] ?? []);
+  return { count, reads: () => reads };
+}
+
+/**
+ * A bar over a tab's box: the phrases of the page's count, what was put into the box, whether it is to show — kept as
+ * a device keeps it.
+ * @param {boolean} on — whether it showed last
+ * @param {ReturnType<typeof countOf>} page — the page's count, every tab's box drawing from it
+ */
+function barOf(on, page = countOf()) {
   /** @type {string[]} */
   const put = [];
   let shown = on;
-  let loads = 0;
   /** Told when the row is turned on or off elsewhere — the page's menu. @type {Set<() => void>} */
   const told = new Set();
   const bar = createPhraseBar({
-    load: async () => {
-      loads += 1;
-      return [
-        { text: 'давай', count: 12 },
-        { text: '/clear', count: 7 },
-        { text: 'проверь', count: 3 },
-      ];
-    },
+    count: page.count,
     put: (text) => put.push(text),
     shown: () => shown,
     watch: (listener) => {
@@ -42,7 +54,7 @@ function barOf(on) {
     shown = next;
     for (const listener of told) listener();
   };
-  return { bar, put, loads: () => loads, turnElsewhere, listening: () => told.size };
+  return { bar, put, loads: page.reads, turnElsewhere, listening: () => told.size };
 }
 
 /** @param {HTMLElement} element */
@@ -107,6 +119,30 @@ test('phraseBar_Should_FollowTheRowTurnedOnAndOffFromTheMenu_TillLetGoOf', async
   bar.dispose();
 
   assert.deepEqual({ on, off, listening: listening() }, { on: ['давай', '/clear', 'проверь'], off: [], listening: 0 });
+});
+
+// The phrases are the same in every tab: a tab's box opened draws them at once, as the page has them, the viewer asked
+// nothing
+test('phraseBar_Should_DrawThePagesPhrasesAtOnce_AskingTheViewerNothing_When_AnotherTabsBoxOpens', async () => {
+  const page = countOf();
+  barOf(true, page);
+  await settled();
+
+  const next = barOf(true, page);
+
+  assert.deepEqual({ chips: chips(next.bar.element), reads: page.reads() }, { chips: ['давай', '/clear', 'проверь'], reads: 1 });
+});
+
+// A prompt sent from one tab's box counts anew: the viewer is asked again, and every tab's row shows its answer
+test('phraseBar_Should_RedrawEveryTabsRow_When_APromptIsSentFromOne', async () => {
+  const page = countOf([sentMost, [{ text: '/clear', count: 13 }, ...sentMost.filter((phrase) => phrase.text !== '/clear')]]);
+  const sentFrom = barOf(true, page);
+  const other = barOf(true, page);
+  await settled();
+
+  await sentFrom.bar.refresh();
+
+  assert.deepEqual({ sentFrom: chips(sentFrom.bar.element), other: chips(other.bar.element) }, { sentFrom: ['/clear', 'давай', 'проверь'], other: ['/clear', 'давай', 'проверь'] });
 });
 
 // The row over the box is on or off as it was last on this device; on, the phrases sent most, the most first, each a

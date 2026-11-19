@@ -1,21 +1,23 @@
 // @ts-check
 // The commands and phrases sent from the box most (model/phrases.js), in a row over the box that scrolls sideways, the
-// most sent first: one pressed goes into the box where its cursor is (composer-view.js). The page's ⋯ menu turns the
-// row on and off, as it was last on this device; off, nothing is asked of the viewer.
+// most sent first: one pressed goes into the box where its cursor is (composer-view.js). They are the same in every tab:
+// the page keeps them, and a tab's row is drawn from there at once. The page's ⋯ menu turns the row on and off, as it
+// was last on this device; off, nothing is asked of the viewer.
 import { h } from './dom.js';
 
 /** How far a press goes along the row, px, before it drags it rather than pressing a phrase. */
 const dragFrom = 4;
 
 /**
- * @param {{ load: () => Promise<readonly { text: string, count: number }[]>, put: (text: string) => void, shown: () => boolean, watch: (listener: () => void) => () => void }} source
- *   — load: the phrases sent most, the most first, as the viewer counts them; put: one pressed, into the box; shown:
- *   whether the row is on, as this device keeps it; watch: told when it is turned on or off elsewhere — the page's
- *   menu — till let go of
- * @returns {{ element: HTMLElement, refresh: () => Promise<void>, dispose: () => void }} — element: the row; refresh:
- *   the row drawn again from the viewer's count, if it is on; dispose: told nothing more
+ * @param {{ count: import('../model/phrases.js').PhraseCount, put: (text: string) => void, shown: () => boolean, watch: (listener: () => void) => () => void }} source
+ *   — count: the page's count of the phrases sent most, the most first, the same for every tab; put: one pressed,
+ *   into the box; shown: whether the row is on, as this device keeps it; watch: told when it is turned on or off
+ *   elsewhere — the page's menu — till let go of
+ * @returns {{ element: HTMLElement, refresh: () => Promise<void>, dispose: () => void }} — element: the row, drawn at
+ *   once; refresh: a prompt sent — the viewer asked again, if the row is on, and every tab's row drawn from its answer;
+ *   dispose: told nothing more
  */
-export function createPhraseBar({ load, put, shown, watch }) {
+export function createPhraseBar({ count, put, shown, watch }) {
   const element = h('div', { className: 'phrase-bar', attrs: { hidden: '', role: 'toolbar', 'aria-label': 'Phrases you send most' } });
 
   // the row scrolls sideways with no bar of its own: by the mouse's wheel, the page staying where it is
@@ -73,18 +75,38 @@ export function createPhraseBar({ load, put, shown, watch }) {
     return made;
   };
 
-  const refresh = async () => {
+  /** The phrases drawn, as text: the same ones are not drawn again — a row scrolled along stays where it is. */
+  let drawn = '';
+  /** The row as it is to be: off, empty; on, the page's phrases — the viewer asked first while the page has none. */
+  const show = () => {
     const on = shown();
     element.hidden = !on;
-    if (!on) return element.replaceChildren();
-    const phrases = await load();
-    // turned off while the count came
-    if (!shown()) return;
+    const phrases = on ? count.known() : undefined;
+    if (on && phrases === undefined) {
+      void count.reread();
+      return;
+    }
+    const look = JSON.stringify(phrases ?? null);
+    if (look === drawn) return;
+    drawn = look;
+    if (phrases === undefined) return element.replaceChildren();
     element.replaceChildren(...(phrases.length === 0 ? [h('span', { className: 'phrase-none', text: 'Phrases you send will gather here, the most sent first.' })] : phrases.map(chip)));
   };
 
-  // turned on or off from the page's menu: shown so at once
-  const stopWatching = watch(() => void refresh());
+  // the page's count told anew — a prompt sent from this tab or another — and the row turned on or off from the page's
+  // menu: shown so at once
+  const stopCounting = count.watch(show);
+  const stopWatching = watch(show);
+  show();
 
-  return { element, refresh, dispose: stopWatching };
+  return {
+    element,
+    refresh: async () => {
+      if (shown()) await count.reread();
+    },
+    dispose: () => {
+      stopCounting();
+      stopWatching();
+    },
+  };
 }
