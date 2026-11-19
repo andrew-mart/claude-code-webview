@@ -30,6 +30,54 @@ markdown.use({
   },
 });
 
+/**
+ * A formula in a line: $…$ — its first and last characters no spaces and no digit right after it, so that money is no
+ * formula ("$5 and $10") — or \(…\); $$…$$ in a line is shown on a line of its own.
+ */
+const inlineMath = /^(?:\$\$((?:\\.|[^\\$])+?)\$\$|\$(?=[^\s$])((?:\\.|[^\\$\n])*?[^\s\\$])\$(?!\d)|\\\(((?:\\.|[^\\\n])+?)\\\))/;
+/** A formula on lines of its own: $$…$$ or \[…\]. */
+const blockMath = /^(?:\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\])[^\S\n]*(?:\n|$)/;
+
+/** @param {string} text */
+const escapeHtml = (text) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+
+/**
+ * A formula's place in the answer, its TeX in it as written until it is typeset (typesetMath).
+ * @param {string} tex
+ * @param {'inline' | 'display'} shown — in the line, or on a line of its own
+ */
+const mathHolder = (tex, shown) => {
+  const tag = shown === 'display' ? 'div' : 'span';
+  return `<${tag} class="math${shown === 'display' ? ' display' : ''}" data-tex="${escapeHtml(tex)}">${escapeHtml(tex)}</${tag}>`;
+};
+
+markdown.use({
+  extensions: [
+    {
+      name: 'mathBlock',
+      level: 'block',
+      start: (source) => /^(?:\$\$|\\\[)/m.exec(source)?.index,
+      tokenizer(source) {
+        const found = blockMath.exec(source);
+        if (found === null) return undefined;
+        return { type: 'mathBlock', raw: found[0], text: (found[1] ?? found[2] ?? '').trim() };
+      },
+      renderer: (token) => mathHolder(String(token.text), 'display'),
+    },
+    {
+      name: 'mathInline',
+      level: 'inline',
+      start: (source) => /\$|\\\(/.exec(source)?.index,
+      tokenizer(source) {
+        const found = inlineMath.exec(source);
+        if (found === null) return undefined;
+        return { type: 'mathInline', raw: found[0], text: found[1] ?? found[2] ?? found[3] ?? '', display: found[1] !== undefined };
+      },
+      renderer: (token) => mathHolder(String(token.text), token.display === true ? 'display' : 'inline'),
+    },
+  ],
+});
+
 /** Link URLs that DOMPurify keeps: its default list plus file:, since such links open the file in the panel. */
 const allowedUris = /^(?:(?:(?:f|ht)tps?|mailto|tel|file):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i;
 
@@ -110,6 +158,8 @@ export function renderMarkdown(source) {
     table.replaceWith(place);
     place.replaceWith(tableFrame(table));
   }
+  // the formulas typeset once KaTeX has come — the TeX as written meanwhile, and for good where it cannot come
+  void typesetMath(fragment).catch((error) => console.warn('The formulas of an answer were not typeset', error));
   return fragment;
 }
 
@@ -253,4 +303,28 @@ export function languageOfPath(path) {
   const name = path.split(/[\\/]/).pop()?.toLowerCase() ?? '';
   if (name === 'dockerfile') return 'dockerfile';
   return languageByExtension[name.split('.').pop() ?? ''];
+}
+
+/** KaTeX's styles, beside the page's other modules: its fonts are named from there. */
+const katexStyles = new URL('../vendor/katex/katex.css', import.meta.url).href;
+
+/**
+ * The formulas found in an answer typeset, by KaTeX — loaded, with its styles, the first time an answer has one: over
+ * 250 KB most answers never need. A formula KaTeX cannot read shows its TeX in red, as KaTeX tells what is wrong.
+ * @param {ParentNode} root
+ * @returns {Promise<void>}
+ */
+export async function typesetMath(root) {
+  const waiting = [...root.querySelectorAll('.math:not([data-typeset])')];
+  if (waiting.length === 0) return;
+  const { default: katex } = await import('katex');
+  if (document.querySelector('link[data-katex]') === null) document.head.append(h('link', { attrs: { rel: 'stylesheet', href: katexStyles, 'data-katex': '' } }));
+  for (const math of waiting) {
+    const tex = math.getAttribute('data-tex');
+    if (tex === null) continue;
+    // KaTeX's markup, its commands trusted with nothing — no links, no classes of the formula's own — and cleaned as the
+    // answer is: the TeX is the agent's
+    math.replaceChildren(DOMPurify.sanitize(katex.renderToString(tex, { displayMode: math.classList.contains('display'), throwOnError: false }), { RETURN_DOM_FRAGMENT: true, ADD_TAGS: ['semantics', 'annotation'], ADD_ATTR: ['encoding'] }));
+    math.setAttribute('data-typeset', '');
+  }
 }

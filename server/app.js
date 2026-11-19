@@ -78,7 +78,24 @@ const vendor = new Map([
   // Lucide's icons for a workspace's: the sprite they are drawn from, the words they are found by
   ['/vendor/lucide/sprite.svg', fileURLToPath(import.meta.resolve('lucide-static/sprite.svg'))],
   ['/vendor/lucide/tags.json', fileURLToPath(import.meta.resolve('lucide-static/tags.json'))],
+  // KaTeX, for the formulas in answers (public/view/markdown.js: typesetMath): its module and its styles, the fonts they
+  // name beside them below
+  ['/vendor/katex/katex.js', fileURLToPath(import.meta.resolve('katex/dist/katex.mjs'))],
+  ['/vendor/katex/katex.css', fileURLToPath(import.meta.resolve('katex/dist/katex.min.css'))],
 ]);
+
+/** KaTeX's fonts, as its styles name them: fonts/<name> beside the styles. */
+const katexFontAddress = /^\/vendor\/katex\/fonts\/(KaTeX_[\w-]+\.(?:woff2|woff|ttf))$/;
+const katexFonts = join(dirname(fileURLToPath(import.meta.resolve('katex/dist/katex.min.css'))), 'fonts');
+
+/**
+ * @param {string} pathname
+ * @returns {string | undefined}
+ */
+function katexFontFile(pathname) {
+  const name = katexFontAddress.exec(pathname)?.[1];
+  return name === undefined ? undefined : join(katexFonts, name);
+}
 
 /** Lucide's icons one by one: the page asks for those it draws (public/view/lucide.js), not for the whole sprite. */
 const lucideIconAddress = /^\/vendor\/lucide\/icons\/([a-z0-9-]+)\.svg$/;
@@ -120,6 +137,9 @@ const contentTypes = {
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf',
   // compiled as it streams in only with its own type: pdf.js's decoders
   '.wasm': 'application/wasm',
 };
@@ -2357,7 +2377,7 @@ async function serveFile(pathname, response, cacheControl) {
  * @returns {string | undefined}
  */
 function pageFile(pathname) {
-  return vendor.get(pathname) ?? lucideIconFile(pathname) ?? fileViewsFile(pathname) ?? editorFile(pathname) ?? publicFile(pathname);
+  return vendor.get(pathname) ?? lucideIconFile(pathname) ?? katexFontFile(pathname) ?? fileViewsFile(pathname) ?? editorFile(pathname) ?? publicFile(pathname);
 }
 
 /**

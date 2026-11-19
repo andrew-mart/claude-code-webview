@@ -3129,6 +3129,12 @@ input.herdr-row-name.failed {
   text-decoration-color: currentColor;
 }
 
+/* a formula on lines of its own (markdown.js: typesetMath): wider than the answer, it scrolls sideways */
+.md .math.display {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
 .md blockquote {
   margin: 0 0 0.75em;
   padding-left: 14px;

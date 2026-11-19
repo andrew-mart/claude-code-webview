@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom';
 // jsdom, not happy-dom: under happy-dom DOMPurify lets <script> and onerror through, which defeats the safety check.
 const { window } = new JSDOM('<!doctype html><html><body></body></html>');
 Object.assign(globalThis, { window, document: window.document, NodeFilter: window.NodeFilter, Text: window.Text });
-const { renderMarkdown } = await import('../public/view/markdown.js');
+const { renderMarkdown, typesetMath } = await import('../public/view/markdown.js');
 
 /** @param {DocumentFragment} fragment */
 const html = (fragment) => {
@@ -211,6 +211,24 @@ test('renderMarkdown_Should_LinkPathThroughFolderWithSpaces_WhenViewerFindsTheFi
         ['D:/dev/app', 'D:/dev/app'],
       ],
       text: 'Каталог в D:/work/shop/_docs/20261016 - checkout move/server-logic/catalog.md, рядом в sql/\nв D:/dev/app файл src/app.ts\n',
+    },
+  );
+});
+
+// A formula in an answer — LaTeX between $…$ or \(…\) in a line, between $$…$$ or \[…\] on lines of its own — is
+// typeset; money written with $ is no formula: "$5 and $10" stays as it is
+test('renderMarkdown_Should_TypesetFormulas_AndLeaveMoneyAlone', async () => {
+  const holder = html(renderMarkdown(String.raw`A share (\(x\), $\frac{\text{fit}}{\text{all}}$) of $5 and $10.` + '\n\n$$\na^2 + b^2 = c^2\n$$'));
+  await typesetMath(holder);
+
+  assert.deepEqual(
+    {
+      typeset: [...holder.querySelectorAll('.math')].map((math) => `${math.classList.contains('display') ? 'display' : 'inline'} ${math.getAttribute('data-tex')} ${math.querySelector('.katex') !== null}`),
+      money: holder.querySelector('p')?.textContent?.endsWith('of $5 and $10.'),
+    },
+    {
+      typeset: ['inline x true', String.raw`inline \frac{\text{fit}}{\text{all}} true`, 'display a^2 + b^2 = c^2 true'],
+      money: true,
     },
   );
 });
