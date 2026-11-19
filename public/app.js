@@ -8,7 +8,6 @@ import { groupedSessions, listedSessions, mergeSessions, rowsToDraw } from './mo
 import { actionLabel, choices, nextChoice } from './model/view-settings.js';
 import { agentMark } from './view/agent-marks.js';
 import { createBookmarkStore, moveLocalBookmarksToServer } from './view/bookmark-store.js';
-import { createCheckStore } from './view/check-store.js';
 import { createComposer } from './view/composer-view.js';
 import { createAsideStore } from './view/aside-store.js';
 import { listenForCopies } from './view/markdown-copy.js';
@@ -1047,7 +1046,6 @@ function createPage() {
   const mountFeed = (id, agent) => {
     const scroller = h('div', { className: 'scroller' });
     const bookmarks = createBookmarkStore(id);
-    const checks = createCheckStore(id);
     const relay = createSessionRelay();
     const queue = { send: () => undefined };
     const view = mountSession({
@@ -1055,7 +1053,9 @@ function createPage() {
       sessionId: id,
       agentId: undefined,
       bookmarks,
-      checks,
+      // the check beside each bookmark flag hidden, as its user asked: the checks kept stay on the viewer (/api/checks),
+      // shown again once the feed is given their store (check-store.js)
+      checks: undefined,
       // Antigravity CLI is rewound in its terminal alone
       onRewind: (prompt) => rewindDialog.open(id, prompt, agent),
       sendQueueNow: () => queue.send(),
@@ -1082,7 +1082,6 @@ function createPage() {
       dispose() {
         view.dispose();
         bookmarks.dispose();
-        checks.dispose();
         scroller.remove();
       },
     };
